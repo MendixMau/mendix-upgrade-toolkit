@@ -1,0 +1,5 @@
+*.log
+!upgrade-toolkit/controls/fixtures/**/*.log
+__pycache__/
+.DS_Store
+.env
