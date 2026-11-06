@@ -49,3 +49,27 @@ DECISIONS.md line:
 - A kept item stays listed as "kept (S-n)" in every later report; a kept module is never reported as upgraded.
 - The progress line never reads DECISIONS.md.
 - Owner sign-off cannot close while DECISIONS.md holds an ASSUMED line or a hand-off with no name. Only a person writes APPROVED.
+
+## Step records
+Every item above is a step in `$W/steps.jsonl` (`S-n`; a plan item keeps its `P-n` as an alias, see [propose.md](propose.md)). An answer is also the approval of that step:
+- `decisions.py add --item S-n --choice approve|reject --by NAME --source chat` (or the P-n with its option key) writes the ledger row and the step approval together. `decisions.py import` does the same for page rows, and a second import adds nothing.
+- A step answered this way is not changed by a later plan sign-off. An `assumed` approval (unattended) is replaced by a person's answer.
+- The sign-off row is still never added from chat.
+
+## Choice or log (which D row becomes a step the owner must see)
+Every row of AGENT-DECISIONS.md is one of two kinds. Decide before you open anything.
+- **A choice**: the agent picked between real alternatives that change what the app does, what users see, or what it costs. Signals: the row names options or alternatives, says "instead of", "chose", "kept", "dropped", "replaced", "removed", or changes a screen, a login, a widget or a module version. Examples: jQuery scripts bridged or rewritten, keeping the SSO login page, the heal policy, keeping a module at its old version. A choice is a step with an `assumed` approval and is the only thing that becomes an open "Needs your OK" topic.
+- **A log**: everything else. A finding, a tool error, a mishap, a retry, a routine module bump, a count, an observation, a test-side fix. A log never opens a step of its own. Write the parent step in the row (`| D71b (agent, log) S-14 | ... |`), so the text becomes evidence on that step. When no step fits, the log joins the one roll-up step of the run. A log has no buttons and no open topic: its step is `approved` by the agent with source `routine`.
+- Unsure? Ask yourself: if the owner never read this row, could the app end up different from what they would have wanted? Yes means choice. `python3 $B/steps.py kind --title "<row title>" --choice "<the choice column>"` prints `choice` or `log` with the same rule the legacy import uses.
+- Words on the page: the step title, the finding and the proposal are plain words (`steps.plain`). A title says WHAT is being chosen, starts with a capital and is never a bare module name or a decision id. Use a template from the kind plus the subject ("Keep or update module OIDC", "How to keep the Atlas_Web_Content style edits", "Seed data for the journeys"); when nothing better exists, "A choice about <topic>". `steps.py open` and `propose --new` refuse a bare name or a decision id as a title. A row whose own text is technical (file names, error output, version arrows) gets such a title, and the raw row goes into `--evidence`, behind the toggle.
+- One topic is one step. A second choice about the same subject (the same module, widget or page) joins the open step instead of opening another.
+
+## Mid-run decisions (the agent decides on its own)
+A **choice** the agent makes during a run, outside the stuck-item list above, is a step too (a log is not: see Choice or log). Example: the agent moves 88 jQuery scripts into
+JavaScript actions because the new client cannot run them. Written only as a D row in AGENT-DECISIONS.md, the owner never sees it as a topic.
+- Every D row names its step id: write `S-n` in the row (for example `| D71 (agent) S-14 | ... |`). A follow-up row such as D71b may leave it out.
+- No step yet: open one in the same command that records the decision, with plain words in `--found` and `--say`:
+  `python3 $B/steps.py propose --work $W --new --topic scripts:HTMLSnippet --title "jQuery scripts on the new client" --found "The new client cannot run 88 jQuery scripts." --say "Run each script from a JavaScript action." --why "Same behaviour at the lowest cost." --option "Bridge now (recommended)" --option "Rewrite as widgets" --recommend 0 --decision D71`
+  It prints the new `S-n`. The approval is `assumed` by the agent: the step stays an open topic until a person answers it (`decisions.py add --item S-n`, above).
+- Then write the D row with that `S-n`, and pass the same `S-n` to the commits that do the work (`appcommit.sh --step S-n`, upgrade.md).
+- `python3 $B/steps.py check --work $W` fails a D row that names no step, or a step that does not exist ("MISSING D71: the agent decided ..."). A log row passes when it names its parent step.

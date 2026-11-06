@@ -133,6 +133,8 @@ ctl() {
   else nfail=$((nfail + 1)); failed="$failed $name"; printf 'FAIL  %s (%s)\n' "$name" "${why#; }"; sed 's/^/      | /' "$out" | head -15
   fi
 }
+# sedi SCRIPT FILE: in-place sed that works on GNU and BSD (macOS) sed, which differ on the -i suffix
+sedi() { sed -i.sedi "$1" "$2" && rm -f "$2.sedi"; }
 skip() { if [ -n "$only" ] && ! echo "$1" | grep -Eq "$only"; then return; fi; nskip=$((nskip + 1)); skipped="$skipped $1"; printf 'SKIP  %s (%s)\n' "$1" "$2"; }
 model() { [ -f "$T/m/$1/App.mpr" ] || python3 "$here/lib/mkmodel.py" "$FX/models/$1.json" "$T/m/$1" > /dev/null || { echo "mkmodel $1 failed"; exit 2; }; echo "$T/m/$1"; }
 
@@ -3476,7 +3478,7 @@ ctl gate-smoke-login-path-catch 0 '^\[smoke\] .*smokewalk\.js .*--login-path /lo
 ctl gate-smoke-no-login-path-pass 0 '^\[smoke\] .*smokewalk\.js' '!--login-path' -- gcase dryloginp2 --dry-run
 ctl gate-smoke-no-repeat-pass 0 '^\[smoke\] .*smokewalk\.js' '!--repeat' -- gcase dry2 --dry-run
 ctl gate-dry-run-writes-nothing-pass 0 'no stub log' '!gate-summary' -- sh -c "test ! -e $GI/stub-dry.log && test ! -e $GI/w/gatedry && echo 'no stub log'"
-ctl gate-all-pass 0 'Overall: \*\*PASS\*\*' '\| 1 \| build \| PASS \|' '\| 4 \| data \| PASS\* \|' '\| 5 \| rest \| PASS \|' '\| 10 \| release \| PASS \|' '!FAIL \||INVALID \||NOT RUN \|' \
+ctl gate-all-pass 0 'Overall: \*\*PASS\*\*' '\| 1 \| build \| PASS \|' '\| 4 \| data \| PASS\* \|' '\| 5 \| rest \| PASS \|' '\| 10 \| release \| PASS \|' '!FAIL \||INVALID \||\| (build|idcheck|const|data|rest|logdiff|smoke|journeys|screens|release|apis|widgets) \| NOT RUN \|' \
   -- gcase pass GATE_STUB_OUT_diff='INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 3 | PASS 84' WIDGETS_APP=$GI
 # --- report words and the progress line (positive-verdict.md; PV-POS-1): the human layer over the unchanged codes ------------
 # 12 rungs, all configured in gcase (rest, apis, widgets with WIDGETS_APP): owed = 12 rungs + owner sign-off = 13
@@ -3608,7 +3610,7 @@ ctl gate-only-merge-carry-invalid-catch 2 'Overall: \*\*INVALID\*\*' '\| 6 \| lo
 ctl gate-only-merge-again-pass 0 'Overall: \*\*PASS\*\*' '\| 8 \| journeys \| PASS \| 0 \|' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run [0-9T:-]+Z\) logdiff: stub ok \|' '!\(earlier run [^)]*\) \(earlier run' -- gcase mrg --only journeys
 ctl gate-only-no-summary-pass 2 '\| 4 \| data \| NOT RUN \| - \| not selected' '!Merged' -- gcase mrgnew --only journeys
 # RT-11: --seed-from copies an earlier gate's summary into a new GATE_DIR (a remedy trial's label), so --only merges
-ctl gate-seed-from-pass 0 'gate: seeded ' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run ' '\| 8 \| journeys \| PASS \| 0 \|' '!\| NOT RUN \|' 'Overall: \*\*PASS' -- gcase seed1 --only journeys --seed-from $GI/w/gatemrg
+ctl gate-seed-from-pass 0 'gate: seeded ' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run ' '\| 8 \| journeys \| PASS \| 0 \|' '!\| (build|idcheck|const|data|rest|logdiff|smoke|journeys|screens|release|apis|widgets) \| NOT RUN \|' 'Overall: \*\*PASS' -- gcase seed1 --only journeys --seed-from $GI/w/gatemrg
 ctl gate-seed-from-no-only-catch 2 'seed-from needs --only' -- gcase seed2 --seed-from $GI/w/gatemrg
 ctl gate-seed-from-missing-catch 2 'seed-from .*: no gate-summary\.md there' -- gcase seed3 --only journeys --seed-from $GI/nonexistent
 ctl gate-timeout-hint-catch 2 '\| smoke \| INVALID \| 124 \| timed out after 1s \(raise GATE_TIMEOUT\)' 'raise GATE_TIMEOUT \(smoke: steps x roles x repeat\)' -- gcase tmoh GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=5
@@ -5350,6 +5352,37 @@ ctl appcommit-named-path-pass 0 'committed [0-9a-f]+ \(agent, repair repair-row-
 ctl appcommit-trailers-pass 0 '^Changed-By: agent$' '^Upgrade-Change: repair repair-row-9$' -- git -C $CL/ac log -1 --format=%B
 ctl appcommit-other-index-untouched-pass 0 '^A  b\.txt$' '^\?\? c-unnamed\.txt$' '!a\.txt' -- git -C $CL/ac status --short
 ctl appcommit-nothing-changed-pass 0 'nothing changed in the given paths' -- bash $B/appcommit.sh --app $CL/ac --by person --kind config --rule c --why "again" -- a.txt
+# slice 5: commits name their step (Upgrade-Step trailer); changelog.py hands them to steps.py done. A made-up shop app: modules step, a P-n alias step.
+SX=$T/stx; rm -rf $SX; mkdir -p $SX/w $SX/w-none; SX=$(cd $SX && pwd -P); SXS="python3 $B/steps.py"
+$SXS open --work $SX/w --topic modules --title "Routine module updates" --say "The plan holds 2 module updates." > /dev/null
+$SXS open --work $SX/w --topic widget:Gridmod --title "Order grid" --say "The order grid needs a decision." --alias P-3 > /dev/null
+mkdir -p $SX/app; git -C $SX/app init -q; echo shop > $SX/app/shop.txt; git -C $SX/app add -A .
+git -C $SX/app commit -qm "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')"
+echo s1 > $SX/app/s1.txt; echo s2 > $SX/app/s2.txt; echo s3 > $SX/app/s3.txt; echo s4 > $SX/app/s4.txt
+ctl appcommit-step-unknown-refused-catch 2 "unknown step 'S-9'" -- bash $B/appcommit.sh --app $SX/app --by agent --kind repair --rule repair-row-9 --why "fix the order grid" --step S-9 --work $SX/w -- s1.txt
+ctl appcommit-step-unknown-nothing-committed-pass 0 '^0$' -- sh -c "git -C $SX/app log --oneline --grep='fix the order grid' | wc -l | tr -d ' '"
+ctl appcommit-step-needs-work-catch 2 '--step needs the run.s work folder' -- env -u UPG_STEPS_WORK -u UPG_STEP bash $B/appcommit.sh --app $SX/app --by agent --kind repair --rule r --why "fix it" --step S-1 -- s1.txt
+ctl appcommit-step-trailer-pass 0 'committed [0-9a-f]+ \(agent, repair repair-row-9, step S-1\): fix the order grid' -- bash $B/appcommit.sh --app $SX/app --by agent --kind repair --rule repair-row-9 --why "fix the order grid" --step S-1 --work $SX/w -- s1.txt
+ctl appcommit-step-trailer-in-commit-pass 0 '^Changed-By: agent$' '^Upgrade-Change: repair repair-row-9$' '^Upgrade-Step: S-1$' -- git -C $SX/app log -1 --format=%B
+ctl appcommit-step-alias-written-as-step-pass 0 '^Upgrade-Step: S-2$' '!P-3' -- sh -c "bash $B/appcommit.sh --app $SX/app --by agent --kind convert --rule decision-alias --why 'swap the order grid' --step P-3 --work $SX/w -- s2.txt > /dev/null; git -C $SX/app log -1 --format=%B"
+ctl appcommit-no-step-no-trailer-pass 0 '^Changed-By: person$' '!Upgrade-Step' -- sh -c "bash $B/appcommit.sh --app $SX/app --by person --kind config --rule c --why 'tidy the shop theme' -- s3.txt > /dev/null; git -C $SX/app log -1 --format=%B"
+# steps.py trailer: what the toolkit's own scripts add
+ctl steps-trailer-module-update-pass 0 '^Upgrade-Step: S-1$' -- env UPG_STEPS_WORK=$SX/w $SXS trailer --kind module-update
+ctl steps-trailer-kind-without-step-catch 0 '^rc=0$' '^end$' '!Upgrade-Step' -- sh -c "UPG_STEPS_WORK=$SX/w $SXS trailer --kind config; echo rc=\$?; echo end"
+ctl steps-trailer-env-step-wins-pass 0 '^Upgrade-Step: S-2$' -- env UPG_STEPS_WORK=$SX/w UPG_STEP=P-3 $SXS trailer --kind config
+ctl steps-trailer-no-steps-file-pass 0 '!Upgrade-Step' -- env UPG_STEPS_WORK=$SX/w-none $SXS trailer --kind module-update
+# changelog.py: the step column, "no step", and steps.py done once per commit
+git -C $SX/app commit -q --allow-empty -m "bare tweak by hand" -m "$(printf 'Changed-By: agent\nUpgrade-Change: repair repair-row-1')"
+git -C $SX/app commit -q --allow-empty -m "repair: a step nobody opened" -m "$(printf 'Changed-By: agent\nUpgrade-Change: repair repair-row-1\nUpgrade-Step: S-9')"
+python3 $B/changelog.py --app $SX/app --work $SX/w > /dev/null
+ctl changelog-step-column-pass 0 '\| fix the order grid \(`[0-9a-f]{7}`\) \|.* \| S-1 \|$' '\| swap the order grid \(`[0-9a-f]{7}`\) \|.* \| S-2 \|$' '\| evidence \| step \|' -- cat $SX/w/CHANGES.md
+ctl changelog-no-step-listed-catch 0 '\| tidy the shop theme .* \| no step \|$' '\| bare tweak by hand .* \| no step \|$' '2 commit\(s\) name no step' -- cat $SX/w/CHANGES.md
+ctl changelog-unknown-step-catch 0 '\| repair: a step nobody opened .* \| unknown step S-9 \|$' -- cat $SX/w/CHANGES.md
+ctl changelog-done-second-step-pass 0 '^S-2 commits: 1 swap the order grid$' -- sh -c "python3 $B/steps.py show --work $SX/w --json | python3 -c 'import json,sys; r=json.load(sys.stdin)[1]; print(r[\"id\"], \"commits:\", len(r[\"done\"][\"commits\"]), r[\"done\"][\"commits\"][0][\"say\"])'"
+ctl changelog-done-say-is-the-subject-pass 0 '^S-1 commits: 1 fix the order grid$' -- sh -c "python3 $B/steps.py show --work $SX/w --json | python3 -c 'import json,sys; r=json.load(sys.stdin)[0]; print(r[\"id\"], \"commits:\", len(r[\"done\"][\"commits\"]), r[\"done\"][\"commits\"][0][\"say\"])'"
+ctl changelog-rerun-adds-no-event-pass 0 '^same$' -- sh -c "a=\$(wc -l < $SX/w/steps.jsonl); python3 $B/changelog.py --app $SX/app --work $SX/w > /dev/null; [ \$a = \$(wc -l < $SX/w/steps.jsonl) ] && echo same || echo changed"
+ctl changelog-unknown-step-not-recorded-catch 0 '^0$' -- sh -c "grep -c 'S-9' $SX/w/steps.jsonl || true"
+ctl changelog-without-steps-file-pass 0 '\| S-1 \|$' '!name no step' '!CREATED' -- sh -c "python3 $B/changelog.py --app $SX/app --work $SX/w-none --out $SX/none.md > /dev/null; cat $SX/none.md; test -f $SX/w-none/steps.jsonl && echo CREATED; true"
 # the gate summary: the Changes line right after the Progress line; unlabelled commits are a decision item, never a FAIL
 ctl gate-changes-line-pass 0 'Overall: \*\*PASS\*\*' '^Changes: 4 \(toolkit 2, agent 1, person 1, unlabelled 0\)$' '!changes: needs a decision' -- gcase chok APP_REPO=$CL/lgok
 gcount() { gcase "$@" | grep -c '^Changes:'; }   # the line is printed on stdout AND written into the summary: 2
@@ -5366,6 +5399,11 @@ ctl stepupdate-trailers-pass 0 'committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="ba
 ctl stepupdate-trailers-step-commit-catch 0 '^step: Fine 1\.0 \(stepupdate, idcheck PASS\)$' '^Changed-By: toolkit$' '^Upgrade-Change: module-update stepupdate$' -- git -C $S/trl log -1 --format=%B
 ctl stepupdate-trailers-gitignore-commit-pass 0 '^stepupdate: ignore \.stepupdate/$' '^Changed-By: toolkit$' '^Upgrade-Change: config stepupdate-gitignore$' -- git -C $S/trl log --grep='^stepupdate: ignore' -1 --format=%B
 ctl stepupdate-trailers-changelog-pass 0 '^Changes: 2 \(toolkit 2, agent 0, person 0, unlabelled 0\)$' -- python3 $B/changelog.py --app $S/trl --work $CL/wt --since HEAD~2
+newapp stp '1 1.0 Fine\n'; newapp stq '1 1.0 Fine\n'
+ctl stepupdate-step-trailer-pass 0 'committed [0-9a-f]{7}' -- env UPG_STEPS_WORK=$SX/w UPG_UPDATE_CMD="bash $FX/bin/fake-update.sh $S {module} {mpr}" bash $B/stepupdate.sh $S/stp $S/stp.plan
+ctl stepupdate-step-trailer-in-commit-pass 0 '^step: Fine 1\.0 \(stepupdate, idcheck PASS\)$' '^Upgrade-Change: module-update stepupdate$' '^Upgrade-Step: S-1$' -- git -C $S/stp log -1 --format=%B
+ctl stepupdate-no-steps-no-trailer-catch 0 'committed [0-9a-f]{7}' -- env UPG_STEPS_WORK=$SX/w-none UPG_UPDATE_CMD="bash $FX/bin/fake-update.sh $S {module} {mpr}" bash $B/stepupdate.sh $S/stq $S/stq.plan
+ctl stepupdate-no-steps-no-trailer-in-commit-pass 0 '^Changed-By: toolkit$' '!Upgrade-Step' -- git -C $S/stq log -1 --format=%B
 ctl pipeline-dry-trailers-pass 0 "commit -am 'repair: sync java dependencies, jardedupe' \(Upgrade-Change: repair repair-row-2-3\)" "commit -am 'build: regenerated stubs' \(Upgrade-Change: config build-stubs\)" -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 newapp jt '1 1.0 Fine\n'
 mkdir -p $S/jt/userlib $S/jt/vendorlib; : > $S/jt/userlib/pdfbox-2.0.30.jar; : > $S/jt/vendorlib/pdfbox-3.0.7.jar
@@ -5455,17 +5493,17 @@ ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the t
 # signed -> 0 (the unanswered items take their recommendation, P-n lines CONFIRMED); the same folder first answered P-1 by hand
 mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
-sed -i 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/signed/PROPOSAL.md
+sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/signed/PROPOSAL.md
 ctl proposal-signed-continues-pass 0 'signed by Jan Jansen on 2026-10-15' '[0-9] unanswered section-3 item' -- bash $PR/prop.sh $PR/signed
 ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[2-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '!ASSUMED' -- cat $PR/signed/DECISIONS.md
 ctl proposal-signed-status-pass 0 '^signed$' -- python3 $B/proposal.py --status --work $PR/signed
 # PAUSED -> 15
-mkw paused kept; bash $PR/prop.sh $PR/paused > /dev/null; sed -i 's/^Status: open$/Status: PAUSED waiting for the vendor of PDFReader/' $PR/paused/PROPOSAL.md
+mkw paused kept; bash $PR/prop.sh $PR/paused > /dev/null; sedi 's/^Status: open$/Status: PAUSED waiting for the vendor of PDFReader/' $PR/paused/PROPOSAL.md
 ctl proposal-paused-exit15-catch 15 'PAUSED by the owner: waiting for the vendor of PDFReader' 'Resume' -- bash $PR/prop.sh $PR/paused
 ctl proposal-unsigned-status-pass 0 '^unsigned$' -- python3 $B/proposal.py --status --work $PR/kept
 ctl proposal-no-file-status-pass 0 '^none$' -- python3 $B/proposal.py --status --work $PR/cache-kept
 # a Signed-off line without a date or a Status line without a reason is not a sign-off
-mkw halfsigned kept; bash $PR/prop.sh $PR/halfsigned > /dev/null; sed -i 's/^Status: open$/Signed-off: Jan Jansen/' $PR/halfsigned/PROPOSAL.md
+mkw halfsigned kept; bash $PR/prop.sh $PR/halfsigned > /dev/null; sedi 's/^Status: open$/Signed-off: Jan Jansen/' $PR/halfsigned/PROPOSAL.md
 ctl proposal-signoff-without-date-catch 14 'awaits sign-off' -- bash $PR/prop.sh $PR/halfsigned
 # unattended: nothing signed, ASSUMED (unattended) recorded, exit 0; an attended run writes no ASSUMED line
 mkw unatt kept
@@ -5474,14 +5512,52 @@ ctl proposal-unattended-decisions-catch 0 '^P-0 \| proposal .*\| ASSUMED \(unatt
 ctl proposal-unattended-stays-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal.py --status --work $PR/unatt
 ctl proposal-attended-no-assumed-pass 0 '!ASSUMED' 'no DECISIONS.md' -- sh -c "test -e $PR/kept/DECISIONS.md && cat $PR/kept/DECISIONS.md || echo 'no DECISIONS.md'"
 # a changed plan after the sign-off clears it and asks again; an unchanged plan keeps it
-mkw changed kept; bash $PR/prop.sh $PR/changed > /dev/null; sed -i 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/changed/PROPOSAL.md
+mkw changed kept; bash $PR/prop.sh $PR/changed > /dev/null; sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/changed/PROPOSAL.md
 ctl proposal-unchanged-plan-keeps-signoff-pass 0 'signed by Jan Jansen' -- bash $PR/prop.sh $PR/changed
 printf '88 2.0.0 Newmod\n' >> $PR/changed/plan.txt
 ctl proposal-changed-plan-reasks-catch 14 'awaits sign-off' -- bash $PR/prop.sh $PR/changed
 ctl proposal-changed-block-catch 0 '^## Changed since signed \(Jan Jansen, 2026-10-15\)' '^- added: 2: - module update Newmod \? -> 2\.0\.0' '^Previously signed-off: Jan Jansen 2026-10-15 \(cleared' '!^Signed-off:' -- cat $PR/changed/PROPOSAL.md
 ctl proposal-changed-status-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal.py --status --work $PR/changed
-sed -i 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
+sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
 ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bash $PR/prop.sh $PR/changed
+# --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
+# ssum.sh WORK: one line per step: id, topic, alias, approval state, by, source, whether found and proposed are set
+cat > $PR/ssum.sh <<'SH'
+#!/bin/bash
+python3 "$B/steps.py" show --work "$1" --json | python3 -c '
+import json, sys
+for r in json.load(sys.stdin):
+    a = r.get("approval") or {}
+    print("%s %s alias=%s approval=%s by=%s source=%s found=%s proposed=%s" % (r["id"], r["topic"], r.get("alias", "-"), a.get("state", "none"),
+          a.get("by", "-"), a.get("source", "-"), bool(r["found"].get("say")), bool(r["proposed"].get("say"))))'
+SH
+chmod +x $PR/ssum.sh
+# the attended, unsigned run opens a step for every item of sections 2, 3 and 4, each with found and proposed, none approved yet
+ctl proposal-steps-opened-catch 0 '^S-[0-9]+ modules alias=- approval=none .* found=True proposed=True$' '^S-[0-9]+ module:DataWidgets alias=P-[0-9]+ approval=none .* found=True proposed=True$' \
+  '^S-[0-9]+ widget:Stuck\.mpk 1\.1 alias=P-[0-9]+ ' '^S-[0-9]+ person:go-live alias=- ' '!found=False' '!proposed=False' '!approval=approved' '!approval=assumed' -- bash $PR/ssum.sh $PR/kept
+# routine module updates are ONE step for the topic row (Plainmod is one of several updates); the module that is a decision has its own step
+ctl proposal-steps-routine-updates-one-step-pass 0 '^1$' -- sh -c "python3 $B/steps.py show --work $PR/plain --json | python3 -c 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r[\"topic\"] == \"modules\"))'"
+# PROPOSAL.md keeps its [P-n] item lines (the parsers read them); the P-n to S-n mapping lives in steps.jsonl as the alias field
+ctl proposal-steps-alias-in-steps-file-pass 0 '^- \[P-[0-9]+\] module: Administration$' '!\[S-' '"field": "alias", "value": "P-[0-9]+"' -- sh -c "grep -E '^- \[' $PR/kept/PROPOSAL.md; cat $PR/kept/steps.jsonl"
+# a rerun, and a rerun on a changed plan, keep the ids and add no step; unchanged input adds no event at all
+ctl proposal-steps-rerun-no-duplicates-catch 0 '^same events: yes$' '^same steps: yes$' '^plan change keeps ids: yes$' -- sh -c "
+  cp -R $PR/kept $PR/rerun; a=\$(wc -l < $PR/rerun/steps.jsonl); b=\$(bash $PR/ssum.sh $PR/rerun | cut -d' ' -f1,2 | tr '\\n' ' ')
+  bash $PR/prop.sh $PR/rerun > /dev/null; [ \$a = \$(wc -l < $PR/rerun/steps.jsonl) ] && echo 'same events: yes'
+  [ \"\$b\" = \"\$(bash $PR/ssum.sh $PR/rerun | cut -d' ' -f1,2 | tr '\\n' ' ')\" ] && echo 'same steps: yes'
+  printf '88 2.0.0 Newmod\n' >> $PR/rerun/plan.txt; bash $PR/prop.sh $PR/rerun > /dev/null
+  [ \"\$b\" = \"\$(bash $PR/ssum.sh $PR/rerun | cut -d' ' -f1,2 | tr '\\n' ' ')\" ] && echo 'plan change keeps ids: yes'"
+ctl proposal-steps-plan-change-updates-found-pass 0 'plan holds 2 module updates' -- sh -c "grep -Eo 'plan holds [0-9]+ module updates?' $PR/rerun/steps.jsonl | tail -1"
+# unattended: every step has an approval, assumed, by agent, source unattended; none is approved
+ctl proposal-steps-unattended-assumed-catch 0 '^S-[0-9]+ modules .* approval=assumed by=agent source=unattended ' '^S-[0-9]+ module:DataWidgets .* approval=assumed by=agent source=unattended ' '!approval=none' '!approval=approved' -- bash $PR/ssum.sh $PR/unatt
+# signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
+ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
+  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '!approval=assumed' '!by=agent' -- bash $PR/ssum.sh $PR/signed
+# a person's own answer survives the sign-off: reject one step, sign again, it stays rejected
+ctl proposal-steps-own-answer-survives-signoff-pass 0 'approval=rejected by=Ana ' '!approval=approved by=Jan Jansen source=signoff .*widget:Stuck' -- sh -c "
+  cp -R $PR/signed $PR/own; python3 $B/steps.py approve --work $PR/own --id \$(python3 $B/steps.py show --work $PR/own --json | python3 -c 'import json,sys; print([r[\"id\"] for r in json.load(sys.stdin) if r[\"topic\"].startswith(\"widget:Stuck.mpk\")][0])') --state rejected --by Ana > /dev/null
+  bash $PR/prop.sh $PR/own > /dev/null; bash $PR/ssum.sh $PR/own | grep 'widget:Stuck'"
+# the signed run twice adds no event
+ctl proposal-steps-signed-rerun-no-events-pass 0 '^events unchanged$' -- sh -c "a=\$(wc -l < $PR/signed/steps.jsonl); bash $PR/prop.sh $PR/signed > /dev/null; [ \$a = \$(wc -l < $PR/signed/steps.jsonl) ] && echo 'events unchanged'"
 # a missing input is listed as not measured, never skipped; a present one is not
 mkw missing kept; rm $PR/missing/release-impact.md $PR/missing/dojo-react.md $PR/missing/stranded.md
 bash $PR/prop.sh $PR/missing > /dev/null
@@ -5504,15 +5580,15 @@ mkw pipe/pu kept; mkw pipe/pa kept
 ctl pipeline-propose-between-basewalk-convert-pass 0 '^STEPS=\(fetch triage baseline basewalk propose convert update ' -- grep -E '^STEPS=' $B/cloud/upgrade-pipeline.sh
 ctl pipeline-propose-unsigned-exit14-catch 14 'needs judgment \(exit 14\)' 'Upgrade proposal awaits sign-off: read .*/PROPOSAL\.md' 'upgrade-pipeline\.sh .*--only propose --from propose$' 'Nothing in the app model has changed' '!mx convert' -- pipe pu
 ctl pipeline-propose-not-done-when-unsigned-catch 0 'no propose.done' -- sh -c "test ! -e $PNJ/pu/state/propose.done && echo 'no propose.done'"
-sed -i 's/^Status: open$/Status: PAUSED vendor decision pending/' $PNJ/pp/PROPOSAL.md
+sedi 's/^Status: open$/Status: PAUSED vendor decision pending/' $PNJ/pp/PROPOSAL.md
 ctl pipeline-propose-paused-exit15-catch 15 'needs judgment \(exit 15\)' 'PAUSED by the owner' 'vendor decision pending' '--from propose' -- pipe pp
-sed -i 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PNJ/ps/PROPOSAL.md
+sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PNJ/ps/PROPOSAL.md
 ctl pipeline-propose-signed-exit0-pass 0 'propose +done' '!needs judgment' -- pipe ps
 ctl pipeline-propose-signed-writes-done-pass 0 'propose.done present' -- sh -c "test -f $PNJ/ps/state/propose.done && echo 'propose.done present'"
 ctl pipeline-propose-unattended-assumed-catch 0 'propose +done' '!needs judgment' -- sh -c "PATH=$PR/fakebin:\$PATH UPG_INTERVIEW_MODE=unattended MXCLI= bash -c 'bash $B/cloud/upgrade-pipeline.sh --app-dir $PNJ/app --source 10.24.26.1 --target 11.15.0.1 --work $PNJ/pa --only propose'; grep -c 'ASSUMED (unattended)' $PNJ/pa/DECISIONS.md; grep 'proposal not signed' $PNJ/pa/state/notes.txt"
 ctl pipeline-propose-dry-run-pass 0 'proposal\.py --work .* \(exit 14 unsigned, 15 PAUSED' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $PNJ/app --source 10.24.26.1 --target 11.15.0.1 --work $PNJ/dry --only propose --dry-run
 # a plan input edited after the sign-off stops the step after propose (convert here), exit 14, sign-off cleared
-sed -i 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PNJ/pr/PROPOSAL.md
+sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PNJ/pr/PROPOSAL.md
 printf '1 1.0 Added\n' >> $PNJ/pr/plan.txt; printf '# nothing before the convert\n' > $PNJ/pr/plan-pre.txt
 ctl pipeline-propose-plan-change-stops-convert-catch 14 'needs judgment \(exit 14\)' 'Changed since signed|PROPOSAL\.md' '!mx convert exit' -- sh -c "PATH=$PR/fakebin:\$PATH MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $PNJ/app --source 10.24.26.1 --target 11.15.0.1 --work $PNJ/pr --from convert --only convert; rc=\$?; cat $PNJ/pr/NEEDS-JUDGMENT.md; grep '^- added' $PNJ/pr/PROPOSAL.md; exit \$rc"
 ctl pipeline-propose-summary-wired-pass 0 'signed\|none\) ;;' '\*\) printf .proposal not signed: %s/PROPOSAL\.md has no Signed-off line' -- grep -E 'signed\|none\) ;;|printf .proposal not signed' $B/cloud/upgrade-pipeline.sh
@@ -6490,6 +6566,16 @@ ctl decisions-signoff-page-writes-signed-off-catch 0 'Signed-off line written fo
 ctl decisions-signoff-stale-plan-ignored-pass 0 'sign-off ignored' '^0$' -- $CK signoff-stale
 ctl decisions-signoff-viewer-id-not-a-name-pass 0 'is a viewer id, not a name' '^0$' -- $CK signoff-noname
 ctl decisions-signoff-import-chat-row-refused-pass 0 'not source page' '^0$' -- $CK signoff-import-chat
+# a ledger row whose item is a step id (or the P-n alias of a step) writes that step's approval; a rerun of import adds nothing
+ctl decisions-step-row-writes-approval-catch 0 'S-3 = approve by Ana via chat' '^S-3: approved by Ana via chat$' '^approval events: 1$' -- $CK step-add
+ctl decisions-step-last-row-wins-pass 0 '^S-3: rejected by Ana via chat$' '^S-3 later: approved by Ben via chat$' '^approval events: 2$' -- $CK step-reject
+ctl decisions-step-alias-import-catch 0 'imported 2 row' '^S-1: approved by Cleo via page$' '^S-3: rejected by Cleo via page$' '^S-2: none by - via -$' -- $CK step-alias-import
+ctl decisions-step-import-rerun-adds-nothing-catch 0 'imported 0 row' '^steps file unchanged by the second import$' '^ledger rows: 2$' -- $CK step-alias-import
+ctl decisions-step-assumption-yields-pass 0 '^S-3: approved by Ana via page$' -- $CK step-assumed-yields
+ctl decisions-step-unknown-id-catch 0 "unknown item 'S-9'" '^rc=2$' '^ledger untouched$' -- $CK step-unknown
+ctl decisions-step-bad-choice-catch 0 'approve or reject' '^rc=2$' '^S-3: none by - via -$' -- $CK step-bad-choice
+ctl decisions-step-signoff-still-refused-pass 0 'sign the plan with the page button' '^rc=2$' '^steps untouched$' '^ledger untouched$' -- $CK step-signoff-refused
+ctl decisions-step-apply-notes-step-pass 0 'S-3: a step, its approval is in steps.jsonl' '^S-3: approved by Ana via chat$' '^approvals after apply: 1$' -- $CK step-apply
 ctl decisions-pending-lists-ids-options-catch 0 'open items \(6\)' '^regression:overlay ' 'fix \(recommended\)' 'chat: decisions\.py add .*--source chat' 'sign the plan with the page button' -- $CK pending
 ctl decisions-pending-drops-decided-pass 0 'open items \(5\)' '!^P-2 ' -- $CK pending-after
 ctl cockpit-words-no-plural-marker-pass 0 'plural-marker count: 0' 'raw gate text count: 0' 'Testing found 2 real problems, 4 things need you' -- $CK words
@@ -6514,11 +6600,153 @@ ctl cockpit-matrix-twelve-chips-pass 0 'chips: 12' 'grey chips: [1-9]' 'clickabl
 ctl cockpit-matrix-you-cells-are-open-decisions-pass 0 'you cells: 4 open decision items: 4' -- $CK matrix-you
 ctl cockpit-matrix-no-app-name-pass 0 'no app names in page or generator' 'external requests only fonts: 0' -- $CK matrix-nohard
 ctl cockpit-matrix-no-dashes-pass 0 'dash count: 0' 'generator dash count: 0' -- $CK matrix-dashes
+# the drawer trail (work/cockpit-trail.json): actions land under their row, an unknown row id is dropped, a malformed file
+# gives no trail; the plan view reads PROPOSAL.md into sections with its P-n items, and no PROPOSAL.md gives none
+ctl cockpit-matrix-trail-pass 0 "^rows with a trail: \{'modules': 2\}$" '^commits: 1 \| tests: 1$' -- $CK matrix-trail
+ctl cockpit-matrix-trail-malformed-catch 0 '^rows with a trail: 0$' -- $CK matrix-trail-bad
+ctl cockpit-matrix-plan-pass 0 "^plan items: \[\('P-1', 'module', 'Gridmod'\), \('P-2', 'theme', 'Themepack styles'\)\]$" "Sign-off'\]$" -- $CK matrix-plan
+ctl cockpit-matrix-plan-none-pass 0 '^plan sections: 0$' -- $CK matrix-plan-none
 ctl cockpit-band-renders-without-js-pass 0 'band without JS: True' 'headline without JS: True' 'matrix cells without JS: 52 of 52' 'feed and readiness without JS: True True' 'viewport meta: True' 'closed total = sum of chips: True \| exactly two numbers: True' -- $CK matrix-band-static
 ctl cockpit-band-positive-framing-pass 0 'no dashed late marker: True' 'legend only for states on the page: True' 'no unstable or failures wording: True' -- $CK matrix-framing
 ctl cockpit-band-kpi-overrides-pass 0 'closed chip added: True \| renamed count: 2' 'open added: True \| hidden gone: True' 'shown without JS: True' -- $CK matrix-kpi
 ctl cockpit-band-counts-from-gate-rungs-pass 0 "'journeys pass': 12" "'journeys behave as on the old app': 4" "'constants checked': 9" "'release notes handled': 20" 'no rest chip when the rung is missing: True' -- $CK matrix-rungs
 ctl cockpit-band-no-app-names-pass 0 'no app or module names in the band code' -- $CK matrix-band-nostrings
+# slice 7: work/steps.jsonl (the made-up shop fixture) gives one row per step; missing or damaged, the older inputs are used as before
+ctl cockpit-steps-rows-pass 0 '^page rc=0$' "^groups: \['app', 'steps', 'setup', 'golive'\]$" "^step rows: \[\('S-1', 'Widgetpack module update', 'steps'\), \('S-2', 'jQuery scripts on the React client', 'steps'\), \('S-3', 'Themepack styles', 'steps'\)\]$" \
+  "^S-1 \{'triage': 'Found', 'plan': 'Approved', 'upgrade': '1 change', 'test': 'Passed'\}$" "^S-2 \{'triage': 'Found', 'plan': 'Needs your OK', 'upgrade': '2 changes', 'test': 'Passed'\}$" \
+  "^S-3 \{'triage': 'Found', 'plan': 'Approved', 'upgrade': '1 change', 'test': 'Test gap'\}$" '^steps file flag: True \| trail file ignored: True$' '^signoff meta: \[.1 choice was assumed by the agent.\]$' -- $CK matrix-steps-rows
+ctl cockpit-steps-drawer-shows-the-record-pass 0 '^S-2 found: The new React client cannot run the snippet widget' '^S-2 proposed: Keep every script' '^S-2 why: Same behaviour as today' '^S-2 who: Assumed by the agent\. It needs your OK\.$' '^S-2 other options: 2$' \
+  "^S-2 commits: \['2222222', '3333333'\]$" "^S-2 tests: \[\('Click through pages', 'pass'\), \('User journeys', 'pass'\), \('Screens', 'pass'\)\]$" '^S-2 proof behind toggle: 3$' '^S-1 who: Approved by Ana on 2026-01-02\.$' '^S-1 commits: 1 \| tests: 2$' 'JS skips the old plan box for step rows: True' -- $CK matrix-steps-drawer
+ctl cockpit-steps-no-test-shows-a-gap-not-a-pass-catch 0 "^S-3 test: \[\['Linked checks', 'gap', 'No check is linked to this step, so nothing tested it\.'\]\] wait$" -- $CK matrix-steps-drawer
+ctl cockpit-steps-assumed-step-in-open-topics-catch 0 "\('Your call', 'jQuery scripts on the React client: Needs your OK', 'you'\)" "\('Coverage', 'Themepack styles: Test gap', 'agent'\)" '^routine step in open band: False$' '^you tile: [0-9]+ \| S-2 kind: owner \| S-3 kind: testgap$' -- $CK matrix-steps-band
+ctl cockpit-steps-missing-file-falls-back-pass 0 '^page rc=0$' '^step rows: 0$' "^groups: \['app', 'setup', 'golive'\]$" '^steps file flag: False$' "^old trail used: \['modules'\]$" "^damage notice: \[\]$" '^signoff meta: \[.4 choices were assumed by the agent.\]$' -- $CK matrix-steps-none
+ctl cockpit-steps-malformed-file-caught-catch 0 '^page rc=0$' '^step rows: 0$' '^steps file flag: False$' "^old trail used: \['modules'\]$" 'The step records are damaged \(line 3 is not an event\), so this page shows the older inputs\.' '^signoff meta: \[.4 choices were assumed by the agent.\]$' -- $CK matrix-steps-bad
+ctl cockpit-steps-incomplete-record-caught-catch 0 '^page rc=0$' '^step rows: 0$' 'The step records are damaged \(step S-1 is incomplete\)' -- $CK matrix-steps-incomplete
+# slice 8: Approve and Reject in the drawer of an assumed step; the page answer goes through decisions.py import
+ctl cockpit-steps-ask-buttons-only-on-assumed-step-catch 0 "^S-1 buttons: False \| answer: \{'state': 'approved', 'by': 'Ana', 'day': '2026-01-02', 'reason': ''\} \| plan cell: Approved$" "^S-2 buttons: True \| answer: None \| plan cell: Needs your OK$" \
+  "^S-3 buttons: False \| answer: \{'state': 'approved', 'by': 'Ana'" 'page has data-sid=' 'page has data-choice="approve"' 'page has data-choice="reject"' 'page has class="reason"' '^buttons only when it.ask: 1$' '^step answer goes to the decisions collection: 1$' -- $CK matrix-steps-ask
+ctl cockpit-steps-ask-page-answer-becomes-approval-pass 0 'imported 1 row' '^S-2: approved by Cleo via page$' "^S-2 buttons: False \| answer: \{'state': 'approved', 'by': 'Cleo', 'day': '2026-01-04', 'reason': 'Bridge is fine for now'\} \| plan cell: Approved$" \
+  '^open topics naming jQuery: \[\]$' '^reason kept: Bridge is fine for now$' '^rerun adds nothing$' -- $CK matrix-steps-ask-approve
+ctl cockpit-steps-ask-reject-is-recorded-catch 0 'imported 1 row' '^S-2: rejected by Cleo via page$' "^S-2 buttons: False \| answer: \{'state': 'rejected', 'by': 'Cleo', 'day': '2026-01-04', 'reason': ''\} \| plan cell: Rejected$" \
+  "^open topics naming jQuery: \[\('To fix', 'agent'\)\]$" -- $CK matrix-steps-ask-reject
+ctl cockpit-steps-ask-garbage-row-refused-catch 0 'imported 0 row\(s\), skipped 3' "skipped row for 'S-99'" '^S-2: assumed by agent via mid-run$' '^steps file untouched$' -- $CK matrix-steps-ask-garbage
+
+# --- step records (bin/steps.py) on a made-up shop app: the event fold, the refusals, check, the derived status (STEP-RECORDS-PLAN.md sections 2, 4, 6)
+SC="bash $here/steps_control.sh"
+ctl steps-fold-last-approve-wins-catch 0 '^approval: approved by Ana$' '^approve lines in file: 2$' '^first approve: "state": "assumed"$' -- $SC fold-last-wins
+ctl steps-fold-single-approve-pass 0 '^approval: assumed$' '^lines: 11$' -- $SC fold-only-assumed
+ctl steps-open-next-id-pass 0 '^S-1$' '^S-2$' -- $SC open-ids
+ctl steps-open-evidence-and-options-kept-pass 0 "^evidence: \['work/triage.md'\]$" '^options: 2 recommend: 0$' -- $SC open-evidence-kept
+ctl steps-refuse-unknown-id-propose-catch 0 'unknown step .S-9.' '^rc=2$' '^file untouched$' -- $SC unknown-id
+ctl steps-refuse-unknown-id-approve-catch 0 'unknown step .S-7.' -- $SC unknown-id-approve
+ctl steps-refuse-say-with-path-catch 0 'plain words' '^rc=2$' '^lines: 10$' -- $SC say-path
+ctl steps-refuse-say-with-filename-catch 0 'plain words' '^rc=2$' -- $SC say-filename
+ctl steps-refuse-say-with-code-catch 0 'plain words' '^rc=2$' -- $SC say-code
+ctl steps-refuse-bad-state-catch 0 "bad state .maybe." '^rc=2$' -- $SC bad-state
+ctl steps-refuse-bad-verdict-catch 0 "bad verdict .GREAT." '^rc=2$' -- $SC bad-verdict
+ctl steps-say-plain-words-pass 0 '^rc=0$' '!plain words' -- $SC say-plain
+ctl steps-say-slash-words-pass 0 '^rc=0$' -- $SC slash-words
+ctl steps-propose-valid-pass 0 '^rc=0$' '^say: Keep the old grid for now\.$' -- $SC good-propose
+ctl steps-check-complete-pass 0 '^steps: complete$' '^rc=0$' -- $SC check-complete
+ctl steps-check-incomplete-catch 0 '^MISSING S-1: approved but no done commit and no gap$' '^MISSING S-1: no tested result for smoke$' '^MISSING S-1: no tested result for journeys$' '^rc=1$' -- $SC check-incomplete
+ctl steps-check-no-approval-catch 0 '^MISSING S-1: no approval$' '^rc=1$' -- $SC check-no-approval
+ctl steps-check-gap-counts-as-written-pass 0 '^steps: complete$' '^rc=0$' -- $SC check-gap-covers
+ctl steps-check-assumed-is-a-note-not-a-failure-pass 0 '^note: S-1: assumed by agent' '^rc=0$' '!MISSING' -- $SC check-assumed
+ctl steps-status-done-pass 0 '^full: done$' -- $SC status
+ctl steps-status-open-when-assumed-pass 0 '^assumed: open$' -- $SC status-open-assumed
+ctl steps-status-open-when-test-missing-catch 0 '^missing test: open$' -- $SC status-open-missing-test
+ctl steps-status-blocked-on-fail-catch 0 '^fail: blocked$' -- $SC status-blocked-fail
+ctl steps-status-blocked-on-reject-catch 0 '^rejected: blocked$' -- $SC status-blocked-rejected
+ctl steps-status-never-written-pass 0 '^status in file: 0$' -- $SC status-never-written
+# slice 4: a mid-run decision opens a step (assumed by the agent, needs a person); a D row with no step fails the check in plain words
+ctl steps-new-step-assumed-by-agent-catch 0 '^S-1$' '^rc=0$' '^approval: assumed by agent source mid-run$' "^needs: the owner's OK$" '^decisions: \[.D71.\]$' '^status: open$' -- $SC new-step
+ctl steps-new-step-needs-found-catch 0 'steps: --new needs --found' '^rc=2$' '^file untouched$' -- $SC new-step-no-found
+ctl steps-new-step-plain-words-catch 0 'plain words' '^rc=2$' '^file untouched$' -- $SC new-step-path
+ctl steps-new-step-refuses-id-catch 0 'takes no --id' '^rc=2$' -- $SC new-step-with-id
+ctl steps-drow-without-step-catch 0 '^MISSING D71: the agent decided "Move order scripts into actions" but no step holds it' 'Open one with steps.py propose --new' '^rc=1$' -- $SC drow-no-step
+ctl steps-drow-with-step-pass 0 '^steps: complete$' '^rc=0$' '!MISSING' "^note: S-1: assumed by agent, an open topic" -- $SC drow-with-step
+ctl steps-drow-unknown-step-catch 0 '^MISSING D71: the row names S-5, but there is no such step' '^rc=1$' -- $SC drow-unknown-step
+ctl steps-drow-file-in-parent-folder-catch 0 '^MISSING D80: the agent decided "Drop the old theme"' '^rc=1$' -- $SC drow-in-parent
+ctl steps-find-topic-pass 0 '^found: S-1$' '^rc=1$' -- $SC find-topic
+# slice 6: the gate links its rungs to the steps; a missing test is a gap in plain words, never a pass
+ctl steps-gate-links-pass-and-accepted-pass 0 '^rc=0$' "^results: \[\('smoke', 'PASS'\), \('journeys', 'PASS\*'\)\]$" '^say: The page walk-through passed on the new app\.$' "^proof: \['g/gate-summary.md', 'row: journeys: 12 PASS'\]$" '^gaps: \[\]$' '^status: done$' -- $SC gate-pass
+ctl steps-gate-links-fail-catch 0 "^results: \[\('smoke', 'PASS'\), \('journeys', 'FAIL'\)\]$" 'found a problem on the new app\. 2 click paths work on the old app and fail on the new one\.$' '^status: blocked$' -- $SC gate-fail
+ctl steps-gate-not-run-is-a-gap-catch 0 "^results: \[\('smoke', 'PASS'\), \('journeys', 'NOT RUN'\)\]$" '^gap: The click paths did not run, so nothing has shown that this works\.$' '^status: open$' -- $SC gate-gap
+ctl steps-gate-invalid-is-a-gap-catch 0 '^smoke: NOT RUN / The page walk-through could not judge, so nothing has shown that this works\.$' -- $SC gate-invalid-is-gap
+ctl steps-gate-missing-row-is-a-gap-catch 0 '^journeys: NOT RUN / No result for the click paths was found, so nothing tested this\.$' -- $SC gate-missing-row
+ctl steps-gate-step-without-closes-by-is-a-gap-catch 0 '^results: 0$' '^gap: No check is linked to this step, so nothing tested it\.$' '^status: open$' -- $SC gate-no-link
+ctl steps-gate-later-gap-replaces-earlier-pass-catch 0 '^first: done$' "^later: open journeys \['NOT RUN'\]$" -- $SC gate-replaces-pass
+ctl steps-gate-rerun-adds-nothing-pass 0 '^added on rerun: 0$' -- $SC gate-rerun
+ctl steps-gate-without-summary-refused-catch 0 'no gate-summary.md' '^rc=2$' -- $SC gate-no-summary
+# gate.sh runs it after the rungs and its own verdict stays what it was
+gsteps() {   # gsteps LABEL RUNG [GATE_*=v ...]: a work folder with one step that closes by RUNG, the gate over the stubs, then the folded step
+  local label=$1 rung=$2; shift 2; local W=$GI/ws-$label; rm -rf "$W"; mkdir -p "$W"
+  python3 $B/steps.py open --work "$W" --topic modules:Gridmod --title "Order grid update" --say "The order grid cannot show rows on the new client." >/dev/null
+  python3 $B/steps.py propose --work "$W" --id S-1 --say "Update the grid module." --closes-by "$rung" >/dev/null
+  gcase "$label" "$@" WORK=$W WIDGETS_APP=$GI > "$GI/gs-$label.out" 2>&1; local rc=$?
+  grep -E '^gate: (PASS|FAIL|INVALID)|steps: tested --gate' "$GI/gs-$label.out" | sed 's/ from .*//; s/ (exit.*//'; echo "gate rc=$rc"
+  python3 $B/steps.py show --work "$W" S-1 --json | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print("step:", [(r["rung"], r["verdict"]) for r in d["tested"]["results"]], d["status"])'
+}
+ctl gate-steps-linked-after-rungs-pass 0 'steps: tested --gate: 1 event' '^gate: PASS$' '^gate rc=0$' "^step: \[\('build', 'PASS'\)\] open$" -- gsteps gst1 build
+ctl gate-steps-failing-rung-keeps-verdict-catch 0 '^gate: FAIL$' '^gate rc=1$' "^step: \[\('journeys', 'FAIL'\)\] blocked$" -- gsteps gst2 journeys GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys='journeys: 9 PASS, 2 FAIL'
+gnosteps() { gcase "$1" WORK=$GI/ws-$1 WIDGETS_APP=$GI 2>&1 | grep -E '^gate: PASS|steps: tested' | sed 's/ (exit.*//; s/;.*//'; test -f "$GI/ws-$1/steps.jsonl" && echo "steps file made" || echo "no steps file"; }
+ctl gate-steps-absent-file-nothing-written-pass 0 '^gate: PASS$' '^no steps file$' '!steps: tested' -- gnosteps gst3
+
+# slice 9: a plan that converts opens a convert step; housekeeping config commits read "housekeeping", not "no step"
+ctl proposal-steps-convert-step-opened-catch 0 '^S-[0-9]+ convert alias=- approval=none .* found=True proposed=True$' -- bash $PR/ssum.sh $PR/kept
+HK=$T/hk; rm -rf $HK; mkdir -p $HK/w; HK=$(cd $HK && pwd -P)
+git -C $HK init -q; echo shop > $HK/shop.txt; git -C $HK add -A .
+git -C $HK commit -qm "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')"
+git -C $HK commit -q --allow-empty -m "stub the build inputs" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config build-stubs')"
+git -C $HK commit -q --allow-empty -m "tidy the shop theme" -m "$(printf 'Changed-By: person\nUpgrade-Change: config theme-tidy')"
+python3 $B/steps.py open --work $HK/w --topic modules --title "Routine module updates" --say "The plan holds 2 module updates." > /dev/null
+python3 $B/changelog.py --app $HK --work $HK/w > /dev/null
+ctl changelog-housekeeping-listed-pass 0 '\| stub the build inputs .* \| housekeeping \|$' -- cat $HK/w/CHANGES.md
+ctl changelog-housekeeping-person-still-no-step-catch 0 '\| tidy the shop theme .* \| no step \|$' '1 commit\(s\) name no step' -- cat $HK/w/CHANGES.md
+
+# slice 9: the optional rung trail (step records complete), import-legacy, convert and housekeeping steps
+gtrail() {   # gtrail LABEL MODE [GATE_*=v ...]: a work folder (MODE ok | notest | nodrow | nofile), the gate over the stubs, the trail row and the verdict
+  local label=$1 mode=$2; shift 2; local W=$GI/wt-$label; rm -rf "$W"; mkdir -p "$W"
+  if [ $mode != nofile ]; then
+    python3 $B/steps.py open --work "$W" --topic modules:Gridmod --title "Order grid update" --say "The order grid cannot show rows on the new client." >/dev/null
+    python3 $B/steps.py propose --work "$W" --id S-1 --say "Update the grid module." --closes-by $([ $mode = notest ] && echo rest || echo build) >/dev/null
+    python3 $B/steps.py approve --work "$W" --id S-1 --state approved --by Ana --source page >/dev/null
+    python3 $B/steps.py done --work "$W" --id S-1 --commit abc1234 --say "Grid module moved to version 2." >/dev/null
+  fi
+  [ $mode = nodrow ] && printf '# Agent decisions\n\n| id | decision |\n|---|---|\n| D1 | Moved the cart scripts |\n' > "$W/AGENT-DECISIONS.md"
+  local extra=""; [ $mode = notest ] && extra="--skip rest=no_rest_service"
+  gcase "$label" "$@" WORK=$W WIDGETS_APP=$GI $extra > "$GI/gt-$label.out" 2>&1; local rc=$?
+  grep -E '^\| 13 \| trail \|' "$W/gate$label/gate-summary.md" | cut -c1-170; grep -oE '^gate: (PASS|FAIL|INVALID)' "$GI/gt-$label.out"; echo "gate rc=$rc"
+}
+ctl gate-trail-complete-pass 0 '^\| 13 \| trail \| PASS \| 0 \| trail: complete, 1 steps' '^gate: PASS' '^gate rc=0$' -- gtrail gt1 ok
+ctl gate-trail-missing-test-warns-catch 0 '^\| 13 \| trail \| NOT RUN \| - \| WARNING: trail: 1 gap' '^gate: PASS' '^gate rc=0$' -- gtrail gt2 notest
+ctl gate-trail-unnamed-d-row-warns-catch 0 '^\| 13 \| trail \| NOT RUN \| - \| WARNING: trail: ' '^gate: PASS' '^gate rc=0$' -- gtrail gt3 nodrow
+ctl gate-trail-optional-never-fails-pass 0 '^gate: PASS' '!^gate: (FAIL|INVALID)' '^gate rc=0$' -- gtrail gt4 notest
+ctl gate-trail-required-switch-invalid-catch 0 '^\| 13 \| trail \| INVALID \|' '^gate: INVALID' '^gate rc=2$' -- gtrail gt5 notest TRAIL_REQUIRED=1
+ctl gate-trail-required-complete-pass 0 '^\| 13 \| trail \| PASS \|' '^gate: PASS' '^gate rc=0$' -- gtrail gt6 ok TRAIL_REQUIRED=1
+ctl gate-trail-no-step-file-not-run-pass 0 '^\| 13 \| trail \| NOT RUN \| - \| no step records in this run' '^gate: PASS' '^gate rc=0$' -- gtrail gt7 nofile
+ctl steps-legacy-import-fixture-pass 0 '^rc=0$' '^steps: 12$' '^assumed: 7 approved: 5 none: 0$' '^all events source legacy: True$' -- $SC legacy-import
+ctl steps-legacy-rerun-adds-nothing-pass 0 '^lines before: +128 after: +128$' -- $SC legacy-rerun
+ctl steps-legacy-jquery-assumed-step-catch 0 'jQuery scripts moved into JavaScript actions \| assumed by agent source legacy' -- $SC legacy-jquery
+ctl steps-legacy-merge-pass 0 'order-grid steps under one topic: 2' '^unclaimed D rows with a step of their own: ' -- $SC legacy-merge
+ctl steps-legacy-person-answer-kept-pass 0 '^S-10: approved by Ana$' -- $SC legacy-person-answer-kept
+ctl steps-legacy-gaps-plain-pass 0 'This is not linked in this run\.' -- $SC legacy-gaps-plain
+ctl steps-legacy-log-row-is-routine-no-topic-catch 0 '^run-notes: approved by agent source routine$' '^raw log row in the evidence: True$' '^steps for D6: 0$' '^assumed steps holding D6: 0$' -- $SC legacy-log-routine
+ctl steps-legacy-choice-row-opens-one-topic-pass 0 '^open topics: .*decision:D7' '^D7 title: A choice about Cart_Util$' '^D7 raw text in evidence: True$' '^D7 title and say plain: True$' -- $SC legacy-choice-open
+ctl steps-legacy-duplicate-topics-merge-pass 0 '^jQuery steps: 1$' "^D3 and D3a together: \\['S-[0-9]+'\\]$" -- $SC legacy-dup-merge
+ctl steps-kind-choice-or-log-pass 0 '^choice <- OPEN: cart page' '^log <- mx check is 0 errors' '^choice <- jQuery scripts' '^log <- Two stale script tags' '^choice <- Gridmod' -- $SC kind-choice-log
+ctl steps-check-log-row-names-parent-pass 0 '^steps: complete$' '^rc=0$' '!MISSING' -- $SC check-log-names-parent
+ctl steps-legacy-commits-pass 0 'cart page commits: 1' -- $SC legacy-commits
+ctl steps-title-bare-module-refused-catch 0 '^rc=2$' 'one bare name or id' 'Keep or update module OIDC' -- $SC title-bare-module-refused
+ctl steps-title-decision-id-refused-catch 0 '^rc=2$' 'names a decision id' 'A choice about <topic>' -- $SC title-decision-id-refused
+ctl steps-title-lowercase-capitalised-pass 0 '^title: Seed a real work order$' -- $SC title-lowercase-capitalised
+ctl steps-title-templates-pass 0 '^module -> Keep or update module OIDC$' '^theme -> How to keep the Atlas_Web_Content style edits$' '^Java -> Keep or replace the Java library ZipUtil$' \
+    '^widget -> Keep or replace the widget Charts 3.x$' '^page -> Cart page carousel$' '^row -> Seed data for the journeys$' '^row -> How the test walks sign in$' \
+    '^row -> How test-side problems are healed$' '^row -> Keep or update module UserCommons \(2.4.0 to 3.0.0\)$' '^row -> A choice about Cart_Util$' '^row -> A choice made during the run$' -- $SC title-templates
+ctl steps-legacy-titles-plain-pass 0 '^titles with a problem: 0$' '^module step title: Keep or update module Cartkit$' '^theme step title: ' -- $SC legacy-titles-plain
+ctl cockpit-confirm-row-dropped-when-steps-cover-it-pass 0 "^confirm items: \['confirm', 'confirm:D9'\]$" -- $CK confirm-covered
+ctl cockpit-confirm-group-gone-when-all-covered-pass 0 '^confirm items: \[\]$' -- $CK confirm-all-covered
+ctl steps-legacy-trail-complete-pass 0 '^trail: complete, 12 steps; 7 assumed' -- $SC legacy-trail
 
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"

@@ -22,7 +22,7 @@ A person reading the result starts at [READING-THE-VERDICT.md](READING-THE-VERDI
 | 6 report | [steps/report.md](steps/report.md), [steps/gate.md](steps/gate.md) (Step 6 section) | verdict per rung with evidence paths, the completion grade (`bin/grade.py`), one row in `runs/HISTORY.md` |
 | (resume) | [steps/resume.md](steps/resume.md) | after an interrupted run: journal vs last commit, unexplained MPR change restored and redone, survivors listed |
 | (journeys) | [steps/journeys.md](steps/journeys.md) | always-on set at baseline, impact-picked set at gate |
-| (decide) | [steps/decide.md](steps/decide.md) | every stuck item asked, answered in DECISIONS.md |
+| (decide) | [steps/decide.md](steps/decide.md) | every stuck item asked, answered in DECISIONS.md; a D row is a choice (open step, assumed) or a log (evidence on its parent step, routine) |
 
 Playbooks per path: [9 to 10](playbooks/9-to-10.md), [10 to 11](playbooks/10-to-11.md),
 [11.x to a newer 11.y](playbooks/11-to-11.md),
@@ -142,6 +142,10 @@ A run is DONE when there are 0 open items and the owner has signed off. Every it
   never done silently. Pause is a valid answer at every stop.
 - Before anything changes, the owner signs the upgrade proposal ([steps/propose.md](steps/propose.md)); an unsigned proposal
   is a stop (rule below) and, on an unattended run, "proposal not signed" in every report.
+- AGENT-DECISIONS: every D row names its step id (`S-n`, written in the row). A choice the agent makes on its own and that has no step
+  yet gets one in the SAME command that records it: `bin/steps.py propose --work $W --new --topic T --title TEXT --found TEXT --say TEXT
+  [--why TEXT] [--option TEXT ...] [--decision D71]`. It writes the approval `assumed` by the agent, which is an open topic for the owner,
+  and prints the new `S-n` for the D row ([steps/decide.md](steps/decide.md), Mid-run decisions). A D row with no step is invisible to the owner.
 - The machine definition below stays: it defines FIXED for the gate rungs.
 
 ## Definition of done (the machine definition of FIXED for the gate rungs)
@@ -170,6 +174,9 @@ plain PASS; a failure that is not a call into an excluded system stays FAIL, an 
 
 - RED line in localedits for a module on the plan: ask (steps/decide.md). UNATTENDED default: keep that module at its version, carry
   on with the rest, and report "upgrade complete except kept modules: <list>" (never PASS for the kept ones).
+- `bin/steps.py check --work $W` names a D row of AGENT-DECISIONS.md that has no step ("MISSING D71: ..."): open the step
+  (`steps.py propose --new`), write its `S-n` in the row, then go on. Do not start the next change of that kind first.
+
 - Step idcheck reports a new data-bearing finding (GUID_CHANGED, REMOVED): stop that module (stepupdate.sh does). Do
   not continue to the build "to see": the build, mx check and the start all succeed while the column is dropped.
 - Quick start FAIL: fix it before the gate (after-startup contract, constants, jars).

@@ -22,12 +22,18 @@ the page button"). Only `import` carries a sign-off, from the page's signoffs co
 row with source page whose plan_hash equals the current PROPOSAL.md hash (a changed plan clears it), using that row's name. A row
 whose name is still an opaque viewer id (u_...) is not written: give import --names FILE ({"u_...": "Name"}).
 
+STEPS. A row whose item is a step id (S-n), or the P-n alias of a step in <work>/steps.jsonl, also writes that step's approval
+through steps.py (the same person, the same source): choice approve or reject for a step id, any option key of the item for a
+P-n (approved). The ledger row wins over an older approval and never over a newer one; running import again adds nothing.
+A sign-off is never a step approval here: proposal.py approves the steps that nobody answered on its own.
+
 Exit: 0 ok, 2 usage or refused input.
 """
 import argparse, datetime, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cockpitpage  # noqa: E402
+import steps  # noqa: E402  step records: a ledger row for a step writes that step's approval
 
 LEDGER = "decisions.json"
 
@@ -75,6 +81,38 @@ def clean(s):
     return " ".join(str(s).split())
 
 
+STEP_CHOICES = ("approve", "reject")
+
+
+def sid_of(w, ref):
+    """The S-n id of a step id or P-n alias in this run's steps.jsonl, else None."""
+    return steps.resolve(w, ref) if os.path.exists(steps.path_of(w)) else None
+
+
+def step_item(w, item, choice):
+    """The S-n id when `item` is a step id (or alias) and `choice` is approve or reject, else None."""
+    sid = sid_of(w, item)
+    return sid if sid and choice in STEP_CHOICES else None
+
+
+def sync_steps(w, rows):
+    """Write the approval of every step that the last ledger row of an item names; skip what is already written."""
+    n = 0
+    for item, r in sorted(lastmap(rows).items()):
+        sid = sid_of(w, item)
+        if not sid:
+            continue
+        state = "rejected" if r.get("choice") == "reject" else "approved"
+        cur = steps.approval_of(w, sid)
+        if cur and cur.get("ledger_at") == r["at"] and cur["state"] == state:
+            continue
+        if cur and cur["state"] != "assumed" and r["at"] < (cur.get("ledger_at") or cur["at"]):
+            continue   # a newer answer from another route stays; an assumption never does
+        steps.set_approval(w, sid, state, r["by"], r["source"], ledger_at=r["at"], item=item, **({"reason": r["reason"]} if r.get("reason") else {}))
+        n += 1
+    return n
+
+
 def cmd_add(a):
     w = a.work
     if a.item == "signoff":
@@ -82,7 +120,11 @@ def cmd_add(a):
             "never typed in chat and never added here", 2)
     model = cockpitpage.build_model(w)
     it = next((i for i in model["items"] if i["id"] == a.item), None)
+    if not it and step_item(w, a.item, a.choice):
+        it = {"options": [{"key": c} for c in STEP_CHOICES]}
     if not it:
+        if sid_of(w, a.item):
+            die(f"'{a.item}' is a step: the choice is approve or reject, not '{a.choice}'")
         die(f"unknown item '{a.item}' (decisions.py pending lists the ids)")
     keys = [o["key"] for o in it["options"]]
     if a.choice not in keys:
@@ -96,6 +138,7 @@ def cmd_add(a):
         row["reason"] = clean(a.reason)
     rows.append(row)
     save(w, rows)
+    sync_steps(w, rows)
     print(f"decisions: {a.item} = {a.choice} by {by} via {a.source}")
     return 0
 
@@ -127,11 +170,14 @@ def cmd_import(a):
             sigs = list(sigs) + [d]
             continue
         by = names.get(d.get("by"), d.get("by"))
-        if item not in known or d.get("choice") not in [o["key"] for o in known[item]["options"]] or not by:
+        keys = [o["key"] for o in known[item]["options"]] if item in known else list(STEP_CHOICES) if step_item(w, item, d.get("choice")) else []
+        if d.get("choice") not in keys or not by:
             print(f"decisions: skipped row for '{item}': unknown item, option or name", file=sys.stderr)
             skipped += 1
             continue
         row = {"item": item, "choice": d["choice"], "by": clean(by), "at": d.get("at") or now(), "source": "page"}
+        if d.get("reason"):
+            row["reason"] = clean(str(d["reason"]))[:200]
         k = (row["item"], row["choice"], row["by"], row["at"])
         if k in seen:
             continue
@@ -158,6 +204,7 @@ def cmd_import(a):
         rows.append(row)
         added += 1
     save(w, rows)
+    sync_steps(w, rows)
     print(f"decisions: imported {added} row(s), skipped {skipped}")
     return 0
 
@@ -249,6 +296,9 @@ def cmd_apply(a):
     changed, notes = 0, []
     for item, r in sorted(lastmap(rows).items()):
         it = items.get(item)
+        if not it and sid_of(w, item):
+            notes.append(f"{item}: a step, its approval is in steps.jsonl; nothing to write for the pipeline")
+            continue
         if not it:
             notes.append(f"{item}: not an open item of this run, skipped")
             continue

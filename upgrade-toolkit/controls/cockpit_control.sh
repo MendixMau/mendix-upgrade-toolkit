@@ -12,7 +12,47 @@ HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 cnt() { grep -c "$@" || true; }
 ck() { python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html"; }
 dec() { python3 "$B/decisions.py" "$@" --work "$W"; }
+st() { python3 "$B/steps.py" "$@" --work "$W"; }
+# three steps on the shop fixture: S-1 is P-1 (Gridmod), S-2 is P-2, S-3 has no P-n alias
+mkst() {
+  st open --topic module:Gridmod --title "Gridmod grid module" --say "A grid module has local edits." --alias P-1 >/dev/null
+  st open --topic theme:Themepack --title "Themepack styles" --say "The theme package has local edits." --alias P-2 >/dev/null
+  st open --topic change:overlay --title "Checkout overlay" --say "A layer covers the checkout button." >/dev/null
+}
+stapp() { st show "$1" --json | python3 -c 'import json,sys; a=json.load(sys.stdin)[0].get("approval") or {}; print(a.get("state","none"), "by", a.get("by","-"), "via", a.get("source","-"))'; }
+nev() { grep -c "\"id\": \"$1\", \"field\": \"approval\"" "$W/steps.jsonl" || true; }
 case $case_ in
+  confirm-covered) mkst; st propose --id S-1 --say "Update the grid." --decision D3 >/dev/null
+            printf 'D3: Gridmod 2.0.0 rework, please confirm it looks right. D9: Cart banner moved, please confirm.\n' > "$W/gate-notes.txt"
+            python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp
+m = cp.build_model(sys.argv[2])
+print("confirm items:", sorted(i["id"] for i in m["items"] if i["id"].startswith("confirm")))
+PY
+            ;;
+  confirm-all-covered) mkst; st propose --id S-1 --say "Update the grid." --decision D3 >/dev/null
+            printf 'D3: Gridmod 2.0.0 rework, please confirm it looks right.\n' > "$W/gate-notes.txt"
+            python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp
+m = cp.build_model(sys.argv[2])
+print("confirm items:", sorted(i["id"] for i in m["items"] if i["id"].startswith("confirm")))
+PY
+            ;;
+  step-add)   mkst; dec add --item S-3 --choice approve --by Ana --source chat; echo "S-3: $(stapp S-3)"; echo "approval events: $(nev S-3)" ;;
+  step-reject) mkst; dec add --item S-3 --choice reject --by Ana --source chat >/dev/null; echo "S-3: $(stapp S-3)"
+            dec add --item S-3 --choice approve --by Ben --source chat >/dev/null; echo "S-3 later: $(stapp S-3)"; echo "approval events: $(nev S-3)" ;;
+  step-alias-import) mkst; echo '{"decisions":[{"item":"P-1","choice":"o2","by":"u_1","at":"2026-01-02T00:00:00Z","source":"page"},{"item":"S-3","choice":"reject","by":"u_1","at":"2026-01-02T00:00:00Z","source":"page"}],"signoffs":[]}' > "$T/e.json"
+            echo '{"u_1":"Cleo"}' > "$T/n.json"; dec import --json "$T/e.json" --names "$T/n.json"; echo "S-1: $(stapp S-1)"; echo "S-3: $(stapp S-3)"
+            cp "$W/steps.jsonl" "$T/before"; dec import --json "$T/e.json" --names "$T/n.json"; cmp "$T/before" "$W/steps.jsonl" && echo "steps file unchanged by the second import"
+            echo "ledger rows: $(grep -c '"item"' "$W/decisions.json")"; echo "S-2: $(stapp S-2)" ;;
+  step-assumed-yields) mkst; st approve --id S-3 --state assumed --by agent --source unattended >/dev/null; dec add --item S-3 --choice approve --by Ana --source page; echo "S-3: $(stapp S-3)" ;;
+  step-unknown) mkst; dec add --item S-9 --choice approve --by Ana --source chat; echo "rc=$?"; test ! -f "$W/decisions.json" && echo "ledger untouched" ;;
+  step-bad-choice) mkst; dec add --item S-3 --choice o1 --by Ana --source chat; echo "rc=$?"; echo "S-3: $(stapp S-3)" ;;
+  step-signoff-refused) mkst; cp "$W/steps.jsonl" "$T/before"; dec add --item signoff --choice sign --by Ana --source chat; echo "rc=$?"
+            cmp "$T/before" "$W/steps.jsonl" && echo "steps untouched"; test ! -f "$W/decisions.json" && echo "ledger untouched" ;;
+  step-apply) mkst; dec add --item S-3 --choice approve --by Ana --source chat >/dev/null; dec apply; echo "S-3: $(stapp S-3)"; echo "approvals after apply: $(nev S-3)" ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
@@ -178,6 +218,99 @@ PY
                                     ck >/dev/null && band "$T/out.html" kpi ;;
               matrix-rungs)         printf '%s\n' '| 6 | journeys | FAIL | 1 | journeys: 12 PASS, 0 FAIL, 3 INVALID, 4 PASS* (baseline defect);actions 9 found |' '| 7 | const | PASS | 0 | FAIL 0 \| PASS* 0 \| INFO 1 \| PASS 9 |' '| 8 | release | INVALID | 1 | release-impact check: 20 of 25 rows handled or not relevant, 5 open |' >> "$W/gate-summary.md"; ck >/dev/null && band "$T/out.html" rungs ;;
               matrix-band-nostrings) ! sed -n '/^def closed_items/,/^# ---- page ----/p' "$B/cockpitmatrix.py" | grep -Eqi 'HTMLSnippet|NATS|OIDC|Dojo|React|run2|Shop|Widgetpack' && echo "no app or module names in the band code" ;;
+              matrix-trail)         cp "$here/fixtures/cockpit/trail.json" "$W/cockpit-trail.json"; ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import re,sys,json
+t=open(sys.argv[1]).read(); M=json.loads(re.search(r"const D=(.*?);\n", t, re.S).group(1))["matrix"]
+tr={r["id"]:len(r.get("trail") or []) for r in M["rows"] if r.get("trail")}
+print("rows with a trail:", tr)
+a=M["rows"][[r["id"] for r in M["rows"]].index("modules")]["trail"][0]["stages"]
+print("commits:", sum(1 for p in a["upgrade"]["proof"] if p["kind"]=="commit"), "| tests:", len(a["test"]["results"]))
+PY
+;;
+              matrix-trail-bad)     echo '{"rows":["not","a","map"]}' > "$W/cockpit-trail.json"; ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import re,sys,json
+M=json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).group(1))["matrix"]
+print("rows with a trail:", sum(1 for r in M["rows"] if r.get("trail")))
+PY
+;;
+              matrix-plan)          ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import re,sys,json
+P=json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).group(1))["matrix"]["plan"]
+print("sections:", [s["h"] for s in P])
+print("plan items:", [(i.get("id"), i.get("kind"), i.get("name")) for s in P for i in s["items"] if i.get("id")])
+PY
+;;
+              matrix-plan-none)     rm -f "$W/PROPOSAL.md"; ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import re,sys,json
+print("plan sections:", len(json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).group(1))["matrix"]["plan"]))
+PY
+;;
+  matrix-steps-ask|matrix-steps-ask-*) # slice 8: Approve and Reject in the drawer of an assumed step; the page row goes to decisions.py import
+                            cp "$here/fixtures/cockpit/steps.jsonl" "$W/steps.jsonl"
+                            echo '{"u_1":"Cleo"}' > "$T/n.json"
+                            pg() { python3 - "$T/out.html" "$1" <<'PY'
+import re,sys,json
+D=json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).group(1)); M=D["matrix"]
+rows={r["id"]:r for r in M["rows"]}
+for i in ("S-1","S-2","S-3"):
+    r=rows[i]; print(i, "buttons:", r["ask"], "| answer:", r.get("ans"), "| plan cell:", r["cells"]["plan"]["l"])
+print("open topics naming jQuery:", [(o["group"], o["owner"]) for o in M["band"]["open"]["items"] if "jQuery" in o["text"]])
+PY
+                            }
+                            case $case_ in
+                              matrix-steps-ask) ck >/dev/null; pg x; P=$T/out.html
+                                for t in 'data-sid=' 'data-choice="approve"' 'data-choice="reject"' 'class="reason"' 'decideStep'; do grep -q "$t" "$P" && echo "page has $t"; done
+                                echo "buttons only when it.ask: $(grep -c 'it.fromSteps&&it.ask?' "$P")"
+                                echo "step answer goes to the decisions collection: $(grep -c 'collection("decisions").doc(row.item).set(row)' "$P")" ;;
+                              matrix-steps-ask-approve) echo '{"decisions":[{"item":"S-2","choice":"approve","by":"u_1","at":"2026-01-04T09:00:00Z","source":"page","reason":"Bridge is fine for now"}],"signoffs":[]}' > "$T/e.json"
+                                dec import --json "$T/e.json" --names "$T/n.json"; echo "S-2: $(stapp S-2)"; ck >/dev/null; pg x
+                                st show S-2 --json | python3 -c 'import json,sys; print("reason kept:", json.load(sys.stdin)[0]["approval"].get("reason"))'
+                                cp "$W/steps.jsonl" "$T/before"; dec import --json "$T/e.json" --names "$T/n.json"; cmp "$T/before" "$W/steps.jsonl" && echo "rerun adds nothing" ;;
+                              matrix-steps-ask-reject) echo '{"decisions":[{"item":"S-2","choice":"reject","by":"u_1","at":"2026-01-04T09:00:00Z","source":"page"}],"signoffs":[]}' > "$T/e.json"
+                                dec import --json "$T/e.json" --names "$T/n.json"; echo "S-2: $(stapp S-2)"; ck >/dev/null; pg x ;;
+                              matrix-steps-ask-garbage) echo '{"decisions":[{"item":"S-2","choice":"maybe","by":"u_1","at":"2026-01-04T09:00:00Z","source":"page"},{"item":"S-99","choice":"approve","by":"u_1","at":"2026-01-04T09:00:00Z","source":"page"},{"item":"S-2","choice":"approve","at":"2026-01-04T09:00:00Z","source":"page"}],"signoffs":[]}' > "$T/e.json"
+                                cp "$W/steps.jsonl" "$T/before"; dec import --json "$T/e.json" --names "$T/n.json"; echo "S-2: $(stapp S-2)"; cmp "$T/before" "$W/steps.jsonl" && echo "steps file untouched" ;;
+                            esac ;;
+              matrix-steps-*) # slice 7: work/steps.jsonl (the made-up shop fixture) drives the rows; a missing or damaged file falls back
+                            case $case_ in
+                              matrix-steps-bad)   printf '%s\n' "$(sed -n 1,2p "$here/fixtures/cockpit/steps.jsonl")" 'this is not an event' > "$W/steps.jsonl"; cp "$here/fixtures/cockpit/trail.json" "$W/cockpit-trail.json" ;;
+                              matrix-steps-none)  cp "$here/fixtures/cockpit/trail.json" "$W/cockpit-trail.json" ;;
+                              matrix-steps-incomplete) echo '{"id":"S-1","field":"topic","value":"a","by":"x","at":"2026-01-01T00:00:00Z"}
+{"id":"S-1","field":"commit:abc1234","value":{"say":"no sha here"},"by":"x","at":"2026-01-01T00:00:01Z"}' > "$W/steps.jsonl" ;;
+                              *) cp "$here/fixtures/cockpit/steps.jsonl" "$W/steps.jsonl"; cp "$here/fixtures/cockpit/trail.json" "$W/cockpit-trail.json" ;;
+                            esac
+                            ck >/dev/null; rc=$?; echo "page rc=$rc"; python3 - "$T/out.html" "$case_" <<'PY'
+import re,sys,json
+D=json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).group(1)); M=D["matrix"]; c=sys.argv[2]
+rows={r["id"]:r for r in M["rows"]}
+sr=[r for r in M["rows"] if r.get("fromSteps")]
+op=M["band"]["open"]["items"]
+if c=="matrix-steps-rows":
+    print("groups:", [g["key"] for g in M["groups"]])
+    print("step rows:", [(r["id"], r["name"], r["group"]) for r in sr])
+    for i in ("S-1","S-2","S-3"):
+        print(i, {k: rows[i]["cells"][k]["l"] for k in ("triage","plan","upgrade","test")})
+    print("steps file flag:", M["stepsFile"], "| trail file ignored:", not any(r.get("trail") and not r.get("fromSteps") for r in M["rows"]))
+    print("signoff meta:", [i["meta"] for i in D["items"] if i["id"]=="signoff"])
+elif c=="matrix-steps-drawer":
+    a=rows["S-2"]["trail"][0]["stages"]; b=rows["S-1"]["trail"][0]["stages"]
+    print("S-2 found:", a["triage"]["say"])
+    print("S-2 proposed:", a["plan"]["say"]); print("S-2 why:", a["plan"]["why"]); print("S-2 who:", a["plan"]["who"]); print("S-2 other options:", len(a["plan"]["options"]))
+    print("S-2 commits:", [p["h"] for p in a["upgrade"]["proof"]]); print("S-2 tests:", [(r[0], r[1]) for r in a["test"]["results"]]); print("S-2 proof behind toggle:", len(a["test"]["proof"]))
+    print("S-1 who:", b["plan"]["who"]); print("S-1 commits:", len(b["upgrade"]["proof"]), "| tests:", len(b["test"]["results"]))
+    print("S-3 test:", rows["S-3"]["trail"][0]["stages"]["test"]["results"], rows["S-3"]["cells"]["test"]["s"])
+    print("JS skips the old plan box for step rows:", "!it.fromSteps?propBox" in open(sys.argv[1]).read())
+elif c=="matrix-steps-band":
+    print("open topics:", [(o["group"], o["text"], o["owner"]) for o in op if "S-" not in o["text"]][:0] or [(o["group"], o["text"], o["owner"]) for o in op if any(n in o["text"] for n in ("jQuery","Themepack","Widgetpack"))])
+    print("routine step in open band:", any("Widgetpack" in o["text"] for o in op))
+    print("you tile:", M["tiles"]["you"], "| S-2 kind:", rows["S-2"]["kind"], "| S-3 kind:", rows["S-3"]["kind"])
+elif c in ("matrix-steps-none","matrix-steps-bad","matrix-steps-incomplete"):
+    print("step rows:", len(sr)); print("groups:", [g["key"] for g in M["groups"]]); print("steps file flag:", M["stepsFile"])
+    print("old trail used:", sorted(r["id"] for r in M["rows"] if r.get("trail")))
+    print("damage notice:", [o["text"] for o in op if "damaged" in o["text"]])
+    print("signoff meta:", [i["meta"] for i in D["items"] if i["id"]=="signoff"])
+PY
+;;
               matrix-dashes)        cp "$here/fixtures/cockpit/items.json" "$W/cockpit-items.json"; ck >/dev/null
                                     echo "dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$T/out.html")"; echo "generator dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$B/cockpitmatrix.py")" ;;
             esac ;;

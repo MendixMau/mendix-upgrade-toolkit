@@ -16,11 +16,18 @@ model diff to call, so a changed model reads "model changed: N unit file(s)"), a
 for that kind of change). Then the accepted differences (every line of the accept/allow files with its reason), then the
 decisions (DECISIONS.md, steps/decide.md).
 
+A commit may also carry `Upgrade-Step: S-n` (appcommit.sh --step, the toolkit's scripts). When the run keeps step records
+(<work>/steps.jsonl), each such commit is handed to `steps.py done` (once per commit), and the table says which step each change
+belongs to; a commit with no step reads "no step" (the toolkit's own rung-start and build-stubs config commits read "housekeeping" instead), and one that names a step the run does not have reads "unknown step S-n".
+
 Prints one line on stdout, which gate.sh copies into the gate summary:
   Changes: N (toolkit a, agent b, person c, unlabelled d)
 Exit: 0 written, 2 input error (APP is not a git repository, no commits, --since not a commit).
 Producer: gate.sh runs it when the app repo is known (APP_REPO, else $WORK/app). Consumer: the reviewer, the gate summary."""
 import argparse, glob, os, re, subprocess, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import steps   # the step records (steps.py is the only writer of <work>/steps.jsonl)
 
 SEP_C, SEP_F = "\x1e", "\x1f"
 BY = ("toolkit", "agent", "person")
@@ -54,8 +61,11 @@ def commits(app, base):
     out = []
     for rec in r.stdout.split(SEP_C)[1:]:
         h, when, subj, body = (rec.split(SEP_F, 3) + [""] * 4)[:4]
-        by = kind = rule = ""
+        by = kind = rule = step = ""
         for line in body.splitlines():
+            m = re.match(r"^Upgrade-Step:\s*(\S+)\s*$", line)
+            if m:
+                step = m.group(1)
             m = re.match(r"^Changed-By:\s*(\S+)\s*$", line)
             if m:
                 by = m.group(1).lower()
@@ -63,8 +73,32 @@ def commits(app, base):
             if m:
                 kind, rule = m.group(1), m.group(2)
         label = by if by in BY and kind else "unlabelled"
-        out.append({"hash": h, "when": when, "subject": subj, "by": label, "kind": kind or "-", "rule": rule or "-"})
+        out.append({"hash": h, "when": when, "subject": subj, "by": label, "kind": kind or "-", "rule": rule or "-", "step": step})
     return out
+
+
+HOUSEKEEPING = {("toolkit", "config", "rung-start"), ("toolkit", "config", "build-stubs")}
+
+
+def link_steps(work, cs):
+    """Hand every commit that names a step to steps.py done (a commit once) and set c["step_cell"]. Without <work>/steps.jsonl the
+    trailer is shown as written and nothing is recorded."""
+    have = os.path.isfile(steps.path_of(work))
+    for c in cs:
+        ref = c["step"]
+        if not ref:
+            # the toolkit's own housekeeping commits (the rung start, regenerated stubs) change no behaviour of the app: they are marked,
+            # not counted as missing. A config commit by a person or the agent still reads "no step".
+            c["step_cell"] = "housekeeping" if (c["by"], c["kind"], c["rule"]) in HOUSEKEEPING else "no step"
+            continue
+        sid = steps.resolve(work, ref) if have else ref
+        if not sid:
+            c["step_cell"] = f"unknown step {ref}"
+            continue
+        c["step_cell"] = sid
+        if have:
+            say = c["subject"] if steps.plain(c["subject"]) else f"A change of kind {c['kind']} was committed."
+            steps.add_commit(work, sid, c["hash"][:7], say, "changelog")
 
 
 def files_of(app, h):
@@ -161,6 +195,7 @@ def main():
     if not base:
         die("no run-start marker")
     cs = commits(app, base)
+    link_steps(work, cs)
     n = {k: sum(1 for c in cs if c["by"] == k) for k in (*BY, "unlabelled")}
     line = f"Changes: {len(cs)} (toolkit {n['toolkit']}, agent {n['agent']}, person {n['person']}, unlabelled {n['unlabelled']})"
     mk = git(app, "log", "-1", "--format=%h %s (%aI)", base).stdout.strip()
@@ -174,12 +209,16 @@ def main():
     if n["unlabelled"]:
         o += [f"**{n['unlabelled']} unlabelled commit(s) need a decision**: say who made each and why (steps/decide.md), or label it "
               "(`bin/appcommit.sh` for the next one).", ""]
+    nostep = sum(1 for c in cs if c["step_cell"] == "no step")
+    if os.path.isfile(steps.path_of(work)) and nostep:
+        o += [f"**{nostep} commit(s) name no step**: the change does not show up under any step. Pass `--step S-n` to `bin/appcommit.sh` "
+              "for the next one (steps/upgrade.md).", ""]
     if cs:
-        o += ["| # | when | by | kind | rule | why | what changed | evidence |", "|---|---|---|---|---|---|---|---|"]
+        o += ["| # | when | by | kind | rule | why | what changed | evidence | step |", "|---|---|---|---|---|---|---|---|---|"]
         for i, c in enumerate(cs, 1):
             when = c["when"].replace("T", " ")[:16]
             o.append(f"| {i} | {cell(when)} | {c['by']} | {cell(c['kind'])} | {cell(c['rule'])} | {cell(c['subject'])} (`{c['hash'][:7]}`) | "
-                     f"{cell(what_changed(files_of(app, c['hash'])))} | {cell(evidence(app, work, c))} |")
+                     f"{cell(what_changed(files_of(app, c['hash'])))} | {cell(evidence(app, work, c))} | {cell(c['step_cell'])} |")
     else:
         o.append("No change in the app repo since the run start.")
     o += ["", "## Accepted differences", ""]

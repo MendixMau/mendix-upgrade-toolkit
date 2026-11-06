@@ -14,9 +14,11 @@ is missing gives a grey "not yet", never a pass. Words for the owner come from o
 import datetime, html, json, os, re
 
 import cockpitpage as cp
+import steps as stp
 
 STAGES = ("triage", "plan", "upgrade", "test")
 GROUPS = [("app", "App and platform"), ("setup", "Testing setup"), ("golive", "Go-live")]
+STEP_GROUP = ("steps", "Steps of this run")   # added after "app" when work/steps.jsonl exists
 STATUSES = ("ok", "wait", "bad", "none", "you")
 LOOP = ("Found", "Proposed", "Trying", "Fixed")
 V2S = {"PASS": "ok", "PASS*": "ok", "EXCEPT": "ok", "FAIL": "bad", "REVIEW": "wait", "INVALID": "wait"}
@@ -696,6 +698,168 @@ def stage_texts(rl, per):
          "you": "Look at visible changes and confirm they are fine."}]
 
 
+def merge_trail(rows, trail):
+    """Optional work/cockpit-trail.json: {"rows": {row id: [action, ...]}}. An action has name, sub, status and per stage
+    (triage, plan, upgrade, test) the plain words (say, why, who, options, facts, results) and the proof behind them."""
+    per = trail.get("rows") if isinstance(trail, dict) else None
+    if not isinstance(per, dict):
+        return
+    for r in rows:
+        acts = per.get(r["id"])
+        if isinstance(acts, list) and acts:
+            r["trail"] = acts
+
+
+def plan_doc(text):
+    """PROPOSAL.md as readable sections for the drawer: heading, intro lines, items with their sub-lines. Copied, never judged."""
+    out, sec, cur = [], None, None
+    for ln in (text or "").splitlines():
+        if ln.startswith("<!--") or ln.startswith("# "):
+            continue
+        m = re.match(r"^(#{2,3}) (.*)$", ln)
+        if m:
+            sec = {"h": re.sub(r"^\d+\. ", "", m.group(2).strip()), "sub": len(m.group(1)) == 3, "intro": [], "items": []}
+            out.append(sec)
+            cur = None
+            continue
+        if sec is None or not ln.strip():
+            continue
+        t = ln.strip().replace("`", "")
+        if ln.startswith("- "):
+            cur = {"text": t[2:], "subs": []}
+            mm = re.match(r"^\[(P-\d+)\] (\w+): (.*)$", cur["text"])
+            if mm:
+                cur.update(id=mm.group(1), kind=mm.group(2), name=mm.group(3).strip())
+            sec["items"].append(cur)
+        elif cur is not None and re.match(r"^\s+- ", ln):
+            k, _, v = t[2:].partition(": ")
+            cur["subs"].append([k, v] if _ else ["", t[2:]])
+        else:
+            sec["intro"].append(t)
+            cur = None
+    return out
+
+
+# ---- step records (work/steps.jsonl, written by bin/steps.py): one row per step, the drawer reads the record ----
+def _day(at):
+    return (at or "")[:10]
+
+
+def _answered(ap):
+    """The day a person answered: the time on the page row when the approval came from the ledger, else the time it was written."""
+    return _day((ap or {}).get("ledger_at") or (ap or {}).get("at"))
+
+
+def _stage_ok(res):
+    return res["verdict"] in ("PASS", "PASS*")
+
+
+def step_cells(rec):
+    """The four cells and the drawer action of one step record. Every sentence is a template or the record's own plain text."""
+    ap, pr, fd, gaps = rec.get("approval"), rec["proposed"], rec["found"], rec["gaps"]
+    commits, results = rec["done"]["commits"], rec["tested"]["results"]
+    state = (ap or {}).get("state")
+    ev = [str(x) for x in (fd.get("evidence") or [])]
+    # triage: what was found
+    if fd.get("say"):
+        triage = cell("ok", "Found", [fd["say"]], ev)
+    else:
+        triage = cell("none", "Not recorded", [gaps.get("found") or "No finding was written for this step."])
+    # plan: what is proposed and who approved it
+    who = {"approved": f"Approved by {(ap or {}).get('by', 'a person')} on {_answered(ap)}.",
+           "assumed": "Assumed by the agent. It needs your OK.",
+           "rejected": f"Rejected by {(ap or {}).get('by', 'a person')} on {_answered(ap)}."}.get(state, "No approval has been recorded yet.")
+    if state in ("approved", "rejected") and (ap or {}).get("reason"):
+        who += f" Reason: {ap['reason']}"
+    lines = [x for x in (pr.get("say"), who if state == "assumed" else None) if x]   # why, options and approval are in the action below
+    plan = {"approved": lambda: cell("ok", "Approved", lines), "assumed": lambda: cell("you", "Needs your OK", lines),
+            "rejected": lambda: cell("bad", "Rejected", lines)}.get(state, lambda: cell("wait" if pr.get("say") else "none", "Not approved yet" if pr.get("say") else "Not proposed", lines or [gaps.get("proposed") or "Nothing was proposed for this step."]))()
+    # upgrade: the commits that did it
+    n = len(commits)
+    if n:
+        upgrade = cell("ok", f"{n} change" + ("" if n == 1 else "s"), [c["say"] for c in commits], [c["sha"] for c in commits])
+    elif gaps.get("done"):
+        upgrade = cell("none", "Not needed", [gaps["done"]])
+    elif state == "approved":
+        upgrade = cell("wait", "Not done yet", ["The step is approved, and no change in the app names it yet."])
+    elif state == "rejected":
+        upgrade = cell("none", "Not needed", ["The step was rejected, so nothing was changed."])
+    else:
+        upgrade = cell("none", "Not started", ["Nothing changes in the app before the step is approved."])
+    # test: one line per rung the step closes by; a rung with no passing result is a gap, never a pass
+    rungs = pr.get("closes_by") or []
+    got = {r["rung"]: r for r in results}
+    rows, lines_t, gapn = [], [], 0
+    for rg in rungs or []:
+        r = got.get(rg)
+        nm = cp.RUNG_NAMES.get(rg, rg)
+        if r and _stage_ok(r):
+            rows.append([nm, "pass", r["say"]])
+        elif r and r["verdict"] == "FAIL":
+            rows.append([nm, "fail", r["say"]])
+        else:
+            gapn += 1
+            rows.append([nm, "gap", (r or {}).get("say") or gaps.get("tested:" + rg) or "No result yet, so nothing tested this."])
+    for r in results:
+        if r["rung"] not in rungs and _stage_ok(r):
+            rows.append([cp.RUNG_NAMES.get(r["rung"], r["rung"]), "pass", r["say"]])
+    noted = False   # a written note that nothing is tied to a check (a routine note, or a run that predates step records) is not an open topic
+    if not rungs and not any(_stage_ok(r) for r in results):
+        note = gaps.get("tested")
+        noted = bool(note) and note != stp.NO_CHECK
+        gapn = 0 if noted else 1
+        rows.append(["Linked checks", "none" if noted else "gap", note or "No check is linked to this step, so nothing tested it."])
+    lines_t = [x[2] for x in rows]
+    if noted and not any(x[1] == "fail" for x in rows):
+        test = cell("none", "Not tied to a check", lines_t)
+    elif any(x[1] == "fail" for x in rows):
+        test = cell("bad", "Failed", lines_t)
+    elif gapn:
+        test = cell("wait", "Test gap", lines_t)
+    elif rows:
+        test = cell("ok", "Passed with accepted differences" if any(r["verdict"] == "PASS*" for r in results) else "Passed", lines_t)
+    else:
+        test = cell("none", "Not yet", ["The checks have not run yet."])
+    test["tech"] = [str(p) for r in results for p in r.get("proof", [])]
+    plain_opts = [o for i, o in enumerate(pr.get("options") or []) if i != pr.get("recommend")]
+    proof_t = [{"kind": "text", "src": str(p), "how": "", "text": "", "imgs": []} for r in results for p in r.get("proof", [])]
+    act = {"name": rec["title"], "sub": rec["topic"], "status": "done" if rec["status"] == "done" else "open", "stages": {
+        "triage": {"say": fd.get("say") or "", "gap": not fd.get("say"),
+                   "proof": [{"kind": "text", "src": e, "how": "", "text": "", "imgs": []} for e in ev]},
+        "plan": {"say": pr.get("say") or "", "why": pr.get("why") or "", "who": who, "options": plain_opts, "gap": not pr.get("say"),
+                 "proof": [{"kind": "text", "src": d, "how": "A decision the agent made on its own.", "text": "", "imgs": []} for d in pr.get("decisions") or []]},
+        "upgrade": {"say": upgrade["l"] + "." if n else upgrade["steps"][0], "facts": [],
+                    "proof": [{"kind": "commit", "h": c["sha"], "d": "", "s": c["say"]} for c in commits]},
+        "test": {"say": test["l"] + "." if rows else test["steps"][0], "results": rows, "gap": bool(gapn), "proof": proof_t}}}
+    return {"triage": triage, "plan": plan, "upgrade": upgrade, "test": test}, act
+
+
+def step_row(rec):
+    """One overview row for one step record."""
+    cells, act = step_cells(rec)
+    r = row(rec["id"], rec["title"] or rec["id"], f"{rec['id']} · {rec['topic']}", STEP_GROUP[0], cells, rec["found"].get("evidence") or [])
+    r["trail"] = [act]
+    r["fromSteps"] = True
+    ap = rec.get("approval") or {}
+    # slice 8: only a step that is still assumed (or has no approval) gets the buttons; an answered step shows who answered
+    r["ask"] = ap.get("state") in (None, "assumed")
+    if ap.get("state") in ("approved", "rejected"):
+        r["ans"] = {"state": ap["state"], "by": ap.get("by") or "", "day": _answered(ap), "reason": ap.get("reason") or ""}
+    states = [c["s"] for c in cells.values() if c["s"] not in ("ok", "none")]
+    r["kind"] = "owner" if "you" in states else "testgap" if states and all(s == "wait" for s in states) and cells["test"]["s"] == "wait" else "upgrade"
+    return r
+
+
+def merge_steps(rows, recs, item_keys=()):
+    """Add one row per step after the derived rows of the group "app"; the rows keep step order. The same topic is the same step: a row
+    that cockpit-items.json declared for a topic gives way to the step with that topic, so a topic never shows twice."""
+    topics = {r["topic"] for r in recs}
+    rows[:] = [r for r in rows if not (r["id"] in topics and r["id"] in item_keys and not r.get("fromSteps"))]
+    rows.extend(step_row(r) for r in recs)
+    order = {k: i for i, (k, _) in enumerate([GROUPS[0], STEP_GROUP] + GROUPS[1:])}
+    rows.sort(key=lambda r: order[r["group"]])
+
+
 def build(work, model):
     work = os.path.abspath(work)
     rows, chips, P, g, done, per, ledger = derive(work, model)
@@ -703,14 +867,30 @@ def build(work, model):
     if not isinstance(items, dict):
         items = {}
     merge_items(rows, chips, items, work)
+    recs, err = stp.load(work)   # recs is None when steps.jsonl is missing or damaged: then the older inputs below are used as they were
+    groups = list(GROUPS)
+    if recs is not None:
+        try:
+            merge_steps(rows, recs, set(items.get("items") or {}))
+            groups.insert(1, STEP_GROUP)
+        except (KeyError, TypeError, AttributeError, ValueError):
+            recs, err = None, "a step record is incomplete"
+            rows[:] = [r for r in rows if not r.get("fromSteps")]
+    if recs is None:
+        merge_trail(rows, cp.rj(os.path.join(work, "cockpit-trail.json")) or {})
+    kpi = items.get("kpi")
+    if err:
+        kpi = dict(kpi) if isinstance(kpi, dict) else {}
+        kpi["open"] = list(kpi.get("open") or []) + [{"group": "To fix", "text": f"The step records are damaged ({err}), so this page shows the older inputs.", "owner": "agent"}]
     ri = cp.rd(os.path.join(work, "release-impact.md")) or ""
     rl = len([r for r in ri.splitlines() if re.match(r"^\| \d+ \|", r)])
     tl = tiles(rows, chips, g.get("open_reg"))
-    return {"stages": stage_texts(rl, per), "groups": [{"key": k, "name": n} for k, n in GROUPS], "rows": rows, "ready": chips,
+    return {"stages": stage_texts(rl, per), "groups": [{"key": k, "name": n} for k, n in groups], "rows": rows, "ready": chips,
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
-            "band": band(model, rows, chips, g, tl, items.get("kpi")),
+            "band": band(model, rows, chips, g, tl, kpi),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json"))}
+            "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
+            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md")))}
 
 
 # ---- the top band: what is closed, what is still to validate (generic, from rows and gate rungs) ----
@@ -948,6 +1128,48 @@ span.chip{cursor:default}
 .help b{color:var(--fg)}
 .row.hl{box-shadow:inset 4px 0 0 var(--accent);background:var(--accentbg)}
 .tech{font-size:13px;color:var(--muted)} .tech summary{cursor:pointer}
+.trail{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.act,.actb,.pf,.pfi{min-width:0;max-width:100%}
+.facts{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px} .facts span{font-size:12.5px;padding:3px 9px;border-radius:999px;background:var(--bg);border:1px solid var(--line)}
+h5.ch{margin:6px 0 4px;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{display:block;color:var(--muted);font-family:var(--mono);font-size:11.5px}
+.planbtn{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:12px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--panel);color:var(--fg);font:inherit;cursor:pointer}
+.planbtn b{color:var(--accent)} .planbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plan{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.plan section>p{margin:2px 0 6px;color:var(--muted);font-size:13.5px}
+.plan ul.pl{margin:0;padding-left:18px;display:grid;gap:6px} .plan ul.pl small{display:block;color:var(--muted)}
+.pcard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);display:grid;gap:6px;margin-bottom:8px}
+.pcard .tag{font-size:12px;color:var(--muted)} .pcard .asm{color:var(--wait);font-weight:600}
+.trail>p{margin:0;color:var(--muted);font-size:13.5px}
+.act{border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.act>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px}
+.act>summary::-webkit-details-marker{display:none}
+.act>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.act>summary i{width:10px;height:10px;border-radius:50%;margin-top:5px}
+.act>summary b{display:block}
+.act>summary small{color:var(--muted);display:block;font-size:13px;margin-top:2px}
+.act>summary .say{color:var(--fg);font-size:13.5px;margin-top:4px;display:block}
+.act>summary em{font-style:normal;font-size:12px;color:var(--muted);white-space:nowrap}
+.act[open]>summary{border-bottom:1px solid var(--line)}
+.actb{padding:12px;display:grid;gap:10px;font-size:14px}
+.actb dl{margin:0;display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 12px}
+.actb dt{color:var(--muted);font-size:13px}
+.actb dd{margin:0}
+.actb ul{margin:0;padding-left:18px}
+.res{width:100%;border-collapse:collapse;font-size:13.5px}
+.res td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top}
+.res td:first-child{width:22px;padding-right:0}
+.res .v{font-weight:700;white-space:nowrap}
+.v.pass{color:var(--ok)} .v.fail{color:var(--bad)} .v.partly{color:var(--wait)} .v.gap{color:var(--you)}
+.nl{display:inline-block;font-size:12px;color:var(--you);background:var(--youbg);border-radius:4px;padding:1px 8px}
+.pf{font-size:13px} .pf>summary{cursor:pointer;color:var(--accent)}
+.pfi{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.pfi h5{margin:0;padding:8px 10px 0;font-size:12px;color:var(--muted);font-weight:600}
+.pfi p{margin:4px 10px 8px}
+.pfi pre{margin:0;padding:8px 10px;font-family:var(--mono);font-size:11.5px;line-height:1.5;white-space:pre;overflow:auto;max-height:300px;background:var(--bg);border-top:1px solid var(--line)}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;padding:8px 10px 10px}
+.shots figure{margin:0} .shots img{display:block;width:100%;border:1px solid var(--line);border-radius:4px}
+.shots figcaption{font-size:12px;color:var(--muted);margin-top:3px}
 .tech code,.tech li{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
 .btn{justify-self:start;border:0;background:var(--accent);color:var(--panel);font:700 13px var(--sans);padding:6px 14px;border-radius:6px;cursor:pointer}
 .btn[disabled]{opacity:.5;cursor:default}
@@ -960,6 +1182,7 @@ span.chip{cursor:default}
 .kid:first-child{border-top:0}
 .kid .k{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .done-note{color:var(--ok)}
+.stepask{display:grid;gap:8px;margin-top:10px}.stepask .why{display:grid;gap:4px;font-size:13px;color:var(--muted)}.stepask .reason{font:inherit;padding:6px 8px;border:1px solid var(--line,#ccc);border-radius:6px;background:var(--bg,#fff);color:inherit}.stepask .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .m{color:var(--muted);font-size:12.5px}
 .dec{display:grid;gap:8px}
 .wrap{grid-template-columns:minmax(0,1fr)}
@@ -1050,8 +1273,8 @@ function renderReady(){const m=c=>kf?(c.kind===kf?" kin":" dim"):"";$("#ready").
 renderReady();
 render();
 
-const VIEW={stage:k=>stagePanel(k),cell:(i,k)=>cellPanel(i,k),you:()=>youPanel(),ready:id=>readyPanel(id)};
-const label=v=>v[0]==="stage"?STAGES.find(s=>s.key===v[1]).name+" stage":v[0]==="you"?"Needs you":v[0]==="ready"?"Readiness":ROWS[v[1]].name;
+const VIEW={stage:k=>stagePanel(k),cell:(i,k)=>cellPanel(i,k),you:()=>youPanel(),ready:id=>readyPanel(id),plan:i=>planPanel(i)};
+const label=v=>v[0]==="stage"?STAGES.find(s=>s.key===v[1]).name+" stage":v[0]==="you"?"Needs you":v[0]==="ready"?"Readiness":v[0]==="plan"?(v[1]!=null&&ROWS[v[1]]?"Plan: "+ROWS[v[1]].name:"The proposed plan"):ROWS[v[1]].name;
 function go(v,push=true){
   if(push&&!$("#drawer").hidden&&cur)hist.push(cur);
   cur=v; VIEW[v[0]](v[1],v[2]);
@@ -1079,6 +1302,69 @@ function decBox(di){
   if(!di)return "";
   return `<div class="box youbox dec"><div><b>${esc(di.title)}</b></div><div>${esc(di.problem||"")}</div>${di.kind==="confirmgroup"||!di.rec_text?"":`<div><b>Recommended:</b> ${esc(di.rec_text)}</div>`}<div id="c-${esc(di.id)}"></div></div>`;
 }
+const TSAY={triage:"What we found",plan:"What we proposed",upgrade:"What changed in the app",test:"How we checked it"};
+const TCOL={done:"var(--ok)",kept:"var(--accent)",open:"var(--wait)"};
+const TLBL={done:"done",kept:"kept on purpose",open:"open"};
+const VW={pass:"PASS",fail:"FAIL",partly:"PARTLY",gap:"NOT LINKED"};
+function pfItem(p){
+  if(p.kind==="decision"){const c=p.cells||[];return `<div class="pfi"><h5>${esc(c[0])}, from AGENT-DECISIONS.md</h5><p><b>${esc(c[1])}</b></p>${c.slice(2).filter(Boolean).map(v=>`<p>${esc(v)}</p>`).join("")}</div>`;}
+  if(p.kind==="quote")return `<div class="pfi"><h5>${esc(p.src)}</h5><pre>${esc(p.text)}</pre></div>`;
+  if(p.kind==="commit")return `<div class="pfi"><h5>Commit ${esc(p.h)} · ${esc(p.d||"")}</h5><p><b>${esc(p.s)}</b></p>${p.body?`<p>${esc(p.body)}</p>`:""}${p.stat?`<pre>${esc(p.stat)}</pre>`:""}</div>`;
+  return `<div class="pfi"><h5>${esc(p.src)}</h5>${p.how?`<p>${esc(p.how)}</p>`:""}${p.text?`<pre>${esc(p.text)}</pre>`:""}${(p.imgs||[]).length?`<div class="shots">${p.imgs.map(m=>`<figure><img ${"sr"+"c"}="${m.src}" alt="${esc(m.cap)}"><figcaption>${esc(m.cap)}</figcaption></figure>`).join("")}</div>`:""}</div>`;
+}
+function trailBox(it,k){
+  if(!it.trail||!it.trail.length)return "";
+  const acts=it.trail.map(a=>{const t=a.stages[k]||{};let b="";
+    if(k==="plan"){b=`<dl>${t.why?`<dt>Why</dt><dd>${esc(t.why)}</dd>`:""}${t.who?`<dt>Who decided</dt><dd>${esc(t.who)}</dd>`:""}${(t.options||[]).length?`<dt>Other options</dt><dd><ul>${t.options.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></dd>`:""}</dl>`;}
+    if(k==="upgrade"){const cs=(t.proof||[]).filter(p=>p.kind==="commit");
+      b=`${(t.facts||[]).length?`<div class="facts">${t.facts.map(f=>`<span>${esc(f)}</span>`).join("")}</div>`:""}${cs.length?`<h5 class="ch">Changes in the app (${cs.length})</h5><ol class="chg">${cs.map(c=>`<li><span>${esc(c.s.replace(/^[\w ./-]+?: /,""))}</span><small>${esc(c.h)}${c.d?" · "+esc(c.d):""}</small></li>`).join("")}</ol>`:""}`;}
+    if(k==="test"&&(t.results||[]).length)b=`<table class="res">${t.results.map(r=>`<tr><td><i style="display:block;width:8px;height:8px;margin-top:6px;border-radius:50%;background:${r[1]==="pass"?"var(--ok)":r[1]==="fail"?"var(--bad)":r[1]==="partly"?"var(--wait)":"var(--you)"}"></i></td><td>${esc(r[0])}<br><span style="color:var(--muted)">${esc(r[2])}</span></td><td class="v ${esc(r[1])}">${VW[r[1]]||esc(r[1])}</td></tr>`).join("")}</table>`;
+    const pf=(t.proof||[]).length?`<details class="pf"><summary>Show the proof (${t.proof.length})</summary>${t.proof.map(pfItem).join("")}</details>`:`<p style="color:var(--muted);margin:0">No file in the run backs this up.</p>`;
+    return `<details class="act"${it.fromSteps&&it.trail.length===1?" open":""}><summary><i style="background:${TCOL[a.status]||"var(--none)"}"></i><span><b>${esc(a.name)}</b><small>${esc(a.sub)}</small><span class="say">${esc(t.say||"")}${t.gap?' <span class="nl">not linked</span>':""}</span></span><em>${TLBL[a.status]||""}</em></summary><div class="actb">${b}${pf}</div></details>`;}).join("");
+  return `<div class="trail"><h4>${TSAY[k]}, per action (${it.trail.length})</h4><p>Open an action for the reasons and the result. The proof is the record from the run itself.</p>${acts}</div>`;
+}
+const planBtn=i=>(M.plan||[]).length?`<button class="planbtn" type="button" data-plan="${i}"><span>The proposed plan for ${esc(ROWS[i].name)}<br><span style="color:var(--muted);font-size:13px">Each step that was proposed, why, who decided and the other options</span></span><b>Read →</b></button>`:"";
+function topicPlan(it){
+  const acts=(it.trail||[]).map(a=>{const t=a.stages.plan||{};
+    return `<div class="pcard"><span class="tag">${esc(a.sub||"")}</span><b>${esc(a.name)}</b><div>${esc(t.say||"")}${t.gap?' <span class="nl">not linked</span>':""}</div>
+     ${t.why?`<div><b>Why:</b> ${esc(t.why)}</div>`:""}${t.who?`<div><b>Who decided:</b> ${esc(t.who)}</div>`:""}
+     ${(t.options||[]).length?`<details class="pf"><summary>Other options (${t.options.length})</summary><ul>${t.options.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></details>`:""}
+     ${(t.proof||[]).length?`<details class="pf"><summary>Show the proof (${t.proof.length})</summary>${t.proof.map(pfItem).join("")}</details>`:""}</div>`;}).join("");
+  return `${propBox(it)}${acts?`<div><h4>Proposed steps (${it.trail.length})</h4>${acts}</div>`:""}`;
+}
+function planPanel(i){
+  const it=i!=null?ROWS[i]:null;
+  if(it){active="plan";hlRow=i;render();}else{active="plan";hlRow=-1;render();}
+  active="plan";hlRow=-1;render();
+  const sub=s=>s.map(([k,v])=>`<small>${k?esc(k)+": ":""}${esc(v)}</small>`).join("");
+  const card=it=>{const g=Object.fromEntries(it.subs.filter(x=>x[0]));const ans=g.answer||"";const asm=/ASSUMED/.test(ans);
+    return `<div class="pcard"><span class="tag">${esc(it.id)} · ${esc(it.kind)}</span><b>${esc(it.name)}</b>
+     ${g.recommendation?`<div><b>Recommended:</b> ${esc(g.recommendation)}</div>`:""}
+     ${ans?`<div><b>Answer:</b> ${esc(ans.replace(/\s*\(ASSUMED[^)]*\)\)?$/,""))} ${asm?'<span class="asm">· assumed by the agent, not yet confirmed by a person</span>':""}</div>`:""}
+     ${g.options?`<details class="pf"><summary>Other options</summary><ul>${g.options.split(" | ").map(o=>`<li>${esc(o)}</li>`).join("")}</ul></details>`:""}
+     ${g.evidence?`<details class="pf"><summary>Why this came up</summary><p>${esc(g.evidence)}</p></details>`:""}</div>`;};
+  const secs=M.plan.map(s=>`<section>${s.sub?`<h4 style="font-size:13px">${esc(s.h)}</h4>`:`<h4>${esc(s.h)}</h4>`}${s.intro.map(t=>`<p>${esc(t)}</p>`).join("")}
+    ${s.items.some(x=>x.id)?s.items.map(card).join(""):s.items.length?`<ul class="pl">${s.items.map(x=>`<li>${esc(x.text)}${sub(x.subs)}</li>`).join("")}</ul>`:""}</section>`).join("");
+  const whole=`<div class="box">Written by the toolkit from triage, before anything in the app changed. This is the plan as it stands in PROPOSAL.md.</div><div class="plan">${secs}</div>`;
+  if(it)open(`${navBar(esc(it.name)+" › Proposed plan")}<h3>The proposed plan for ${esc(it.name)}</h3><div class="plan">${topicPlan(it)}</div><details class="pf" style="margin-top:12px"><summary>The whole plan, all topics</summary>${whole}</details>`);
+  else open(`${navBar("The proposed plan")}<h3>The proposed plan</h3>${whole}`);
+}
+function planFor(it){
+  // the lines of PROPOSAL.md that are about this row: by row name, sub-line or the name of one of its actions
+  const keys=[it.name].concat((it.trail||[]).map(a=>a.name)).map(x=>x.toLowerCase()).filter(x=>x.length>3);
+  const hits=[];
+  (M.plan||[]).forEach(s=>s.items.forEach(x=>{const t=(x.name||x.text).toLowerCase(),nm=(x.name||"").toLowerCase();if(keys.some(kk=>t.includes(kk)||(nm.length>3&&kk.split(/[\s:,]+/).includes(nm))))hits.push([s.h,x]);}));
+  return hits;
+}
+function propBox(it){
+  const sign=(M.plan||[]).find(s=>/sign-off/i.test(s.h)), st=sign?sign.intro.filter(t=>/^(Status:|Signed-off:)/.test(t)&&!t.includes("<")).pop()||"":"";
+  const signed=/^Signed-off:/.test(st);
+  const hits=it.id==="runtime"?(M.plan||[]).filter(s=>/summary/i.test(s.h)).flatMap(s=>s.items.map(x=>[s.h,x])):planFor(it);
+  const rows=hits.map(([h,x])=>{const g=Object.fromEntries(x.subs.filter(y=>y[0]));const asm=/ASSUMED/.test(g.answer||"");
+    return `<li><span class="tag" style="font-size:12px;color:var(--muted)">${esc(h)}${x.id?" · "+esc(x.id):""}</span><br>${esc(x.name||x.text)}${g.recommendation?`<small style="display:block"><b>Recommended:</b> ${esc(g.recommendation)}</small>`:""}${g.answer?`<small style="display:block"><b>Answer:</b> ${esc(g.answer.replace(/\s*\(ASSUMED[^)]*\)\)?$/,""))}${asm?' <span class="asm" style="color:var(--wait);font-weight:600">· assumed by the agent</span>':""}</small>`:""}</li>`;}).join("");
+  const who=signed?`Approved: ${esc(st.replace(/^Signed-off:\s*/,""))}`:`<span style="color:var(--wait);font-weight:600">Not approved yet.</span> The plan's sign-off line says "${esc(st||"no status")}".`;
+  return `<div class="box youbox"><h4 style="margin-top:0">From the proposed plan</h4>${rows?`<ul class="pl" style="margin:0;padding-left:18px;display:grid;gap:6px">${rows}</ul>`:`<p style="margin:0">The plan has no line for this item. It was decided during the run, see the actions below.</p>`}<p style="margin:8px 0 0">${who}</p></div>`;
+}
 function cellPanel(i,k){
   const it=ROWS[i],s=STAGES.find(x=>x.key===k),c=it.cells[k];active=k;hlRow=i;render();
   const r=document.getElementById("r"+i); r&&r.scrollIntoView({block:"center",behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth"});
@@ -1087,13 +1373,18 @@ function cellPanel(i,k){
   open(`${navBar(esc(it.name)+" › "+esc(s.name))}
    <div class="tabs" aria-label="Stages of this item">${tabs}</div>
    <h3>${esc(c.l)}</h3>
+   ${k==="plan"&&!it.fromSteps?propBox(it)+planBtn(i):""}
+   ${k==="plan"&&it.fromSteps&&it.ask?`<div class="box youbox"><b>Needs your OK.</b> The agent chose this on its own while it worked. Nothing is final until a person approves it.<div class="stepask" id="sc-${esc(it.id)}"></div></div>`:""}
+   ${k==="plan"&&it.fromSteps&&it.ans?`<div class="done-note">${it.ans.state==="approved"?"Approved":"Rejected"} by ${esc(who(it.ans.by))}${it.ans.day?" on "+esc(it.ans.day):""}.${it.ans.reason?" Reason: "+esc(it.ans.reason):""}</div>`:""}
    <div><h4>What happens, step by step</h4>${ol(c.steps.length?c.steps:["Nothing recorded for this cell."])}</div>
+   ${trailBox(it,k)}
    ${decBox(di)}
-   ${fixBox(it.fix,NONGREEN.includes(c.s)&&!di)}
+   ${it.trail&&it.trail.length?"":fixBox(it.fix,NONGREEN.includes(c.s)&&!di)}
    ${c.late?`<div class="box">For the toolkit: triage did not flag this item. The new triage checks it from the start.</div>`:""}
    <div class="pager"><button class="step" type="button" data-i="${i-1}" data-s="${k}" data-swap ${p?"":"disabled"}>← ${p?esc(p.name):""}</button><button class="step" type="button" data-i="${i+1}" data-s="${k}" data-swap ${n?"":"disabled"}>${n?esc(n.name):""} →</button></div>
    ${techBox((it.tech||[]).concat(c.tech||[]))}`);
   if(di)ctrl(di);
+  if(it.fromSteps&&it.ask)stepCtl(it);
 }
 function readyPanel(id){
   const c=READY.find(x=>x.id===id);
@@ -1109,7 +1400,8 @@ function youPanel(){
 }
 document.addEventListener("click",e=>{
   const inDrawer=!!e.target.closest("#drawer");
-  if(e.target.closest("button.btn")){const b=e.target.closest("button.btn");if(!b.disabled){if(b.dataset.kid)decideKid(b);else{const it=NEED.find(i=>i.id===b.dataset.id);if(it)decide(it,b)}}return;}
+  if(e.target.closest("button.btn")){const b=e.target.closest("button.btn");if(!b.disabled){if(b.dataset.sid)decideStep(b);else if(b.dataset.kid)decideKid(b);else{const it=NEED.find(i=>i.id===b.dataset.id);if(it)decide(it,b)}}return;}
+  const pb=e.target.closest("[data-plan]"); if(pb){if(!inDrawer)hist=[];go(["plan",pb.dataset.plan===""?null:+pb.dataset.plan]);return;}
   if(e.target.closest("[data-back]")){const v=hist.pop();if(v)go(v,false);return;}
   const st=e.target.closest("[data-stage]"); if(st){if(!inDrawer)hist=[];go(["stage",st.dataset.stage],!st.matches(".tab"));return;}
   const ch=e.target.closest("[data-i]"); if(ch){if(!inDrawer)hist=[];go(["cell",+ch.dataset.i,ch.dataset.s],!ch.hasAttribute("data-swap"));return;}
@@ -1149,6 +1441,22 @@ function ctrl(it){
   el.innerHTML=(it.kind==="signoff"?"":it.options.map(o=>`<label class="opt"><input type="radio" name="${esc(name)}" value="${esc(o.key)}"${o.key===it.rec?" checked":""}><span>${esc(o.label)}${o.key===it.rec?" (recommended)":""}${o.causes?`<small>${esc(o.causes)}</small>`:""}</span></label>`).join(""))
     +`<button class="btn" data-id="${esc(it.id)}">${it.kind==="signoff"?"Read and sign":"Confirm"}</button><span class="m" data-msg></span>`;
 }
+function stepCtl(it){
+  const el=document.getElementById("sc-"+it.id);if(!el)return;
+  const d=decided[it.id];
+  if(d&&(d.choice==="approve"||d.choice==="reject")){el.innerHTML=`<div class="done-note">${d.choice==="reject"?"Rejected":"Approved"} by ${esc(who(d.by))}${d.at?" on "+esc(d.at.slice(0,10)):""}${d.reason?". Reason: "+esc(d.reason):""}. Waiting for the pipeline.</div>`;return}
+  const can=!!(db&&user&&me);
+  el.innerHTML=`<label class="why">Reason (optional)<input type="text" class="reason" maxlength="200" placeholder="Why you decided this"${can?"":" disabled"}></label><div class="acts"><button class="btn sm" type="button" data-sid="${esc(it.id)}" data-choice="approve"${can?"":" disabled"}>Approve</button><button class="btn sm alt" type="button" data-sid="${esc(it.id)}" data-choice="reject"${can?"":" disabled"}>Reject</button><span class="m" data-msg>${can?"":"Sign in to this page to answer."}</span></div>`;
+}
+async function decideStep(btn){
+  const box=btn.closest(".stepask");const msg=box.querySelector("[data-msg]");box.querySelectorAll("button").forEach(b=>b.disabled=true);
+  try{
+    const row={item:btn.dataset.sid,choice:btn.dataset.choice,by:await user.id(),at:new Date().toISOString(),source:"page"};
+    const why=box.querySelector(".reason").value.trim();if(why)row.reason=why;
+    await db.collection("decisions").doc(row.item).set(row);
+    msg.textContent="Saved.";
+  }catch(e){box.querySelectorAll("button").forEach(b=>b.disabled=false);msg.textContent="Could not save: "+(e&&e.message?e.message:e)}
+}
 async function decideKid(btn){
   btn.disabled=true;const msg=btn.parentNode.querySelector("[data-msg]");
   try{
@@ -1173,9 +1481,9 @@ async function decide(it,btn){
   if(!db||!user){NEED.forEach(ctrl);return}
   try{me=await user.id()}catch(_){me=null}
   if(!me){NEED.forEach(ctrl);return}
-  NEED.forEach(ctrl);
+  NEED.forEach(ctrl);ROWS.forEach(r=>{if(r.fromSteps&&r.ask)stepCtl(r)});
   const err=()=>{};
-  db.collection("decisions").onSnapshot(s=>{s.docs.forEach(d=>{const v=d.data();if(v&&v.item)decided[v.item]=v});NEED.forEach(ctrl)},err);
+  db.collection("decisions").onSnapshot(s=>{s.docs.forEach(d=>{const v=d.data();if(v&&v.item)decided[v.item]=v});NEED.forEach(ctrl);ROWS.forEach(r=>{if(r.fromSteps&&r.ask)stepCtl(r)})},err);
   db.collection("signoffs").onSnapshot(s=>{s.docs.forEach(d=>{const v=d.data();if(v)signed[d.id]=Object.assign({_id:d.id},v)});NEED.forEach(ctrl)},err);
 })();
 """

@@ -387,7 +387,9 @@ def build_model(work):
     P = parse_proposal(rd(os.path.join(work, "PROPOSAL.md")))
     dm = parse_decisions_md(rd(os.path.join(work, "DECISIONS.md")))
     ad_text = rd(os.path.join(work, "AGENT-DECISIONS.md")) or rd(os.path.join(os.path.dirname(work), "AGENT-DECISIONS.md"))
-    AD = parse_agent_decisions(ad_text)
+    import steps as stp   # bin/steps.py: the step records, the only writer of steps.jsonl
+    recs, _err = stp.load(work)   # None when work/steps.jsonl is missing or damaged: then AGENT-DECISIONS.md is read as before
+    AD = parse_agent_decisions(ad_text) if recs is None else {}   # with step records every agent decision is a step, so it is counted there
     gate = parse_gate(rd(os.path.join(work, "gate-summary.md")))
     heal = rj(os.path.join(work, "heal.json")) or {}
     djo = (rj(os.path.join(work, "decisions-open.json")) or {}).get("items", [])
@@ -463,7 +465,10 @@ def build_model(work):
         c["label"] = plain(nt)
         c["tech"] = f"{nid}: " + short(nt, 200)
     ckids = []
+    covered = {d for r in (recs or []) for d in (r["proposed"].get("decisions") or [])}   # D rows a step already names
     for bid, c in sorted(conf.items(), key=lambda kv: (int(re.match(r"D(\d+)", kv[0]).group(1)), kv[0])):
+        if re.match(r"D\d+", bid).group(0) in covered:
+            continue   # the step holds this change, so the legacy "Changes the agent made" row does not repeat it
         ckids.append(f"confirm:{bid}")
         items.append({"id": f"confirm:{bid}", "kind": "confirm", "hidden": True, "dot": "warn", "title": c["label"], "step": "build",
                       "meta": "A change the agent made", "problem": c["tech"], "tech": [c["tech"]] + ([f"commit {c['commit']}"] if c["commit"] else []),
@@ -502,7 +507,7 @@ def build_model(work):
     if P["present"] and not plan_signed:
         # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices
         # in PROPOSAL.md / DECISIONS.md that nobody answered (len(assumed)).
-        n = len(AD) + len(assumed)
+        n = len(AD) + len(assumed) if recs is None else sum(1 for r in recs if (r.get("approval") or {}).get("state") == "assumed")
         add({"id": "signoff", "kind": "signoff", "dot": "warn", "title": "Sign the plan",
              "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing goes live without your name",
              "step": "propose", "problem": "Nothing goes live without your name on the plan. Review it under Plan. To change one choice first, say so in chat (decisions.py pending lists them).",

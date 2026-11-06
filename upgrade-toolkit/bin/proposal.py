@@ -39,6 +39,7 @@ import argparse, datetime, hashlib, json, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TK = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+import steps  # noqa: E402  step records (STEP-RECORDS-PLAN.md): the proposal opens one step per item
 
 SIGNED = re.compile(r"^Signed-off:[ \t]+(\S.*?)[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$")
 PAUSED = re.compile(r"^Status:[ \t]+PAUSED[ \t]+(\S.*?)[ \t]*$")
@@ -463,6 +464,94 @@ def ids_for(items, work):
     json.dump(ids, open(path, "w"), indent=1, sort_keys=True)
 
 
+def plainify(text, fallback):
+    """The text when it is plain words for a person (steps.plain), else without its parentheses, else the fallback."""
+    s = " ".join(str(text).split())
+    for c in (s, re.sub(r"\s*\([^)]*\)", "", s).strip(" ;,"), re.sub(r"\s*\[[^\]]*\]", "", s).strip(" ;,")):
+        if c and steps.plain(c):
+            return c
+    return fallback
+
+
+def major(v):
+    """The major version number of a Mendix version string, None when it has none."""
+    m = re.match(r"\s*(\d+)\.", str(v or ""))
+    return int(m.group(1)) if m else None
+
+
+def write_steps(F, work):
+    """Open (or find) one step per triage item and set found and proposed (STEP-RECORDS-PLAN.md section 3). A rerun with the
+    same input adds no event; the same topic and title is the same step. Returns {step id: key} in item order.
+    Routine module updates (section 2) are ONE step per topic row, approved with the plan sign-off. Section 3 items keep
+    their P-n as the alias field of the step; PROPOSAL.md itself keeps showing [P-n]. Plain-language texts are fixed
+    template sentences (the item's own words only when they are plain)."""
+    out = {}
+    groups = [("modules", "Routine module updates", "module", ("module update in the plan that the toolkit does on its own", "module updates in the plan that the toolkit does on its own"),
+               "Update these modules to the versions that fit the new Mendix version."),
+              ("repairs", "Predicted repairs", "repair", ("repair that the toolkit expects to make", "repairs that the toolkit expects to make"),
+               "Make these repairs during the upgrade, as the repair table describes.")]
+    for topic, title, key, what, prop in groups:
+        its = [x for x in F.items2 if x["key"].startswith(key + ":")]
+        if not its:
+            continue
+        sid = steps.ensure(work, topic, title, {
+            "found_say": f"The plan holds {len(its)} {what[len(its) != 1]}.", "stage": "triage", "evidence": [x["text"] for x in its],
+            "proposed_say": prop, "why": "Routine work with a known result. It is approved with the sign-off of the plan."})
+        out[sid] = f"2:{topic}"
+    if major(F.src) and major(F.tgt) and major(F.src) != major(F.tgt):
+        # the plan converts the app: the convert commit and the "after the convert" updates belong to this step (steps.py trailer --kind convert)
+        sid = steps.ensure(work, "convert", "Convert the app to the new Mendix version", {
+            "found_say": f"The app is on Mendix {major(F.src)} and the plan moves it to Mendix {major(F.tgt)}, which needs the Mendix conversion.",
+            "stage": "triage", "evidence": [f"{F.src} -> {F.tgt}"],
+            "proposed_say": "Run the Mendix conversion once, then fix what it leaves open.",
+            "why": "Routine work with a known result. It is approved with the sign-off of the plan.", "closes_by": ["build"]})
+        out[sid] = "2:convert"
+    for it in F.items3:
+        opts = [o.strip() for o in it["options"].split(" | ") if o.strip()]
+        opts = [plainify(o, "see the proposal for this option") for o in opts]
+        rec = re.sub(r"\s*\[RA-\d+[^\]]*\]", "", it["rec"])
+        pick = next((i for i, o in enumerate(opts) if o.split(" (")[0].lower() in rec.lower()), None)
+        name = plainify(it["name"], "")
+        sid = steps.ensure(work, f"{it['kind']}:{it['name']}", steps.item_title(it["kind"], it["name"]), {
+            "alias": it["id"],
+            "found_say": f"A {it['kind']}{(' (' + name + ')') if name else ''} needs a decision before the upgrade starts.",
+            "stage": "triage", "evidence": [it["evidence"]],
+            "proposed_say": "The toolkit recommends: " + plainify(rec, "the first option in the proposal") + ".",
+            "why": f"Effort {it['effort']}. Risk: " + plainify(it["risk"], "see the proposal") + ".",
+            "options": opts, "recommend": pick})
+        out[sid] = f"3:{it['id']}"
+    for it in F.items4:
+        sid = steps.ensure(work, f"person:{it['key']}", it["text"], {
+            "found_say": plainify(it["text"], "A person has to do something that the toolkit cannot do.") .rstrip(".") + ".",
+            "stage": "triage", "evidence": [it["detail"]] if it["detail"] else None,
+            "proposed_say": "A person does this. The toolkit lists it so it is not forgotten.",
+            "why": "The toolkit has no way to do this on its own."})
+        out[sid] = f"4:{it['key']}"
+    return out
+
+
+def approve_steps(work, ids, state, signer, source, answers=None):
+    """Write the approval of every step that has none yet (state assumed: unattended run) or is not answered on its own
+    (state approved: the sign-off). A step a person approved or rejected on its own keeps that answer. A section-3 item
+    with a hand-written, non-ASSUMED P-n line in DECISIONS.md is approved by the name on that line."""
+    n = 0
+    for sid, key in ids.items():
+        cur = steps.approval_of(work, sid)
+        have = cur["state"] if cur else None
+        if state == "assumed" and have:
+            continue
+        if state == "approved" and have in ("approved", "rejected"):
+            continue
+        by, src = signer, source
+        d = (answers or {}).get(key[2:]) if key.startswith("3:") else None
+        if state == "approved" and d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
+            by, src = d[4], "decisions"
+        extra = {"needs": "a person signs the proposal or answers this item"} if state == "assumed" else {}
+        steps.set_approval(work, sid, state, by, src, **extra)
+        n += 1
+    return n
+
+
 def decisions(work):
     out = {}
     for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
@@ -640,6 +729,7 @@ def main():
     F = Facts(a)
     F.build()
     ids_for(F.items3, a.work)
+    sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
     ident = [f"2|{it['key']}|{it['text']}" for it in F.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in F.items3] \
         + [f"4|{it['key']}|{it['text']}" for it in F.items4] + [f"v|{F.src}|{F.tgt}|{F.tgt2}"]
     hashval = hashlib.sha256("\n".join(sorted(ident)).encode()).hexdigest()
@@ -658,6 +748,7 @@ def main():
         return 15
     if so and so[0] == "signed" and prev_hash == hashval:
         n = accept_answers(so[1])
+        approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
         return 0
     changed = None
@@ -681,6 +772,7 @@ def main():
         rows = [("P-0", "proposal", "proposal", "continue without a sign-off", "Interview mode: unattended signs nothing; the run goes on at the recommendations")]
         rows += [(it["id"], it["name"], it["kind"], it["rec"], "unattended: recommendation taken, nobody asked") for it in F.items3]
         write_decisions(F, rows, "-", "ASSUMED (unattended)", "a person signs PROPOSAL.md section 6")
+        approve_steps(a.work, sids, "assumed", "agent", "unattended")
         print("proposal: not signed (unattended): ASSUMED (unattended) lines in DECISIONS.md; every report says 'proposal not signed'")
         return 0
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")

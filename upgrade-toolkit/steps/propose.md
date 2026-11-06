@@ -32,3 +32,10 @@ records `ASSUMED (unattended)` P-lines, goes on, and the gate summary and SUMMAR
 who later signs and answers the P-n lines closes them; the ASSUMED lines block the owner sign-off until then.
 
 Section-3 items that fit a pattern in playbooks/rearchitecture.md carry its options, effort and recommendation and cite `[RA-n, status]` (bin/proposal.py); the answer updates that entry (steps/decide.md).
+
+## Step records
+`bin/proposal.py` also writes `$W/steps.jsonl` through `bin/steps.py` (plan: STEP-RECORDS-PLAN.md). Every item of sections 2, 3 and 4 gets a step (`S-n`) with what was found and what is proposed, in plain words.
+- Routine module updates are one step for the whole section 2 row; they are approved with the sign-off and get no button of their own. Each section-3 choice is one step. A section-3 step keeps its `P-n` as its `alias`; PROPOSAL.md still shows `[P-n]`.
+- An unattended run records every step as `assumed` by `agent`. A sign-off records `approved` with the signer for every step nobody answered on its own (an answer a person already gave is kept).
+- A rerun opens no second step for the same topic and title and adds no event when nothing changed.
+

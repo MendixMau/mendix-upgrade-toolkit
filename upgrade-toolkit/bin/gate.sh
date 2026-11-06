@@ -51,6 +51,10 @@
 #              (JOURNEYS_DIR) renders; one of them is INVALID (rc 3, "not checked"), never PASS. A widget that crashes on the new
 #              client passes every other rung when no walked page holds it (Material Cockpit 3D viewer, React error #525).
 #              WIDGETS_WAIVE: lines "package or widget id # reason"; WIDGETS_RENDERED: pages a hand-written walk opens
+#   trail      TRAIL_REQUIRED=1   optional rung (STEP-RECORDS-PLAN.md slice 9), on whenever <work>/steps.jsonl exists: bin/steps.py trail asks that
+#              every step has a proposal, an approval (assumed counts, flagged), a change or a written gap, a test result or a written gap,
+#              and that every D row names a step. While optional a miss is a NOT RUN row that starts with WARNING (verdict unchanged).
+#              TRAIL_REQUIRED=1 makes a miss INVALID and a run without step records a required NOT RUN (slice 10).
 #   PRE_<rung>=cmd    run before that rung (start the new app on a fresh copy of X_frozen, take the snapshot);
 #                     a key it produces (AFTER_JSON, NEW_LOG, SMOKE_URL's app) is then not required up front, for that
 #                     rung and every later one (N1R2-9, T2R3-10: NEW_LOG written by PRE_data was refused for logdiff
@@ -69,7 +73,7 @@
 # When known, bin/changelog.py writes $WORK/CHANGES.md and the summary carries `Changes: N (toolkit a, agent b, person c,
 # unlabelled d)` after the Progress line; d > 0 adds a "needs a decision" item. It never changes a rung or the verdict.
 #
-# Rungs, in steps/gate.md order: build idcheck const data rest logdiff smoke journeys screens release apis widgets.
+# Rungs, in steps/gate.md order: build idcheck const data rest logdiff smoke journeys screens release apis widgets trail.
 # --only RUNG,... runs those rungs and MERGES into an existing gate-summary.md of the same GATE_DIR (T2R3-10, N1R2-9:
 # it overwrote the file, so the final summary had to be one full invocation): the other rungs keep their earlier row,
 # marked "(earlier run <time>)", and the overall verdict is computed over the merged table.
@@ -88,7 +92,7 @@
 # smoke rung's FAIL steps each called only an excluded system (apimock.py attribute-smoke exit 4), or the apis rung
 # exits 4 (endpoints excluded). Every NOT CHECKED item is listed by name in gate-summary.md. rc 4 without
 # EXCLUDE_SYSTEMS, or an EXCEPT rung that names no item, is INVALID.
-# Exit: 0 only if every required rung is PASS or PASS* (rest, apis and widgets are the optional rungs: NOT RUN is allowed there);
+# Exit: 0 only if every required rung is PASS or PASS* (rest, apis, widgets and, until TRAIL_REQUIRED=1, trail are the optional rungs: NOT RUN is allowed there);
 #       1 on any FAIL; 2 on INVALID or NOT RUN (or an input error); 4 = "PASS (except <systems>: N items)": nothing
 #       FAILs or is INVALID, but N items are NOT CHECKED because they need an excluded system (E2E-14; never plain
 #       PASS, never 0), and/or "PASS (on stand-in APIs: <systems>)": APIMOCK is set and the stand-in answered for at
@@ -102,12 +106,12 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=${UPG_GATE_BIN:-$here}; PY=${UPG_PYTHON:-python3}; NODE=${UPG_NODE:-node}
-RUNGS="build idcheck const data rest logdiff smoke journeys screens release apis widgets"
+RUNGS="build idcheck const data rest logdiff smoke journeys screens release apis widgets trail"
 KEYS="WORK LABEL GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_URL SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS SMOKE_REPEAT SMOKE_LOGIN_PATH JOURNEYS_DIR
  JOURNEYS_BEFORE JOURNEYS_REJUDGE USERS PORT ADMIN_PORT ADMIN_PASS PAUSE SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_PSQL
  JOURNEY_EFFECT_ACCEPT ACTIONS ACTIONS_WAIVE JOURNEY_EVIDENCE JOURNEY_BAR RELEASE_IMPACT POST_CMD RUN APIMOCK APIDIRECT EXCLUDE_SYSTEMS WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED
- APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_release PRE_apis PRE_widgets"
+ APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_release PRE_apis PRE_widgets"
 PATHKEYS="WORK GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS JOURNEYS_DIR JOURNEYS_BEFORE
  USERS SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT ACTIONS JOURNEY_EVIDENCE RELEASE_IMPACT APIMOCK APIDIRECT WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED APP_REPO GATE_NOTES HEAL_JSON"
@@ -201,10 +205,10 @@ spec() {
     widgets) TRIG="WIDGETS_APP"; NEEDS="WIDGETS_APP:v"; OPTS="WIDGETS_WAIVE:f WIDGETS_RENDERED:f";;
   esac
 }
-optional() { [ "$1" = rest ] || [ "$1" = apis ] || [ "$1" = widgets ]; }
+optional() { [ "$1" = rest ] || [ "$1" = apis ] || [ "$1" = widgets ] || { [ "$1" = trail ] && [ "$V_TRAIL_REQUIRED" != 1 ]; }; }
 reason_for() { # a --skip reason or an --only exclusion, else empty
   local r=$1 s
-  if [ -n "$only" ] && ! inlist "$r" "$(echo "$only" | tr ',' ' ')"; then echo "not selected (--only $only)"; return; fi
+  if [ -n "$only" ] && [ "$r" != trail ] && ! inlist "$r" "$(echo "$only" | tr ',' ' ')"; then echo "not selected (--only $only)"; return; fi
   s=$(printf '%s\n' "$SKIPS" | sed -n "s/^$r=//p" | head -1)
   [ -n "$s" ] && echo "skipped on request: $s"
 }
@@ -214,6 +218,10 @@ ERRS=""; PRIOR_PRE=""   # PRIOR_PRE: a PRE command of this or an earlier wanted 
 for r in $RUNGS; do
   setst "$r" "NOT RUN" "-" ""
   why=$(reason_for $r); [ -z "$why" ] || { setst "$r" "NOT RUN" "-" "$why"; continue; }
+  if [ $r = trail ]; then   # not run in the loop: it needs every other rung's row first (see "the trail rung" below)
+    if [ -f "$V_WORK/steps.jsonl" ]; then setst trail "NOT RUN" "-" "not evaluated in a dry run"; TRAIL_ON=1; else setst trail "NOT RUN" "-" "no step records in this run (no steps.jsonl in the work folder)"; fi
+    continue
+  fi
   spec $r; wanted=0
   for k in $TRIG; do [ -n "$(get $k)" ] && wanted=1; done
   [ "$r" = smoke ] && [ ${#SMOKE_USERS[@]} -gt 0 ] && [ -z "$V_SMOKE_REJUDGE" ] && wanted=1
@@ -464,6 +472,24 @@ if [ -n "$only" ] && [ $dry = 0 ] && [ -f "$G/gate-summary.md" ]; then
     setst "$pr" "$pv" "$pc" "$pl"; MERGED="$MERGED $pr"
   done < <(grep -E '^\| [0-9]+ \| ' "$G/gate-summary.md")
 fi
+# The trail rung (STEP-RECORDS-PLAN.md slice 9): are the step records complete? It runs after every other rung has its row, because
+# "tested" is judged from the gate's own links: the other rows are written to a scratch summary, steps.py tested --gate links them to
+# the steps, then steps.py trail reads the records. Optional: a miss is a NOT RUN row that starts with WARNING, so it never moves the
+# verdict. TRAIL_REQUIRED=1 (slice 10) turns a miss into INVALID and no step records into a required NOT RUN.
+if [ "${TRAIL_ON:-0}" = 1 ] && [ $dry = 0 ] && [ $FAILED_INPUT = 0 ] && ! reason_for trail | grep -q .; then
+  mkdir -p "$G"; tdir=$(mktemp -d)
+  { echo "| # | rung | verdict | rc | one line |"; echo "|---|---|---|---|---|"; ti=0
+    for tr in $RUNGS; do ti=$((ti + 1)); [ $tr = trail ] && continue; eval "ts=\$ST_$tr; tc=\$RC_$tr; tl=\$LN_$tr"
+      printf '| %s | %s | %s | %s | %s |\n' "$ti" "$tr" "$ts" "$tc" "$(printf '%s' "$tl" | sed 's/|/\\|/g')"; done; } > "$tdir/gate-summary.md"
+  mkdir -p "$tdir/w"; cp "$V_WORK/steps.jsonl" "$tdir/w/"; dec=""; for dc in "$V_WORK/AGENT-DECISIONS.md" "$(dirname "$V_WORK")/AGENT-DECISIONS.md"; do [ -f "$dc" ] && { dec=$dc; break; }; done   # a copy: the real links are written once, after the verdict
+  "$PY" "$here/steps.py" tested --work "$tdir/w" --gate "$G" --summary "$tdir/gate-summary.md" --by gate > /dev/null 2>&1 || true
+  "$PY" "$here/steps.py" trail --work "$tdir/w" ${dec:+--decisions "$dec"} > "$G/trail.out" 2>&1; trc=$?
+  tline=$(tail -1 "$G/trail.out" | cut -c1-200); rm -rf "$tdir"
+  if [ $trc = 0 ]; then setst trail PASS 0 "$tline"
+  elif [ "$V_TRAIL_REQUIRED" = 1 ]; then setst trail INVALID $trc "$tline"
+  else setst trail "NOT RUN" "-" "WARNING: $tline"; fi
+  eval "echo \"[trail] \$ST_trail: \$LN_trail\""
+fi
 nfail=0; ninv=0; nnot=0; npass=0; nexc=0; NC_ITEMS=""
 for r in $RUNGS; do
   eval "s=\$ST_$r"
@@ -628,6 +654,11 @@ for r in $RUNGS; do eval "s=\$ST_$r; c=\$RC_$r; l=\$LN_$r"; case $s in PASS|'PAS
 # completion grade (steps/report.md): how many of the required rungs are done, printed next to the verdict and stamped into
 # gate-summary.md as one Grade: line. Information only: a failing grade.py never changes the verdict or rc.
 if [ -f "$G/gate-summary.md" ]; then "$PY" "$here/grade.py" "$G/gate-summary.md" --stamp 2>&1 | sed 's/^/  /' || true; fi
+# step records (STEP-RECORDS-PLAN.md slice 6): after the rungs, each step's closes_by rungs are linked to their rows in
+# gate-summary.md (and heal.json) as a pass, a fail or a gap. Information only: a failing steps.py never changes the verdict or rc.
+if [ -f "$V_WORK/steps.jsonl" ] && [ -f "$G/gate-summary.md" ]; then
+  "$PY" "$here/steps.py" tested --work "$V_WORK" --gate "$G" --by gate 2>&1 | sed 's/^/  /' || true
+fi
 # cost-ledger (quality-judgement-plan.md item 4): measurement only. The per-layer cost lines of this work folder are printed
 # when the ledger exists; a failing report never changes the verdict or rc.
 if [ -f "$V_WORK/cost-ledger.tsv" ]; then

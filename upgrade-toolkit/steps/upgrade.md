@@ -189,3 +189,14 @@ CONVERT-MADE, stepupdate stops with "elements could not be read"; check the modu
 
 Output: one commit per step, `$W/approved.txt`, `.stepupdate/` logs (`kept.txt`, `no-baseline.txt`, `unsaved.txt`,
 `saved-edits/`, `keptdeps.txt` and `keptdeps.json` while modules are kept).
+
+## Every commit names its step
+A commit in the app repo carries the trailer `Upgrade-Step: S-n`, the step in `$W/steps.jsonl` that the change belongs to (STEP-RECORDS-PLAN.md).
+- Hand commits: `bash $B/appcommit.sh --app app --by agent --kind repair --rule repair-row-<N> --why "..." --step S-n --work $W -- <paths>`. An id that
+  is not in the run's steps is refused (exit 2); a P-n alias is accepted and written as its S-n. `UPG_STEP` and `UPG_STEPS_WORK` are the defaults
+  for `--step` and `--work`. No step for the change yet: open one first (steps/decide.md, Mid-run decisions).
+- The toolkit's own commits pass it themselves when `$W/steps.jsonl` exists (`steps.py trailer --kind K`): stepupdate's `step: <module> <version>` commits
+  and the replays go to the step of the topic `modules`, the jar cleanup to `repairs`, the convert to `convert`. A kind with no such step (for
+  example `config`: the run start, regenerated stubs) is committed without the trailer.
+- `bin/changelog.py` reads the trailer and calls `steps.py done` once per commit, so the commit shows under its step. CHANGES.md has a `step` column;
+  a commit without the trailer reads "no step", and a trailer naming a step the run does not have reads "unknown step S-n".

@@ -119,6 +119,9 @@ if [ "${STEPUPDATE_SNAPSHOT:-}" = "" ]; then
   STEPUPDATE_SNAPSHOT=1 STEPUPDATE_SRC="$src" exec bash "$app/.stepupdate/bin/stepupdate.sh" "$@"
 fi
 bin=$(cd "$(dirname "$0")" && pwd)
+# steptrailer KIND: a newline and "Upgrade-Step: S-n" when the run keeps step records (UPG_STEPS_WORK = its work folder) and a step fits this
+# kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
+steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
 approved=""; baseline=""; dry=0; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""
 while [ $# -gt 0 ]; do
@@ -548,7 +551,7 @@ PY
   if git -C "$app" diff --cached --quiet; then
     echo "   no change to commit"
   else
-    git -C "$app" commit -qm "step: $mod $ver (stepupdate, idcheck PASS$([ $conv = 1 ] && echo ", $forced"))" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: module-update stepupdate')" || { echo "STOP: git commit failed"; exit 2; }
+    git -C "$app" commit -qm "step: $mod $ver (stepupdate, idcheck PASS$([ $conv = 1 ] && echo ", $forced"))" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: module-update stepupdate'; steptrailer module-update)" || { echo "STOP: git commit failed"; exit 2; }
     echo "   committed $(git -C "$app" rev-parse --short HEAD)"; ncommit=$((ncommit + 1))
     updated="${updated:+$updated,}$mod"
   fi
@@ -571,7 +574,7 @@ if [ $dry = 0 ] && [ $nrun -gt 0 ] && [ -z "${UPG_NO_JARCLEAN:-}" ] && [ -d "$ap
   if [ $jrc = 0 ]; then
     echo "stepupdate: jar cleanup (jardedupe --apply), list in $st/jardedupe.log:"; grep -E '^(REMOVE|UNMATCHED|SHADOWED|summary|shadowed)' "$st/jardedupe.log" | sed 's/^/   /'
     git -C "$app" add -A userlib vendorlib >/dev/null 2>&1
-    git -C "$app" diff --cached --quiet -- userlib vendorlib || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3')" -- userlib vendorlib
+    git -C "$app" diff --cached --quiet -- userlib vendorlib || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3'; steptrailer repair)" -- userlib vendorlib
   else
     if [ $jrc = 2 ]; then   # T5-16: vendorlib is not proven current; the module updates just changed the module set
       echo "stepupdate: jar cleanup REFUSED, vendorlib is stale (nothing removed): run mx sync-java-dependencies (repair row 2), then repair/jardedupe.py --apply (repair row 3)"

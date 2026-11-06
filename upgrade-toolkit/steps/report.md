@@ -89,6 +89,29 @@ The optional file `work/cockpit-items.json` is merged over the derived rows and 
 }
 ```
 
+The optional file `work/cockpit-trail.json` fills the drawer with what happened per action, stage by stage:
+
+```
+{"rows": {"<row id>": [{"name": "...", "sub": "...", "status": "done|open|gap",
+  "stages": {"triage|plan|upgrade|test": {"say": "plain words for a person", "why": "...", "who": "...", "options": ["..."],
+             "facts": ["..."], "results": [["what", "pass|fail|partly|gap", "detail"]], "gap": false,
+             "proof": [{"kind": "text|quote|decision|commit|image", "src": "...", "text": "...",
+                        "h": "<sha>", "d": "<date>", "s": "<commit subject>"}]}}}]}}
+```
+
+A row with a trail shows its actions instead of the single proposal box; an unknown row id is dropped. The proof sits
+behind a toggle; `say` stays free of code and file names. On the Plan column the drawer also shows the proposed plan for
+that topic, read from `PROPOSAL.md` (its P-n items and their status), with the whole plan one click further. This file is
+the input for runs without step records (`STEP-RECORDS-PLAN.md`).
+
+When `work/steps.jsonl` exists, the cockpit reads it instead: every step is one row in the group "Steps of this run" (found, plan with its
+approval, changes, test), and the drawer shows what was found, what was proposed and why, the approval, the commits and the test result,
+with the proof behind a toggle. An approval that is only `assumed` reads "Needs your OK" and is listed under open topics as "Your call";
+a step with no passing test for a rung it closes by reads "Test gap". The open-topic count on the sign-off item comes from the steps, not
+from `AGENT-DECISIONS.md`. `cockpit-trail.json` and `AGENT-DECISIONS.md` are then not read for the drawer and the count. A missing
+`steps.jsonl` changes nothing; a damaged one (a line that is not an event, or a record without a commit sha or a test verdict) is
+reported as one open topic "To fix" and the page is built from the older inputs.
+
 The band on top is derived, never typed: the headline and regressions from the build rung, "items closed successfully" as the sum of
 non-overlapping counts (upgrade problems, test gaps, fixes, then the release, journeys, apis or rest, and const rungs of gate-summary.md; a
 missing rung drops out), and "open topics still to validate" from the matrix (purple cells are "Your call", open deploy cells "At deploy",

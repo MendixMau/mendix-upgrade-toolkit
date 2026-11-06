@@ -43,6 +43,8 @@ def main():
     ap.add_argument("--table", default=os.path.join(TK, "playbooks", "widget-config-defaults.tsv"))
     ap.add_argument("--commit", metavar="APP")
     ap.add_argument("--subject", default="")
+    ap.add_argument("--step", help="the step (S-n) this swap does; becomes the Upgrade-Step trailer (needs --work or UPG_STEPS_WORK)")
+    ap.add_argument("--work")
     ap.add_argument("paths", nargs="*")
     a = ap.parse_args()
     try:
@@ -78,7 +80,7 @@ def main():
     why = a.subject + "; " + "; ".join(x for x in out if x.startswith("defaulted:"))
     why = why.replace("\n", " ")
     r = subprocess.run(["bash", os.path.join(TK, "bin", "appcommit.sh"), "--app", a.commit, "--by", "agent", "--kind", "convert",
-                        "--rule", "widget-defaults-" + a.widget.lower(), "--why", why, "--"] + a.paths)
+                        "--rule", "widget-defaults-" + a.widget.lower(), "--why", why] + (["--step", a.step] if a.step else []) + (["--work", a.work] if a.work else []) + ["--"] + a.paths)
     print(out[-1])
     return 0 if r.returncode == 0 else 2
 

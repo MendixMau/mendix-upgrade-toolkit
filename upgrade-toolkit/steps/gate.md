@@ -198,6 +198,21 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    (`--rendered FILE` names the pages a hand-written walk covers) or by a waiver with the reason. Gate key: `WIDGETS_APP=app/`.
    Triage finds the same widget earlier: replacement_check row R36 (steps/triage.md step 10).
 
+15. Step records complete (STEP-RECORDS-PLAN.md slice 9; driver rung `trail`, optional, row 13 of the summary): `python3 $B/steps.py
+   trail --work $W` asks, for every step in `$W/steps.jsonl`: a proposal; an approval (`assumed` counts, and is listed as waiting
+   for the owner's OK); a change in the app, or a written gap "no change needed"; a test result for each rung it closes by, or a
+   written gap; and that every D row of AGENT-DECISIONS.md names a step (a step that lists the D id counts). It answers in
+   plain words, one GAP line each, and a last line that becomes the summary row. The gate's own gaps ("did not run", "no check
+   is linked") do not count as written: they are what the rung shows. The rung runs after all others, once `steps.py tested
+   --gate` has linked the rows to the steps.
+   Optional for now. It runs only when `$W/steps.jsonl` exists (otherwise NOT RUN, "no step records in this run"). A complete
+   record is PASS. A miss is a NOT RUN row that starts with `WARNING:` and names the first gap; it never changes the verdict or
+   the exit code. The switch for slice 10 is the gate key `TRAIL_REQUIRED=1`: then a miss is INVALID and a run without
+   step records is a required NOT RUN, so the verdict cannot be PASS. Older runs get their records from
+   `python3 $B/steps.py import-legacy --work $W [--app app/]` (every event has source `legacy`; what it cannot link is a gap,
+   "not linked in this run"; a rerun adds nothing). `changelog.py` shows the toolkit's own `config` commits for the rung start and
+   regenerated stubs as `housekeeping`, not as a commit with no step.
+
 Read `$W/impact.md` (from the journeys step) before the verdict: a high constant "read in the startup tree", or a flow
 "no longer called at startup but still in the model", needs an explanation even when every check passes.
 

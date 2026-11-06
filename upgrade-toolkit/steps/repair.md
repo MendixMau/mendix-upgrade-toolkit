@@ -59,7 +59,7 @@ Hand repairs are labelled (change ledger, `bin/changelog.py` -> `$W/CHANGES.md`)
 `bash $B/appcommit.sh --app app --by agent|person --kind repair --rule repair-row-<N> --why "what and why, one line" -- <path> [<path> ...]`
 (kinds: module-update, convert, repair, replay, theme, data, config; rule = the row above or `decision S-n`). It commits the named paths only and
 refuses `-A`, `.` and an empty path list. The toolkit's scripts add the same two trailers (`Changed-By: toolkit`, `Upgrade-Change: <kind> <rule>`)
-themselves. A bare `git commit` still works, but the commit is listed in CHANGES.md as "unlabelled" and the gate summary asks for a decision about it.
+themselves, and `Upgrade-Step: S-n` too when the run has step records. Add `--step S-n --work $W` to `appcommit.sh` for every hand repair: the step is the repair item on the plan, or the one you opened for a decision of your own (steps/decide.md, Mid-run decisions). `bin/changelog.py` hands the commit to that step (`steps.py done`) and lists a commit without a step as "no step". A bare `git commit` still works, but the commit is listed in CHANGES.md as "unlabelled" and the gate summary asks for a decision about it.
 
 Counts per rung (N1-11): `mx check` prints errors only, so the warning and deprecation counts live in the convert log
 (`convertcheck.py --json`, upgrade.md 2) and in `mx check -w -d` (ends with "The project contains N errors, W warnings and

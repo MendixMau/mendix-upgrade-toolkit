@@ -127,6 +127,7 @@ export UPG_ROOT="$RUN"
 [ -z "${MXCLI:-}" ] || export UPG_MXCLI="$MXCLI"
 export UPG_EXTRA="${UPG_EXTRA:-}"
 export UPG_MXCLI_STATE="$WORK/state/mxcli-version"   # stepupdate.sh checks it too (bin/mxcli_pin.sh)
+export UPG_STEPS_WORK="$WORK"   # steps.py trailer reads <work>/steps.jsonl: commits that fit a step carry Upgrade-Step (changelog.py -> steps.py done)
 # F2 (Purchase Request 10.24, real run): mxrun.sh mounts only the run folder, so an --app-dir outside it was accepted and
 # then failed at baseline with mxbuild's "Project file does not exist". Refuse it here, before any step runs.
 if [ -n "$APP_DIR_ARG" ]; then
@@ -325,10 +326,11 @@ ensure_gitignore() {
   done
 }
 commit_app() { # commit_app "subject" KIND RULE: commit all changes in the app repo when there are any. Every toolkit commit
-  # carries the trailers Changed-By: toolkit and Upgrade-Change: KIND RULE (trust.md section 3; bin/changelog.py reads them)
+  # carries the trailers Changed-By: toolkit and Upgrade-Change: KIND RULE (trust.md section 3; bin/changelog.py reads them), and
+  # Upgrade-Step: S-n when the step records know a step for that kind (steps.py trailer; UPG_STEPS_WORK is the work folder, exported below)
   [ "$DRY" = 1 ] && { say "+ git -C $APP commit -am '$1' (Upgrade-Change: $2 $3)"; return 0; }
   git_app add -A > /dev/null
-  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3")" >> "$LOG" 2>&1
+  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1
 }
 resolve_app() {
   if [ -f "$WORK/state/app-dir" ]; then APP=$(cat "$WORK/state/app-dir")
