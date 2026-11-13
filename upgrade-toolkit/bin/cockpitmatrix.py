@@ -857,6 +857,28 @@ def run_base(work):
     return os.path.dirname(work) if os.path.basename(os.path.normpath(work)) == "rung2" else work
 
 
+PROGRESS = re.compile(r"^Progress:.*?(\d+) with REGRESSIONS to fix, (\d+) need a decision, (\d+) not measured yet", re.M)
+
+
+def gate_say(text):
+    """The version chip's label for an unfinished gate, in the reader's words.
+    The raw verdict reads as broken: FAIL with only decisions open, or INVALID with half the click paths
+    measured, still means 0 regressions. Say what is open instead; fall back to the verdict if there is
+    no Progress line (an older gate summary)."""
+    m = PROGRESS.search(text or "")
+    if not m:
+        ov = cp.parse_gate(text)["overall"]
+        return f"gate {ov}" if ov else "in progress"
+    reg, dec, unm = (int(x) for x in m.groups())
+    if reg:
+        return f"{reg} regression{'s' if reg > 1 else ''} to fix"
+    if dec:
+        return f"0 regressions · {dec} to decide"
+    if unm:
+        return f"0 regressions · {unm} not measured"
+    return "0 regressions"
+
+
 def ladder(work):
     """The version route and how far each rung got: [{v, state}] with done, now or next (the first version is the start).
     [] without ladder.json (a run made before the version ladder)."""
@@ -867,10 +889,11 @@ def ladder(work):
     out = [{"v": route[0], "state": "done", "say": "start"}]
     for i, v in enumerate(route[1:]):
         w = base if i == 0 else os.path.join(base, "rung2")
-        ov = cp.parse_gate(cp.rd(os.path.join(w, "gate-summary.md")) or "")["overall"]
+        gs = cp.rd(os.path.join(w, "gate-summary.md")) or ""
+        ov = cp.parse_gate(gs)["overall"]
         started = os.path.isdir(os.path.join(w, "state")) and any(n.endswith(".done") for n in os.listdir(os.path.join(w, "state")))
         st = "done" if ov == "PASS" else "now" if started or ov else "next"
-        out.append({"v": v, "state": st, "say": {"done": "gate passed", "now": f"gate {ov}" if ov else "in progress", "next": "next"}[st]})
+        out.append({"v": v, "state": st, "say": {"done": "gate passed", "now": gate_say(gs) if ov else "in progress", "next": "next"}[st]})
     return out
 
 
