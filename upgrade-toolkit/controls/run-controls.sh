@@ -71,6 +71,8 @@
 # Batch 4 setup (B4T2-1/2/7/12/13, B4N1-1/2/3/16): fixtures-log-* (versioned fixture logs), setup-* (setup-container.sh
 #              steps over fake curl/apt-get/python/mxcli), guard-no-app-* / -names-* / -noop-*, mxrun-hostile-env-*,
 #              runapp-const-* / -harness-* / -log-db-*, gate-const-* / gate-help-full-header-pass.
+# LAY (layout rung): layoutdiff-* / geometry-* / layoutwalk-* (fixtures/layout, trimmed .geo.json of a real React upgrade), gate-layout-*,
+#              theme-clash-dojo-table-* (Dojo mxui table rules on React scroll containers in own and vendor SCSS).
 # Plan 9b: theme-clash-* (bin/theme_clash.py over fixtures/theme/: an old and new atlas_core tree plus one app-own
 #              styling case per clash kind, the pass cases, the vendor skip, the no-atlas exit 3, the JSON round trip).
 # Plan 6a (quality-judgement-plan.md section 3): impact-actions-* (bin/impact_actions.py over action_inventory.py's reach:
@@ -1529,6 +1531,12 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 # F1: force-ui.txt reaches stepupdate as --force-ui (else --unattended keeps every edited module), replay/<Module>.mdl runs after the updates
 mkdir -p $V/pw3/replay; printf '# update anyway, replay\nMendixSSO\nAtlas_Core\n' > $V/pw3/force-ui.txt; echo 'alter entity X.Y drop validation rule;' > $V/pw3/replay/MendixSSO.mdl; : > $V/pw3/replay/Atlas_Core.patch
 ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-ui MendixSSO.?,Atlas_Core --saved-edits .*/pw3/saved-edits' 'exec .*/pw3/replay/MendixSSO\.mdl -p ' 'git -C .*/papp apply --check .*/pw3/replay/Atlas_Core\.patch' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw3 --only update --dry-run
+# the version ladder: --to picks the route from the start version (9.x through the newest 10.24 toolset; 10.24 straight on)
+mkdir -p $V/ltools/mxbuild-10.24.9.1 $V/ltools/mxbuild-10.24.27.1
+ctl pipeline-ladder-9-goes-through-10-24-pass 0 'version ladder 9\.24\.2\.1 -> 10\.24\.27\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
+ctl pipeline-ladder-10-24-goes-straight-pass 0 'version ladder 10\.24\.3\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.3.1 --to 11.12.7 --work $V/lw --dry-run
+ctl pipeline-ladder-no-10-24-toolset-catch 2 'goes to 11\.12\.7 through 10\.24: no mxbuild-10\.24\.\* toolset found, give --via' '!unexpected failure' -- env UPG_TOOLS=$V/none bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
+ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --target 10.24.1 --work $V/lw --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
 mkdir -p $V/pw4/replay; printf 'MendixSSO\n' > $V/pw4/force-ui.txt; echo 'create or modify association A.R_X from A.R to B.U;' > $V/pw4/replay/MendixSSO.mdl
@@ -2361,6 +2369,12 @@ ctl journeys-coverage-closed-row-defect-pass 0 'FAIL +plan-row .*\[BASELINE DEFE
 ctl journeys-coverage-closed-row-no-evidence-catch 1 'FAIL +plan-row ' '!plan-row .*BASELINE DEFECT' 'coverage INVALID: 1 baseline defects without evidence' -- $RJC --work $CV/d3c "${CVD[@]}"
 ctl journeys-coverage-defect-old-app-line-catch 3 'OLD-APP .*old-app.log:9: the file has 3 lines' 'coverage INVALID: 1 baseline defects' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-old9.txt
 ctl journeys-coverage-defect-old-app-file-catch 3 'OLD-APP .*gone.log: no such file' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-oldgone.txt
+# Field run: a rerun reorders the old-app output, so a cited line can drift onto another journey's row. One line naming
+# this journey elsewhere in the file is accepted (with the new line); none, or a cited line naming another journey, is not
+printf '  FAIL    j4-Administrator x\n  FAIL    j3-Administrator y\n' > $CV/jout.txt; printf '  FAIL    j4-Administrator x\n' > $CV/jout4.txt
+echo 'j3-Administrator OLD-APP jout.txt:1 # control: the line moved' > $CV/ev-drift.txt; echo 'j3-Administrator OLD-APP jout4.txt:1 # control' > $CV/ev-drift4.txt
+ctl journeys-coverage-defect-old-app-drift-pass 0 'OLD-APP: jout.txt:2 \(cited :1, which moved\)' '!coverage INVALID' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-drift.txt
+ctl journeys-coverage-defect-old-app-drift-catch 3 'OLD-APP .*jout4.txt:1: line 1 names another journey and j3-Administrator is not in the file' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-drift4.txt
 cvs $CV/r1/before $CV/gen ''; cvs $CV/r2/before $CV/gen 'j3=FAIL'
 echo 'j3-Administrator FLAKY r1 r2 # control: one of two reruns passed' > $CV/ev-flaky.txt; echo 'j3-Administrator FLAKY r2 r2 # control' > $CV/ev-flaky2.txt
 ctl journeys-coverage-defect-flaky-pass 0 '\[BASELINE DEFECT FLAKY \(FLAKY: reruns PASS / FAIL\)\]' '!coverage INVALID' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-flaky.txt
@@ -3132,7 +3146,7 @@ ctl release-impact-orphan-returns-pass 0 '\| 4 \| 11\.6\.8 \| breaking .*\| hand
 sed -E 's/^(\| 1 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 handled: evidence\/dotnet.md |/; s/^(\| 3 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 not relevant: own words |/' $RI/n19.md > $RI/n19w.md
 ctl release-impact-would-auto-catch 0 'auto would also decide 2 rows that carry a human entry; 1 of them differ in kind \(auto says not relevant, the person says handled\)' 'row 1 \(11\.6\.5\): human `handled: evidence/dotnet\.md` vs not relevant \(auto\): dotnet-ide-host' 'This run: 8 auto, 2 kept from a person, 2 open\.' '!row 3 \(11\.6\.7\): human' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19w.md; cat $RI/n19w.md"
 ctl release-impact-would-auto-quiet-pass 0 '!auto would also decide' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19q.md"
-BRV=${UPG_BRAIN:-$HOME/Mendix/personal-toolkit/company-brain-test/brain}
+BRV=${UPG_BRAIN:-$HOME/Mendix/<company>-brain}
 if [ -f $BRV/baseline/versions/studio-pro-upgrade-10.md ] && [ -f $BRV/baseline/versions/modules/task-queue-helpers.md ]; then
   # the real brain, read only. The 3.1.0 jump has no ShowSystemQueuesInCharts row in the brain (a gap, FEEDBACK V31-RI),
   # so the module catch uses the 3.1.0 requirement row.
@@ -3448,7 +3462,7 @@ else skip field-e6-ledger "no E6 ledger"; fi
 # GATE_STUB_RC_<name> / GATE_STUB_OUT_<name>), so the driver's own logic is what is judged: path checks, rc mapping,
 # summary, exit code. UPG_NODE=python3 runs the stub smokewalk.js without Node.
 GB=$T/gate-bin; GI=$T/gate-in; mkdir -p "$GB" "$GI/jd" "$GI/jb" "$GI/sb" "$GI/rd1" "$GI/rd2" "$GI/am"
-for n in idcheck.py constcheck.py diff.py logdiff.py shotdiff.py run_journeys.py release_impact.py restcontract.py smokewalk.js smokewalk_gen.py apimock.py widgetcover.py; do
+for n in idcheck.py constcheck.py diff.py logdiff.py shotdiff.py run_journeys.py release_impact.py restcontract.py smokewalk.js smokewalk_gen.py apimock.py widgetcover.py layoutdiff.py; do
   cp "$FX/bin/gate-stub.py" "$GB/$n"
 done
 for n in old.mda new.mda before.json after.json old.log new.log smoke-before.json smoke-plan.json users.json release-impact.md build.log \
@@ -3478,8 +3492,8 @@ ctl gate-smoke-login-path-catch 0 '^\[smoke\] .*smokewalk\.js .*--login-path /lo
 ctl gate-smoke-no-login-path-pass 0 '^\[smoke\] .*smokewalk\.js' '!--login-path' -- gcase dryloginp2 --dry-run
 ctl gate-smoke-no-repeat-pass 0 '^\[smoke\] .*smokewalk\.js' '!--repeat' -- gcase dry2 --dry-run
 ctl gate-dry-run-writes-nothing-pass 0 'no stub log' '!gate-summary' -- sh -c "test ! -e $GI/stub-dry.log && test ! -e $GI/w/gatedry && echo 'no stub log'"
-ctl gate-all-pass 0 'Overall: \*\*PASS\*\*' '\| 1 \| build \| PASS \|' '\| 4 \| data \| PASS\* \|' '\| 5 \| rest \| PASS \|' '\| 10 \| release \| PASS \|' '!FAIL \||INVALID \||\| (build|idcheck|const|data|rest|logdiff|smoke|journeys|screens|release|apis|widgets) \| NOT RUN \|' \
-  -- gcase pass GATE_STUB_OUT_diff='INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 3 | PASS 84' WIDGETS_APP=$GI
+ctl gate-all-pass 0 'Overall: \*\*PASS\*\*' '\| 1 \| build \| PASS \|' '\| 4 \| data \| PASS\* \|' '\| 5 \| rest \| PASS \|' '\| 11 \| release \| PASS \|' '!FAIL \||INVALID \||\| (build|idcheck|const|data|rest|logdiff|smoke|layout|journeys|screens|release|apis|widgets) \| NOT RUN \|' \
+  -- gcase pass GATE_STUB_OUT_diff='INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 3 | PASS 84' WIDGETS_APP=$GI LAYOUT_OLD=$FX/layout/old LAYOUT_NEW=$FX/layout/old
 # --- report words and the progress line (positive-verdict.md; PV-POS-1): the human layer over the unchanged codes ------------
 # 12 rungs, all configured in gcase (rest, apis, widgets with WIDGETS_APP): owed = 12 rungs + owner sign-off = 13
 ctl gate-regression-never-complete-catch 1 'Overall: \*\*FAIL\*\*' 'Progress: [0-9]+ of 13 checks closed' '1 with REGRESSIONS to fix' 'journeys: REGRESSION to fix' '!0 with REGRESSIONS' '!complete' \
@@ -3548,7 +3562,7 @@ ctl gate-old-shot-accept-key-catch 2 "unknown key 'SHOT_ACCEPT'" -- bash $B/gate
 # "BUILD SUCCEEDED" alone is not a clean build: an "ERROR at" line in the same log fails the rung
 printf 'BUILD SUCCEEDED\nERROR at Module.Page: x\n' > "$GI/build-err.log"
 ctl gate-build-error-lines-catch 1 '\| 1 \| build \| FAIL \|' 'Overall: \*\*FAIL' -- gcase berr BUILD_LOG=$GI/build-err.log
-ctl gate-not-run-catch 2 'Overall: \*\*INVALID' '\| 8 \| journeys \| NOT RUN \| - \| skipped on request: no browser here' '\| 7 \| smoke \| NOT RUN \| - \| not selected' \
+ctl gate-not-run-catch 2 'Overall: \*\*INVALID' '\| 9 \| journeys \| NOT RUN \| - \| skipped on request: no browser here' '\| 7 \| smoke \| NOT RUN \| - \| not selected' \
   -- gcase notrun --only build,idcheck,const,data,rest,logdiff,journeys,screens,release --skip journeys='no browser here'
 ctl gate-not-configured-catch 2 '\| 1 \| build \| NOT RUN \| - \| not configured' '\| 4 \| data \| PASS \|' 'Overall: \*\*INVALID' \
   -- env UPG_GATE_BIN=$GB UPG_PYTHON=python3 bash -c "bash $B/gate.sh WORK=$GI/w LABEL=nc BEFORE_JSON=$GI/before.json AFTER_JSON=$GI/after.json; rc=\$?; cat $GI/w/gatenc/gate-summary.md; exit \$rc"
@@ -3569,10 +3583,16 @@ ctl gate-journey-actions-waive-dry-pass 0 '^\[journeys\] .*--no-actions no\\ mod
 ctl gate-journey-actions-missing-catch 2 'ACTIONS: no such file' -- gcase acm --dry-run ACTIONS=$GI/nope-actions.json
 ctl gate-journey-evidence-missing-catch 2 'JOURNEY_EVIDENCE: no such file' -- gcase evm --dry-run JOURNEY_EVIDENCE=$GI/nope-ev.txt
 JOUTC=$'journeys: 4 PASS, 1 FAIL, 0 INVALID\nactions 6 found · 4 generated (2 todo: combobox 1, no journey 1) · 3 pass on baseline (1 defect) · 3 pass on new · 0 regression · coverage 3/6 (50%)\ndefects: 1 failing on the baseline: 1 with evidence (OLD-APP 1) = 1 PASS*, 0 without (INVALID)'
-ctl gate-journey-coverage-passstar-pass 0 '\| 8 \| journeys \| PASS\* \| 0 \| journeys: 4 PASS, 1 FAIL, 0 INVALID;actions 6 found · 4 generated' -- gcase jcov GATE_STUB_OUT_run_journeys="$JOUTC"
+ctl gate-journey-coverage-passstar-pass 0 '\| 9 \| journeys \| PASS\* \| 0 \| journeys: 4 PASS, 1 FAIL, 0 INVALID;actions 6 found · 4 generated' -- gcase jcov GATE_STUB_OUT_run_journeys="$JOUTC"
 JOUTI=$'journeys: 5 PASS, 0 FAIL, 0 INVALID\nactions 6 found · 4 generated (2 todo: combobox 1, no journey 1) · 4 pass on baseline (0 defect) · 4 pass on new · 0 regression · coverage 4/6 (66%)\n  coverage INVALID: journey set changed since the baseline (sha256 aaaaaaaaaaaa then, bbbbbbbbbbbb now): run before-picked again on this set\nverdict: INVALID only (exit 3): no REGRESSION, no open REVIEW; 0 journeys INVALID, 0 SCREEN INVALID, 0 failing on the baseline, 0 EFFECT INVALID, 1 coverage rules broken'
-ctl gate-journey-coverage-rc3-catch 2 '\| 8 \| journeys \| INVALID \| 3 \| INVALID only \(exit 3\).*1 coverage rules broken; coverage INVALID: journey set changed since the baseline .*; actions 6 found · ' \
+ctl gate-journey-coverage-rc3-catch 2 '\| 9 \| journeys \| INVALID \| 3 \| INVALID only \(exit 3\).*1 coverage rules broken; coverage INVALID: journey set changed since the baseline .*; actions 6 found · ' \
   '!\| journeys \| (FAIL|PASS)' -- gcase jcovi GATE_STUB_RC_run_journeys=3 GATE_STUB_OUT_run_journeys="$JOUTI"
+# Field run: the summary line counts FAIL, but when every per-journey FAIL line is a tagged BASELINE DEFECT the rung needs
+# a decision, not a fix; one untagged FAIL line keeps it a regression
+JOUTB=$'journeys: 4 PASS, 1 FAIL, 0 INVALID\n  FAIL    j3-User  x [BASELINE DEFECT (before FAIL): no evidence]'
+JOUTU=$'journeys: 3 PASS, 2 FAIL, 0 INVALID\n  FAIL    j3-User  x [BASELINE DEFECT (before FAIL): no evidence]\n  FAIL    j4-User  y'
+ctl gate-journey-baseline-only-decision-pass 1 'journeys: needs a decision' '!journeys: REGRESSION to fix' -- gcase jbd GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys="$JOUTB"
+ctl gate-journey-untagged-fail-regression-catch 1 'journeys: REGRESSION to fix' -- gcase jbu GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys="$JOUTU"
 # the config file: relative paths resolve against the config's own folder, so a worker's cwd cannot break them
 printf 'WORK=w\nLABEL=cf\nBEFORE_JSON=before.json\nAFTER_JSON=after.json\n' > "$GI/gate.conf"
 ctl gate-config-relative-pass 0 "\[data\] .*diff\.py $GI/before\.json $GI/after\.json" -- sh -c "cd / && UPG_GATE_BIN=$GB UPG_PYTHON=python3 bash $B/gate.sh --config $GI/gate.conf --dry-run"
@@ -3580,7 +3600,7 @@ printf 'BEFORE_JSON=before.json\nAFTER_JSON=gone/after.json\n' > "$GI/bad.conf"
 ctl gate-config-relative-catch 2 "AFTER_JSON: no such file: $GI/gone/after\.json" -- sh -c "cd / && bash $B/gate.sh --config $GI/bad.conf --dry-run"
 # N1R2-8 / T2R3-11: run_journeys exit 3 (INVALID only) is INVALID with its advice as the line, never FAIL
 JOUT3=$'journeys: 3 PASS, 1 FAIL, 0 INVALID\nscreens: 1 PASS, 0 PASS*, 0 REVIEW, 0 INVALID\nverdict: INVALID only (exit 3): no REGRESSION, no open REVIEW; 0 journeys INVALID, 0 SCREEN INVALID, 1 failing on the baseline\n  baseline: howto-User fail on the OLD app too: drop or fix these journeys (they say nothing about the upgrade), then run before-picked again on its own fresh copy'
-ctl gate-journeys-rc3-invalid-catch 2 '\| 8 \| journeys \| INVALID \| 3 \| INVALID only \(exit 3\).*; baseline: howto-User .*drop or fix' 'Overall: \*\*INVALID\*\*' '!Overall: \*\*FAIL|\| journeys \| FAIL' \
+ctl gate-journeys-rc3-invalid-catch 2 '\| 9 \| journeys \| INVALID \| 3 \| INVALID only \(exit 3\).*; baseline: howto-User .*drop or fix' 'Overall: \*\*INVALID\*\*' '!Overall: \*\*FAIL|\| journeys \| FAIL' \
   -- gcase jrc3 GATE_STUB_RC_run_journeys=3 "GATE_STUB_OUT_run_journeys=$JOUT3"
 # N1R2-9a / T2R3-10a: a key produced by an earlier rung's PRE counts for a later rung; a later rung's PRE does not
 ctl gate-pre-earlier-rung-produces-pass 0 'Overall: \*\*PASS' '\| 6 \| logdiff \| PASS \|' -- gcase prel NEW_LOG=$GI/w/prel-new.log "PRE_data=echo x > $GI/w/prel-new.log"
@@ -3603,14 +3623,14 @@ ctl gate-run-placeholder-pass 0 '^\[data\] PRE: createdb -T x_frozen x_after_r42
 ctl gate-run-placeholder-default-pass 0 '^\[data\] PRE: createdb x_after_[0-9]{14}$' '!\{RUN\}' -- gcase rpd --dry-run 'PRE_data=createdb x_after_{RUN}'
 ctl gate-run-bad-id-catch 2 'RUN=a-b: letters, digits and _ only' -- bash $B/gate.sh RUN=a-b --dry-run
 # T2R3-10c / N1R2-9: --only merges into the existing gate-summary.md: carried rows keep their verdict (a FAIL stays FAIL)
-ctl gate-only-merge-first-run 1 '\| 6 \| logdiff \| FAIL \| 1 \|' -- gcase mrg GATE_STUB_RC_logdiff=1 WIDGETS_APP=$GI
-ctl gate-only-merge-catch 1 'Overall: \*\*FAIL\*\*' '\| 6 \| logdiff \| FAIL \| 1 \| \(earlier run [0-9T:-]+Z\) ' '\| 8 \| journeys \| INVALID \| 3 \|' '\| 4 \| data \| PASS \| 0 \| \(earlier run ' 'Merged \(--only journeys\)' '!not selected' \
+ctl gate-only-merge-first-run 1 '\| 6 \| logdiff \| FAIL \| 1 \|' -- gcase mrg GATE_STUB_RC_logdiff=1 WIDGETS_APP=$GI LAYOUT_OLD=$FX/layout/old LAYOUT_NEW=$FX/layout/old
+ctl gate-only-merge-catch 1 'Overall: \*\*FAIL\*\*' '\| 6 \| logdiff \| FAIL \| 1 \| \(earlier run [0-9T:-]+Z\) ' '\| 9 \| journeys \| INVALID \| 3 \|' '\| 4 \| data \| PASS \| 0 \| \(earlier run ' 'Merged \(--only journeys\)' '!not selected' \
   -- gcase mrg GATE_STUB_RC_run_journeys=3 --only journeys
-ctl gate-only-merge-carry-invalid-catch 2 'Overall: \*\*INVALID\*\*' '\| 6 \| logdiff \| PASS \| 0 \| logdiff: stub ok \|$' '\| 8 \| journeys \| INVALID \| 3 \|' -- gcase mrg --only logdiff
-ctl gate-only-merge-again-pass 0 'Overall: \*\*PASS\*\*' '\| 8 \| journeys \| PASS \| 0 \|' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run [0-9T:-]+Z\) logdiff: stub ok \|' '!\(earlier run [^)]*\) \(earlier run' -- gcase mrg --only journeys
+ctl gate-only-merge-carry-invalid-catch 2 'Overall: \*\*INVALID\*\*' '\| 6 \| logdiff \| PASS \| 0 \| logdiff: stub ok \|$' '\| 9 \| journeys \| INVALID \| 3 \|' -- gcase mrg --only logdiff
+ctl gate-only-merge-again-pass 0 'Overall: \*\*PASS\*\*' '\| 9 \| journeys \| PASS \| 0 \|' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run [0-9T:-]+Z\) logdiff: stub ok \|' '!\(earlier run [^)]*\) \(earlier run' -- gcase mrg --only journeys
 ctl gate-only-no-summary-pass 2 '\| 4 \| data \| NOT RUN \| - \| not selected' '!Merged' -- gcase mrgnew --only journeys
 # RT-11: --seed-from copies an earlier gate's summary into a new GATE_DIR (a remedy trial's label), so --only merges
-ctl gate-seed-from-pass 0 'gate: seeded ' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run ' '\| 8 \| journeys \| PASS \| 0 \|' '!\| (build|idcheck|const|data|rest|logdiff|smoke|journeys|screens|release|apis|widgets) \| NOT RUN \|' 'Overall: \*\*PASS' -- gcase seed1 --only journeys --seed-from $GI/w/gatemrg
+ctl gate-seed-from-pass 0 'gate: seeded ' '\| 6 \| logdiff \| PASS \| 0 \| \(earlier run ' '\| 9 \| journeys \| PASS \| 0 \|' '!\| (build|idcheck|const|data|rest|logdiff|smoke|layout|journeys|screens|release|apis|widgets) \| NOT RUN \|' 'Overall: \*\*PASS' -- gcase seed1 --only journeys --seed-from $GI/w/gatemrg
 ctl gate-seed-from-no-only-catch 2 'seed-from needs --only' -- gcase seed2 --seed-from $GI/w/gatemrg
 ctl gate-seed-from-missing-catch 2 'seed-from .*: no gate-summary\.md there' -- gcase seed3 --only journeys --seed-from $GI/nonexistent
 ctl gate-timeout-hint-catch 2 '\| smoke \| INVALID \| 124 \| timed out after 1s \(raise GATE_TIMEOUT\)' 'raise GATE_TIMEOUT \(smoke: steps x roles x repeat\)' -- gcase tmoh GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=5
@@ -3778,12 +3798,12 @@ EOF
   python3 $B/apimock.py serve $PF --exclude Teamcenter --state $S3 --port 0 --background > /dev/null
   python3 $AM/fetch.py $B $S3 GET /c/MendixSSO.RolesLocation/api/approles/v1/environment/env1/user/u1 > /dev/null
   python3 $B/apimock.py stop --state $S3 > /dev/null
-  ctl gate-standin-real-catch 4 'Overall: \*\*PASS \(on stand-in APIs: MendixSSO; except Teamcenter: 1 items\)\*\* \(exit 4\)' '\| 11 \| apis \| EXCEPT \| 4 \|' \
+  ctl gate-standin-real-catch 4 'Overall: \*\*PASS \(on stand-in APIs: MendixSSO; except Teamcenter: 1 items\)\*\* \(exit 4\)' '\| 12 \| apis \| EXCEPT \| 4 \|' \
     '^- STAND-IN \(MendixSSO\) endpoint rest:MendixSSO\.RetrieveUserRoles: 1 requests answered$' 'Real-system behaviour was NOT checked' '!Overall: \*\*PASS\*\*' '!\(exit 0\)' \
-    '\| 11 \| apis \| EXCEPT \| 4 \| .*requests seen: 1' -- gcase sireal GATE_BIN_DIR=$GB3 APIMOCK=$S3 EXCLUDE_SYSTEMS=Teamcenter
+    '\| 12 \| apis \| EXCEPT \| 4 \| .*requests seen: 1' -- gcase sireal GATE_BIN_DIR=$GB3 APIMOCK=$S3 EXCLUDE_SYSTEMS=Teamcenter
   # B4N1-11 through the gate: the same stand-in with no request logged is INVALID, never PASS-on-stand-in
   rm -rf "$AM/st3z"; cp -r "$S3" "$AM/st3z"; : > "$AM/st3z/requests.jsonl"
-  ctl gate-apis-zero-traffic-catch 2 '\| 11 \| apis \| INVALID \| 3 \| .*requests seen: 0' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
+  ctl gate-apis-zero-traffic-catch 2 '\| 12 \| apis \| INVALID \| 3 \| .*requests seen: 0' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
     -- gcase sizero GATE_BIN_DIR=$GB3 APIMOCK=$AM/st3z EXCLUDE_SYSTEMS=Teamcenter
 else
   for c in inventory-pass unknown-invalid-catch no-exclude-catch classify-reason-catch classify-pass serve-pass rest-shape-pass odata-pass excluded-503-pass \
@@ -3935,23 +3955,23 @@ NC1='journeys: 3 PASS, 0 FAIL, 0 INVALID, 1 NOT CHECKED (excluded: Teamcenter)
 ctl gate-apis-dry-pass 0 "^\\[apis\\] .*apimock\\.py check --state $GI/am --exclude-systems Teamcenter\$" "^\\[journeys\\] .*--apimock-log $GI/am/requests\\.jsonl --exclude-systems Teamcenter" -- gcase amd --dry-run EXCLUDE_SYSTEMS=Teamcenter
 # MC-19: the optional widgets rung (bin/widgetcover.py): dry-run command, rc 3 (a used widget no walk renders) is INVALID, not configured is NOT RUN
 ctl gate-widgets-dry-pass 0 "^\\[widgets\\] .*widgetcover\\.py $GI --journeys $GI/jd\$" 'dry-run: nothing was run' -- gcase wdry --dry-run WIDGETS_APP=$GI
-ctl gate-widgets-unrendered-invalid 2 '\| 12 \| widgets \| INVALID \| 3 \|' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' -- gcase wunr GATE_STUB_RC_widgetcover=3 "GATE_STUB_OUT_widgetcover=verdict: UNRENDERED (1 of 2 used package(s))" WIDGETS_APP=$GI
-ctl gate-widgets-pass 0 '\| 12 \| widgets \| PASS \| 0 \|' 'Overall: \*\*PASS' -- gcase wpass WIDGETS_APP=$GI
+ctl gate-widgets-unrendered-invalid 2 '\| 13 \| widgets \| INVALID \| 3 \|' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' -- gcase wunr GATE_STUB_RC_widgetcover=3 "GATE_STUB_OUT_widgetcover=verdict: UNRENDERED (1 of 2 used package(s))" WIDGETS_APP=$GI
+ctl gate-widgets-pass 0 '\| 13 \| widgets \| PASS \| 0 \|' 'Overall: \*\*PASS' -- gcase wpass WIDGETS_APP=$GI
 # NMR-4 (--only leaves the other rungs NOT RUN, so the gate itself exits 2; the widgets line is what is judged): the REAL widgetcover with every gap waived reaches the gate as PASS* (reason in the detail), a full render stays PASS
 printf 'Shop.Home_Overview\nShop.Viewer_Panel\n' > $T/wc-rendered-all.txt
 printf 'Viewer.mpk # licensed viewer, walked by hand\nMarkdown.mpk # shown on a rarely used page\n' > $T/wc-waive-all.txt
 ctl gate-widgets-waived-passstar-pass 2 '^\[widgets\] PASS\* rc=0 +verdict: PASS\* 2 waived of 2 .*licensed viewer' '!\[widgets\] PASS rc' -- gcase wwv GATE_BIN_DIR=$B WIDGETS_APP=$M/widgetcover WIDGETS_WAIVE=$T/wc-waive-all.txt --only widgets
 ctl gate-widgets-rendered-plain-pass 2 '^\[widgets\] PASS rc=0 +verdict: PASS \(every' '!\[widgets\] PASS\* rc' -- gcase wfull GATE_BIN_DIR=$B WIDGETS_APP=$M/widgetcover WIDGETS_RENDERED=$T/wc-rendered-all.txt --only widgets
-ctl gate-widgets-not-configured-pass 0 '\| 12 \| widgets \| NOT RUN \| - \| not configured .*\(optional rung\)' 'Overall: \*\*PASS' -- gcase wnone
-ctl gate-except-pass 4 'Overall: \*\*PASS \(except Teamcenter: 1 items\)\*\*' '\| 8 \| journeys \| EXCEPT \| 4 \| 1 NOT CHECKED \(excluded: Teamcenter\)' '^- journeys: NOT CHECKED \(excluded: Teamcenter\) journey parts-Administrator' \
-  '\| 11 \| apis \| PASS \|' '!Overall: \*\*PASS\*\*' -- gcase exc GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1" EXCLUDE_SYSTEMS=Teamcenter
-ctl gate-except-no-systems-catch 2 '\| 8 \| journeys \| INVALID \| 4 \|' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' -- gcase exn GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1"
-ctl gate-except-unnamed-catch 2 '\| 8 \| journeys \| INVALID \| 4 \| rc 4 but no NOT CHECKED item named' '!Overall: \*\*PASS' -- gcase exu GATE_STUB_RC_run_journeys=4 EXCLUDE_SYSTEMS=Teamcenter
-ctl gate-except-fail-wins-catch 1 'Overall: \*\*FAIL\*\*' '\| 8 \| journeys \| EXCEPT \|' '\| 6 \| logdiff \| FAIL \|' '!Overall: \*\*PASS' -- gcase exf GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1" GATE_STUB_RC_logdiff=1 EXCLUDE_SYSTEMS=Teamcenter
+ctl gate-widgets-not-configured-pass 0 '\| 13 \| widgets \| NOT RUN \| - \| not configured .*\(optional rung\)' 'Overall: \*\*PASS' -- gcase wnone
+ctl gate-except-pass 4 'Overall: \*\*PASS \(except Teamcenter: 1 items\)\*\*' '\| 9 \| journeys \| EXCEPT \| 4 \| 1 NOT CHECKED \(excluded: Teamcenter\)' '^- journeys: NOT CHECKED \(excluded: Teamcenter\) journey parts-Administrator' \
+  '\| 12 \| apis \| PASS \|' '!Overall: \*\*PASS\*\*' -- gcase exc GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1" EXCLUDE_SYSTEMS=Teamcenter
+ctl gate-except-no-systems-catch 2 '\| 9 \| journeys \| INVALID \| 4 \|' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' -- gcase exn GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1"
+ctl gate-except-unnamed-catch 2 '\| 9 \| journeys \| INVALID \| 4 \| rc 4 but no NOT CHECKED item named' '!Overall: \*\*PASS' -- gcase exu GATE_STUB_RC_run_journeys=4 EXCLUDE_SYSTEMS=Teamcenter
+ctl gate-except-fail-wins-catch 1 'Overall: \*\*FAIL\*\*' '\| 9 \| journeys \| EXCEPT \|' '\| 6 \| logdiff \| FAIL \|' '!Overall: \*\*PASS' -- gcase exf GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1" GATE_STUB_RC_logdiff=1 EXCLUDE_SYSTEMS=Teamcenter
 ctl gate-except-needs-apimock-catch 2 'EXCLUDE_SYSTEMS' -- gcase exa EXCLUDE_SYSTEMS=Teamcenter APIMOCK=off --dry-run
-ctl gate-apis-invalid-catch 2 '\| 11 \| apis \| INVALID \| 3 \|' 'Overall: \*\*INVALID' -- gcase api3 GATE_STUB_RC_apimock=3 'GATE_STUB_OUT_apimock=apis 3 found · mocked 2 · excluded 0 · unknown 1'
+ctl gate-apis-invalid-catch 2 '\| 12 \| apis \| INVALID \| 3 \|' 'Overall: \*\*INVALID' -- gcase api3 GATE_STUB_RC_apimock=3 'GATE_STUB_OUT_apimock=apis 3 found · mocked 2 · excluded 0 · unknown 1'
 # smoke: rc 1 whose FAIL steps attribute-smoke clears (exit 4 + a named item) is EXCEPT; a plain smoke FAIL stays FAIL
-ctl gate-smoke-except-pass 4 '\| 7 \| smoke \| EXCEPT \| 4 \|' '\| 11 \| apis \| EXCEPT \| 4 \|' 'Overall: \*\*PASS \(except Teamcenter: 2 items\)\*\*' \
+ctl gate-smoke-except-pass 4 '\| 7 \| smoke \| EXCEPT \| 4 \|' '\| 12 \| apis \| EXCEPT \| 4 \|' 'Overall: \*\*PASS \(except Teamcenter: 2 items\)\*\*' \
   -- gcase sme GATE_STUB_RC_smokewalk=1 GATE_STUB_RC_apimock=4 'GATE_STUB_OUT_apimock=  NOT CHECKED (excluded: Teamcenter) smoke Administrator: Parts -> PFEP.Part_Overview: POST /a/x' EXCLUDE_SYSTEMS=Teamcenter
 ctl gate-smoke-fail-stays-catch 1 '\| 7 \| smoke \| FAIL \| 1 \|' 'Overall: \*\*FAIL' -- gcase smf GATE_STUB_RC_smokewalk=1 GATE_STUB_RC_apimock=1 EXCLUDE_SYSTEMS=Teamcenter
 # E2E-15: the stand-in is a stopgap. Any endpoint it answered for = "PASS (on stand-in APIs: <systems>)", exit 4, the
@@ -3960,7 +3980,7 @@ SI1='  STAND-IN (OpcenterConnector) endpoint rest:OpcenterConnector.ExecuteOpcen
   STAND-IN (EmployeeManagement) endpoint odata:EmployeeManagement.ODATA_EmployeeManagement: 0 requests answered
 stand-in systems: EmployeeManagement, OpcenterConnector
 stand-in endpoints 2 · requests answered 4'
-ctl gate-standin-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, OpcenterConnector\)\*\* \(exit 4\)' '\| 11 \| apis \| PASS \|' \
+ctl gate-standin-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, OpcenterConnector\)\*\* \(exit 4\)' '\| 12 \| apis \| PASS \|' \
   '^ON STAND-IN APIs \(E2E-15\): 2 endpoints were answered by apimock\.py' 'Real-system behaviour was NOT checked' \
   '^- STAND-IN \(OpcenterConnector\) endpoint rest:OpcenterConnector\.ExecuteOpcenterQuery: 4 requests answered$' '!Overall: \*\*PASS\*\*' -- gcase si "GATE_STUB_OUT_apimock_standin=$SI1"
 ctl gate-standin-except-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, OpcenterConnector; except Teamcenter: 1 items\)\*\*' '^- journeys: NOT CHECKED \(excluded: Teamcenter\)' \
@@ -3972,7 +3992,7 @@ ctl gate-standin-not-plain-catch 4 'Overall: \*\*PASS \(on stand-in APIs: Opcent
 ctl gate-standin-unreadable-catch 2 'Overall: \*\*INVALID\*\*' 'apimock\.py standin --state .* failed \(rc 2' '!Overall: \*\*PASS' -- gcase siu GATE_STUB_RC_apimock_standin=2 GATE_STUB_OUT_apimock_standin='apimock: no inventory.json'
 ctl gate-standin-fail-wins-catch 1 'Overall: \*\*FAIL\*\*' '\| 6 \| logdiff \| FAIL \|' '!Overall: \*\*PASS' -- gcase sif GATE_STUB_RC_logdiff=1 "GATE_STUB_OUT_apimock_standin=$SI1"
 # without APIMOCK nothing is stood in: a clean gate stays plain PASS, exit 0, and the driver never asks apimock.py
-ctl gate-no-apimock-plain-pass 0 'Overall: \*\*PASS\*\* \(exit 0\)' '\| 11 \| apis \| NOT RUN \| - \| not configured.*\(optional rung\)' '!Overall: .*stand-in|^ON STAND-IN|STAND-IN \(' -- gcase noam APIMOCK=
+ctl gate-no-apimock-plain-pass 0 'Overall: \*\*PASS\*\* \(exit 0\)' '\| 12 \| apis \| NOT RUN \| - \| not configured.*\(optional rung\)' '!Overall: .*stand-in|^ON STAND-IN|STAND-IN \(' -- gcase noam APIMOCK=
 ctl gate-no-apimock-not-asked-pass 0 'not asked' -- sh -c "! grep -q '^apimock' $GI/stub-noam.log && echo 'not asked'"
 
 # E2E-8: bin/action_inventory.py, every clickable action of the old model (the journey denominator). The golden is
@@ -4012,7 +4032,7 @@ if python3 -c 'import bson' 2>/dev/null; then
   # create-spec.json's newButton1 is a Mendix 9 grid New button: no Action key, entity and page on the widget itself.
   # Only an add-on microflow opens its page, so the path is unknown, never reported as absent.
   ctl action-inventory-newbutton-pass 0 \
-    '^OpcenterEXFN_DISW_DesignSystem\.Snippet_Configuration\.newButton1 \[GridNewButton\] create -> create OpcenterEXFN_DISW_DesignSystem\.ClientConfiguration_NewEdit .*the click path is unknown, not absent' \
+    '^OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 \[GridNewButton\] create -> create OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit .*the click path is unknown, not absent' \
     'ClientConfiguration_NewEdit\.actionButton1 .*UNKNOWN part of the flow is not in the model: EXFN_Authentication\.ACT_ClientConfiguration_NewEdit \(kind is a lower bound\)' \
     '"summary_line": "actions 9 found' -- sh -c "python3 $B/action_inventory.py $T/m/t2cards/App.mpr --out $AI/a.json && cat $AI/a.json"
   # B4T2-14: a no-click-path plan row is UNREACHABLE (PASS*, its own count) only with checked evidence. On this real
@@ -4022,18 +4042,18 @@ if python3 -c 'import bson' 2>/dev/null; then
   python3 $B/action_inventory.py $T/m/t2cards/App.mpr --out $UR/a.json > /dev/null
   python3 -c "import json; d=json.load(open('$UR/a.json')); [x.update(todo=['no-click-path (a non-click caller reaches it: entry_reach)']) for x in d['actions']]; json.dump(d, open('$UR/a-caller.json', 'w'))
 d=json.load(open('$UR/a.json')); d['model']='$UR/gone.mpr'; json.dump(d, open('$UR/a-nomodel.json', 'w'))"
-  echo '{"skipped": [{"id": "act-OpcenterEXFN_DISW_DesignSystem.Snippet_Configuration.newButton1", "action": "OpcenterEXFN_DISW_DesignSystem.Snippet_Configuration.newButton1", "why": "action todo: no-click-path"}, {"id": "act-OpcenterEXFN_DISW_DesignSystem.ClientConfiguration_NewEdit.actionButton1", "action": "OpcenterEXFN_DISW_DesignSystem.ClientConfiguration_NewEdit.actionButton1", "why": "action todo: no-click-path"}]}' > $UR/gen/plan.json
+  echo '{"skipped": [{"id": "act-OpcenterEXFN_VendorDesignSystem.Snippet_Configuration.newButton1", "action": "OpcenterEXFN_VendorDesignSystem.Snippet_Configuration.newButton1", "why": "action todo: no-click-path"}, {"id": "act-OpcenterEXFN_VendorDesignSystem.ClientConfiguration_NewEdit.actionButton1", "action": "OpcenterEXFN_VendorDesignSystem.ClientConfiguration_NewEdit.actionButton1", "why": "action todo: no-click-path"}]}' > $UR/gen/plan.json
   echo '{"journeys": {}, "roles": {}}' > $UR/w/after/summary.json
-  printf 'EXFN_Authentication.Nav_ClientConfiguration_Overview -> OpcenterEXFN_DISW_DesignSystem.ClientConfiguration_Overview\n' > $UR/addon-opens/flows.txt
+  printf 'EXFN_Authentication.Nav_ClientConfiguration_Overview -> OpcenterEXFN_VendorDesignSystem.ClientConfiguration_Overview\n' > $UR/addon-opens/flows.txt
   printf 'EXFN_Authentication.Login -> EXFN_Authentication.Home\n' > $UR/addon-silent/flows.txt
-  ure() { printf 'act-OpcenterEXFN_DISW_DesignSystem.* UNREACHABLE %s # control\n' "$2" > $UR/$1.txt; }
+  ure() { printf 'act-OpcenterEXFN_VendorDesignSystem.* UNREACHABLE %s # control\n' "$2" > $UR/$1.txt; }
   ure ev-ok "$UR/a.json EXFN_Authentication=addon-silent"; ure ev-opens "$UR/a.json EXFN_Authentication=addon-opens"
   ure ev-noaddon "$UR/a.json"; ure ev-caller "$UR/a-caller.json EXFN_Authentication=addon-silent"; ure ev-nomodel "$UR/a-nomodel.json EXFN_Authentication=addon-silent"
   RJU="python3 $B/run_journeys.py $UR/gen --label after --work $UR/w --rejudge"
-  ctl journeys-unreachable-pass 0 '^  UNREACHABLE act-OpcenterEXFN_DISW_DesignSystem\.Snippet_Configuration\.newButton1 +UNREACHABLE: actions\.json: no entry point reaches .*named in EXFN_Authentication \(1 files\)' \
+  ctl journeys-unreachable-pass 0 '^  UNREACHABLE act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 +UNREACHABLE: actions\.json: no entry point reaches .*named in EXFN_Authentication \(1 files\)' \
     '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 2 PASS\* \(unreachable in the OLD UI, evidence checked\)$' '^actions 9 found .*coverage 0/9 \(0%\) · 2 todo unreachable in the OLD UI \(evidenced, PASS\*\)$' \
     -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-ok.txt
-  ctl journeys-unreachable-addon-opens-catch 3 'ClientConfiguration_NewEdit\.actionButton1 .*UNREACHABLE refused, .*EXFN_Authentication names OpcenterEXFN_DISW_DesignSystem\.ClientConfiguration_Overview \(flows\.txt\), which leads to OpcenterEXFN_DISW_DesignSystem\.ClientConfiguration_NewEdit' \
+  ctl journeys-unreachable-addon-opens-catch 3 'ClientConfiguration_NewEdit\.actionButton1 .*UNREACHABLE refused, .*EXFN_Authentication names OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_Overview \(flows\.txt\), which leads to OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit' \
     '^journeys: 0 PASS, 0 FAIL, 2 INVALID$' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-opens.txt
   ctl journeys-unreachable-no-addon-catch 3 'UNREACHABLE refused, .*give EXFN_Authentication=<its project.mpr' '!PASS\* \(unreachable' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-noaddon.txt
   ctl journeys-unreachable-no-actions-catch 3 'UNREACHABLE refused, .*--actions .*none given' '!PASS\* \(unreachable' -- $RJU --baseline-evidence $UR/ev-ok.txt
@@ -4260,7 +4280,7 @@ if python3 -c 'import bson' 2>/dev/null; then
   ctl gen-actions-walk-pass 0 '"persona": "Administrator"' '"do": "nav"' '"item": "Home"' '"ready": "\.mx-name-container1"' '"do": "click"' '"widget": "container1"' '"_guard": "StarterKit\.Contents: no landing widget' \
     -- cat $T/gen-act/journeys/Administrator/act-StarterKit.Home_Gallery.container1.journey.json
   ctl gen-actions-role-pass 0 'act-StarterKit\.Home_Gallery\.container5\.journey\.json' -- ls $T/gen-act/journeys/User
-  ctl gen-actions-todo-skipped-catch 0 "skipped act-OpcenterEXFN_DISW_DesignSystem\.Snippet_Configuration\.newButton1 \['no-click-path'\] action todo: no-click-path" '^skipped 4$' \
+  ctl gen-actions-todo-skipped-catch 0 "skipped act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 \['no-click-path'\] action todo: no-click-path" '^skipped 4$' \
     -- python3 -c "import json; s=json.load(open('$T/gen-act/plan.json'))['skipped']; [print('skipped', e['id'], e['reasons'], e['why']) for e in s]; print('skipped', len(s))"
   # catch: a todo added to one action turns its journey into a skipped entry; the count still follows the model
   python3 -c "import json; d=json.load(open('$AI/a.json')); [a.update(todo=['combobox: mutant']) for a in d['actions'] if a['id'].endswith('.container1')]; json.dump(d, open('$AI/a-todo.json', 'w'))"
@@ -4272,13 +4292,13 @@ if python3 -c 'import bson' 2>/dev/null; then
   # the T2R3 create-spec (copied from the run branch) walks newButton1 + the form's actionButton1: it wins per action
   ctl gen-actions-override-pass 0 '^actions 9 found · 5 generated · 2 by --create override · 2 not generated by reason no-click-path 2$' \
     -- $GAJ --out-dir $T/gen-act-ov --create $FX/actions/t2r3-create-spec.json
-  ctl gen-actions-override-closes-pass 0 "closes \['act-OpcenterEXFN_DISW_DesignSystem\.Snippet_Configuration\.newButton1', 'act-OpcenterEXFN_DISW_DesignSystem\.ClientConfiguration_NewEdit\.actionButton1'\]" 'covered .*newButton1 create-save' \
+  ctl gen-actions-override-closes-pass 0 "closes \['act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1', 'act-OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit\.actionButton1'\]" 'covered .*newButton1 create-save' \
     -- python3 -c "import json; print('closes', json.load(open('$T/gen-act-ov/journeys/Administrator/create-save.journey.json'))['closes']); [print('covered', c['id'], c['closed_by']) for c in json.load(open('$T/gen-act-ov/plan.json'))['covered']]"
   # E2E-11 link: run_journeys counts coverage by each journey's "action" / "covers" (raw action ids). Before the r7
   # integration the generator wrote only "_action" / "closes" (act- ids), so every action stayed ungenerated (G=0).
   JSL="import sys,json; sys.path.insert(0,'$B'); import run_journeys as r; l=r.journey_set(sys.argv[1])['links']; [print(k, v) for k, v in sorted(l.items())]; print('linked', sum(1 for v in l.values() if v))"
   ctl gen-actions-coverage-link-pass 0 "^act-StarterKit\.Home_Gallery\.container1 \['StarterKit\.Home_Gallery\.container1'\]" \
-    "^create-save \['OpcenterEXFN_DISW_DesignSystem\.ClientConfiguration_NewEdit\.actionButton1', 'OpcenterEXFN_DISW_DesignSystem\.Snippet_Configuration\.newButton1'\]" '^linked 6$' \
+    "^create-save \['OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit\.actionButton1', 'OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1'\]" '^linked 6$' \
     -- python3 -c "$JSL" $T/gen-act-ov
   # catch: a generated journey without the link is counted as linking nothing
   rm -rf $T/gen-act-nolink && cp -r $T/gen-act-ov $T/gen-act-nolink && python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop('action'); json.dump(d, open(p,'w'))" $T/gen-act-nolink/journeys/Administrator/act-StarterKit.Home_Gallery.container1.journey.json
@@ -5758,13 +5778,13 @@ ctl customer-names-tracked-toolkit-pass 0 'customer-names: (clean|no private lis
 # internal domain) and exported with the licence; the public sandbox.mxapps.io of the release notes passes. Mini repo.
 xp_repo() {  # $1 dir, $2 text of the one exported step file
   mkdir -p $1/upgrade-toolkit/bin $1/upgrade-toolkit/steps
-  cp $B/export-public.sh $B/private_names.sh $1/upgrade-toolkit/bin/
+  cp $B/export-public.sh $B/private_names.sh $B/private_hosts.sh $1/upgrade-toolkit/bin/
   cp $TK/PUBLIC-README.md $TK/PUBLIC-LICENSE $1/upgrade-toolkit/
   printf '%s\n' "$2" > $1/upgrade-toolkit/steps/x.md
   git -C $1 init -q && git -C $1 add -A && git -C $1 -c user.email=ctl@example.invalid -c user.name=ctl commit -qm x
 }
 xp_repo $T/xp-catch "constant https://acme-accp.mendix""cloud.com/odata/v1"   # split, so this file passes the check
-xp_repo $T/xp-pass 'license check for sandbox.mxapps.io domain, advisory on cert-portal.siemens.com'
+xp_repo $T/xp-pass 'license check for sandbox.mxapps.io domain, advisory on advisories.example-vendor.com'
 UPG_PRIVATE_NAMES=$T/cn-names.txt ctl export-public-host-catch 1 'REFUSED: real deployment or internal hostnames' 'steps/x\.md:1:acme-accp\.mendixcloud\.com' -- bash $T/xp-catch/upgrade-toolkit/bin/export-public.sh $T/xp-out-catch
 UPG_PRIVATE_NAMES=$T/cn-names.txt ctl export-public-sandbox-pass 0 '^export .* Not pushed\.$' '!REFUSED' -- bash $T/xp-pass/upgrade-toolkit/bin/export-public.sh $T/xp-out-pass
 ctl export-public-licence-pass 0 'Apache License' -- head -3 $T/xp-out-pass/LICENSE
@@ -5839,7 +5859,7 @@ ctl pipeline-runlog-wired-pass 0 '^  record_runlog \|\| true$' 'STEP:-\}" = gate
 # the header and three real rows of FIELD-RUNS.md as they were with 12 columns.
 TM=$T/timing; mkdir -p $TM; GS=$here/fixtures/runlog/gate-summary.run6.md
 { sed -n '/^say() /p;/^quoted() /p;/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh
-  for f in nj_add rerun_cmd nj_flush timing_open timing_close cleanup run_step; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
+  for f in nj_add rerun_cmd nj_flush timing_open timing_close cleanup run_step decisions_apply; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
 cat > $TM/h.sh <<'HEOF'
 # h.sh WORK TIMES STEP...: run_step for each STEP the way main does, stub steps, a clock from the TIMES list
 set -Eeu
@@ -5849,7 +5869,7 @@ WORK=$1; TIMES=$2; shift 2
 date() { local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { :; }
 step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
@@ -5872,7 +5892,7 @@ cat > $TM/times-b.txt <<'EOF'
 2026-10-20T12:17:00Z
 2026-10-20T12:17:00Z
 EOF
-tmrun() { FN=$TM/fn.sh bash $TM/h.sh "$@"; echo "rc=$?"; }
+tmrun() { FN=$TM/fn.sh B=$B bash $TM/h.sh "$@"; echo "rc=$?"; }
 # A: build ok, journeys stops (exit 11) after 8 minutes; the person fixes it; 3 hours after the stop the pipeline runs again
 tmrun $TM/wa $TM/times-a.txt build journeys > /dev/null 2>&1
 cp $TM/wa/state/timing.tsv $TM/wa-first.tsv
@@ -6618,7 +6638,7 @@ ctl cockpit-steps-rows-pass 0 '^page rc=0$' "^groups: \['app', 'steps', 'setup',
 ctl cockpit-steps-drawer-shows-the-record-pass 0 '^S-2 found: The new React client cannot run the snippet widget' '^S-2 proposed: Keep every script' '^S-2 why: Same behaviour as today' '^S-2 who: Assumed by the agent\. It needs your OK\.$' '^S-2 other options: 2$' \
   "^S-2 commits: \['2222222', '3333333'\]$" "^S-2 tests: \[\('Click through pages', 'pass'\), \('User journeys', 'pass'\), \('Screens', 'pass'\)\]$" '^S-2 proof behind toggle: 3$' '^S-1 who: Approved by Ana on 2026-01-02\.$' '^S-1 commits: 1 \| tests: 2$' 'JS skips the old plan box for step rows: True' -- $CK matrix-steps-drawer
 ctl cockpit-steps-no-test-shows-a-gap-not-a-pass-catch 0 "^S-3 test: \[\['Linked checks', 'gap', 'No check is linked to this step, so nothing tested it\.'\]\] wait$" -- $CK matrix-steps-drawer
-ctl cockpit-steps-assumed-step-in-open-topics-catch 0 "\('Your call', 'jQuery scripts on the React client: Needs your OK', 'you'\)" "\('Coverage', 'Themepack styles: Test gap', 'agent'\)" '^routine step in open band: False$' '^you tile: [0-9]+ \| S-2 kind: owner \| S-3 kind: testgap$' -- $CK matrix-steps-band
+ctl cockpit-steps-assumed-step-in-open-topics-catch 0 "\('Your call', 'jQuery scripts on the React client', 'you'\)" "\('Coverage', 'Themepack styles: Test gap', 'agent'\)" '^routine step in open band: False$' '^you tile: [0-9]+ \| S-2 kind: owner \| S-3 kind: testgap$' -- $CK matrix-steps-band
 ctl cockpit-steps-missing-file-falls-back-pass 0 '^page rc=0$' '^step rows: 0$' "^groups: \['app', 'setup', 'golive'\]$" '^steps file flag: False$' "^old trail used: \['modules'\]$" "^damage notice: \[\]$" '^signoff meta: \[.4 choices were assumed by the agent.\]$' -- $CK matrix-steps-none
 ctl cockpit-steps-malformed-file-caught-catch 0 '^page rc=0$' '^step rows: 0$' '^steps file flag: False$' "^old trail used: \['modules'\]$" 'The step records are damaged \(line 3 is not an event\), so this page shows the older inputs\.' '^signoff meta: \[.4 choices were assumed by the agent.\]$' -- $CK matrix-steps-bad
 ctl cockpit-steps-incomplete-record-caught-catch 0 '^page rc=0$' '^step rows: 0$' 'The step records are damaged \(step S-1 is incomplete\)' -- $CK matrix-steps-incomplete
@@ -6667,10 +6687,15 @@ ctl steps-drow-without-step-catch 0 '^MISSING D71: the agent decided "Move order
 ctl steps-drow-with-step-pass 0 '^steps: complete$' '^rc=0$' '!MISSING' "^note: S-1: assumed by agent, an open topic" -- $SC drow-with-step
 ctl steps-drow-unknown-step-catch 0 '^MISSING D71: the row names S-5, but there is no such step' '^rc=1$' -- $SC drow-unknown-step
 ctl steps-drow-file-in-parent-folder-catch 0 '^MISSING D80: the agent decided "Drop the old theme"' '^rc=1$' -- $SC drow-in-parent
+ctl steps-phase-split-keeps-each-version-catch 0 '^found in 11\.12\.7: rc=1$' "^S-1 10\.24\.0 \['PASS', 'NOT RUN'\]$" "^S-2 11\.12\.7 \['PASS', 'PASS'\]$" '^S-1$' -- $SC phase-split
+ctl steps-standins-one-step-per-version-pass 0 "^S-1 10\.24\.0 approved \| The app makes 2 outside calls on Mendix 10\.24\.0\. 2 can be answered by a stand-in\.$" '^S-2 11\.12\.7 assumed \| .*1 gets its address from data.*Compared with the previous version: 1 new, 1 gone, 0 changed\.$' '!^S-3' -- $SC standins
+ctl cockpit-ladder-and-test-health-pass 0 "^ladder \[\('9\.24\.2\.1', 'done'\), \('10\.24\.13\.1', 'done'\), \('11\.12\.7', 'now'\)\]$" "^health \[\('10\.24\.13', \[41, 12\], \[135, 2, 38\], \[258, 224\], 1\)\]$" '^no ladder: \[\] True$' -- $SC cockpit-ladder
 ctl steps-find-topic-pass 0 '^found: S-1$' '^rc=1$' -- $SC find-topic
 # slice 6: the gate links its rungs to the steps; a missing test is a gap in plain words, never a pass
 ctl steps-gate-links-pass-and-accepted-pass 0 '^rc=0$' "^results: \[\('smoke', 'PASS'\), \('journeys', 'PASS\*'\)\]$" '^say: The page walk-through passed on the new app\.$' "^proof: \['g/gate-summary.md', 'row: journeys: 12 PASS'\]$" '^gaps: \[\]$' '^status: done$' -- $SC gate-pass
 ctl steps-gate-links-fail-catch 0 "^results: \[\('smoke', 'PASS'\), \('journeys', 'FAIL'\)\]$" 'found a problem on the new app\. 2 click paths work on the old app and fail on the new one\.$' '^status: blocked$' -- $SC gate-fail
+ctl steps-gate-fail-elsewhere-is-not-proven-catch 0 "^results: \[\('smoke', 'PASS'\), \('journeys', 'NOT RUN'\)\]$" '^gap: The click paths found a problem elsewhere in the app, not in this step, so this step is not proven yet\.$' '^status: open$' -- $SC gate-fail-elsewhere
+ctl steps-gate-build-fail-fails-every-step-catch 0 "^build: \['FAIL'\]$" -- $SC gate-fail-build
 ctl steps-gate-not-run-is-a-gap-catch 0 "^results: \[\('smoke', 'PASS'\), \('journeys', 'NOT RUN'\)\]$" '^gap: The click paths did not run, so nothing has shown that this works\.$' '^status: open$' -- $SC gate-gap
 ctl steps-gate-invalid-is-a-gap-catch 0 '^smoke: NOT RUN / The page walk-through could not judge, so nothing has shown that this works\.$' -- $SC gate-invalid-is-gap
 ctl steps-gate-missing-row-is-a-gap-catch 0 '^journeys: NOT RUN / No result for the click paths was found, so nothing tested this\.$' -- $SC gate-missing-row
@@ -6688,12 +6713,12 @@ gsteps() {   # gsteps LABEL RUNG [GATE_*=v ...]: a work folder with one step tha
   python3 $B/steps.py show --work "$W" S-1 --json | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print("step:", [(r["rung"], r["verdict"]) for r in d["tested"]["results"]], d["status"])'
 }
 ctl gate-steps-linked-after-rungs-pass 0 'steps: tested --gate: 1 event' '^gate: PASS$' '^gate rc=0$' "^step: \[\('build', 'PASS'\)\] open$" -- gsteps gst1 build
-ctl gate-steps-failing-rung-keeps-verdict-catch 0 '^gate: FAIL$' '^gate rc=1$' "^step: \[\('journeys', 'FAIL'\)\] blocked$" -- gsteps gst2 journeys GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys='journeys: 9 PASS, 2 FAIL'
+ctl gate-steps-failing-rung-keeps-verdict-catch 0 '^gate: FAIL$' '^gate rc=1$' "^step: \[\('journeys', 'FAIL'\)\] blocked$" -- gsteps gst2 journeys GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys='journeys: 9 PASS, 2 FAIL in Gridmod'
 gnosteps() { gcase "$1" WORK=$GI/ws-$1 WIDGETS_APP=$GI 2>&1 | grep -E '^gate: PASS|steps: tested' | sed 's/ (exit.*//; s/;.*//'; test -f "$GI/ws-$1/steps.jsonl" && echo "steps file made" || echo "no steps file"; }
 ctl gate-steps-absent-file-nothing-written-pass 0 '^gate: PASS$' '^no steps file$' '!steps: tested' -- gnosteps gst3
 
 # slice 9: a plan that converts opens a convert step; housekeeping config commits read "housekeeping", not "no step"
-ctl proposal-steps-convert-step-opened-catch 0 '^S-[0-9]+ convert alias=- approval=none .* found=True proposed=True$' -- bash $PR/ssum.sh $PR/kept
+ctl proposal-steps-convert-step-opened-catch 0 '^S-[0-9]+ convert alias=- approval=none .* found=True proposed=True$' -- bash ${PR:-}/ssum.sh ${PR:-}/kept
 HK=$T/hk; rm -rf $HK; mkdir -p $HK/w; HK=$(cd $HK && pwd -P)
 git -C $HK init -q; echo shop > $HK/shop.txt; git -C $HK add -A .
 git -C $HK commit -qm "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')"
@@ -6716,17 +6741,17 @@ gtrail() {   # gtrail LABEL MODE [GATE_*=v ...]: a work folder (MODE ok | notest
   [ $mode = nodrow ] && printf '# Agent decisions\n\n| id | decision |\n|---|---|\n| D1 | Moved the cart scripts |\n' > "$W/AGENT-DECISIONS.md"
   local extra=""; [ $mode = notest ] && extra="--skip rest=no_rest_service"
   gcase "$label" "$@" WORK=$W WIDGETS_APP=$GI $extra > "$GI/gt-$label.out" 2>&1; local rc=$?
-  grep -E '^\| 13 \| trail \|' "$W/gate$label/gate-summary.md" | cut -c1-170; grep -oE '^gate: (PASS|FAIL|INVALID)' "$GI/gt-$label.out"; echo "gate rc=$rc"
+  grep -E '^\| 14 \| trail \|' "$W/gate$label/gate-summary.md" | cut -c1-170; grep -oE '^gate: (PASS|FAIL|INVALID)' "$GI/gt-$label.out"; echo "gate rc=$rc"
 }
-ctl gate-trail-complete-pass 0 '^\| 13 \| trail \| PASS \| 0 \| trail: complete, 1 steps' '^gate: PASS' '^gate rc=0$' -- gtrail gt1 ok
-ctl gate-trail-missing-test-warns-catch 0 '^\| 13 \| trail \| NOT RUN \| - \| WARNING: trail: 1 gap' '^gate: PASS' '^gate rc=0$' -- gtrail gt2 notest
-ctl gate-trail-unnamed-d-row-warns-catch 0 '^\| 13 \| trail \| NOT RUN \| - \| WARNING: trail: ' '^gate: PASS' '^gate rc=0$' -- gtrail gt3 nodrow
+ctl gate-trail-complete-pass 0 '^\| 14 \| trail \| PASS \| 0 \| trail: complete, 1 steps' '^gate: PASS' '^gate rc=0$' -- gtrail gt1 ok
+ctl gate-trail-missing-test-warns-catch 0 '^\| 14 \| trail \| NOT RUN \| - \| WARNING: trail: 1 gap' '^gate: PASS' '^gate rc=0$' -- gtrail gt2 notest
+ctl gate-trail-unnamed-d-row-warns-catch 0 '^\| 14 \| trail \| NOT RUN \| - \| WARNING: trail: ' '^gate: PASS' '^gate rc=0$' -- gtrail gt3 nodrow
 ctl gate-trail-optional-never-fails-pass 0 '^gate: PASS' '!^gate: (FAIL|INVALID)' '^gate rc=0$' -- gtrail gt4 notest
-ctl gate-trail-required-switch-invalid-catch 0 '^\| 13 \| trail \| INVALID \|' '^gate: INVALID' '^gate rc=2$' -- gtrail gt5 notest TRAIL_REQUIRED=1
-ctl gate-trail-required-complete-pass 0 '^\| 13 \| trail \| PASS \|' '^gate: PASS' '^gate rc=0$' -- gtrail gt6 ok TRAIL_REQUIRED=1
-ctl gate-trail-no-step-file-not-run-pass 0 '^\| 13 \| trail \| NOT RUN \| - \| no step records in this run' '^gate: PASS' '^gate rc=0$' -- gtrail gt7 nofile
+ctl gate-trail-required-switch-invalid-catch 0 '^\| 14 \| trail \| INVALID \|' '^gate: INVALID' '^gate rc=2$' -- gtrail gt5 notest TRAIL_REQUIRED=1
+ctl gate-trail-required-complete-pass 0 '^\| 14 \| trail \| PASS \|' '^gate: PASS' '^gate rc=0$' -- gtrail gt6 ok TRAIL_REQUIRED=1
+ctl gate-trail-no-step-file-not-run-pass 0 '^\| 14 \| trail \| NOT RUN \| - \| no step records in this run' '^gate: PASS' '^gate rc=0$' -- gtrail gt7 nofile
 ctl steps-legacy-import-fixture-pass 0 '^rc=0$' '^steps: 12$' '^assumed: 7 approved: 5 none: 0$' '^all events source legacy: True$' -- $SC legacy-import
-ctl steps-legacy-rerun-adds-nothing-pass 0 '^lines before: +128 after: +128$' -- $SC legacy-rerun
+ctl steps-legacy-rerun-adds-nothing-pass 0 '^lines before: +148 after: +148$' -- $SC legacy-rerun
 ctl steps-legacy-jquery-assumed-step-catch 0 'jQuery scripts moved into JavaScript actions \| assumed by agent source legacy' -- $SC legacy-jquery
 ctl steps-legacy-merge-pass 0 'order-grid steps under one topic: 2' '^unclaimed D rows with a step of their own: ' -- $SC legacy-merge
 ctl steps-legacy-person-answer-kept-pass 0 '^S-10: approved by Ana$' -- $SC legacy-person-answer-kept
@@ -6737,6 +6762,14 @@ ctl steps-legacy-duplicate-topics-merge-pass 0 '^jQuery steps: 1$' "^D3 and D3a 
 ctl steps-kind-choice-or-log-pass 0 '^choice <- OPEN: cart page' '^log <- mx check is 0 errors' '^choice <- jQuery scripts' '^log <- Two stale script tags' '^choice <- Gridmod' -- $SC kind-choice-log
 ctl steps-check-log-row-names-parent-pass 0 '^steps: complete$' '^rc=0$' '!MISSING' -- $SC check-log-names-parent
 ctl steps-legacy-commits-pass 0 'cart page commits: 1' -- $SC legacy-commits
+ctl steps-legacy-match-by-d-number-pass 0 '^swap the carousel \(D4\) -> S-5 \| matched by D4 \| legacy$' '^repair D2b: Themepack style files +-> S-9 \| matched by D2 \| legacy$' -- $SC legacy-match
+ctl steps-legacy-match-by-module-name-pass 0 '^step: Cartkit 3.0.0 \(stepupdate, i -> S-2 \| matched by module name \| legacy$' '^step: Shopkit 1.0.0 \(stepupdate, i -> S-1 \| matched as a routine module update \| legacy$' -- $SC legacy-match
+ctl steps-legacy-match-housekeeping-not-listed-catch 0 ' 1 housekeeping, 2 unmatched$' '!unmatched: .*regenerated stubs' -- $SC legacy-match
+ctl steps-legacy-match-unmatched-listed-not-guessed-catch 0 '^  unmatched: tidy the footer colours  \(no step names it\)$' '^  unmatched: convert 11\.12\.6  \(this run has no convert step\)$' '!(tidy|convert).* -> S-' -- $SC legacy-match
+ctl steps-legacy-rungs-from-kind-pass 0 '^Keep or update module Cartkit closes by build, idcheck, smoke, journeys$' '^Themepack style files closes by smoke, screens, journeys$' \
+    '^module step results: build PASS, idcheck NOT RUN, smoke PASS, journeys PASS$' '^result proof: legacy \| matched by the kind of step: .* \| gate/gate-summary\.md$' -- $SC legacy-rungs
+ctl steps-legacy-no-rung-stays-a-gap-in-plain-words-catch 0 '^no rung: Order export \| No check of the gate fits this step, because .* It stays a gap\. The run.s own note says' -- $SC legacy-rungs
+ctl steps-legacy-match-rerun-adds-nothing-pass 0 '^rerun added nothing$' '!added events' -- $SC legacy-match-rerun
 ctl steps-title-bare-module-refused-catch 0 '^rc=2$' 'one bare name or id' 'Keep or update module OIDC' -- $SC title-bare-module-refused
 ctl steps-title-decision-id-refused-catch 0 '^rc=2$' 'names a decision id' 'A choice about <topic>' -- $SC title-decision-id-refused
 ctl steps-title-lowercase-capitalised-pass 0 '^title: Seed a real work order$' -- $SC title-lowercase-capitalised
@@ -6747,6 +6780,104 @@ ctl steps-legacy-titles-plain-pass 0 '^titles with a problem: 0$' '^module step 
 ctl cockpit-confirm-row-dropped-when-steps-cover-it-pass 0 "^confirm items: \['confirm', 'confirm:D9'\]$" -- $CK confirm-covered
 ctl cockpit-confirm-group-gone-when-all-covered-pass 0 '^confirm items: \[\]$' -- $CK confirm-all-covered
 ctl steps-legacy-trail-complete-pass 0 '^trail: complete, 12 steps; 7 assumed' -- $SC legacy-trail
+
+# --- LAY: layout rung (bin/layoutdiff.py, layoutwalk.js, geometry.js, gate rung layout, theme_clash dojo-table) -----------
+# fixtures/layout/{old,prefix,wrapper}: .geo.json files (trimmed) from the LineApp 10.24.13 -> 11.12.6 React run. prefix =
+# the new app before the fix: Task List gallery at half width (dataView2/table1 1149 -> 581 px at 1280), images grown
+# (staticImage2 40 -> 358 px). wrapper = old with one wrapper name (reactWrap) on every key and the table halved: the
+# client named a wrapper the old one did not, the blind-pairing trap (no key paired, the page PASSed).
+LD=$B/layoutdiff.py; LF=$FX/layout; LT=$T/layout; mkdir -p $LT
+ctl layoutdiff-prefix-catch 1 '^layout: 6 pages, 3 PASS, 0 PASS\*, 3 FAIL, 0 MISSING, 0 INVALID' \
+  '^FAIL +1280x800/operator-task-list\.geo\.json' 'WIDTH dataView2/table1#1: 1149 -> 581 px' '^FAIL +1024x744/operator-task-list\.geo\.json' 'WIDTH dataView2/table1#1: 923 -> 498 px' \
+  '^FAIL +1280x800/operator-save-workstation\.geo\.json' 'IMAGE .*staticImage2 .*Search_Icon\.svg: 40x30 -> 358x269' -- python3 $LD $LF/old $LF/prefix
+ctl layoutdiff-same-pass 0 '^layout: 6 pages, 6 PASS, 0 PASS\*, 0 FAIL, 0 MISSING, 0 INVALID' '!^FAIL' -- python3 $LD $LF/old $LF/old
+mkdir -p $LT/old1/1280x800 $LT/wrap1/1280x800; cp $LF/old/1280x800/operator-task-list.geo.json $LT/old1/1280x800/; cp $LF/wrapper/1280x800/operator-task-list.geo.json $LT/wrap1/1280x800/
+ctl layoutdiff-wrapper-name-catch 1 '^layout: 1 pages, 0 PASS, 0 PASS\*, 1 FAIL' 'WIDTH dataView2/table1#1: 1149 -> 574 px' '!^PASS' -- python3 $LD $LT/old1 $LT/wrap1
+ctl layoutdiff-wrapper-same-pass 0 '^layout: 1 pages, 1 PASS' -- python3 $LD $LT/old1 $LT/old1
+# mutation test of the catch above: with align() switched off, the wrapper page PASSes blind (the trap). The mutant must NOT catch.
+sed 's/^    old, new, wrap = align(old, new)$/    wrap = {}/' $LD > $LT/layoutdiff-noalign.py
+ctl layoutdiff-mutant-no-align-blind 0 '^layout: 1 pages, 1 PASS' '!^FAIL' -- python3 $LT/layoutdiff-noalign.py $LT/old1 $LT/wrap1
+ctl layoutdiff-mutant-differs 1 'differ' -- sh -c "cmp -s $LD $LT/layoutdiff-noalign.py || { echo differ; exit 1; }"
+# a page the old run saved and the new run did not = MISSING = failure (never skipped)
+mkdir -p $LT/miss/1280x800; cp $LF/prefix/1280x800/admin-home.geo.json $LT/miss/1280x800/
+ctl layoutdiff-missing-catch 1 '^MISSING +1280x800/admin-users\.geo\.json' 'no new layout for this page' '2 MISSING|[1-9] MISSING' -- python3 $LD $LF/old/1280x800/.. $LT/miss
+ctl layoutdiff-nothing-paired-invalid 2 'nothing paired' -- python3 $LD $LF/old $T/nonexistent-layout
+# a side without widgets, or another viewport, cannot be judged: exit 3, never a pass
+mkdir -p $LT/vp/1280x800; python3 -c "
+import json,sys
+d=json.load(open('$LF/old/1280x800/admin-home.geo.json')); d['viewport']={'w':1000,'h':700}
+json.dump(d,open('$LT/vp/1280x800/admin-home.geo.json','w'))"
+mkdir -p $LT/oldhome/1280x800; cp $LF/old/1280x800/admin-home.geo.json $LT/oldhome/1280x800/
+ctl layoutdiff-viewport-invalid 3 '^INVALID +1280x800/admin-home\.geo\.json' 'viewport' '1 INVALID' '!PASS$' -- python3 $LD $LT/oldhome $LT/vp
+printf '1280x800/operator-save-workstation* # smaller icons on purpose, looked at both shots\n1280x800/operator-task-list* # looked at\n1024x744/operator-task-list* # looked at\n' > $LT/accept.txt
+ctl layoutdiff-accept-pass 0 '^layout: 6 pages, 3 PASS, 3 PASS\*, 0 FAIL' 'accepted: smaller icons on purpose' -- python3 $LD $LF/old $LF/prefix --accept $LT/accept.txt
+printf '1280x800/operator-task-list*\n' > $LT/accept-noreason.txt
+ctl layoutdiff-accept-needs-reason 1 'accept line without a reason' -- python3 $LD $LF/old $LF/prefix --accept $LT/accept-noreason.txt
+ctl layoutdiff-md-written-pass 0 '^layout: 6 pages' -- sh -c "python3 $LD $LF/old $LF/old --md $LT/out.md >/dev/null && head -3 $LT/out.md"
+if command -v node >/dev/null 2>&1; then
+  ctl geometry-loads-pass 0 'snapshot writeGeometry' -- node -e "const g=require('$B/geometry.js'); console.log(Object.keys(g).join(' '))"
+  ctl layoutwalk-syntax-pass 0 -- node --check $B/layoutwalk.js
+  ctl layoutwalk-usage-invalid 2 'layoutwalk: need --plan, --url and --out' -- node $B/layoutwalk.js
+  mkdir -p $LT/nohome
+  ctl layoutwalk-no-playwright-invalid 2 'layoutwalk: playwright not found \(set PLAYWRIGHT_DIR\)' -- env -u NODE_PATH HOME=$LT/nohome PLAYWRIGHT_DIR=$LT/nohome/none sh -c "cd $LT/nohome && node $B/layoutwalk.js --plan x --url http://localhost:1 --out $LT/nohome/o"
+else skip layoutwalk "no node"; fi
+# gate rung layout: not configured = NOT RUN (optional, never PASS); configured = layoutdiff.py on the two folders
+ctl gate-layout-not-configured-pass 0 '\| 8 \| layout \| NOT RUN \| - \| not configured .*\(optional rung\)' 'Overall: \*\*PASS' '!\| layout \| PASS' -- gcase lnone
+ctl gate-layout-dry-run-pass 0 '^\[layout\] .*layoutdiff\.py .*fixtures/layout/old .*fixtures/layout/prefix .*layoutdiff\.md' -- gcase ldry --dry-run LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/prefix
+ctl gate-layout-stub-pass 0 '\| 8 \| layout \| PASS \| 0 \|' 'Overall: \*\*PASS' -- gcase lpass LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/old
+ctl gate-layout-fail-catch 1 '\| 8 \| layout \| FAIL \| 1 \|' 'Overall: \*\*FAIL' 'layout: REGRESSION to fix' 'layout: 6 pages, 3 PASS, 0 PASS\*, 3 FAIL' \
+  -- gcase lfail GATE_STUB_RC_layoutdiff=1 'GATE_STUB_OUT_layoutdiff=layout: 6 pages, 3 PASS, 0 PASS*, 3 FAIL, 0 MISSING, 0 INVALID' LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/prefix
+ctl gate-layout-missing-is-fail-catch 1 '\| 8 \| layout \| FAIL \| 1 \|' 'Overall: \*\*FAIL' 'layout: REGRESSION to fix' \
+  -- gcase lmiss GATE_STUB_RC_layoutdiff=1 'GATE_STUB_OUT_layoutdiff=layout: 6 pages, 3 PASS, 0 PASS*, 0 FAIL, 3 MISSING, 0 INVALID' LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/old
+ctl gate-layout-invalid-catch 2 '\| 8 \| layout \| INVALID \| 3 \|' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
+  -- gcase linv GATE_STUB_RC_layoutdiff=3 'GATE_STUB_OUT_layoutdiff=layout: 6 pages, 5 PASS, 0 PASS*, 0 FAIL, 0 MISSING, 1 INVALID' LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/old
+ctl gate-layout-one-folder-input-error 2 'rung layout: LAYOUT_NEW is not set' 'nothing was run' -- gcase lone LAYOUT_OLD=$LF/old
+ctl gate-layout-no-folder-input-error 2 'rung layout: LAYOUT_NEW: no such folder' -- gcase lnofold LAYOUT_OLD=$LF/old LAYOUT_NEW=$T/no-such-layout
+# the real layoutdiff.py among stubs: the golden catch through the gate, then the same folders against themselves
+GB4=$T/gate-bin-layout; mkdir -p $GB4; cp $GB/* $GB4/; cp $B/layoutdiff.py $GB4/layoutdiff.py
+ctl gate-layout-real-catch 1 '\| 8 \| layout \| FAIL \| 1 \| layout: 6 pages, 3 PASS, 0 PASS\*, 3 FAIL' 'Overall: \*\*FAIL' 'layout: REGRESSION to fix' \
+  -- gcase lreal GATE_BIN_DIR=$GB4 LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/prefix
+ctl gate-layout-real-pass 0 '\| 8 \| layout \| PASS \| 0 \| layout: 6 pages, 6 PASS' 'Overall: \*\*PASS' -- gcase lreal2 GATE_BIN_DIR=$GB4 LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/old
+ctl gate-layout-real-accept-pass 0 '\| 8 \| layout \| PASS\* \| 0 \|' 'Overall: \*\*PASS' -- gcase lreal3 GATE_BIN_DIR=$GB4 LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/prefix LAYOUT_ACCEPT=$LT/accept.txt
+# theme_clash dojo-table: Dojo mxui table rules on React layout containers, in vendor and own styling
+for c in vendor own pass; do mk9 dt-$c app-dojo-table-$c > /dev/null; done
+D=$TH9/dt-vendor
+ctl theme-clash-dojo-table-vendor-catch 1 '^CLASH dojo-table \.mx-scrollcontainer-horizontal: display: table; table-layout: fixed in themesource/core_delta/web/_mxui\.scss:5 \(vendor core_delta module\)' \
+  '^CLASH dojo-table \.mx-scrollcontainer-horizontal: display: table-cell in themesource/core_delta/web/_mxui\.scss:10 ' '^theme clash: 2 clashes \(0 variables, 0 mixins, 0 classes, 0 extends, 2 dojo-table\)' '!mx-templategrid-item' -- python3 $TC diff $D/old $D/new
+D=$TH9/dt-own
+ctl theme-clash-dojo-table-own-catch 1 '^CLASH dojo-table \.mx-scrollcontainer-horizontal: display: table in theme/web/main\.scss:3 \(own styling\)' '^theme clash: 1 clashes \(0 variables, 0 mixins, 0 classes, 0 extends, 1 dojo-table\)' '!mx-scrollcontainer-wrapper' -- python3 $TC diff $D/old $D/new
+D=$TH9/dt-vendor
+ctl theme-clash-dojo-table-dojo-client-pass 0 '^theme clash: 0 clashes \(0 variables, 0 mixins, 0 classes, 0 extends\)' '!dojo-table' -- python3 $TC diff $D/old $D/new --client dojo
+D=$TH9/dt-pass
+ctl theme-clash-dojo-table-flex-override-pass 0 '^theme clash: 0 clashes \(0 variables, 0 mixins, 0 classes, 0 extends\)' '!CLASH' -- python3 $TC diff $D/old $D/new
+sed 's/^            flexed.add(stack\[-1\]\[1\])/            pass/' $TC > $T/tc-noflex.py
+ctl theme-clash-dojo-table-mutant-no-flex-excusal 1 '^CLASH dojo-table' -- python3 $T/tc-noflex.py diff $D/old $D/new
+ctl theme-clash-dojo-table-mutant-no-flex-differs 1 'differ' -- sh -c "cmp -s $TC $T/tc-noflex.py || { echo differ; exit 1; }"
+ctl theme-clash-dojo-table-snap-pass 0 'dojo_table' -- sh -c "python3 $TC snap $TH9/dt-vendor/new | grep dojo_table"
+# LAY-12: a padding 0 rule scoped under .mx-scrollcontainer-* that hits .mx-layoutgrid* (React adds a scroll container region)
+mk9 rw app-react-wrapper > /dev/null; D=$TH9/rw
+ctl theme-clash-react-wrapper-catch 1 '^CLASH react-wrapper \.mx-layoutgrid: padding: 0 in theme/web/main\.scss:1 \(own styling\)' '^theme clash: 1 clashes \(0 variables, 0 mixins, 0 classes, 0 extends, 1 react-wrapper\)' '!main\.scss:4' '!main\.scss:7' -- python3 $TC diff $D/old $D/new
+sed 's/^WRAP_CHAIN_RE = .*/WRAP_CHAIN_RE = re.compile(r"(?!)")/' $TC > $T/tc-nowrap.py
+ctl theme-clash-react-wrapper-mutant-blind 0 '^theme clash: 0 clashes' '!react-wrapper' -- python3 $T/tc-nowrap.py diff $D/old $D/new
+ctl theme-clash-react-wrapper-mutant-differs 1 'differ' -- sh -c "cmp -s $TC $T/tc-nowrap.py || { echo differ; exit 1; }"
+D=$TH9/dt-pass
+ctl theme-clash-react-wrapper-clean-app-pass 0 '!react-wrapper' '^theme clash: 0 clashes' -- python3 $TC diff $D/old $D/new
+
+# LAY-9: layout runs before journeys (journeys change data, a later layout compare fails against a fresh-data baseline)
+ctl gate-layout-before-journeys-pass 0 '\| 7 \| smoke \|' '\| 8 \| layout \|' '\| 9 \| journeys \|' '\| 10 \| screens \|' -- gcase lord GATE_STUB_OUT_diff='INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 3 | PASS 84' LAYOUT_OLD=$LF/old LAYOUT_NEW=$LF/old
+ctl gate-layout-order-doc-pass 0 'smoke layout journeys screens' -- grep -o 'smoke layout journeys screens' $B/gate.sh
+ctl gate-layout-order-step-pass 0 '^7b\. Layout .*runs BEFORE journeys' -- grep -E '^7b\. Layout' $B/../steps/gate.md
+
+
+# LAY-7: the Static image row of the shipped playbook carries the unit rule and the mxcli fix
+PB=$B/../playbooks/dojo-successors.tsv
+ctl playbook-static-image-unit-catch 0 'CARRY OVER the width and height unit' 'Auto stays auto, pixels stay pixels, percentage stays percentage' 'ALTER PAGE M\.P \{ set \(WidthUnit: auto\) on <widget>; \}' 'mx update-widgets' -- grep -E '^Forms\\\$StaticImageViewer' $PB
+ctl playbook-static-image-row-pass 0 '^static image row: 9 columns$' -- awk -F'\t' '/^Forms\\\$StaticImageViewer/{ if (NF == 9) print "static image row: 9 columns"; else print "static image row: " NF " columns" }' $PB
+ctl playbook-image-wrapper-catch 0 'div\.mx-image-viewer' '\.mx-image-viewer\.mx-image-viewer-responsive > img, \.mx-image-viewer > img \{max-width:100%; max-height:100%\}' -- grep -E '^Forms\\\$StaticImageViewer' $PB
+ctl playbook-combobox-placeholder-catch 0 'min-width 135px' 'placeholder position absolute; min-width 0' -- grep -E '^Forms\\\$ReferenceSelector' $PB
+ctl playbook-htmlsnippet-events-catch 0 '\.widget-events with flex 1 1 auto' 'zeroes grids that were not nested on Dojo' -- grep -E '^HTMLSnippet' $PB
+ctl playbook-lay-rows-9-columns-pass 0 '^LAY rows: 9 columns$' -- awk -F'\t' '/^(Forms\\\$StaticImageViewer|Forms\\\$ReferenceSelector|Forms\\\$ReferenceSetSelector|Forms\\\$InputReferenceSetSelector|Forms\\\$DropDown|HTMLSnippet)/{ if (NF != 9) bad=1 } END{ print bad ? "LAY rows: bad column count" : "LAY rows: 9 columns" }' $PB
+
 
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"

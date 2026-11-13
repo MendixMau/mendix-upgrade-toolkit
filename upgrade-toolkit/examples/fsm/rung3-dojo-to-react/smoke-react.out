@@ -1,0 +1,107 @@
+== ServiceRegionManager: FAIL
+  SKIPPED home   home microflow -> Dashboard.NAV_DashboardInternal (microflow (use --microflows))
+  PASS    menu   Dashboard -> Dashboard.DashboardInternal [content, 1533ms]
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1575ms]
+  SKIPPED menu   Scheduler -> Scheduler.NAV_Planner (microflow (use --microflows))
+  PASS    menu   Forms -> Form.Form_Overview [content, 1564ms]
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on Dashboard/DashboardInternal.page.xml, 15012ms]
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1533ms]
+  PASS    menu   Administration > Units of measurement -> Part.UnitOfMeasure_Overview [content, 1538ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1533ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1539ms]
+  PASS    menu   Administration > Offline actions -> Synchronization.OfflineAction_Overview [content, 1538ms]
+  PASS    menu   Administration > Feature toggles -> FeatureToggle.FeatureToggle_Overview [content, 1532ms]
+== TechnicalAdministrator: FAIL
+  PASS    home   home page -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1506ms]
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1537ms]
+  PASS    menu   Work orders -> TicketManagement.WorkOrder_Overview [content, 1561ms]
+  PASS    menu   Forms -> Form.Form_Overview [content, 1555ms]
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on TicketManagement/Ticket_Overview_ServiceDesk.page.xml, 15010ms]
+  PASS    menu   Administration > Accounts -> ModuleIntegration_Administration_Impl.Account_Overview [content, 1537ms]
+  SKIPPED menu   Administration > Application settings -> AppSettings.NAV_ApplicationSettings_Overview (microflow (use --microflows))
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1527ms]
+  PASS    menu   Administration > Contracts -> CustomerManagement.Contract_Overview [content, 1530ms]
+  PASS    menu   Administration > Deeplink -> ModuleIntegration_DeepLink_Impl.Deeplink_Overview [content, 1557ms]
+  SKIPPED menu   Administration > Tools -> Tool.NAV_Tool_Overview (microflow (use --microflows))
+  PASS    menu   Administration > Customers -> CustomerManagement.Customer_Overview [content, 1533ms]
+  SKIPPED menu   Administration > Load test -> LoadTest.ACT_LoadTestHelperNP_NewEdit (microflow (use --microflows))
+  PASS    menu   Administration > Masterdata views -> MasterData.Masterdata_Overview_MxAdmin [content, 1744ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1539ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1538ms]
+  PASS    menu   Administration > Offline actions -> Synchronization.OfflineAction_Overview [content, 1591ms]
+  PASS    menu   Administration > Scheduled Events -> Administration.ScheduledEvents [content, 1535ms]
+  PASS    menu   Administration > Scripts -> AppSettings.Script_Overview [content, 1525ms]
+  PASS    menu   Administration > SLA's -> CustomerManagement.SLA_Overview [content, 1534ms]
+  PASS    menu   Administration > Systemlogs -> ModuleIntegration_Logging_Impl.Message_Overview_2 [content, 1531ms]
+  PASS    menu   Administration > Registration codes -> TimeRegistration.RegistrationCode_Overview [content, 1537ms]
+  PASS    menu   Administration > Business contacts -> CustomerManagement.ContactPerson_Overview [content, 1539ms]
+  PASS    menu   Administration > Feature toggles -> FeatureToggle.FeatureToggle_Overview [content, 1533ms]
+  PASS    menu   Grids templates -> Dashboard.Grids [content, 1566ms]
+== Mechanic: FAIL
+  SKIPPED home   home microflow -> Technician.NAV_Technician_Home (microflow (use --microflows))
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_Technician [content, 1538ms]
+  SKIPPED menu   Scheduler -> Scheduler.NAV_Planner (microflow (use --microflows))
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on TicketManagement/Ticket_Overview_Technician.page.xml, 15010ms]
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1530ms]
+  PASS    menu   Administration > Units of measurement -> Part.UnitOfMeasure_Overview [content, 1529ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1532ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1540ms]
+== CallCenterEmployee: FAIL
+  SKIPPED home   home microflow -> Dashboard.NAV_DashboardExternal (microflow (use --microflows))
+  PASS    menu   Dashboard -> Dashboard.DashboardExternal [content, 1556ms]
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1559ms]
+  PASS    menu   Forms -> Form.Form_Overview [content, 1561ms]
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on Dashboard/DashboardExternal.page.xml, 15009ms]
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1542ms]
+  PASS    menu   Administration > Units of measurement -> Part.UnitOfMeasure_Overview [content, 1533ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1535ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1537ms]
+== FunctionalAdministrator: FAIL
+  PASS    home   home page -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1507ms]
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1536ms]
+  PASS    menu   Work orders -> TicketManagement.WorkOrder_Overview [content, 1546ms]
+  PASS    menu   Forms -> Form.Form_Overview [content, 1544ms]
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on TicketManagement/Ticket_Overview_ServiceDesk.page.xml, 15008ms]
+  PASS    menu   Administration > Accounts -> ModuleIntegration_Administration_Impl.Account_Overview [content, 1535ms]
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1533ms]
+  PASS    menu   Administration > Contracts -> CustomerManagement.Contract_Overview [content, 1538ms]
+  SKIPPED menu   Administration > Tools -> Tool.NAV_Tool_Overview (microflow (use --microflows))
+  PASS    menu   Administration > Customers -> CustomerManagement.Customer_Overview [content, 1539ms]
+  PASS    menu   Administration > Units of measurement -> Part.UnitOfMeasure_Overview [content, 1534ms]
+  PASS    menu   Administration > Warehouses -> WarehouseManagement.Warehouse_Overview [content, 1529ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1542ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1533ms]
+  SKIPPED menu   Administration > Parts -> Part.NAV_Part_Overview (microflow (use --microflows))
+  PASS    menu   Administration > Reasons -> Reason.Reason_Overview [content, 1532ms]
+  PASS    menu   Administration > Priorities -> TicketManagement.Priority_Overview [content, 1528ms]
+  PASS    menu   Administration > SLA's -> CustomerManagement.SLA_Overview [content, 1535ms]
+  SKIPPED menu   Administration > Snap settings -> Scheduler.NAV_SnapSetting_Open (microflow (use --microflows))
+  PASS    menu   Administration > Ticket types -> TicketManagement.TicketType_Overview [content, 1530ms]
+  PASS    menu   Administration > Registration codes -> TimeRegistration.RegistrationCode_Overview [content, 1536ms]
+  SKIPPED menu   Administration > Skills -> Skill.NAV_Skill (microflow (use --microflows))
+  PASS    menu   Administration > Business contacts -> CustomerManagement.ContactPerson_Overview [content, 1526ms]
+== ServiceDeskEmployee: FAIL
+  SKIPPED home   home microflow -> Dashboard.NAV_DashboardAll (microflow (use --microflows))
+  PASS    menu   Dashboard -> Dashboard.DashboardAll [content, 1552ms]
+  PASS    menu   Tickets -> TicketManagement.Ticket_Overview_ServiceDesk [content, 1558ms]
+  SKIPPED menu   Scheduler -> Scheduler.NAV_Planner (microflow (use --microflows))
+  PASS    menu   Forms -> Form.Form_Overview [content, 1567ms]
+  PASS    menu   Alerts -> Visualizations.Ticket_Overview_NeedsAction [content, 1565ms]
+  FAIL    menu   Switch user -> DemoUserSwitcher.User_SelectDemoUser [still on Dashboard/DashboardAll.page.xml, 15012ms]
+  PASS    menu   Administration > Assets -> AssetManagement.Asset_Overview [content, 1541ms]
+  PASS    menu   Administration > Contracts -> CustomerManagement.Contract_Overview [content, 1524ms]
+  PASS    menu   Administration > Customers -> CustomerManagement.Customer_Overview [content, 1532ms]
+  PASS    menu   Administration > Units of measurement -> Part.UnitOfMeasure_Overview [content, 1538ms]
+  PASS    menu   Administration > Technicians -> Technician.Technician_Overview [content, 1547ms]
+  PASS    menu   Administration > Technician groups -> Technician.TechnicianGroup_Overview [content, 1536ms]
+  PASS    menu   Administration > SLA's -> CustomerManagement.SLA_Overview [content, 1538ms]
+  PASS    menu   Administration > Business contacts -> CustomerManagement.ContactPerson_Overview [content, 1525ms]
+  PASS    menu   Administration > Feature toggles -> FeatureToggle.FeatureToggle_Overview [content, 1539ms]
+== FSMAPIConsumer: SKIPPED
+  SKIPPED home   home page -> General.Login_Web (API-only role: its home page is the login page General.Login_Web, no signed-in home to walk)
+
+steps: PASS 73, FAIL 6, INVALID 0, SKIPPED 15; roles not run (INVALID): 0
+
+compare with <work>
+  PASS steps no longer judged (coverage lost): 0
+  regressions: 0

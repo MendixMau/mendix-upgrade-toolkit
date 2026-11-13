@@ -1,0 +1,18 @@
+data: psql: pgmap: 187 entities, 966 attributes, 219 associations (217 table storage, 0 column storage), 0 names cut at 63 bytes, 23 problems
+== react-ux (:8680) compared with work/rung2/e2e-after
+  data psql: pgmap: 187 entities, 966 attributes, 219 associations (217 table storage, 0 column storage), 0 names cut at 63 bytes, 23 problems
+  role CallCenterEmployee       login PASS    smoke_callcenteremployee
+  role CallCenterEmployee~data  login PASS    smoke_callcenteremployee
+  role CallCenterEmployee~last  login PASS    smoke_callcenteremployee
+  PASS    act-TicketManagement.Ticket_Overview_ServiceDesk.actionButton2  [SCREEN REVIEW] screen REVIEW 44% of the page changed; 13% of the page had content before and
+  PASS    act-TicketManagement.Ticket_Overview_ServiceDesk.actionButton3  [SCREEN REVIEW] screen REVIEW 45% of the page changed; 13% of the page had content before and
+  PASS    act-TicketManagement.Ticket_Overview_ServiceDesk.actionButton1  [BASELINE DEFECT OLD-APP, passes on new: review (OLD-APP: journeys-before-picked.out:468 (cited :464, which moved) FAIL    act-TicketManagement.Ticket_Overview_ServiceDesk.actionButton1 FAIL micr)] screen INVALID no OLD screenshot: run the same journey on the old app first; 
+journeys: 2 PASS, 0 FAIL, 0 INVALID, 1 PASS* (baseline defect)
+actions 725 found · 457 generated (0 todo) · 224 pass on baseline (233 defect) · 3 pass on new · 0 regression · coverage 224/457 (49%) · 14 destructive run apart (own line) · 254 out of scope, INFO (marketplace-module 25, no-role 27, unreachable 202)
+anonymous process: 0 of 1 required (role Anonymous; no confirmed process runs as it)
+defects: 242 failing on the baseline: 238 with evidence (OLD-APP 238) = 238 PASS*, 4 without (INVALID)
+  coverage INVALID: journey set changed since the baseline (sha256 23d86a6b35d3 then, 99f0a386747b now): run before-picked again on this set
+  coverage INVALID: instrument not measuring: 233 of 457 actions fail on the baseline (50% > 30%)
+  coverage INVALID: 4 baseline defects without evidence (FIXTURE / OLD-APP / FLAKY, --baseline-evidence): act-MasterData.Masterdata_Overview_MxAdmin.actionButton5, act-MasterData.WorkBreak_NewEdit_MxAdmin.actionButton1, act-Scheduler.Snippet_Appointment_Scheduling.bizzomateUltimateScheduler1_5, act-Technician.Technician_Skill_Remove.actionButton3
+screens: 0 PASS, 0 PASS*, 5 REVIEW, 1066 INVALID
+effects: 2 PASS, 0 PASS*, 0 REVIEW, 0 INVALID

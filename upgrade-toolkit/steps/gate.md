@@ -67,6 +67,16 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    (`UPG_SMOKE_REPEAT=2` walks the new app twice). The old app's own intermittent error on the new side is
    `FLAKY on both`: not a regression and not a pass (exit 2); walk again, or pin it per playbooks/widgets.md section 2.
    `node $B/smokewalk.js --rejudge new.json [--rejudge new2.json] --compare old.json ...` judges saved walks again.
+7b. Layout (optional rung `layout`, LAY-1, runs BEFORE journeys, LAY-9): a page can show every value and still be squeezed or stretched, which no journey and
+   no smoke shot sees. Walk the same page list on the old and the new app, then compare widget by widget:
+   `node $B/layoutwalk.js --plan layout-plan.json --url http://localhost:8080 --user Role=name:pass --out $W/layout-old`
+   (again with `--out $W/layout-new` on the new app), then gate keys `LAYOUT_OLD=$W/layout-old LAYOUT_NEW=$W/layout-new
+   [LAYOUT_ACCEPT=file]` or `python3 $B/layoutdiff.py OLD NEW --accept file --md $W/layoutdiff.md`. Findings: WIDTH (a widget
+   changed width by more than 24 px and 20%), CUT (text that fitted is cut off), IMAGE (an image grew more than 3 times).
+   A page saved on the old app and absent on the new is MISSING and fails the rung. Without the two folders the rung says NOT
+   RUN; it is never a PASS. Order matters: journeys change data (pager counts, edited or deleted rows), so walk the layout on both apps
+   first. A layout compare run after the journeys fails against a baseline walked on fresh data. In the gate the rung sits before `journeys`. Accept lines: `pair pattern # what you saw`, the reason is required.
+
 8. Journeys: [journeys.md](journeys.md) "At the gate". `GATE_TIMEOUT` (seconds per instrument, default 900) is too
    short for a big set: 247 journeys at `--pause 50` take about 65 minutes per side. Set it to journeys times pause
    times 1.3 plus the app start, e.g. `GATE_TIMEOUT=6000`, in gate.conf next to the journeys rung (NR1-29). A REGRESSION is FAIL; INVALID (no test user, todo) blocks DONE.
@@ -188,11 +198,11 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    out DatadogConnector's metric bodies to get past javac on 11 and every Datadog metric was dropped silently. Not a
    gate.sh rung; run it by hand before the verdict.
 
-14. Widgets no walk renders (MC-19; driver rung `widgets`, optional, row 12 of the summary): `python3 $B/widgetcover.py app/
+14. Widgets no walk renders (MC-19; driver rung `widgets`, optional, row 13 of the summary): `python3 $B/widgetcover.py app/
    --smoke $G/smoke-after.json --journeys $W/e2e-gen` lists every widgets/*.mpk that a page uses and that no smoke step and
    no journey renders (a snippet or layout of a rendered page renders with it). Exit 0 = every used package is rendered or
    waived (`--waive FILE`, "package or widget id # reason"), exit 3 = at least one UNRENDERED: the driver reports INVALID, never
-   PASS. Why: Material Cockpit's 3D viewer widget (2024 build, its own React 18) crashed on the 11.12.6 client with React
+   PASS. Why: Asset Console's 3D viewer widget (2024 build, its own React 18) crashed on the 11.12.6 client with React
    error #525 and "Could not render widget"; the gate exited 0 because the frozen data had no configuration for the panel,
    so no walked page held the widget. Close it by a journey or hand-written walk that opens one page with the widget
    (`--rendered FILE` names the pages a hand-written walk covers) or by a waiver with the reason. Gate key: `WIDGETS_APP=app/`.

@@ -35,8 +35,10 @@ coverage and the human handoff. Keep the machine verdict as evidence; explain th
    `COMPLETED WITH HANDOFF`, `IN PROGRESS` or `BLOCKED`), exact source and target versions, branch or commit, build and
    start evidence, changes made, and data-preservation findings. List each confirmed upgrade bug with its repair and
    recheck, each baseline defect separately, and each accepted exclusion with the owner's decision. Apply the completion
-   rules in [PLAN.md](../PLAN.md#upgrade-completion-and-handoff-strategy). Missing test access by itself is not an app
-   regression. A real unresolved blocker, unproven data loss, or an unbuilt target prevents a completion claim.
+   rules below: a confirmed upgrade bug ends FIXED (re-measured PASS/PASS*), EVIDENCED, DECIDED, HANDED-OFF or PAUSED;
+   re-architecture (other widget, custom widget, rebuild) is always proposed to the owner, never done silently. Missing
+   test access by itself is not an app regression. A real unresolved blocker, unproven data loss, or an unbuilt target
+   prevents a completion claim.
 7. **Human handoff, required even when empty.** Use [templates/upgrade-handoff.md](../templates/upgrade-handoff.md).
    For every remaining check or decision, name the feature and role, exact steps and expected result, what was tried,
    evidence, the unmet prerequisite, the owner and what will close the action. State "No remaining human checks" only
@@ -53,9 +55,14 @@ How the buckets are defined: [READING-THE-VERDICT.md](../READING-THE-VERDICT.md)
 ## Cockpit page
 
 `bin/cockpitpage.py` writes one self-contained `COCKPIT.html` for the run (the pipeline hook `cockpit_regen` calls it).
-The page is a matrix: rows grouped App and platform, Testing setup and Go-live, columns Triage, Plan, Upgrade and Test.
-Above it sit five tiles (upgrade items done, regressions, problems resolved, tested, things that need you), counted from
-the rows, and a readiness strip of 12 chips. The generator never decides: every verdict is copied from a run file, and a
+Layout, top to bottom: the header with the app name on the left and the version route on the right (one chip per
+version: done green, current amber, next grey, each with its gate). Below it two columns. The main column holds the
+readiness strip of 12 chips, the legend, the matrix (rows grouped App and platform, Steps of this run, Testing setup and
+Go-live; columns Triage, Plan, Upgrade and Test), the test health panel and the feed. The counts by kind (upgrade items
+done, regressions, problems resolved, tested, things that need you) sit folded above it. The right column is a sticky
+sidebar with the result: the headline, "items closed successfully" with its chips, and "open topics still to validate"
+with group and owner per topic. Under 1000 px wide the sidebar moves above the matrix. The matrix is the page: the
+result never pushes it below the fold. The generator never decides: every verdict is copied from a run file, and a
 missing file shows a grey "Not yet" cell, never a pass. Every non-green cell shows a proposed solution box (Found,
 Proposed, Trying, Fixed), or "No proposal yet" when none is known. Purple "needs you" cells are real owner decisions only.
 
@@ -102,7 +109,7 @@ The optional file `work/cockpit-trail.json` fills the drawer with what happened 
 A row with a trail shows its actions instead of the single proposal box; an unknown row id is dropped. The proof sits
 behind a toggle; `say` stays free of code and file names. On the Plan column the drawer also shows the proposed plan for
 that topic, read from `PROPOSAL.md` (its P-n items and their status), with the whole plan one click further. This file is
-the input for runs without step records (`STEP-RECORDS-PLAN.md`).
+the input for runs without step records
 
 When `work/steps.jsonl` exists, the cockpit reads it instead: every step is one row in the group "Steps of this run" (found, plan with its
 approval, changes, test), and the drawer shows what was found, what was proposed and why, the approval, the commits and the test result,
@@ -112,10 +119,12 @@ from `AGENT-DECISIONS.md`. `cockpit-trail.json` and `AGENT-DECISIONS.md` are the
 `steps.jsonl` changes nothing; a damaged one (a line that is not an event, or a record without a commit sha or a test verdict) is
 reported as one open topic "To fix" and the page is built from the older inputs.
 
-The band on top is derived, never typed: the headline and regressions from the build rung, "items closed successfully" as the sum of
+The result sidebar is derived, never typed: the headline and regressions from the build rung, "items closed successfully" as the sum of
 non-overlapping counts (upgrade problems, test gaps, fixes, then the release, journeys, apis or rest, and const rungs of gate-summary.md; a
 missing rung drops out), and "open topics still to validate" from the matrix (purple cells are "Your call", open deploy cells "At deploy",
-other open cells "Coverage", red ones "To fix"). `kpi.closed` replaces the count of a chip with the same label or adds one, `kpi.open`
+other open cells "Coverage", red ones "To fix"). An open topic is listed once: when the same row and cell text is open
+on more versions of a ladder run, the versions are merged into one line ("... (Mendix 10.24.28, 11.12.7)"). Under
+"Your call" the cell text "Needs your OK" is dropped, since the group already says it. `kpi.closed` replaces the count of a chip with the same label or adds one, `kpi.open`
 adds topics, `kpi.hide` drops chips or topics whose text contains a given part. The page is written as HTML by the generator, so it
 reads without JavaScript; `cockpitpage.py --standalone` wraps it for a file opened directly.
 

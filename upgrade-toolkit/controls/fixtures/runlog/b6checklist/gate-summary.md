@@ -3,11 +3,11 @@
 Overall: **INVALID** (exit 2): 7 PASS/PASS*, 0 EXCEPT, 0 FAIL, 1 INVALID, 1 required NOT RUN.
 Grade: 78% (7 of 9 required rungs done): proven 5, accepted 2, waiting on a person 2, not testable here 0, open regression 0 | verdict INVALID
 Progress: 7 of 10 checks closed (70%). 0 with REGRESSIONS to fix, 0 need a decision, 2 not measured yet, owner sign-off pending.
-Work: `/home/user/personal-toolkit/runs/b6-checklist/work/rung2`, evidence: `/home/user/personal-toolkit/runs/b6-checklist/work/rung2`, instruments: `/home/user/personal-toolkit/upgrade-toolkit/bin`, run 20261013041248. 2026-10-13T04:14Z
+Work: `/opt/mxcli-project-toolkit/runs/b6-checklist/work/rung2`, evidence: `/opt/mxcli-project-toolkit/runs/b6-checklist/work/rung2`, instruments: `/opt/mxcli-project-toolkit/upgrade-toolkit/bin`, run 20261013041248. 2026-10-13T04:14Z
 
 | # | rung | verdict | rc | one line |
 |---|---|---|---|---|
-| 1 | build | PASS | 0 | BUILD SUCCEEDED and 0 "ERROR at" lines: yes in /home/user/personal-toolkit/runs/b6-checklist/work/rung2/build-11.12.5.log |
+| 1 | build | PASS | 0 | BUILD SUCCEEDED and 0 "ERROR at" lines: yes in /opt/mxcli-project-toolkit/runs/b6-checklist/work/rung2/build-11.12.5.log |
 | 2 | idcheck | PASS | 0 | findings: 2 total, 1 RED (data-bearing), 1 of them approved, 0 open;verdict: PASS  (FAIL = open data-bearing GUID change; REVIEW = open data-bearing removals or persistence loss only: confirm each is  |
 | 3 | const | PASS | 0 | FAIL 0 \| REVIEW 0 \| PASS* 0 \| INFO 0 \| PASS 55 |
 | 4 | data | PASS* | 0 | INVALID 0 \| FAIL 0 \| REVIEW 0 \| NEW_ENDPOINT 0 \| PASS* 3 \| PASS 281 \| INFO 93 |

@@ -14,7 +14,7 @@ Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says 
 - Systems that cannot be stood in locally (excluded, listed in the verdict): `<e.g. Teamcenter, or none>`
 
 **Setup**
-1. Clone the toolkit: `git clone https://github.com/MendixMau/personal-toolkit ~/Mendix/personal-toolkit`
+1. Clone the toolkit: `git clone https://github.com/MendixMau/mxcli-project-toolkit ~/Mendix/mxcli-project-toolkit`
    (it holds the toolkit in `upgrade-toolkit/`, the release-note brain in `company-brain-test/brain/`, and the
    unattended pipeline in `pipeline/`).
 2. Read `upgrade-toolkit/SETUP.md`, then run its one command:
