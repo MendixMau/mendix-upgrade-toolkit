@@ -7,11 +7,21 @@ placeholder it @extends, was renamed or removed. This tool lists exactly those n
 
   theme_clash.py snap <app-dir> [-o out.json] [--own M,..] [--vendor M,..]
         collect (a) the names Atlas defines and (b) the names the app's own styling uses, as JSON (stdout without -o)
-  theme_clash.py diff <old> <new> [--own ..] [--vendor ..]
+  theme_clash.py diff <old> <new> [--own ..] [--vendor ..] [--client react|dojo]
         <old>/<new> are app dirs or snap JSON files. Judges the NEW app's uses against OLD vs NEW Atlas.
 
 Output: one "CLASH <kind> <name>: used in <file>:<line>, defined in old Atlas <file>:<line>, gone in new Atlas" line per
 clash, then "theme clash: N clashes (V variables, M mixins, C classes, X extends); Atlas <old> -> <new>".
+A second kind, "dojo-table" (LAY-2, target on the React client; --client dojo switches it off): a Dojo mxui rule that
+makes a layout container a CSS table ("display: table", "table-cell", "table-layout" on .mx-scrollcontainer-*,
+.mx-templategrid-*, .mx-dataview-*, .mx-listview-*, .mx-tabcontainer-*, .mx-layoutcontainer-*), found in the app's own
+styling OR in a vendor module's themesource (core_delta and a company design system carry copies of the old mxui theme).
+Harmless on Dojo; on the React client the regions are flex items and a fixed table splits them evenly (LineApp:
+the Task List gallery at half the page width, every journey and smoke shot still PASSed). Output line:
+"CLASH dojo-table .mx-scrollcontainer-horizontal: display: table; table-layout: fixed in <file>:<line> (vendor module X)".
+A third kind, "react-wrapper" (LAY-9): a padding 0 rule scoped under .mx-scrollcontainer-* that targets .mx-layoutgrid*
+(React wraps the page in an extra scroll container region, so the rule also zeroes grids that were not nested on Dojo).
+The summary line gains ", T dojo-table" / ", W react-wrapper" only when the count is above 0. Atlas modules are not scanned (they are the reference).
 Exit 0 no clash, 1 clashes, 3 not compared (a side has no themesource/atlas_core: never "no clash"), 2 usage / bad input.
 
 WHAT IS "ATLAS" (collected from every *.scss under these dirs of the app):
@@ -216,6 +226,70 @@ def analyse(text):
     return f
 
 
+DOJO_CLASS_RE = re.compile(r"\.(mx-(?:scrollcontainer|templategrid|dataview|listview|tabcontainer|layoutcontainer)(?:-[\w-]+)?)")
+DOJO_DECL_RE = re.compile(r"^\s*(display|table-layout)\s*:\s*([^;!}]+)", re.I)
+PAD_DECL_RE = re.compile(r"^\s*(padding(?:-[a-z]+)?)\s*:\s*([^;!}]+)", re.I)
+# React wraps the page in an extra scroll container region: a rule scoped under .mx-scrollcontainer-* that zeroes the padding
+# of .mx-layoutgrid* also hits grids that were not nested on Dojo (LAY-9)
+WRAP_CHAIN_RE = re.compile(r"\.mx-scrollcontainer-[\w-]+[^{}]*\.mx-layoutgrid")
+TABLE_DISPLAY = {"table", "table-cell", "table-row", "table-row-group", "table-header-group", "table-footer-group",
+                 "table-column", "table-column-group", "table-caption", "inline-table"}
+
+
+def dojo_table_rules(text):
+    """Rules that make a Dojo layout container a CSS table: [(class, selector, 'display: table; ...', line)]. One row per
+    rule (its selector line), the offending declarations joined."""
+    code = scss_code(text)
+    starts = [0] + [m.end() for m in re.finditer("\n", code)]
+    ln = lambda off: bisect.bisect_right(starts, off)
+    stack, rules, order, flexed = [], {}, [], set()
+
+    def decl(pre):
+        if not stack:
+            return
+        pm = PAD_DECL_RE.match(pre)
+        if pm:
+            chain = " ".join(x[0] for x in stack if not x[0].startswith("@"))
+            if WRAP_CHAIN_RE.search(chain) and re.match(r"^0(px)?(\s+0(px)?)*$", pm.group(2).strip().lower()):
+                key = stack[-1][1]
+                if key not in rules:
+                    rules[key] = [".mx-layoutgrid", re.sub(r"\s+", " ", stack[-1][0]), [], key, "react-wrapper"]
+                    order.append(key)
+                rules[key][2].append(f"{pm.group(1).lower()}: {pm.group(2).strip().lower()}")
+            return
+        m = DOJO_DECL_RE.match(pre)
+        if not m:
+            return
+        prop, val = m.group(1).lower(), m.group(2).strip().lower()
+        if prop == "display" and val not in TABLE_DISPLAY:   # display: flex / block on the same rule is the fix, not a clash
+            flexed.add(stack[-1][1])
+            return
+        chain = " ".join(x[0] for x in stack if not x[0].startswith("@"))
+        cm = DOJO_CLASS_RE.search(chain)
+        if not cm:
+            return
+        key = stack[-1][1]
+        if key not in rules:
+            rules[key] = [cm.group(1), re.sub(r"\s+", " ", stack[-1][0]), [], key, "dojo-table"]
+            order.append(key)
+        rules[key][2].append(f"{prop}: {val}")
+
+    for term, pre, off in statements(code):
+        p = pre.strip()
+        if term == "{":
+            base = off + len(pre) - len(pre.lstrip())
+            stack.append((p, ln(base)))
+        elif term == "}":
+            if p:
+                decl(pre)
+            if stack:
+                stack.pop()
+        elif p:
+            decl(pre)
+    return [(rules[k][0] if rules[k][0].startswith(".") else "." + rules[k][0], rules[k][1], "; ".join(rules[k][2]), rules[k][3], rules[k][4])
+            for k in order if k not in flexed or rules[k][4] != "dojo-table"]
+
+
 def read(path):
     with open(path, encoding="utf-8", errors="replace") as fh:
         return fh.read()
@@ -328,6 +402,12 @@ def snap_dir(app, own_force=(), vendor_force=()):
             for name, line in f["placeholders"]:
                 V["placeholder"].setdefault(name, f"{r}:{line}")
     P["vendor_defined"] = V
+    T = []   # Dojo table rules in own styling (theme/web, own modules) and in vendor modules; never in Atlas
+    for root, label in ([(r, "own") for r in own_roots] + [(os.path.join(app, "themesource", m), "vendor " + m) for m in vendor_mods]):
+        for path in scss_files(root):
+            for cls, sel, props, line, kind in dojo_table_rules(read(path)):
+                T.append({"class": cls, "selector": sel, "props": props, "where": f"{rel(path)}:{line}", "module": label, "kind": kind})
+    P["dojo_table"] = T
     return {"schema": SCHEMA, "source": app, "atlas": A, "app": P}
 
 
@@ -341,7 +421,7 @@ def load_side(arg, own_force, vendor_force):
     return snap_dir(arg, own_force, vendor_force)
 
 
-def diff(old, new):
+def diff(old, new, client="react"):
     """-> (clash rows, not_compared message or None)."""
     if not old["atlas"]["present"] or not new["atlas"]["present"]:
         missing = [s for s, sn in (("old", old), ("new", new)) if not sn["atlas"]["present"]]
@@ -366,10 +446,22 @@ def diff(old, new):
         if key in table_old and key not in table_new and not own:
             hint = vend.get("class" if key.startswith(".") else "placeholder", {}).get(key)
             rows.append(("extend", key, locs, table_old[key], hint))
+    if client == "react":
+        for t in app.get("dojo_table", []):
+            rows.append((t.get("kind", "dojo-table"), t["class"], [t["where"]], t["props"], t["module"]))
     return rows, None
 
 
 def fmt_clash(kind, name, locs, where, vendor_hint=None):
+    if kind == "react-wrapper":
+        mod = "own styling" if vendor_hint == "own" else f"{vendor_hint} module"
+        return (f"CLASH react-wrapper {name}: {where} in {locs[0]} ({mod}); the React client wraps the page in an extra scroll "
+                f"container region, so a rule scoped under .mx-scrollcontainer-* also hits grids that were not nested on Dojo: "
+                f"scope it to the nested grid or look at the page")
+    if kind == "dojo-table":   # where = the declarations, vendor_hint = "own" or "vendor <module>"
+        mod = "own styling" if vendor_hint == "own" else f"{vendor_hint} module"
+        return (f"CLASH dojo-table {name}: {where} in {locs[0]} ({mod}); the React client lays this container out with "
+                f"flexbox, so a table rule splits or squeezes it: override with display: flex or remove the rule")
     more = f" (+{len(locs) - 1} more uses)" if len(locs) > 1 else ""
     hint = f" (still defined in new vendor module {vendor_hint}: check it does not carry the style)" if vendor_hint else ""
     return f"CLASH {kind} {name}: used in {locs[0]}{more}, defined in old Atlas {where}, gone in new Atlas{hint}"
@@ -398,15 +490,16 @@ def cmd_snap(a):
 def cmd_diff(a):
     old = load_side(a.old, a.own, a.vendor)
     new = load_side(a.new, a.own, a.vendor)
-    rows, msg = diff(old, new)
+    rows, msg = diff(old, new, a.client)
     if msg:
         print(msg)
         return 3
     for kind, name, locs, where, hint in rows:
         print(fmt_clash(kind, name, locs, where, hint))
-    cnt = {k: sum(1 for r in rows if r[0] == k) for k in ("variable", "mixin", "class", "extend")}
+    cnt = {k: sum(1 for r in rows if r[0] == k) for k in ("variable", "mixin", "class", "extend", "dojo-table", "react-wrapper")}
+    tail = (f", {cnt['dojo-table']} dojo-table" if cnt["dojo-table"] else "") + (f", {cnt['react-wrapper']} react-wrapper" if cnt["react-wrapper"] else "")
     print(f"theme clash: {len(rows)} clashes ({cnt['variable']} variables, {cnt['mixin']} mixins, "
-          f"{cnt['class']} classes, {cnt['extend']} extends); Atlas {old['atlas']['version']} -> "
+          f"{cnt['class']} classes, {cnt['extend']} extends{tail}); Atlas {old['atlas']['version']} -> "
           f"{new['atlas']['version']}")
     print(f"info: old Atlas {len(old['atlas']['variables'])} variables, {len(old['atlas']['mixins'])} mixins, "
           f"{len(old['atlas']['classes'])} classes, {len(old['atlas']['placeholders'])} placeholders; new Atlas "
@@ -427,6 +520,8 @@ def main(argv=None):
     d = sub.add_parser("diff")
     d.add_argument("old", help="old app dir or snap json")
     d.add_argument("new", help="new app dir or snap json")
+    d.add_argument("--client", choices=("react", "dojo"), default="react",
+                   help="client the NEW app runs on (default react: the Dojo table rules are then reported)")
     for p in (s, d):
         p.add_argument("--own", type=lambda x: set(filter(None, x.split(","))), default=set(),
                        help="modules to treat as the app's own styling even if vendor-looking")

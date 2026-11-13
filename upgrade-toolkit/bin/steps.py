@@ -15,6 +15,7 @@
   steps.py trailer [--work W] --kind KIND           (prints "Upgrade-Step: S-n" for a commit of that kind, nothing when no step fits; never fails)
   steps.py check   --work W [--decisions AGENT-DECISIONS.md]
   steps.py trail   --work W [--decisions AGENT-DECISIONS.md]   (the gate rung: the same completeness, in plain words; exit 1 on a gap)
+  steps.py standins --work W --inventory INV.json [--previous INV.json]   (one step per version: the stand-ins for outside calls, compared with the previous version)
   steps.py import-legacy --work W [--app REPO] [--decisions AGENT-DECISIONS.md]   (steps.jsonl for a run made before step records)
 
 Event: {id, field, value, by, at}. One line per event, never rewritten; steps.py is the only writer. Fields: topic, title, alias
@@ -24,8 +25,10 @@ Folded record: see STEP-RECORDS-PLAN.md section 2. status is derived, never writ
 closes_by rung is PASS or PASS*; blocked on a FAIL or a rejection; otherwise open.
 
 tested --gate reads GATE_DIR/gate-summary.md (and heal.json in the work folder) and writes, for each step and each rung in its
-closes_by, one result: PASS or PASS* when the rung row says so, FAIL when it says FAIL, and a gap in plain words for every other
-case (INVALID, NOT RUN, EXCEPT, no such row). A step with no closes_by gets the gap "no check is linked". A gap is a NOT RUN
+closes_by, one result: PASS or PASS* when the rung row says so, FAIL when it says FAIL and a failing item belongs to the step
+(the build fails every step; another rung only when its row or a failing click path in heal.json names the step's module, widget
+or theme), and a gap in plain words for every other case (a FAIL elsewhere in the app is "not proven yet", INVALID, NOT RUN,
+EXCEPT, no such row). A step with no closes_by gets the gap "no check is linked". A gap is a NOT RUN
 result plus a gap:tested:<rung> event, so an earlier PASS is replaced and the step is never done on a test nobody ran. The gate's
 verdict is never changed by this command. A rerun with the same gate adds no event.
 
@@ -40,9 +43,22 @@ TRAIL_REQUIRED=1 makes it required, steps/gate.md).
 
 import-legacy reads cockpit-items.json, cockpit-trail.json, PROPOSAL.md ([P-n] items and the routine updates), DECISIONS.md,
 AGENT-DECISIONS.md (every D row not named by another step becomes a step assumed by the agent) and, with --app, the commits of the
-app repo (linked only when a commit names the step's D row or its short hash appears in the step's own text). Every event carries
+app repo (see legacy matching below). Every event carries
 source "legacy" and by "legacy". What cannot be linked becomes a gap, "not linked in this run"; nothing is guessed. A second run
 with the same inputs adds no event, and a field or approval that a person or the toolkit wrote is never overwritten.
+
+Legacy matching (import-legacy only; a live run uses the Upgrade-Step trailer). A commit goes to a step by the first rule that hits: its
+short hash in the step's own text; a D number in the subject (D16b is D16) that exactly one step holds; a module or widget name, or the
+words of a step title, in the subject; "step:" or "stepupdate" with no step of its own (the routine modules step); "convert" (the convert
+step); a D number that only the run-notes step holds; "repair" (the repairs step). "build:" and "regenerated stubs" are housekeeping.
+What is left is printed as unmatched, never guessed. Each link keeps the hash as proof, source legacy and a reason ("matched by D13").
+Each legacy step also gets closes_by rungs from its kind (module and widget: build, idcheck, smoke, journeys; page, theme and script:
+smoke, screens, journeys; apis: apis; data: data; ...) with closes_by_why; tested --gate then fills in the results. A step that no rung
+fits keeps a gap in plain words.
+
+Two-version upgrades (9 to 10.24 to 11.12.7): set UPG_PHASE to the target version of the phase that runs. Every step opened then
+gets a phase field; find, ensure and tested --gate see only the steps of that phase (and steps without one), so the same module
+can be a step in each phase and the second gate never rewrites the tests of the first. Without UPG_PHASE nothing changes.
 
 Exit: 0 ok (check: complete), 1 check found something missing, 2 usage or refused input.
 """
@@ -195,6 +211,18 @@ def append(work, sid, field, value, by):
         e["source"] = EVENT_SOURCE
     with open(path_of(work), "a", encoding="utf-8") as f:
         f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    if field == "topic" and phase():   # a step opened during one version of a two-version upgrade belongs to that version
+        append(work, sid, "phase", phase(), by)
+
+
+def phase():
+    """The target version of the phase this run is in (UPG_PHASE, e.g. 10.24.0 then 11.12.7), "" for a one-version upgrade."""
+    return os.environ.get("UPG_PHASE", "").strip()
+
+
+def mine(rec):
+    """True when the step belongs to the current phase: always without phases, and a step with no phase belongs to every one."""
+    return not phase() or rec.get("phase", "") in ("", phase())
 
 
 def idnum(sid):
@@ -237,6 +265,8 @@ def fold(evs):
                "proposed": proposed}
         if "alias" in fs:
             rec["alias"] = v("alias")
+        if "phase" in fs:
+            rec["phase"] = v("phase")
         if "approval" in fs:
             rec["approval"] = dict(fs["approval"]["value"], by=fs["approval"]["by"], at=fs["approval"]["at"])
         rec["done"] = {"commits": [fs[k]["value"] for k in sorted(fs, key=lambda k: fs[k]["at"]) if k.startswith("commit:")]}
@@ -266,7 +296,7 @@ def ensure(work, topic, title, fields, by="toolkit"):
     """Open the step with this topic and title, or find it, then write each field whose value differs from the folded one.
     fields: {event field: value}. A rerun with the same input adds no event. Returns the S-n id."""
     evs = events(work)
-    sid = next((r["id"] for r in fold(evs) if r["topic"] == topic and r["title"] == title), None)
+    sid = next((r["id"] for r in fold(evs) if r["topic"] == topic and r["title"] == title and mine(r)), None)
     if sid is None:
         sid = f"S-{max([idnum(e['id']) for e in evs] + [0]) + 1}"
         append(work, sid, "topic", topic, by)
@@ -290,17 +320,17 @@ def set_approval(work, sid, state, by, source="", **extra):
     append(work, sid, "approval", dict({"state": state, "source": source}, **extra), clean(by))
 
 
-def add_commit(work, sid, sha, say, by="toolkit"):
-    """Add a commit to a step unless it is there already. True when an event was written."""
+def add_commit(work, sid, sha, say, by="toolkit", extra=None):
+    """Add a commit to a step unless it is there already. True when an event was written. extra: more keys for the value (import-legacy: source, why)."""
     if any(c["sha"] == sha for r in fold(events(work)) if r["id"] == sid for c in r["done"]["commits"]):
         return False
-    append(work, sid, f"commit:{sha}", {"sha": sha, "say": clean(say)}, clean(by))
+    append(work, sid, f"commit:{sha}", dict({"sha": sha, "say": clean(say)}, **(extra or {})), clean(by))
     return True
 
 
 def find_topic(work, topic):
     """The S-n id of the step with this topic, None when there is none."""
-    return next((r["id"] for r in fold(events(work)) if r["topic"] == topic), None)
+    return next((r["id"] for r in fold(events(work)) if r["topic"] == topic and mine(r)), None)
 
 
 def cmd_find(a):
@@ -434,25 +464,48 @@ def gate_rows(summary):
 
 
 def heal_regressions(work):
-    """Number of click paths the heal step found to pass on the old app and fail on the new one, None without a heal.json."""
+    """Ids of the click paths the heal step found to pass on the old app and fail on the new one, None without a heal.json."""
     try:
         rows = json.load(open(os.path.join(work, "heal.json"), encoding="utf-8")).get("rows", [])
     except (OSError, ValueError, AttributeError):
         return None
-    return sum(1 for r in rows if isinstance(r, dict) and r.get("class") == "real-regression" and str(r.get("id", "")).startswith("journey:"))
+    return [str(r["id"]) for r in rows if isinstance(r, dict) and r.get("class") == "real-regression" and str(r.get("id", "")).startswith("journey:")]
+
+
+def subject(topic):
+    """The module, widget or theme a step is about ("module:OIDC" is OIDC), "" for a step about the whole app ("modules")."""
+    _, _, rest = (topic or "").partition(":")
+    return rest.split()[0] if rest.split() else ""
+
+
+def ties(rung, line, regs, subj):
+    """Failing items of a FAIL row that belong to the step: the build fails the whole app; any other rung only when the row
+    or a failing click path names the step's subject. [] means the problem is elsewhere, so the step is not proven, not failed."""
+    if rung == "build":
+        return ["build"]
+    if not subj:
+        return []
+    word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(subj) + r"(?![A-Za-z0-9_])", re.I)
+    hits = [r for r in regs or [] if word.search(r)] if rung == "journeys" else []
+    return hits or (["row"] if word.search(line) else [])
 
 
 NO_CHECK = "No check is linked to this step, so nothing tested it."
 
 
-def gate_outcome(rung, rows, nreg):
-    """(verdict or None for a gap, plain sentence) of one rung. Template sentences only."""
+def gate_outcome(rung, rows, regs, subj=""):
+    """(verdict or None for a gap, plain sentence) of one rung for one step. Template sentences only. A FAIL row fails the step
+    only when a failing item belongs to it (ties); otherwise the step is not proven yet, a gap."""
     name = RUNG_PLAIN.get(rung, rung)
-    v = rows.get(rung, (None, ""))[0]
+    v, line = rows.get(rung, (None, ""))
     if v in ("PASS", "PASS*"):
         return v, f"The {name} passed on the new app." if v == "PASS" else f"The {name} passed on the new app, with differences that a person accepted."
     if v == "FAIL":
-        extra = f" {nreg} click paths work on the old app and fail on the new one." if rung == "journeys" and nreg else ""
+        own = ties(rung, line, regs, subj)
+        if not own:
+            return None, f"The {name} found a problem elsewhere in the app, not in this step, so this step is not proven yet."
+        n = sum(1 for x in own if x.startswith("journey:"))
+        extra = f" {n} click paths work on the old app and fail on the new one." if n else ""
         return "FAIL", f"The {name} found a problem on the new app.{extra}"
     why = {"INVALID": "could not judge", "NOT RUN": "did not run", "EXCEPT": "only passed except on a system that was left out"}.get(v)
     if why is None:
@@ -465,7 +518,7 @@ def cmd_tested_gate(a):
     summary = a.summary or os.path.join(a.gate, "gate-summary.md")
     if not os.path.isfile(summary):
         die(f"no gate-summary.md in {a.gate}")
-    rows, nreg, by = gate_rows(summary), heal_regressions(a.work), clean(a.by)
+    rows, regs, by = gate_rows(summary), heal_regressions(a.work), clean(a.by)
     proof = [os.path.join(os.path.basename(os.path.normpath(a.gate)), "gate-summary.md")]
     wrote = 0
     for rec in fold(events(a.work)):
@@ -477,14 +530,20 @@ def cmd_tested_gate(a):
                 return
             append(a.work, rec["id"], field, value, by)
             wrote += 1
+        if not mine(rec):   # the gate of 11.12.7 never rewrites what the gate of 10.24 showed for its own steps
+            continue
         rungs = rec["proposed"].get("closes_by") or []
         if not rungs:
-            put("gap:tested", NO_CHECK)
+            if cur.get("gap:tested", {}).get("source") != LEGACY:   # import-legacy wrote the reason in plain words: keep it
+                put("gap:tested", NO_CHECK)
             continue
         for rung in rungs:
-            verdict, say = gate_outcome(rung, rows, nreg)
+            verdict, say = gate_outcome(rung, rows, regs, subject(rec["topic"]))
             pf = proof + ([f"row: {rows[rung][1]}"] if rung in rows else [])
-            put(f"test:{rung}", {"rung": rung, "verdict": verdict or "NOT RUN", "say": say, "proof": pf})
+            val = {"rung": rung, "verdict": verdict or "NOT RUN", "say": say, "proof": pf}
+            if cur.get("closes_by", {}).get("source") == LEGACY:   # the rung was matched by import-legacy: say why, next to the gate row
+                val.update(source=LEGACY, why=cur.get("closes_by_why", {}).get("value", "matched by the kind of step"))
+            put(f"test:{rung}", val)
             if verdict is None:
                 put(f"gap:tested:{rung}", say)
     print(f"steps: tested --gate: {wrote} event(s) written from {summary}")
@@ -729,7 +788,7 @@ def read_text(*paths):
 def legacy_ensure(work, topic, title, fields):
     """Like ensure(), but a field that another writer set (no source legacy) is kept. Returns the S-n id."""
     evs = events(work)
-    sid = next((r["id"] for r in fold(evs) if r["topic"] == topic and r["title"] == title), None)
+    sid = next((r["id"] for r in fold(evs) if r["topic"] == topic and r["title"] == title and mine(r)), None)
     if sid is None:
         sid = f"S-{max([idnum(e['id']) for e in evs] + [0]) + 1}"
         append(work, sid, "topic", topic, LEGACY)
@@ -738,7 +797,11 @@ def legacy_ensure(work, topic, title, fields):
     for f, v in fields.items():
         if v is None or v == [] or v == "":
             continue
-        if f in cur and (cur[f]["value"] == v or cur[f].get("source") != LEGACY):
+        if f in cur and cur[f].get("source") != LEGACY:
+            continue
+        if f in cur and f in ("evidence", "decisions") and isinstance(v, list) and isinstance(cur[f]["value"], list):
+            v = list(dict.fromkeys(cur[f]["value"] + v))   # a later stage added items: a rerun keeps them, so it adds nothing
+        if f in cur and cur[f]["value"] == v:
             continue
         append(work, sid, f, v, LEGACY)
     return sid
@@ -821,6 +884,48 @@ def git_commits(repo):
     return [tuple((c.split("\x02") + ["", ""])[:3]) for c in r.stdout.split("\x01")[1:]]
 
 
+def inventory(path):
+    """{endpoint id: status} of an apimock inventory, {} when the file is missing or unreadable."""
+    try:
+        return {str(e.get("id")): str(e.get("status") or "") for e in json.load(open(path, encoding="utf-8")).get("endpoints", [])}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def cmd_standins(a):
+    """One step per version: review the stand-ins for the app's outside calls, against the previous version when there is one.
+    Routine (approved, no buttons) unless calls are unclear; then it needs the owner's OK. Closes by the apis rung."""
+    now_ = inventory(a.inventory)
+    if not now_:
+        die(f"no endpoints in {a.inventory}")
+    mocked = sum(1 for v in now_.values() if v == "MOCKED")
+    unclear = sum(1 for v in now_.values() if v == "UNKNOWN")
+    ver = f" on Mendix {phase()}" if phase() else ""
+    found = [f"The app makes {len(now_)} outside calls{ver}. {mocked} can be answered by a stand-in."]
+    if unclear:
+        found.append(f"{unclear} {'gets its' if unclear == 1 else 'get their'} address from data or {'is' if unclear == 1 else 'are'} not classified yet.")
+    prev = inventory(a.previous) if a.previous else {}
+    if prev:
+        new = [k for k in now_ if k not in prev]
+        gone = [k for k in prev if k not in now_]
+        moved = [k for k in now_ if k in prev and now_[k] != prev[k]]
+        found.append(f"Compared with the previous version: {len(new)} new, {len(gone)} gone, {len(moved)} changed." if new or gone or moved
+                     else "Nothing changed since the previous version.")
+    sid = ensure(a.work, "standins", "Review the stand-ins for outside calls", {
+        "found_say": " ".join(found), "stage": "triage", "evidence": [os.path.basename(a.inventory)],
+        "proposed_say": "Answer every classified call with a stand-in during the tests, and classify the unclear ones." if unclear
+                        else "Answer every call with a stand-in during the tests.",
+        "why": "The tests cannot reach the real outside systems, so each call gets a stand-in that answers like the real one.",
+        "closes_by": ["apis"]}, clean(a.by))
+    ap = approval_of(a.work, sid)
+    if not ap or ap.get("source") in (ROUTINE, "unattended"):
+        want = ("assumed", "unattended") if unclear else ("approved", ROUTINE)
+        if not ap or (ap.get("state"), ap.get("source")) != want:
+            set_approval(a.work, sid, want[0], "agent", want[1])
+    print(sid)
+    return 0
+
+
 def topic_title(work, sid):
     """(topic, title) of a step."""
     r = next(r for r in fold(events(work)) if r["id"] == sid)
@@ -884,6 +989,149 @@ def host_step(work, d, text, choice=False):
     return best[1]
 
 
+# ---- legacy matching: commits to steps, rungs to steps (steps.py import-legacy only; a live run uses the Upgrade-Step trailer) ------
+STOP = GENERIC | {"replay", "repair", "repairs", "delete", "theme", "snippet", "snippets", "remove", "rebuilt", "owner", "regenerated", "stubs",
+                  "original", "convert", "make", "move", "moved", "uses", "with", "that", "this", "from", "into", "have", "dependencies",
+                  "exist", "does", "round", "design", "properties", "sync", "stepupdate", "idcheck", "pass", "documented", "wait"}
+VERSION = re.compile(r"\d+\.\d+(?:\.\d+)?")
+STYLE_WORDS = re.compile(r"\b(scss|css|theme|style|styles|themesource)\b", re.I)
+
+
+def is_ident(t):
+    """A name that belongs to one subject: Atlas_Web_Content, ObjectHandling, HTMLSnippet, NATS."""
+    return bool("_" in t or re.search(r"[a-z][A-Z]|[A-Z]{2,}[a-z]", t) or re.fullmatch(r"[A-Z]{4,}", t))
+
+
+def name_tokens(text):
+    """(identifier set, plain word set) of a text. Words are lower case, 4 letters or more, singular, not generic; versions count as words."""
+    idents, words = set(), set(VERSION.findall(text))
+    for n, t in enumerate(re.findall(r"[A-Za-z][A-Za-z0-9_]*", text)):
+        low = t.lower()
+        # a capital letter inside a sentence marks a name too (Cartkit); the first word of a text always has one
+        if is_ident(t) or (n and re.fullmatch(r"[A-Z][a-z]{4,}", t) and low not in STOP and low.rstrip("s") not in STOP):
+            idents.add(t.lower())
+        elif len(t) >= 4 and t.lower() not in STOP and t.lower().rstrip("s") not in STOP:
+            words.add(t.lower().rstrip("s"))
+    return idents, words
+
+
+def match_commit(subject, sha, recs, hash_text):
+    """(step id, reason) or (None, why not). First rule that hits, see the module docstring (legacy matching)."""
+    notes = [r for r in recs if r["topic"] == "run-notes"]
+    steps = [r for r in recs if r["topic"] != "run-notes"]
+    by_topic = lambda t: next((r["id"] for r in recs if r["topic"] == t), None)
+    low = subject.lower()
+    # 0. the commit hash is in the step's own text
+    for sid, text in hash_text.items():
+        if sha and sha in text:
+            return sid, "matched by commit hash"
+    # 1. a D number in the subject (D16b is D16) held by exactly one step
+    for d in dict.fromkeys("D" + n for n in re.findall(r"\bD(\d+)[a-z]?\b", subject)):
+        hit = [r["id"] for r in steps if d in (r["proposed"].get("decisions") or [])]
+        if len(hit) == 1:
+            return hit[0], f"matched by {d}"
+    # 2. a module or widget name (or the words of a title) in the subject names exactly one best step
+    ids, words = name_tokens(subject)
+    best, tie = (0, None), False
+    for r in steps:
+        i2, w2 = name_tokens(r["topic"] + " " + r["title"])
+        ni, nw = len(ids & i2), len(words & w2)
+        if not (ni or nw >= 2):
+            continue
+        pref = "theme:" if STYLE_WORDS.search(subject) else "module:"
+        score = 10 * ni + nw + (0.5 if r["topic"].startswith(pref) else 0)
+        if score > best[0]:
+            best, tie = (score, r["id"]), False
+        elif score == best[0]:
+            tie = True
+    why = "more than one step fits, so none was picked" if tie else "no step names it"
+    if best[1] and not tie:
+        hit = next(r for r in steps if r["id"] == best[1])
+        return best[1], "matched by module name" if ids & name_tokens(hit["topic"] + " " + hit["title"])[0] else "matched by the words of the step title"
+    # 3. step: / stepupdate with no step of its own is a routine module update
+    if low.startswith("step:") or "stepupdate" in low:
+        if by_topic("modules"):
+            return by_topic("modules"), "matched as a routine module update"
+    # 4. convert
+    if low.startswith("convert"):
+        if by_topic("convert"):
+            return by_topic("convert"), "matched as the convert"
+        return None, "this run has no convert step"
+    # 5. a D number that only a notes step holds
+    for d in dict.fromkeys("D" + n for n in re.findall(r"\bD(\d+)[a-z]?\b", subject)):
+        if any(d in (r["proposed"].get("decisions") or []) for r in notes):
+            return notes[0]["id"], f"matched by {d} (a note, not a choice)"
+    # 6. a repair with no other hit
+    if low.startswith("repair") and by_topic("repairs"):
+        return by_topic("repairs"), "matched as a repair"
+    return None, why
+
+
+def legacy_commits(work, commits, hash_text):
+    """Link the app's commits to legacy steps. Returns {"housekeeping": n, "list": [(sha, subject, why)]} of those that did not link.
+    Every link carries the hash as proof, source legacy and the reason; a commit that a step holds already is left alone."""
+    out = {"housekeeping": 0, "list": []}
+    recs = [r for r in fold(events(work))]
+    have = {c["sha"] for r in recs for c in r["done"]["commits"]}
+    for sha, subj, body in commits:
+        if sha in have:
+            continue
+        if re.match(r"build:", subj, re.I) or "regenerated stubs" in subj.lower():
+            out["housekeeping"] += 1
+            continue
+        sid, why = match_commit(subj, sha, recs, hash_text)
+        if sid is None:
+            out["list"].append((sha, subj, why))
+            continue
+        add_commit(work, sid, sha, subj if plain(subj) and not TECH.search(subj) else "A change was committed for this step.", LEGACY,
+                   {"source": LEGACY, "why": why})
+    return out
+
+
+# the rung rules: (pattern on the title, then on the topic; rungs; reason when no rung fits). First hit wins.
+RUNG_RULES = (
+    (r"notes the agent kept|run-notes", None, "these are notes only"),
+    (r"backup|way back", None, "a backup and a way back are not something the gate measures"),
+    (r"go-live", None, "the go-live checks are a person's sign-off, not a check of the gate"),
+    (r"\bheal", None, "it is about how test problems are fixed, not about the app"),
+    (r"\bapis?\b|endpoint|identity provider|nats|messag|outside system", ("apis",), ""),
+    (r"seed|\bdata\b", ("data",), ""),
+    (r"sign[- ]?in|login", ("smoke", "journeys"), ""),
+    (r"repair", ("build", "smoke", "journeys"), ""),
+    (r"convert", ("build", "idcheck", "data"), ""),
+    (r"\bmodules?\b|\bwidgets?\b|\bcharts?\b|\bjava\b|librar|\d+\.\d+\.\d+", ("build", "idcheck", "smoke", "journeys"), ""),
+    (r"page|popup|theme|style|scss|css|layout|look|feel|script|jquery|combo|dojo|client|visible|snippet|flatpickr|field|screen|backdrop|carousel|button",
+     ("smoke", "screens", "journeys"), ""),
+)
+
+
+def rungs_for(topic, title):
+    """(rungs, reason) from the kind or topic of a step; rungs is [] when no rung fits (the reason says why)."""
+    for text in (title, topic):
+        for rx, rungs, why in RUNG_RULES:
+            if re.search(rx, text, re.I):
+                return list(rungs or []), why
+    return [], "the gate has no check for this kind of step"
+
+
+def legacy_rungs(work):
+    """Give each legacy step the rungs it closes by, from its kind or topic, and say why. A step with no sensible rung keeps a plain gap."""
+    cur = lastmap(events(work))
+    for r in fold(events(work)):
+        if cur[r["id"]].get("topic", {}).get("source") != LEGACY:
+            continue
+        rungs, why = rungs_for(r["topic"], r["title"])
+        if rungs:
+            legacy_ensure(work, r["topic"], r["title"], {
+                "closes_by": rungs, "closes_by_why": "matched by the kind of step: it closes by " + ", ".join(rungs)})
+        else:
+            was = cur[r["id"]].get("gap:tested")
+            note = re.search(r"The run's own note says: .*$", was["value"]) if was else None
+            say = "No check of the gate fits this step, because " + why + ". It stays a gap." + (" " + note.group(0) if note else "")
+            if not was or (was.get("source") == LEGACY and was["value"] != say):
+                append(work, r["id"], "gap:tested", say, LEGACY)
+
+
 def cmd_import_legacy(a):
     """Build steps.jsonl for a run made before step records existed (see the module docstring)."""
     global EVENT_SOURCE
@@ -914,11 +1162,7 @@ def cmd_import_legacy(a):
         if not cur:
             append(W, sid, "approval", {"state": "approved", "source": ROUTINE, "needs": "nobody: routine work"}, "agent")
 
-    def link_commits(sid, text, ds):
-        """A commit belongs to a step when it names one of the step's D rows or its short hash is in the step's own text."""
-        for sha, subj, body in commits:
-            if any(re.search(rf"\b{d}\b", subj + " " + body) for d in ds) or (sha and sha in text):
-                add_commit(W, sid, sha, subj if plain(subj) else "A change was committed for this step.", LEGACY)
+    hash_text = {}   # step id -> the run's own text about its upgrade (a short commit hash in it links the commit)
 
     # 1. PROPOSAL.md: the routine updates, then each [P-n] item (same topic and title as proposal.py, so a later run merges)
     for topic, title, lines, what, prop_say in (
@@ -996,8 +1240,7 @@ def cmd_import_legacy(a):
                 legacy_approval(W, sid, "assumed", "agent", needs="the owner's OK")
             else:
                 routine_ok(sid)
-            if commits:
-                link_commits(sid, json.dumps(st.get("upgrade") or {}, ensure_ascii=False), ds)
+            hash_text[sid] = json.dumps(st.get("upgrade") or {}, ensure_ascii=False)
             said = plainify((st.get("test") or {}).get("say"), "") or result
             legacy_gap(W, sid, "tested", NOT_LINKED + " No test result of this run is tied to a check of the gate."
                        + (f" The run's own note says: {said}" if said else ""))
@@ -1037,8 +1280,10 @@ def cmd_import_legacy(a):
             append(W, host, "approval", {"state": "assumed", "source": LEGACY, "needs": "the owner's OK"}, "agent")
         elif not choice and not cur.get("approval"):
             routine_ok(host)
-        if commits:
-            link_commits(host, "", [d])
+
+    # 4b. commits to steps and rungs to steps (legacy steps only; live runs use the Upgrade-Step trailer)
+    unmatched = legacy_commits(W, commits, hash_text)
+    legacy_rungs(W)
 
     # 5. everything that could not be linked is a gap, in plain words
     for sid in touched:
@@ -1054,6 +1299,11 @@ def cmd_import_legacy(a):
     recs = fold(events(W))
     n_as = sum(1 for r in recs if (r.get("approval") or {}).get("state") == "assumed")
     print(f"steps: import-legacy: {len(recs)} steps ({n_as} assumed by the agent, waiting for the owner's OK)")
+    if commits:
+        print(f"steps: import-legacy: {sum(len(r['done']['commits']) for r in recs)} commit(s) linked, "
+              f"{unmatched['housekeeping']} housekeeping, {len(unmatched['list'])} unmatched")
+        for sha, subj, why in unmatched["list"]:
+            print(f"  unmatched: {sha} {subj}  ({why})")
     return 0
 
 
@@ -1061,7 +1311,7 @@ def main():
     """Parse the command line and run one command."""
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for n in ("open", "propose", "approve", "done", "tested", "gap", "show", "check", "find", "trailer", "trail", "import-legacy", "kind"):
+    for n in ("open", "propose", "approve", "done", "tested", "gap", "show", "check", "find", "trailer", "trail", "import-legacy", "kind", "standins"):
         s = sub.add_parser(n)
         s.add_argument("--work", required=(n not in ("trailer", "kind")))
         if n != "approve":
@@ -1070,7 +1320,7 @@ def main():
             s.add_argument("--id")
             s.add_argument("--gate")
             s.add_argument("--summary")   # a gate-summary.md to read instead of GATE_DIR's (the gate's own trail rung, before the summary exists)
-        elif n not in ("open", "show", "check", "find", "propose", "trailer", "trail", "import-legacy", "kind"):
+        elif n not in ("open", "show", "check", "find", "propose", "trailer", "trail", "import-legacy", "kind", "standins"):
             s.add_argument("--id", required=True)
         if n == "kind":
             s.add_argument("--title", required=True)
@@ -1119,6 +1369,9 @@ def main():
         if n == "gap":
             s.add_argument("--field", required=True)
             s.add_argument("--say", required=True)
+        if n == "standins":
+            s.add_argument("--inventory", required=True)
+            s.add_argument("--previous")
         if n == "show":
             s.add_argument("sid", nargs="?")
             s.add_argument("--json", action="store_true")
@@ -1133,7 +1386,7 @@ def main():
         die(f"no work folder {a.work}")
     return {"open": cmd_open, "propose": cmd_propose, "approve": cmd_approve, "done": cmd_done, "tested": cmd_tested,
             "gap": cmd_gap, "show": cmd_show, "check": cmd_check, "find": cmd_find, "trail": cmd_trail,
-            "import-legacy": cmd_import_legacy}[a.cmd](a)
+            "import-legacy": cmd_import_legacy, "standins": cmd_standins}[a.cmd](a)
 
 
 if __name__ == "__main__":

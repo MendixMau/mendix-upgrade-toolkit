@@ -19,7 +19,7 @@
 #
 # Why this file (SETUP-1): every batch-1 to batch-3 worker copied T1's runs/t1-purchase-request/setup.sh by hand and
 # re-learned its traps. Each step below was needed in a real run (T1, T2, N1 JOURNAL.md):
-#  1 ~/Mendix/personal-toolkit symlink (SKILL.md paths)       6 mxbuild + runtime per version from cdn.mendix.com
+#  1 ~/Mendix/mxcli-project-toolkit symlink (SKILL.md paths)       6 mxbuild + runtime per version from cdn.mendix.com
 #  2 zsh (the bin/*.sh wrappers are zsh scripts)                7 python modules (pymongo for bson, bcrypt), rsync
 #  3 dockerd (installed but not running in the cloud image)    8 Playwright module (Chromium is preinstalled there)
 #  4 base images via mirror.gcr.io (Docker Hub 429), toolkit   9 mxcli marketplace auth from $MENDIX_PAT
@@ -63,8 +63,8 @@ antlr_jar() {  # B4T2-1: pre-place the jar; repo1.maven.org answers 429, so try 
 
 # 1 toolkit path
 if want link; then
-  [ -e ~/Mendix/personal-toolkit ] || ln -sfn "$REPO" ~/Mendix/personal-toolkit
-  log "toolkit at $(readlink -f ~/Mendix/personal-toolkit)"
+  [ -e ~/Mendix/mxcli-project-toolkit ] || ln -sfn "$REPO" ~/Mendix/mxcli-project-toolkit
+  log "toolkit at $(readlink -f ~/Mendix/mxcli-project-toolkit)"
 fi
 
 # 2 zsh

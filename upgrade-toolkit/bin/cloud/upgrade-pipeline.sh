@@ -5,6 +5,8 @@
 #                            [--from STEP] [--only STEP] [--dry-run]
 #   --app-zip PATH   a project zip/mpk, unpacked into <run>/app and put under its own git ("original" commit)
 #   --app-dir DIR    an unpacked project folder (own git is created when it has none)
+#   --to FULL        instead of --target/--target2: the version ladder picks the route (9.x to 11 goes through 10.24;
+#                    --via 10.24.x.y names that toolset, else the newest mxbuild-10.24.* in UPG_TOOLS) and writes <work>/ladder.json.
 #   --source/--target/--target2  FULL versions (10.24.26.123458; 11.x may be 11.15.0). With --target2 the script runs
 #                    rung 1 (source -> target), then calls itself for rung 2 (target -> target2) in <work>/rung2.
 #   --work DIR       $WORK of steps/*.md (state/, logs/, evidence). Sources $WORK/env.sh or $RUN/env.sh (bin/cloud/setup.sh).
@@ -39,7 +41,7 @@ set -Eeuo pipefail
 ARGS_ORIG=("$@")
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 TK="$(cd "$(dirname "$SELF")/../.." && pwd)"
-APP_ZIP=""; APP_DIR_ARG=""; SOURCE=""; TARGET=""; TARGET2=""; WORK=""
+APP_ZIP=""; APP_DIR_ARG=""; SOURCE=""; TARGET=""; TARGET2=""; WORK=""; TO=""; VIA=""
 FROM=""; ONLY=""; DRY=0; COCKPIT=0; DB_ARG=""; OLD_MDA=""; SEED_FROM=""
 
 STEPS=(fetch triage baseline basewalk propose convert update build after afterwalk journeys heal apidirect diff gate)
@@ -59,6 +61,8 @@ while [ $# -gt 0 ]; do
     --source) SOURCE=${2:-}; shift 2 ;;
     --target) TARGET=${2:-}; shift 2 ;;
     --target2) TARGET2=${2:-}; shift 2 ;;
+    --to) TO=${2:-}; shift 2 ;;
+    --via) VIA=${2:-}; shift 2 ;;
     --work) WORK=${2:-}; shift 2 ;;
     --from) FROM=${2:-}; shift 2 ;;
     --only) ONLY=${2:-}; shift 2 ;;
@@ -79,6 +83,22 @@ if [ "$COCKPIT" = 1 ]; then   # step-free: regenerate the cockpit page and stop
   exec python3 "$TK/bin/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html"
 fi
 [ -n "$SOURCE" ] || usage_die "--source is required"
+# --to: the version ladder. The pipeline picks the route from the start version: 9.x and 10.x below 10.24 go through 10.24
+# (--via, else the newest mxbuild-10.24.* toolset in UPG_TOOLS) before 11; anything else is one rung.
+if [ -n "$TO" ]; then
+  [ -z "$TARGET$TARGET2" ] || usage_die "--to replaces --target and --target2: give one or the other"
+  _sm=${SOURCE%%.*}; _sr=${SOURCE#*.}; _sn=${_sr%%.*}; _tm=${TO%%.*}
+  if [ "$_tm" -ge 11 ] && { [ "$_sm" -le 9 ] || { [ "$_sm" -eq 10 ] && [ "$_sn" -lt 24 ]; }; }; then
+    if [ -z "$VIA" ]; then
+      VIA=$(ls -d "${UPG_TOOLS:-$(dirname "$WORK")/tools}"/mxbuild-10.24.* 2>/dev/null | sed 's#.*/mxbuild-##' | sort -t. -k3,3n -k4,4n | tail -1 || true)
+      [ -n "$VIA" ] || usage_die "$SOURCE goes to $TO through 10.24: no mxbuild-10.24.* toolset found, give --via 10.24.x.y"
+    fi
+    TARGET=$VIA; TARGET2=$TO
+  else
+    TARGET=$TO
+  fi
+  echo "upgrade-pipeline.sh: version ladder $SOURCE -> $TARGET${TARGET2:+ -> $TARGET2}"
+fi
 [ -n "$TARGET" ] || usage_die "--target is required"
 { [ -n "$APP_ZIP" ] || [ -n "$APP_DIR_ARG" ]; } || usage_die "one of --app-zip / --app-dir is required"
 { [ -z "$APP_ZIP" ] || [ -z "$APP_DIR_ARG" ]; } || usage_die "--app-zip and --app-dir are exclusive"
@@ -110,6 +130,9 @@ fi
 
 mkdir -p "$WORK"; WORK=$(cd "$WORK" && pwd)
 mkdir -p "$WORK/state" "$WORK/logs"
+# the route of this run, for the cockpit's version ladder (rung 2 keeps the one rung 1 wrote)
+[ "$(basename "$WORK")" = rung2 ] || [ "$DRY" = 1 ] ||
+  printf '{"route": ["%s", "%s"%s]}\n' "$SOURCE" "$TARGET" "${TARGET2:+, \"$TARGET2\"}" > "$WORK/ladder.json"
 
 # ---- env.sh from bin/cloud/setup.sh: TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
 : "${RUN:=$(dirname "$WORK")}"
@@ -127,6 +150,9 @@ export UPG_ROOT="$RUN"
 [ -z "${MXCLI:-}" ] || export UPG_MXCLI="$MXCLI"
 export UPG_EXTRA="${UPG_EXTRA:-}"
 export UPG_MXCLI_STATE="$WORK/state/mxcli-version"   # stepupdate.sh checks it too (bin/mxcli_pin.sh)
+# two versions (--target2): every step of rung 1 belongs to the version of --target; rung 2 gets its own (set below), so one
+# steps.jsonl and one COCKPIT.html cover 9 to 11 and gate 2 never rewrites the tests of gate 1 (steps.py UPG_PHASE)
+[ -z "$TARGET2" ] || export UPG_PHASE=$(echo "$TARGET" | cut -d. -f1-3)
 export UPG_STEPS_WORK="$WORK"   # steps.py trailer reads <work>/steps.jsonl: commits that fit a step carry Upgrade-Step (changelog.py -> steps.py done)
 # F2 (Purchase Request 10.24, real run): mxrun.sh mounts only the run folder, so an --app-dir outside it was accepted and
 # then failed at baseline with mxbuild's "Project file does not exist". Refuse it here, before any step runs.
@@ -214,6 +240,13 @@ decisions_apply() {
 cockpit_regen() {
   [ "$DRY" != 1 ] || return 0
   python3 "$B/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html" >> "$WORK/logs/decisions.log" 2>&1 || true
+  # rung 2 also refreshes the cockpit of rung 1, so the run keeps one page from start to end
+  [ -z "${UPG_COCKPIT_OUT:-}" ] || [ ! -f "$WORK/COCKPIT.html" ] || cp "$WORK/COCKPIT.html" "$UPG_COCKPIT_OUT" 2>/dev/null || true
+  # UPG_COCKPIT_HISTORY=1 keeps every version of the page (a demo video shows the cockpit filling up), next to the one cockpit
+  if [ "${UPG_COCKPIT_HISTORY:-0}" = 1 ] && [ -f "$WORK/COCKPIT.html" ]; then
+    local h; h=$(dirname "${UPG_COCKPIT_OUT:-$WORK/COCKPIT.html}")/cockpit-history; mkdir -p "$h"
+    cp "$WORK/COCKPIT.html" "$h/$(date +%Y%m%d-%H%M%S)-$(basename "$(dirname "$WORK/x")").html" 2>/dev/null || true
+  fi
 }
 
 # ---- Postgres / apps ----
@@ -710,6 +743,12 @@ step_propose() {
     scope_run   # the triage line "journeys in scope: N reachable, M out of scope (...)" the proposal cites
     rc=0; xo "$WORK/apimock-inventory.out" python3 "$B/apimock.py" inventory "$WORK/original.mpr" --json "$WORK/apimock-inventory.json" || rc=$?
     [ "$rc" -le 3 ] || note "apimock.py inventory exit $rc: the proposal lists external systems as not measured (see $WORK/apimock-inventory.out)"
+    # every version reviews its stand-ins again, as a step of its own; rung 2 compares with the inventory of rung 1
+    if [ -s "$WORK/apimock-inventory.json" ]; then
+      local prev=(); [ "$(basename "$WORK")" != rung2 ] || [ ! -s "$WORK/../apimock-inventory.json" ] || prev=(--previous "$WORK/../apimock-inventory.json")
+      python3 "$B/steps.py" standins --work "$WORK" --inventory "$WORK/apimock-inventory.json" ${prev[@]+"${prev[@]}"} --by toolkit >> "$LOG" 2>&1 ||
+        note "steps.py standins failed: the stand-ins of this version are not a step (see $LOG)"
+    fi
   else
     note "no original.mpr: the proposal counts no modules, pages, microflows or actions"
   fi
@@ -1550,11 +1589,13 @@ main() {
       mkdir -p "$WORK/rung2/state"
       # one version per run: rung 2 inherits the pin of rung 1 (its triage then checks, not re-records)
       [ ! -s "$WORK/state/mxcli-version" ] || [ -s "$WORK/rung2/state/mxcli-version" ] || cp "$WORK/state/mxcli-version" "$WORK/rung2/state/mxcli-version"
+      # one step file for both versions: rung 2 appends to the steps.jsonl of rung 1
+      touch "$WORK/steps.jsonl"; [ -e "$WORK/rung2/steps.jsonl" ] || ln -s ../steps.jsonl "$WORK/rung2/steps.jsonl"
       for s in env-values.json create-spec.json localedits.args; do
         [ ! -f "$WORK/$s" ] || [ -f "$WORK/rung2/$s" ] || cp "$WORK/$s" "$WORK/rung2/$s"
       done
     fi
-    exec env "RUN=$RUN" "${r2[@]}"
+    exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi
   exit 0
 }

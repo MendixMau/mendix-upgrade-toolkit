@@ -28,8 +28,27 @@ gsum() {
 # lg: copy the legacy fixture (work/ and AGENT-DECISIONS.md) beside $W and run import-legacy; LOUT/LRC hold its output and exit code
 lg() { cp "$here/fixtures/legacy/work/"* "$W/"; cp "$here/fixtures/legacy/AGENT-DECISIONS.md" "$T/"
   LOUT=$(st import-legacy --decisions "$T/AGENT-DECISIONS.md" 2>&1); LRC=$?; }
+# lgrepo: a tiny git repo R of made-up commits that the fixture steps can be matched to
+lgrepo() { R=$T/repo; git init -q "$R"; git -C "$R" config user.email a@b; git -C "$R" config user.name a; local n=0
+  for m in "swap the carousel (D4)" "repair D2b: Themepack style files deleted again" "step: Cartkit 3.0.0 (stepupdate, idcheck PASS)" \
+           "step: Shopkit 1.0.0 (stepupdate, idcheck PASS)" "build: regenerated stubs" "tidy the footer colours" "convert 11.12.6"; do
+    n=$((n + 1)); echo $n > "$R/f$n"; git -C "$R" add "f$n"; git -C "$R" commit -qm "$m"; done; }
 case $case_ in
   # slice 9: import-legacy on the made-up shop run in fixtures/legacy (work/ and AGENT-DECISIONS.md one level up, like run2)
+  # legacy matching: commits and rungs to steps. A tiny git repo with made-up commits beside the made-up shop fixture
+  legacy-match) lg >/dev/null; lgrepo; st import-legacy --decisions "$T/AGENT-DECISIONS.md" --app "$R" > "$T/imp.txt"; st show --json > "$T/s.json"
+            fieldof "$T/s.json" '"\n".join("%s -> %s | %s | %s" % (c["say"][:34], r["id"], c["why"], c["source"]) for r in d for c in r["done"]["commits"])'
+            grep -E '^steps: import-legacy: [0-9]+ commit|unmatched:' "$T/imp.txt" | sed 's/^\(  unmatched: \)[0-9a-f]* /\1/' ;;
+  legacy-match-rerun) lg >/dev/null; lgrepo; mkdir -p "$T/gate"; gsum "$T/gate" PASS PASS
+            st import-legacy --decisions "$T/AGENT-DECISIONS.md" --app "$R" >/dev/null; st tested --gate "$T/gate" >/dev/null; a=$(wc -l < "$W/steps.jsonl")
+            st import-legacy --decisions "$T/AGENT-DECISIONS.md" --app "$R" >/dev/null; st tested --gate "$T/gate" >/dev/null
+            b=$(wc -l < "$W/steps.jsonl"); echo "lines before: $a after: $b"; [ $((a)) = $((b)) ] && echo "rerun added nothing" || echo "rerun added events" ;;
+  legacy-rungs) lg >/dev/null; lgrepo; mkdir -p "$T/gate"; gsum "$T/gate" PASS PASS
+            st import-legacy --decisions "$T/AGENT-DECISIONS.md" --app "$R" >/dev/null; st tested --gate "$T/gate" >/dev/null; st show --json > "$T/s.json"
+            fieldof "$T/s.json" '"\n".join("%s closes by %s" % (r["title"], ", ".join(r["proposed"]["closes_by"])) for r in d if r["topic"] in ("module:Cartkit", "theme:Themepack style files", "order-grid") and r["proposed"].get("closes_by"))'
+            fieldof "$T/s.json" '"no rung: " + [r["title"] for r in d if not r["proposed"].get("closes_by") and r["topic"] == "order-grid"][0] + " | " + [r["gaps"]["tested"] for r in d if r["title"] == "Order export"][0]'
+            fieldof "$T/s.json" '"module step results: " + ", ".join("%s %s" % (t["rung"], t["verdict"]) for r in d if r["topic"] == "module:Cartkit" for t in r["tested"]["results"])'
+            fieldof "$T/s.json" '"result proof: %s | %s | %s" % ([t["source"] for r in d if r["topic"] == "module:Cartkit" for t in r["tested"]["results"]][0], [t["why"] for r in d if r["topic"] == "module:Cartkit" for t in r["tested"]["results"]][0], [t["proof"] for r in d if r["topic"] == "module:Cartkit" for t in r["tested"]["results"]][0][0])' ;;
   legacy-import) lg; echo "rc=$LRC"; echo "$LOUT"; st show --json > "$T/s.json"
             fieldof "$T/s.json" '"steps: %d" % len(d)'
             fieldof "$T/s.json" '"assumed: %d approved: %d none: %d" % tuple(sum(1 for r in d if (r.get("approval") or {}).get("state", "none") == k) for k in ("assumed", "approved", "none"))'
@@ -144,10 +163,19 @@ for t in ("PROPOSAL: seed a real work order with annexes, alerts and samples", "
             echo "say: $(fieldof "$T/s.json" 'd[0]["tested"]["results"][0]["say"]')"; echo "proof: $(fieldof "$T/s.json" 'd[0]["tested"]["results"][1]["proof"]')"
             echo "gaps: $(fieldof "$T/s.json" 'list(d[0]["gaps"])')"; echo "status: $(fieldof "$T/s.json" 'd[0]["status"]')" ;;
   gate-fail) mk; st approve --id S-1 --state approved --by Ana >/dev/null; gsum "$T/g" "PASS" "FAIL"
-            printf '{"rows":[{"id":"journey:act-Shop.Home.menuButton","class":"real-regression"},{"id":"journey:act-Shop.Home.logoutButton","class":"real-regression"},{"id":"data:x","class":"real-regression"}]}' > "$W/heal.json"
+            printf '{"rows":[{"id":"journey:act-Gridmod.Grid.refreshButton","class":"real-regression"},{"id":"journey:act-Gridmod.Grid.exportButton","class":"real-regression"},{"id":"journey:act-Shop.Home.menuButton","class":"real-regression"},{"id":"data:x","class":"real-regression"}]}' > "$W/heal.json"
             st tested --gate "$T/g" >/dev/null; st show S-1 --json > "$T/s.json"
             echo "results: $(fieldof "$T/s.json" '[(r["rung"], r["verdict"]) for r in d[0]["tested"]["results"]]')"
             echo "say: $(fieldof "$T/s.json" 'd[0]["tested"]["results"][1]["say"]')"; echo "status: $(fieldof "$T/s.json" 'd[0]["status"]')" ;;
+  # a FAIL row fails only the steps it names: a click path of another module leaves this step not proven (a gap), never red
+  gate-fail-elsewhere) mk; st approve --id S-1 --state approved --by Ana >/dev/null; gsum "$T/g" "PASS" "FAIL"
+            printf '{"rows":[{"id":"journey:act-Shop.Home.menuButton","class":"real-regression"}]}' > "$W/heal.json"
+            st tested --gate "$T/g" >/dev/null; st show S-1 --json > "$T/s.json"
+            echo "results: $(fieldof "$T/s.json" '[(r["rung"], r["verdict"]) for r in d[0]["tested"]["results"]]')"
+            echo "gap: $(fieldof "$T/s.json" 'd[0]["gaps"]["tested:journeys"]')"; echo "status: $(fieldof "$T/s.json" 'd[0]["status"]')" ;;
+  gate-fail-build) mk; st propose --id S-1 --say "Update the grid module to the version for the new client." --closes-by build >/dev/null
+            gsum "$T/g" "PASS" "PASS"; sed -i.bak 's/| build | PASS |/| build | FAIL |/' "$T/g/gate-summary.md"; st tested --gate "$T/g" >/dev/null; st show S-1 --json > "$T/s.json"
+            echo "build: $(fieldof "$T/s.json" '[r["verdict"] for r in d[0]["tested"]["results"] if r["rung"]=="build"]')" ;;
   gate-gap) mk; st approve --id S-1 --state approved --by Ana >/dev/null; gsum "$T/g" "PASS" "NOT RUN"; st tested --gate "$T/g" >/dev/null; st show S-1 --json > "$T/s.json"
             echo "results: $(fieldof "$T/s.json" '[(r["rung"], r["verdict"]) for r in d[0]["tested"]["results"]]')"
             echo "gap: $(fieldof "$T/s.json" 'd[0]["gaps"]["tested:journeys"]')"; echo "status: $(fieldof "$T/s.json" 'd[0]["status"]')" ;;
@@ -165,6 +193,30 @@ for t in ("PROPOSAL: seed a real work order with annexes, alerts and samples", "
             echo "later: $(fieldof "$T/s.json" 'd[0]["status"]') journeys $(fieldof "$T/s.json" '[r["verdict"] for r in d[0]["tested"]["results"] if r["rung"]=="journeys"]')" ;;
   gate-rerun) mk; gsum "$T/g" "PASS" "PASS"; st tested --gate "$T/g" >/dev/null; n=$(wc -l < "$W/steps.jsonl"); st tested --gate "$T/g"; echo "added on rerun: $(( $(wc -l < "$W/steps.jsonl") - n ))" ;;
   gate-no-summary) mk; mkdir -p "$T/empty"; st tested --gate "$T/empty"; echo "rc=$?" ;;
+  # two-version upgrade: UPG_PHASE gives each step its version; the same module is a step per version and gate 2 leaves gate 1's results alone
+  phase-split) UPG_PHASE=10.24.0 mk; UPG_PHASE=10.24.0 st approve --id S-1 --state approved --by Ana >/dev/null
+            gsum "$T/g1" "PASS" "FAIL"; UPG_PHASE=10.24.0 st tested --gate "$T/g1" >/dev/null
+            UPG_PHASE=11.12.7 st find --topic modules:Gridmod >/dev/null; echo "found in 11.12.7: rc=$?"
+            UPG_PHASE=11.12.7 st open --topic modules:Gridmod --title "Order grid update" --say "The grid needs its 11 version." >/dev/null
+            UPG_PHASE=11.12.7 st propose --id S-2 --say "Update the grid again." --closes-by smoke --closes-by journeys >/dev/null
+            gsum "$T/g2" "PASS" "PASS"; UPG_PHASE=11.12.7 st tested --gate "$T/g2" >/dev/null; st show --json > "$T/s.json"
+            fieldof "$T/s.json" '"\n".join("%s %s %s" % (r["id"], r.get("phase"), [t["verdict"] for t in r["tested"]["results"]]) for r in d)'
+            st find --topic modules:Gridmod; echo "no phase set: rc=$?" ;;
+  standins) echo '{"endpoints":[{"id":"pay","status":"MOCKED"},{"id":"mail","status":"MOCKED"}]}' > "$T/i1.json"
+            echo '{"endpoints":[{"id":"pay","status":"MOCKED"},{"id":"maps","status":"UNKNOWN"}]}' > "$T/i2.json"
+            UPG_PHASE=10.24.0 st standins --inventory "$T/i1.json"; UPG_PHASE=10.24.0 st standins --inventory "$T/i1.json"
+            UPG_PHASE=11.12.7 st standins --inventory "$T/i2.json" --previous "$T/i1.json"; st show --json > "$T/s.json"
+            fieldof "$T/s.json" '"\n".join("%s %s %s | %s" % (r["id"], r.get("phase"), r["approval"]["state"], r["found"]["say"]) for r in d)' ;;
+  cockpit-ladder) mkdir -p "$W/state" "$W/rung2/state"; touch "$W/state/fetch.done"; touch "$W/rung2/state/fetch.done"
+            echo '{"route":["9.24.2.1","10.24.13.1","11.12.7"]}' > "$W/ladder.json"
+            gsum "$W" PASS; echo "Overall: **PASS**" >> "$W/gate-summary.md"
+            echo '| 8 | journeys | PASS | 0 | journeys: 135 PASS, 2 FAIL, 38 INVALID;actions 258 found · 224 generated (22 todo) |' >> "$W/gate-summary.md"
+            echo '{"rounds":[{"round":1,"new_heals":41,"rows":63},{"round":2,"new_heals":12,"rows":19}],"rows":[{"class":"real-regression"},{"class":"test-setup"}]}' > "$W/heal.json"
+            python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import cockpitmatrix as m
+for w in sys.argv[2:]:
+    print("ladder", [(x["v"], x["state"]) for x in m.ladder(w)])
+    print("health", [(h["v"], [r["fixed"] for r in h["rounds"]], h["paths"], h["actions"], h["real"]) for h in m.health(w)])' "$B" "$W" "$W/rung2"
+            python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import cockpitmatrix as m; print("no ladder:", m.ladder(sys.argv[2]), m.h_ladder([]) == "")' "$B" "$T" ;;
   find-topic) mk; echo "found: $(st find --topic modules:Gridmod)"; st find --topic nothing; echo "rc=$?" ;;
   *) echo "unknown case $case_"; exit 64 ;;
 esac

@@ -32,7 +32,7 @@ Playbooks per path: [9 to 10](playbooks/9-to-10.md), [10 to 11](playbooks/10-to-
 
 New machine or container: [SETUP.md](SETUP.md) (`bin/setup-container.sh` does it in one command).
 
-Paths: `TK=~/Mendix/personal-toolkit/upgrade-toolkit`, `B=$TK/bin` (every script). A run folder holds `app/` (the
+Paths: `TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit`, `B=$TK/bin` (every script). A run folder holds `app/` (the
 project under its own git), `work/` (`$W`) and `tools/` (mxbuild-<ver>, runtime-<ver>, mxcli-linux; may be symlinks
 to a shared folder). Container tools take any run folder: `UPG_ROOT=<run folder>`. Heavy Docker steps (mxbuild,
 mx check, marketplace update, app start) go through `$B/heavy-lock.sh` (one at a time per laptop, /tmp/heavy-docker.lock).

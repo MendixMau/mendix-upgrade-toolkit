@@ -1,0 +1,336 @@
+{
+  "serialization_version": 1,
+  "errors": [
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "5ef7fc70-e802-4dda-ac15-80ef1e0b5ed2",
+          "module-name": "Note",
+          "document-name": "Snippet 'Snippet_NoteImage'",
+          "element-name": "Dynamic image 'dynamicImage1'",
+          "element-id": "7826047f-1205-46d3-94bf-caed37de92e9",
+          "unit-id": "427e73a6-7e72-4802-adfc-e2d2beae567b"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "5ef7fc70-e802-4dda-ac15-80ef1e0b5ed2",
+          "module-name": "Note",
+          "document-name": "Snippet 'Snippet_NoteImage'",
+          "element-name": "Dynamic image 'dynamicImage1'",
+          "element-id": "7826047f-1205-46d3-94bf-caed37de92e9",
+          "unit-id": "427e73a6-7e72-4802-adfc-e2d2beae567b"
+        }
+      ]
+    },
+    {
+      "code": "CE0117",
+      "message": "Error(s) in expression.",
+      "locations": [
+        {
+          "module-id": "0d02ef12-7b46-4991-91d0-b1fb22187ca9",
+          "module-name": "General",
+          "document-name": "Nanoflow 'ACT_LoginContext_SignIn'",
+          "element-name": "Property 'Parameter 'UseAuthToken'' of call JavaScript action activity 'Sign in'",
+          "element-id": "7e2146c0-8b14-4a8a-a5d7-4aaa278822ed",
+          "unit-id": "222939b0-34ac-4809-b93e-0b49cc00ed45"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "f58843dc-cc6d-4597-87b0-7f04c2664953",
+          "module-name": "TicketManagement",
+          "document-name": "Page 'Attachment_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "8fca7abc-2b49-405a-8da5-1df54fe2ce14",
+          "unit-id": "acb0cb30-3e16-44e0-a6f7-52efbffd0ff4"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget static image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "2a4d426a-4e76-4be8-b14f-bda4271e8c0d",
+          "module-name": "FSM_Specific",
+          "document-name": "Building block 'Grid_Card'",
+          "element-name": "Static image 'staticImage5'",
+          "element-id": "6ccc4e33-c062-45ce-be75-a835ef14e20e",
+          "unit-id": "6b505000-3292-4ef2-8686-6b8186c8bcc2"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "f58843dc-cc6d-4597-87b0-7f04c2664953",
+          "module-name": "TicketManagement",
+          "document-name": "Page 'Attachment_Edit'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "02306b2e-aac7-4171-9a07-92898c76b09d",
+          "unit-id": "d45943b3-e441-444d-87d3-6b32d9f2d9fb"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage_View'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "9ce3fdce-2ae9-44db-8dd5-751c6b062eee",
+          "unit-id": "dff4ef41-d7c0-43f2-aebc-fdb8c647656a"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_InstanceItemImage'",
+          "element-name": "Dynamic image 'imageViewer2'",
+          "element-id": "d8fd74cb-2181-4f58-943f-af640095e43d",
+          "unit-id": "f866503b-e13b-4561-b671-3576c65b4bb3"
+        },
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Page 'InstanceForm_View'",
+          "element-name": "Dynamic image 'dynamicImage1'",
+          "element-id": "b461942d-8b34-4344-9c4a-99d429a7b2c2",
+          "unit-id": "216c53c7-be05-43df-bda2-ba0c9b85404d"
+        }
+      ]
+    },
+    {
+      "code": "CE6086",
+      "message": "Template grids are not allowed on web building blocks.",
+      "locations": [
+        {
+          "module-id": "2a4d426a-4e76-4be8-b14f-bda4271e8c0d",
+          "module-name": "FSM_Specific",
+          "document-name": "Building block 'Templategrid_Grid'",
+          "element-name": "Template grid 'templateGrid1'",
+          "element-id": "c19df9fd-bd3d-4d6e-bfb8-c58df953ca18",
+          "unit-id": "d526b8d6-60ef-4e1d-a88c-b53975326486"
+        }
+      ]
+    },
+    {
+      "code": "CE0572",
+      "message": "Widget template grid is not supported in React client.",
+      "locations": [
+        {
+          "module-id": "2a4d426a-4e76-4be8-b14f-bda4271e8c0d",
+          "module-name": "FSM_Specific",
+          "document-name": "Building block 'Templategrid_Grid'",
+          "element-name": "Template grid 'templateGrid1'",
+          "element-id": "c19df9fd-bd3d-4d6e-bfb8-c58df953ca18",
+          "unit-id": "d526b8d6-60ef-4e1d-a88c-b53975326486"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "5ef7fc70-e802-4dda-ac15-80ef1e0b5ed2",
+          "module-name": "Note",
+          "document-name": "Snippet 'Snippet_NoteImage'",
+          "element-name": "Dynamic image 'dynamicImage1'",
+          "element-id": "7826047f-1205-46d3-94bf-caed37de92e9",
+          "unit-id": "427e73a6-7e72-4802-adfc-e2d2beae567b"
+        }
+      ]
+    },
+    {
+      "code": "CE0582",
+      "message": "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type.",
+      "locations": [
+        {
+          "module-id": "45f02542-127d-4033-ab45-d1e52aaeafc6",
+          "module-name": "Form",
+          "document-name": "Snippet 'SNIP_ItemImage'",
+          "element-name": "Dynamic image 'imageViewer1'",
+          "element-id": "f63f7cf7-590c-421a-8b9b-0c33b63672ae",
+          "unit-id": "38c208e5-7242-47ed-bca0-f94be7506703"
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "deprecations": [],
+  "total-problems": 16
+}

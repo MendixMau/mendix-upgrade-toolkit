@@ -34,6 +34,10 @@
 #   Report-only keys (no rung): GATE_NOTES=<file> (L56: every non-empty non-# line is listed as "needs a decision" and counted in Progress;
 #              it never changes a verdict), HEAL_JSON=<work>/heal.json (the heal step's "heal:" summary line).
 #   screens    SMOKE_BEFORE_SHOTS [SMOKE_SHOT_ACCEPT]  compares against $GATE_DIR/smoke-after-shots (the smoke rung's)
+#   layout     LAYOUT_OLD LAYOUT_NEW [LAYOUT_ACCEPT]   layoutdiff.py on the folders layoutwalk.js wrote for the old and the new app
+#              (widget widths, cut text and image sizes per page; data independent). Optional rung: without LAYOUT_OLD / LAYOUT_NEW it
+#              says NOT RUN and is never a PASS. A page FAIL or MISSING (saved on the old app, absent on the new) = rung FAIL; a page
+#              that could not be judged = INVALID. Why: a squeezed gallery has every card and value, so journeys and the smoke shots pass it.
 #   release    RELEASE_IMPACT
 #   apis       APIMOCK=<state dir>|off [EXCLUDE_SYSTEMS=Teamcenter,...]   optional rung (E2E-13, E2E-14): the state folder
 #              of `apimock.py serve` (the local stand-in for every external API; start it, and the apps with its
@@ -49,7 +53,7 @@
 #   widgets    WIDGETS_APP=<app dir|.mpr> [WIDGETS_WAIVE=<file> WIDGETS_RENDERED=<file>]   optional rung (MC-19): bin/widgetcover.py
 #              lists every widgets/*.mpk that a page uses and that no smoke step ($GATE_DIR/smoke-after.json) and no journey
 #              (JOURNEYS_DIR) renders; one of them is INVALID (rc 3, "not checked"), never PASS. A widget that crashes on the new
-#              client passes every other rung when no walked page holds it (Material Cockpit 3D viewer, React error #525).
+#              client passes every other rung when no walked page holds it (Asset Console 3D viewer, React error #525).
 #              WIDGETS_WAIVE: lines "package or widget id # reason"; WIDGETS_RENDERED: pages a hand-written walk opens
 #   trail      TRAIL_REQUIRED=1   optional rung (STEP-RECORDS-PLAN.md slice 9), on whenever <work>/steps.jsonl exists: bin/steps.py trail asks that
 #              every step has a proposal, an approval (assumed counts, flagged), a change or a written gap, a test result or a written gap,
@@ -73,7 +77,9 @@
 # When known, bin/changelog.py writes $WORK/CHANGES.md and the summary carries `Changes: N (toolkit a, agent b, person c,
 # unlabelled d)` after the Progress line; d > 0 adds a "needs a decision" item. It never changes a rung or the verdict.
 #
-# Rungs, in steps/gate.md order: build idcheck const data rest logdiff smoke journeys screens release apis widgets trail.
+# Rungs, in steps/gate.md order: build idcheck const data rest logdiff smoke layout journeys screens release apis widgets trail.
+# layout runs BEFORE journeys (LAY-9): journeys change data (pager counts, edited or deleted rows), so a layout compare made after them
+# differs from a baseline walked on fresh data. Walk the layout on the old and the new app before any journey touches the data.
 # --only RUNG,... runs those rungs and MERGES into an existing gate-summary.md of the same GATE_DIR (T2R3-10, N1R2-9:
 # it overwrote the file, so the final summary had to be one full invocation): the other rungs keep their earlier row,
 # marked "(earlier run <time>)", and the overall verdict is computed over the merged table.
@@ -106,15 +112,15 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=${UPG_GATE_BIN:-$here}; PY=${UPG_PYTHON:-python3}; NODE=${UPG_NODE:-node}
-RUNGS="build idcheck const data rest logdiff smoke journeys screens release apis widgets trail"
+RUNGS="build idcheck const data rest logdiff smoke layout journeys screens release apis widgets trail"
 KEYS="WORK LABEL GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_URL SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS SMOKE_REPEAT SMOKE_LOGIN_PATH JOURNEYS_DIR
- JOURNEYS_BEFORE JOURNEYS_REJUDGE USERS PORT ADMIN_PORT ADMIN_PASS PAUSE SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_PSQL
+ JOURNEYS_BEFORE JOURNEYS_REJUDGE USERS PORT ADMIN_PORT ADMIN_PASS PAUSE SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_PSQL LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT
  JOURNEY_EFFECT_ACCEPT ACTIONS ACTIONS_WAIVE JOURNEY_EVIDENCE JOURNEY_BAR RELEASE_IMPACT POST_CMD RUN APIMOCK APIDIRECT EXCLUDE_SYSTEMS WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED
- APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_release PRE_apis PRE_widgets"
+ APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_layout PRE_release PRE_apis PRE_widgets"
 PATHKEYS="WORK GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS JOURNEYS_DIR JOURNEYS_BEFORE
- USERS SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT ACTIONS JOURNEY_EVIDENCE RELEASE_IMPACT APIMOCK APIDIRECT WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED APP_REPO GATE_NOTES HEAL_JSON"
+ USERS SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT ACTIONS JOURNEY_EVIDENCE RELEASE_IMPACT APIMOCK APIDIRECT WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED APP_REPO GATE_NOTES HEAL_JSON"
 unset ENV_CONST_OVERRIDES; [ -z "${CONST_OVERRIDES+x}" ] || ENV_CONST_OVERRIDES=$CONST_OVERRIDES   # B4T2-12: the caller's own value, for runapp.py in PRE commands
 for k in $KEYS; do eval "V_$k="; done
 SMOKE_USERS=()
@@ -200,12 +206,13 @@ spec() {
     journeys) TRIG="JOURNEYS_DIR JOURNEYS_BEFORE"; NEEDS="JOURNEYS_DIR:d JOURNEYS_BEFORE:d:p"; OPTS="JOURNEY_SHOT_ACCEPT:f JOURNEY_EFFECT_ACCEPT:f ACTIONS:f JOURNEY_EVIDENCE:f"
       if [ -z "$(get JOURNEYS_REJUDGE)" ]; then NEEDS="$NEEDS USERS:f PORT:v ADMIN_PORT:v ADMIN_PASS:v"; fi;;
     screens) TRIG="SMOKE_BEFORE_SHOTS"; NEEDS="SMOKE_BEFORE_SHOTS:d"; OPTS="SMOKE_SHOT_ACCEPT:f";;
+    layout) TRIG="LAYOUT_OLD LAYOUT_NEW"; NEEDS="LAYOUT_OLD:d LAYOUT_NEW:d:p"; OPTS="LAYOUT_ACCEPT:f";;
     release) TRIG="RELEASE_IMPACT"; NEEDS="RELEASE_IMPACT:f:p";;
     apis) TRIG="APIMOCK"; NEEDS="APIMOCK:d:p";;
     widgets) TRIG="WIDGETS_APP"; NEEDS="WIDGETS_APP:v"; OPTS="WIDGETS_WAIVE:f WIDGETS_RENDERED:f";;
   esac
 }
-optional() { [ "$1" = rest ] || [ "$1" = apis ] || [ "$1" = widgets ] || { [ "$1" = trail ] && [ "$V_TRAIL_REQUIRED" != 1 ]; }; }
+optional() { [ "$1" = rest ] || [ "$1" = apis ] || [ "$1" = widgets ] || [ "$1" = layout ] || { [ "$1" = trail ] && [ "$V_TRAIL_REQUIRED" != 1 ]; }; }
 reason_for() { # a --skip reason or an --only exclusion, else empty
   local r=$1 s
   if [ -n "$only" ] && [ "$r" != trail ] && ! inlist "$r" "$(echo "$only" | tr ',' ' ')"; then echo "not selected (--only $only)"; return; fi
@@ -253,7 +260,7 @@ rung smoke: instrument missing: $B/smokewalk_gen.py"
   case $r in
     build) ;;
     idcheck) tool=idcheck.py;; const) tool=constcheck.py;; data) tool=diff.py;; rest) tool=restcontract.py;;
-    logdiff) tool=logdiff.py;; smoke) tool=smokewalk.js;; journeys) tool=run_journeys.py;; screens) tool=shotdiff.py;;
+    logdiff) tool=logdiff.py;; smoke) tool=smokewalk.js;; journeys) tool=run_journeys.py;; screens) tool=shotdiff.py;; layout) tool=layoutdiff.py;;
     release) tool=release_impact.py;; apis) tool=apimock.py;; widgets) tool=widgetcover.py;;
   esac
   [ $r = build ] || [ -f "$B/$tool" ] || ERRS="$ERRS
@@ -304,6 +311,7 @@ cmd_rung() {
       opt --bar "$V_JOURNEY_BAR"   # B5-3
       [ -z "$V_APIMOCK" ] || { CMD+=(--apimock-log "$V_APIMOCK/requests.jsonl"); opt --exclude-systems "$V_EXCLUDE_SYSTEMS"; };;   # E2E-14
     screens) CMD=("$PY" "$B/shotdiff.py" "$V_SMOKE_BEFORE_SHOTS" "$G/smoke-after-shots"); opt --accept "$V_SMOKE_SHOT_ACCEPT"; CMD+=(--md "$G/shotdiff-smoke.md");;
+    layout) CMD=("$PY" "$B/layoutdiff.py" "$V_LAYOUT_OLD" "$V_LAYOUT_NEW"); opt --accept "$V_LAYOUT_ACCEPT"; CMD+=(--md "$G/layoutdiff.md");;
     release) CMD=("$PY" "$B/release_impact.py" --check "$V_RELEASE_IMPACT");;
     widgets) CMD=("$PY" "$B/widgetcover.py" "$V_WIDGETS_APP"); [ -f "$G/smoke-after.json" ] && CMD+=(--smoke "$G/smoke-after.json")
       [ -z "$V_JOURNEYS_DIR" ] || CMD+=(--journeys "$V_JOURNEYS_DIR"); opt --rendered "$V_WIDGETS_RENDERED"; opt --waive "$V_WIDGETS_WAIVE";;
@@ -316,7 +324,7 @@ show_cmd() { local s; s=$(printf '%q ' "${CMD[@]}"); mask "${s% }"; }
 PASSSTAR='(PASS\* [1-9]|[1-9][0-9]* PASS\*)'
 oneline() { # the rung's own summary line(s): its counts, else the last line
   local f=$1 l
-  l=$( { grep -m1 '^bar: ' "$f" 2>/dev/null; grep -E -m4 '^(verdict|apis [0-9]+ found|requests seen: [0-9]+|direct API test: |findings|pairs|journeys|actions [0-9?]|coverage: |screens|steps|auto:|release-impact check|INVALID [0-9]+ \| FAIL|.*FAIL [0-9]+ \||constcheck|logdiff|BUILD)' "$f" 2>/dev/null; } | tr '\n' ';' | sed 's/;$//')
+  l=$( { grep -m1 '^bar: ' "$f" 2>/dev/null; grep -E -m4 '^(verdict|layout: [0-9]+ pages|apis [0-9]+ found|requests seen: [0-9]+|direct API test: |findings|pairs|journeys|actions [0-9?]|coverage: |screens|steps|auto:|release-impact check|INVALID [0-9]+ \| FAIL|.*FAIL [0-9]+ \||constcheck|logdiff|BUILD)' "$f" 2>/dev/null; } | tr '\n' ';' | sed 's/;$//')
   [ -n "$l" ] || l=$(grep -v '^[[:space:]]*$' "$f" 2>/dev/null | tail -1)
   printf '%s' "${l:-no output}" | cut -c1-200
 }
@@ -341,14 +349,26 @@ verdict_of() { # RUNG RC OUTFILE -> prints verdict word
 has_pos() { # WORD FILE: WORD occurs with a count above zero ("3 WORD", "WORD 3", or a line that starts with WORD and names an item)
   { if [ "$1" = REVIEW ]; then cat "$2"; else grep -v 'BASELINE DEFECT' "$2"; fi; } 2>/dev/null | grep -Eq "(^|[^A-Za-z0-9_])(($1[ :=]+[1-9][0-9]*)|([1-9][0-9]* $1))([^A-Za-z0-9_]|\$)|^[[:space:]]*$1[[:space:]]+[^0-9[:space:]|:=]"
 }
+# fail_all_baseline FILE: the journeys summary counts N FAIL and every per-item FAIL line is tagged BASELINE DEFECT (it
+# failed on the old app too, evidence or not): those FAILs are no regression of the upgrade but a decision for the owner
+# (field run: two journeys failing the same way on old and new, without an evidence line, read as "1 regression").
+fail_all_baseline() {
+  awk '/^journeys: / { if (match($0, /[0-9]+ FAIL/)) n = substr($0, RSTART, RLENGTH) + 0 }
+       /^[[:space:]]+FAIL[[:space:]]/ { if (/BASELINE DEFECT/) b++; else u++ }
+       END { exit !(n > 0 && u == 0 && n <= b) }' "$1" 2>/dev/null
+}
 human_of() {
-  local r=$1 s=$2 f="$G/$1.out" w
+  local r=$1 s=$2 f="$G/$1.out" w fb=1
   case $s in
     PASS|'PASS*') echo closed;;
     EXCEPT) echo standin;;
     FAIL)
-      for w in REGRESSION FAIL START_FAILED NEW_ERROR GUID_CHANGED; do has_pos $w "$f" && { echo regression; return; }; done
-      if has_pos REVIEW "$f"; then echo decision; else echo regression; fi;;
+      fail_all_baseline "$f" && fb=0
+      for w in REGRESSION FAIL START_FAILED NEW_ERROR GUID_CHANGED; do
+        [ $w = FAIL ] && [ $fb = 0 ] && continue
+        has_pos $w "$f" && { echo regression; return; }
+      done
+      if has_pos REVIEW "$f" || [ $fb = 0 ]; then echo decision; else echo regression; fi;;
     INVALID)
       if { [ $r = release ] && grep -Eq 'open: [1-9]' "$f" 2>/dev/null; } || { [ $r = widgets ] && grep -q 'UNRENDERED' "$f" 2>/dev/null; }; then echo decision; else echo unmeasured; fi;;
     'NOT RUN') if optional $r; then echo none; else echo unmeasured; fi;;
@@ -582,7 +602,7 @@ CHANGES_LINE=""
 ledger_app=$V_APP_REPO; [ -n "$ledger_app" ] || { [ -e "$V_WORK/app/.git" ] && ledger_app=$V_WORK/app; }
 if [ $dry = 0 ] && [ -n "$ledger_app" ] && [ -f "$here/changelog.py" ]; then
   acc=(); seen=" "
-  for k in ALLOW LOG_ALLOW CONST_ALLOW SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT APPROVED WIDGETS_WAIVE ACTIONS_WAIVE; do
+  for k in ALLOW LOG_ALLOW CONST_ALLOW SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT LAYOUT_ACCEPT APPROVED WIDGETS_WAIVE ACTIONS_WAIVE; do
     f=$(get $k); [ -n "$f" ] && [ -f "$f" ] || continue
     case "$seen" in *" $f "*) continue;; esac; seen="$seen$f "; acc+=(--accept "$k=$f")
   done

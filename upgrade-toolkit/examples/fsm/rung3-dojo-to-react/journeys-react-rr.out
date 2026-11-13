@@ -1,0 +1,27 @@
+data: psql: pgmap: 187 entities, 966 attributes, 219 associations (217 table storage, 0 column storage), 0 names cut at 63 bytes, 23 problems
+== react (:8580) compared with work/rung2/e2e-after
+  data psql: pgmap: 187 entities, 966 attributes, 219 associations (217 table storage, 0 column storage), 0 names cut at 63 bytes, 23 problems
+  role ServiceDeskEmployee      login PASS    smoke_servicedeskemployee
+  role CallCenterEmployee~data  login PASS    smoke_callcenteremployee
+  role FunctionalAdministrator~data login PASS    smoke_functionaladministrator
+  role FunctionalAdministrator~last login PASS    smoke_functionaladministrator
+  role TechnicalAdministrator~last login PASS    smoke_technicaladministrator
+  PASS    act-Scheduler.PageContext_View.actionButton6             [SCREEN REVIEW] screen REVIEW visible text changed: lost ascending x2, date, descending x3, d
+  PASS    act-Form.Form_Overview.actionButton1                     [SCREEN REVIEW] screen REVIEW 17% of the page changed; 4% of the page had content before and 
+  PASS    act-Form.Form_Overview.actionButton3                     [SCREEN REVIEW] screen REVIEW 17% of the page changed; 4% of the page had content before and  effect REVIEW step2 Logging.Message: old +2, new +0
+  PASS    act-Form.Form_Overview.actionButton4                     [SCREEN REVIEW] screen REVIEW 17% of the page changed; 4% of the page had content before and 
+  PASS    act-Form.Form_Overview.actionButton5                     [SCREEN REVIEW] screen REVIEW 18% of the page changed; 4% of the page had content before and 
+  FAIL    act-TicketManagement.Snippet_WorkOrder_Edit.actionButton27 FAIL open TicketManagement.WorkOrder_NewEdit: reached ".mx-name-actionButton27" never appeared — screenshot act-TicketManagement.Snippet_WorkOrder_Edi [REGRESSION] screen INVALID NEW step NOT-REACHED, OLD reached it; new @sha256:558e31c7a058 [shown only if dataView2: $WorkOrder/Status=TicketManagement.ENUM_WorkOrderStatus._New 
+or $WorkOrder/Status=TicketManagement.ENUM_WorkOrderStatus.Partially_planned 
+or $WorkO]
+  PASS    act-Form.Form_Overview.actionButton2                     [SCREEN REVIEW] screen REVIEW 19% of the page changed; 4% of the page had content before and 
+  PASS    act-MasterData.Masterdata_Overview_MxAdmin.actionButton20  [SCREEN REVIEW] screen REVIEW 16% of the page changed; 6% of the page had content before and 
+journeys: 7 PASS, 1 FAIL, 0 INVALID
+actions 725 found · 457 generated (0 todo) · 224 pass on baseline (233 defect) · 7 pass on new · 1 regression · coverage 224/457 (49%) · 14 destructive run apart (own line) · 254 out of scope, INFO (marketplace-module 25, no-role 27, unreachable 202)
+anonymous process: 0 of 1 required (role Anonymous; no confirmed process runs as it)
+defects: 242 failing on the baseline: 238 with evidence (OLD-APP 238) = 238 PASS*, 4 without (INVALID)
+  coverage INVALID: journey set changed since the baseline (sha256 23d86a6b35d3 then, 99f0a386747b now): run before-picked again on this set
+  coverage INVALID: instrument not measuring: 233 of 457 actions fail on the baseline (50% > 30%)
+  coverage INVALID: 4 baseline defects without evidence (FIXTURE / OLD-APP / FLAKY, --baseline-evidence): act-MasterData.Masterdata_Overview_MxAdmin.actionButton5, act-MasterData.WorkBreak_NewEdit_MxAdmin.actionButton1, act-Scheduler.Snippet_Appointment_Scheduling.bizzomateUltimateScheduler1_5, act-Technician.Technician_Skill_Remove.actionButton3
+screens: 0 PASS, 0 PASS*, 15 REVIEW, 1055 INVALID
+effects: 6 PASS, 0 PASS*, 1 REVIEW, 0 INVALID

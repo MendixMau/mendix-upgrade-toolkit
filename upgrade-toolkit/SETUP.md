@@ -6,7 +6,7 @@ Who can use it: anyone with this repo and a Mendix account. Nothing else private
 
 | need | why | where it comes from |
 |---|---|---|
-| this repo, linked at `~/Mendix/personal-toolkit` | every path in SKILL.md starts there | `git clone`; setup-container.sh makes the link |
+| this repo, linked at `~/Mendix/mxcli-project-toolkit` | every path in SKILL.md starts there | `git clone`; setup-container.sh makes the link |
 | `MENDIX_PAT` (a Mendix personal access token, Marketplace scope) | module updates and template downloads | Mendix Portal, user settings. Keep it in the environment, never in a file or a command line in a log |
 | Docker | mxbuild, mx check, app start, Postgres run in containers | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below) |
 | mxcli | Marketplace updates, model reads, diffs | public repo `mendixlabs/mxcli`, built from source at `MXCLI_REF` (default the commit `78bdfa5`; see "The mxcli version" below), or a release binary at `tools/mxcli-linux` |

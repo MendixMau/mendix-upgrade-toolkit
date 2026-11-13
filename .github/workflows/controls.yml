@@ -1,0 +1,36 @@
+name: controls
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  run-controls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Toolkit controls (fast)
+        run: bash upgrade-toolkit/controls/run-controls.sh --fast
+
+      - name: Customer-name check
+        # Best-effort in CI: the real denylist (UPG_PRIVATE_NAMES) lives outside the repo on
+        # purpose, so without it configured here the check can only confirm the mechanism runs,
+        # not that it caught anything. The full check runs locally before every PR.
+        run: bash upgrade-toolkit/bin/customer_names_check.sh upgrade-toolkit
+
+      - name: Secret pattern scan
+        run: |
+          set -e
+          if grep -rnE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{10,}|xox[bp]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|PRIVATE) KEY|sk-[A-Za-z0-9]{20,}' upgrade-toolkit; then
+            echo "secret-shaped string found in upgrade-toolkit/" >&2
+            exit 1
+          fi
+          echo "secret scan: clean"

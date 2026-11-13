@@ -1,0 +1,24 @@
+Checking your app for issues...
+Checking the version of the mpr file.
+The mpr file version is '11.12.7'.
+Loading the mpr file.
+The mpr file version is '11.12.7'.
+Checking app for errors...
+[error] [CE0117] "Error(s) in expression." at Call JavaScript action activity 'Sign in'
+[error] [CE0572] "Widget template grid is not supported in React client." at Template grid 'templateGrid1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer2'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'dynamicImage1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer2'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'dynamicImage1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1'
+[error] [CE0582] "Widget static image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Static image 'staticImage5'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1', Dynamic image 'imageViewer1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer2', Dynamic image 'imageViewer2', Dynamic image 'imageViewer2', Dynamic image 'imageViewer2', Dynamic image 'imageViewer2', Dynamic image 'dynamicImage1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'dynamicImage1'
+[error] [CE0582] "Widget dynamic image is not supported in React client. Right-click this error to convert it to an alternative widget type." at Dynamic image 'imageViewer1'
+[error] [CE6086] "Template grids are not allowed on web building blocks." at Template grid 'templateGrid1'
+The app contains: 16 errors.
+Output JSON summary to <work>/check3.json

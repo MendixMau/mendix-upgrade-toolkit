@@ -84,7 +84,7 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                <out>.facts.json; --facts files given too win over it. One mpr alone gives facts, no module rows: a line
                "auto cannot use: ..." says each thing that is lost (module rows, kept/stranded, every fact not known).
   --types      default breaking,removal,requirement,deprecation (module rows also migration-step); also security, known-issue, improvement, feature, fix
-  --brain      default $UPG_BRAIN or ~/Mendix/personal-toolkit/company-brain-test/brain
+  --brain      default $UPG_BRAIN or ~/Mendix/<company>-brain
   --out        default release-impact.md. A rerun keeps the handled entries of rows it finds again. An entry whose row is gone
                (the brain reworded it, T2F-4) is listed under "Entries that matched no row", kept until the row returns, and
                counted in the output. With --auto a rerun also says how many human entries auto would have decided and which
@@ -1203,7 +1203,7 @@ def main():
     ap.add_argument("--facts", action="append")
     ap.add_argument("--types")
     ap.add_argument("--out", default="release-impact.md")
-    ap.add_argument("--brain", default=os.environ.get("UPG_BRAIN", str(Path("~/Mendix/personal-toolkit/company-brain-test/brain").expanduser())))
+    ap.add_argument("--brain", default=os.environ.get("UPG_BRAIN", str(Path("~/Mendix/<company>-brain").expanduser())))
     ap.add_argument("--facts-from-mpr", dest="facts_from_mpr", help="count facts from this project (model + javasource), T2F-2")
     ap.add_argument("--facts-out", dest="facts_out")
     ap.add_argument("--db-vendor", dest="db_vendor")

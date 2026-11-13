@@ -840,6 +840,8 @@ def step_row(rec):
     r = row(rec["id"], rec["title"] or rec["id"], f"{rec['id']} · {rec['topic']}", STEP_GROUP[0], cells, rec["found"].get("evidence") or [])
     r["trail"] = [act]
     r["fromSteps"] = True
+    if rec.get("phase"):   # a two-version upgrade: the version this step belongs to (steps.py UPG_PHASE)
+        r["phase"] = rec["phase"]
     ap = rec.get("approval") or {}
     # slice 8: only a step that is still assumed (or has no approval) gets the buttons; an answered step shows who answered
     r["ask"] = ap.get("state") in (None, "assumed")
@@ -848,6 +850,62 @@ def step_row(rec):
     states = [c["s"] for c in cells.values() if c["s"] not in ("ok", "none")]
     r["kind"] = "owner" if "you" in states else "testgap" if states and all(s == "wait" for s in states) and cells["test"]["s"] == "wait" else "upgrade"
     return r
+
+
+def run_base(work):
+    """The work folder of rung 1: rung 2 works in <work>/rung2 and shares the run's ladder, steps and cockpit."""
+    return os.path.dirname(work) if os.path.basename(os.path.normpath(work)) == "rung2" else work
+
+
+def ladder(work):
+    """The version route and how far each rung got: [{v, state}] with done, now or next (the first version is the start).
+    [] without ladder.json (a run made before the version ladder)."""
+    base = run_base(work)
+    route = (cp.rj(os.path.join(base, "ladder.json")) or {}).get("route") or []
+    if len(route) < 2:
+        return []
+    out = [{"v": route[0], "state": "done", "say": "start"}]
+    for i, v in enumerate(route[1:]):
+        w = base if i == 0 else os.path.join(base, "rung2")
+        ov = cp.parse_gate(cp.rd(os.path.join(w, "gate-summary.md")) or "")["overall"]
+        started = os.path.isdir(os.path.join(w, "state")) and any(n.endswith(".done") for n in os.listdir(os.path.join(w, "state")))
+        st = "done" if ov == "PASS" else "now" if started or ov else "next"
+        out.append({"v": v, "state": st, "say": {"done": "gate passed", "now": f"gate {ov}" if ov else "in progress", "next": "next"}[st]})
+    return out
+
+
+JLINE = re.compile(r"(\d+) PASS, (\d+) FAIL, (\d+) INVALID")
+ALINE = re.compile(r"actions (\d+) found\D+(\d+) generated")
+
+
+def health(work):
+    """How the tests improved, per version: heal rounds from heal.json and the click path counts and action coverage of the gate.
+    [] when no version has a heal or a gate yet."""
+    base, out = run_base(work), []
+    route = (cp.rj(os.path.join(base, "ladder.json")) or {}).get("route") or []
+    for i, w in enumerate([base, os.path.join(base, "rung2")]):
+        heal = cp.rj(os.path.join(w, "heal.json")) or {}
+        g = {r["rung"]: r for r in cp.parse_gate(cp.rd(os.path.join(w, "gate-summary.md")) or "")["rungs"]}
+        jd = (g.get("journeys") or {}).get("detail", "")
+        jm, am = JLINE.search(jd), ALINE.search(jd)
+        if not heal.get("rounds") and not jm:
+            continue
+        cls = {}
+        for r in heal.get("rows", []):
+            cls[r.get("class", "")] = cls.get(r.get("class", ""), 0) + 1
+        out.append({"v": ".".join(route[i + 1].split(".")[:3]) if len(route) > i + 1 else "",
+                    "rounds": [{"n": r.get("round"), "fixed": r.get("new_heals", 0), "left": r.get("rows", 0)} for r in heal.get("rounds", [])],
+                    "paths": [int(x) for x in jm.groups()] if jm else None,
+                    "actions": [int(x) for x in am.groups()] if am else None,
+                    "real": cls.get("real-regression", 0), "setup": cls.get("test-setup", 0),
+                    "noise": cls.get("startup-noise", 0), "nopath": cls.get("no-click-path", 0)})
+    return out
+
+
+def phases(rows):
+    """The target versions of a two-version upgrade, oldest first; [] for a one-version upgrade (no filter is shown then)."""
+    key = lambda v: [int(x) if x.isdigit() else 0 for x in re.split(r"[.-]", v)]
+    return sorted({r["phase"] for r in rows if r.get("phase")}, key=key)
 
 
 def merge_steps(rows, recs, item_keys=()):
@@ -889,6 +947,7 @@ def build(work, model):
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
             "band": band(model, rows, chips, g, tl, kpi),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "phases": phases(rows), "ladder": ladder(work), "health": health(work),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
             "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md")))}
 
@@ -927,12 +986,15 @@ def closed_items(rows, g, tl):
 
 def open_items(rows, chips, g):
     """Open topics to validate, each with a group and an owner, derived from the matrix cells."""
-    out, seen = [], set()
+    out, seen = [], {}
 
-    def add(group, text, owner):
-        if text not in seen:
-            seen.add(text)
-            out.append({"group": group, "text": text, "owner": owner})
+    def add(group, text, owner, ver=""):
+        hit = seen.get((group, text))
+        if hit is None:
+            seen[(group, text)] = hit = {"group": group, "text": text, "owner": owner, "vers": []}
+            out.append(hit)
+        if ver and ver not in hit["vers"]:
+            hit["vers"].append(ver)
     d, _ = _rung_detail(g, "release")
     nrel = _first(r"rows handled or not relevant, (\d+) open", d)
     if nrel:
@@ -943,26 +1005,33 @@ def open_items(rows, chips, g):
         cs = [(k, r["cells"][k]) for k in STAGES if r["cells"][k]["s"] in ("wait", "bad", "you")]
         if not cs:
             continue
+        nm, ver = r["name"], r.get("phase") or ""   # a two-version upgrade: the same topic on both rungs is one line
         you = next(((k, c) for k, c in cs if c["s"] == "you"), None)
         dep = next(((k, c) for k, c in cs if c["deploy"]), None)
         tc = r["cells"]["test"]
         if you:
-            add("Your call", f"{r['name']}: {you[1]['l']}", "you")
+            add("Your call", f"{nm}: {you[1]['l']}", "you", ver)
         elif r["regression"]:
-            add("Regression", f"{r['name']}: {tc['l']}", "agent")
+            add("Regression", f"{nm}: {tc['l']}", "agent", ver)
         elif any(c["s"] == "bad" for _, c in cs):
-            add("To fix", f"{r['name']}: {next(c for _, c in cs if c['s'] == 'bad')['l']}", "agent")
+            add("To fix", f"{nm}: {next(c for _, c in cs if c['s'] == 'bad')['l']}", "agent", ver)
         elif dep or r["group"] == "golive":
             c = (dep or cs[-1])[1]
-            add("At deploy", f"{r['name']}: {c['l']}", "you / customer")
+            add("At deploy", f"{nm}: {c['l']}", "you / customer", ver)
         else:
-            add("Coverage", f"{r['name']}: {cs[-1][1]['l']}", "agent")
+            add("Coverage", f"{nm}: {cs[-1][1]['l']}", "agent", ver)
     for c in chips:
         if c.get("row") or c["s"] == "ok":
             continue
         if c["s"] == "none" and c.get("kind") != "golive":
             continue
         add("Your call" if c.get("kind") == "golive" else "Coverage", c["l"], "you" if c.get("kind") == "golive" else "agent")
+    for o in out:
+        if o["group"] == "Your call":   # the group already says it needs you
+            o["text"] = re.sub(r":\s*Needs your OK$", "", o["text"])
+        vers = o.pop("vers")
+        if vers:
+            o["text"] += f" (Mendix {', '.join(vers)})"
     return out
 
 
@@ -1026,7 +1095,7 @@ CSS = r"""
   --okbg:#183326; --waitbg:#342a14; --badbg:#3a1d1a; --nonebg:#1f2a34; --shade:rgba(0,0,0,.5); color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;margin:0}
-.wrap{max-width:1200px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+.wrap{max-width:1440px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
 .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
 h1{font-size:30px;margin:4px 0 6px;text-wrap:balance}
 h2{font-size:17px;margin:0;text-wrap:balance}
@@ -1054,6 +1123,21 @@ button.tile{cursor:pointer} button.tile:hover{border-color:var(--you)}
 .ready .top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline}
 .ready .top span{font-size:13px;color:var(--muted)}
 .rchips{display:flex;flex-wrap:wrap;gap:8px}
+.ladder h2,.health h2{font-size:15px;margin:0 0 10px}
+.lrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lv{display:flex;flex-direction:column;padding:8px 14px;border-radius:8px;background:var(--nonebg);border-left:4px solid var(--none)}
+.lv.ok{background:var(--okbg);border-color:var(--ok)} .lv.wait{background:var(--waitbg);border-color:var(--wait)}
+.lv small{color:var(--muted);font-size:12px} .la{color:var(--muted);font-size:18px}
+.hv{margin:6px 0 14px} .hv h3{font-size:13px;margin:0 0 6px;color:var(--muted)}
+.hrow{display:grid;grid-template-columns:150px minmax(120px,320px) 1fr;gap:12px;align-items:center;padding:5px 0;font-size:13px;border-top:1px solid var(--line)}
+.hrow em{font-style:normal;color:var(--muted)} .hrow .num b{font-size:18px;color:var(--ok);margin-right:4px}
+.bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--nonebg)}
+.bar i.ok{background:var(--ok)} .bar i.bad{background:var(--bad)} .bar i.none{background:var(--none);opacity:.5}
+@media (max-width:640px){.hrow{grid-template-columns:1fr}}
+.pbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px 0}
+.pbar .plbl{font-size:12px;color:var(--muted);margin-right:4px}
+.pbar .chip{width:auto;flex:0 0 auto;background:var(--accentbg);padding:6px 12px}
+.pbar .chip.on{outline:2px solid var(--accent);outline-offset:1px}
 .rchips .chip{width:auto}
 .rchips .chip+.chip{margin-top:0}
 [hidden]{display:none!important}
@@ -1208,6 +1292,17 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .ns{display:grid;grid-template-columns:90px 1fr auto;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line);font-size:14px;overflow-wrap:anywhere}
 .ns b{font-size:12px;color:var(--muted);font-weight:600}
 .ns em{font-style:normal;font-size:12px;color:var(--muted)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+.main{display:grid;gap:20px;min-width:0}
+.side{position:sticky;top:16px;min-width:0;max-height:calc(100vh - 32px);overflow-y:auto}
+.side .hero{gap:14px;padding:16px}
+.side .hmsg b{font-size:18px}
+.side .kpis{grid-template-columns:1fr;gap:12px}
+.side .kpi{padding:12px}
+.side .kpi>b{font-size:36px}
+.side .ns{grid-template-columns:1fr auto;gap:2px 8px}
+.side .ns span{grid-column:1/-1;order:3}
+@media (max-width:1000px){.layout{grid-template-columns:minmax(0,1fr)}.side{position:static;max-height:none;order:-1}}
 details.more{padding:10px 16px}
 details.more>summary{cursor:pointer;font-size:13px;color:var(--muted)}
 details.more[open]>summary{margin-bottom:10px}
@@ -1258,16 +1353,19 @@ function fixBox(f,need){
 }
 const techBox=a=>a&&a.length?`<details class="tech"><summary>Technical details</summary><ul>${a.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></details>`:`<details class="tech"><summary>Technical details</summary><p>No technical record for this cell.</p></details>`;
 
-let kf=null, active=null, hlRow=-1, hist=[], cur=null, lastFocus=null;
+let pf=null, kf=null, active=null, hlRow=-1, hist=[], cur=null, lastFocus=null;
 function render(){
   let h=`<div class="row hd"><div class="hcell">Item</div>`+STAGES.map(s=>`<button class="stage" type="button" data-stage="${s.key}" aria-pressed="${active===s.key}"><span><span class="n">${s.n}</span>${esc(s.name)}</span><small>${esc(s.sub)}</small><span class="more">How this stage works →</span></button>`).join("")+`</div>`;
   let g="";
   ROWS.forEach((it,i)=>{
+    if(pf&&it.phase&&it.phase!==pf)return;   // a two-version upgrade: rows of the other version are hidden, rows of the whole run stay
     if(it.group!==g){g=it.group;h+=`<div class="grp">${esc(GROUPS[g])}</div>`;}
-    h+=`<div class="row${hlRow===i?" hl":""}${kf?(it.kind===kf?" kin":" dim"):""}" id="r${i}"><div class="item">${esc(it.name)}<small>${esc(it.sub)}</small></div>`+
+    h+=`<div class="row${hlRow===i?" hl":""}${kf?(it.kind===kf?" kin":" dim"):""}" id="r${i}"><div class="item">${esc(it.name)}<small>${esc(it.sub)}${it.phase&&!pf?` · Mendix ${esc(it.phase)}`:""}</small></div>`+
       STAGES.map(s=>{const c=it.cells[s.key];return `<div class="cell${active===s.key?" on":""}"><button class="chip ${c.s}" type="button" data-i="${i}" data-s="${s.key}">${esc(c.l)}</button></div>`}).join("")+`</div>`;
   });
   $("#matrix").innerHTML=h;
+  const pb=$("#phases"); if(pb&&M.phases&&M.phases.length>1){const n=v=>ROWS.filter(r=>r.phase===v).length;
+    pb.hidden=false;pb.innerHTML=`<span class="plbl">Version</span>`+[null,...M.phases].map(v=>`<button class="chip${pf===v?" on":""}" type="button" data-phase="${v||""}" aria-pressed="${pf===v}">${v?`Mendix ${esc(v)} <b>${n(v)}</b>`:"Both versions"}</button>`).join("");}
 }
 function renderReady(){const m=c=>kf?(c.kind===kf?" kin":" dim"):"";$("#ready").innerHTML=READY.map(c=>c.s==="ok"?`<span class="chip ok${m(c)}">${esc(c.l)}</span>`:`<button class="chip ${c.s}${m(c)}" type="button" data-ready="${esc(c.id)}">${esc(c.l)} →</button>`).join("");}
 renderReady();
@@ -1405,6 +1503,7 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-back]")){const v=hist.pop();if(v)go(v,false);return;}
   const st=e.target.closest("[data-stage]"); if(st){if(!inDrawer)hist=[];go(["stage",st.dataset.stage],!st.matches(".tab"));return;}
   const ch=e.target.closest("[data-i]"); if(ch){if(!inDrawer)hist=[];go(["cell",+ch.dataset.i,ch.dataset.s],!ch.hasAttribute("data-swap"));return;}
+  const ph=e.target.closest("[data-phase]"); if(ph){pf=ph.dataset.phase||null;render();return;}
   const kb=e.target.closest("[data-kind]");
   if(kb){kf=kf===kb.dataset.kind?null:kb.dataset.kind;document.querySelectorAll("[data-kind]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.kind===kf)));renderReady();render();if(kf==="owner"&&M.tiles.you){hist=[];go(["you"]);return;}const f=document.querySelector(".row.kin,.chip.kin");if(f)f.scrollIntoView({block:"nearest"});return;}
   const rd=e.target.closest("[data-ready]"); if(rd){hist=[];go(["ready",rd.dataset.ready]);return;}
@@ -1494,6 +1593,40 @@ E = html.escape
 LEGEND = [("ok", "done / passed"), ("wait", "next step, owner named"), ("you", "needs you"), ("bad", "problem"), ("none", "not applicable or not checked")]
 
 
+def h_ladder(L):
+    """The version route as a row of version chips: done green, now amber, next grey."""
+    if not L:
+        return ""
+    cls = {"done": "ok", "now": "wait", "next": "none"}
+    parts = [f'<span class="lv {cls[x["state"]]}"><b>Mendix {E(".".join(x["v"].split(".")[:3]))}</b><small>{E(x["say"])}</small></span>' for x in L]
+    return '<div class="ladder" aria-label="Version route"><div class="lrow">' + '<span class="la">→</span>'.join(parts) + "</div></div>"
+
+
+def h_health(H):
+    """How the tests improved: per version the heal rounds, the click paths judged and the actions covered."""
+    if not H:
+        return ""
+    out = []
+    for h in H:
+        rows = []
+        if h["paths"]:
+            ok, bad, nj = h["paths"]
+            tot = max(ok + bad + nj, 1)
+            rows.append(f'<div class="hrow"><span>Click paths</span><div class="bar"><i class="ok" style="width:{100*ok/tot:.1f}%"></i><i class="bad" style="width:{100*bad/tot:.1f}%"></i><i class="none" style="width:{100*nj/tot:.1f}%"></i></div>'
+                        f'<em>{ok} pass · {bad} fail · {nj} not judged yet</em></div>')
+        for r in h["rounds"]:
+            rows.append(f'<div class="hrow"><span>Heal round {r["n"]}</span><div class="num"><b>{r["fixed"]}</b> tests repaired</div><em>{r["left"]} findings still explained one by one</em></div>')
+        if h["actions"]:
+            f_, g_ = h["actions"]
+            rows.append(f'<div class="hrow"><span>Test of the tests</span><div class="bar"><i class="ok" style="width:{100*g_/max(f_,1):.1f}%"></i></div><em>{g_} of {f_} actions have a generated click path</em></div>')
+        why = [f"{h[k]} {t}" for k, t in (("real", "real problems on the new app"), ("setup", "test setup issues"),
+                                            ("noise", "start noise, also on the old app"), ("nopath", "actions with no click path yet")) if h[k]]
+        if why:
+            rows.append(f'<div class="hrow"><span>Explained</span><div class="num"></div><em>{E(", ".join(why))}</em></div>')
+        out.append(f'<div class="hv"><h3>{E("Mendix " + h["v"]) if h["v"] else "This run"}</h3>{"".join(rows)}</div>')
+    return '<section class="card health" aria-label="How the tests improved"><h2>How the tests improved</h2>' + "".join(out) + "</section>"
+
+
 def h_band(b):
     tick = {"ok": "✓", "bad": "!", "warn": "→"}.get(b["state"], "…")
     reg = ""
@@ -1576,18 +1709,21 @@ def render(model, matrix):
             f"<style>{CSS}</style>\n"
             '<div class="wrap">\n  <header class="head">\n    <div>\n      <div class="eyebrow">Upgrade cockpit</div>\n'
             f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
-            "    </div>\n  </header>\n"
-            f"  {h_band(matrix['band'])}\n"
+            "    </div>\n"
+            f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
+            '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'
             '  <section class="card ready" aria-label="Readiness">\n'
             '    <div class="top"><h2>Do we have what we need to upgrade and test?</h2><span>Checked in triage. Each item that is not green opens its proposed solution.</span></div>\n'
             f'    <div class="rchips" id="ready">{h_ready(matrix)}</div>\n  </section>\n'
             f'  <div class="legend">{h_legend(matrix)}</div>\n'
-            f'  <section class="card scroll" aria-label="Items per stage"><div class="grid" id="matrix">{h_matrix(matrix)}</div></section>\n'
+            f'  <section class="card scroll" aria-label="Items per stage"><div class="pbar" id="phases" hidden></div><div class="grid" id="matrix">{h_matrix(matrix)}</div></section>\n'
             '  <p class="note">Click a stage name to see how that stage works. Click any cell for that item, step by step.</p>\n'
+            f"  {h_health(matrix.get('health'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
-            f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n</div>\n\n'
+            f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
+            f'  <aside class="side">{h_band(matrix["band"])}</aside>\n  </div>\n</div>\n\n'
             '<div class="shade" id="shade" hidden></div>\n'
             '<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Details">\n'
             '  <button class="x" id="dClose" type="button" aria-label="Close">×</button>\n  <div id="dBody"></div>\n</aside>\n\n'
