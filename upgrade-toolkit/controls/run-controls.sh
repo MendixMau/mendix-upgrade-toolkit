@@ -6879,6 +6879,65 @@ ctl playbook-htmlsnippet-events-catch 0 '\.widget-events with flex 1 1 auto' 'ze
 ctl playbook-lay-rows-9-columns-pass 0 '^LAY rows: 9 columns$' -- awk -F'\t' '/^(Forms\\\$StaticImageViewer|Forms\\\$ReferenceSelector|Forms\\\$ReferenceSetSelector|Forms\\\$InputReferenceSetSelector|Forms\\\$DropDown|HTMLSnippet)/{ if (NF != 9) bad=1 } END{ print bad ? "LAY rows: bad column count" : "LAY rows: 9 columns" }' $PB
 
 
+# harvest.py: a made-up run folder with one fix of each kind (a repair row, a fix BACKLOG #102 names, a fix nobody
+# names), an error code no toolkit file names, a script the agent wrote and a gate WARNING; a made-up brain that holds
+# mx.logger and the code (so the code gets no brain draft, the new fix does). The denylist (Acmecorp, set above) refuses
+# a draft; a bad code name is refused before anything is read.
+HV=$T/harvest; mkdir -p $HV/run $HV/brain/internal/upgrade $HV/run-deny
+hv_changes() {  # $1 file, $2 extra why text of the new fix
+  printf '%s\n' '| # | when | by | kind | rule | why | what changed | evidence | step |' '|---|---|---|---|---|---|---|---|---|' \
+    '| 1 | 2026-11-10 | agent | repair | repair-row-13 | 3 pages repointed from Logging.PopupLayout (`a64fbf1`) | model changed | x.log | no step |' \
+    '| 2 | 2026-11-10 | agent | repair | decision-mxlogger | Mendix 11 removed mx.logger: MicroflowTimer logs via console | 2 files | x.log | no step |' \
+    "| 3 | 2026-11-10 | agent | repair | decision-frob | Widget_Fake.FrobAction() replaced by a nanoflow$2 | 1 file | x.log | no step |" \
+    '| 4 | 2026-11-10 | toolkit | config | build-stubs | regenerated stubs | 9 files | none | housekeeping |' > $1
+}
+hv_changes $HV/run/CHANGES.md ''
+printf 'mx check: CE9987 frob widget has no successor\n' > $HV/run/check.log
+printf '#!/usr/bin/env python3\n# Rewrite the frob widgets on every page of the app\nprint(1)\n' > $HV/run/frob_fix.py
+printf '| 1 | WARNING: trail: 2 gap(s) in 2 steps |\n' > $HV/run/gate-summary.md
+printf -- '---\ntitle: mx.logger is gone in 11\nconfidentiality: internal\n---\nmx.logger calls crash on 11, CE9987 too.\n' > $HV/brain/internal/upgrade/mx-logger.md
+hv_changes $HV/run-deny/CHANGES.md ' for the Acmecorp portal'
+hv() { python3 -I $B/harvest.py --code HV1 --brain $HV/brain --date 2026-01-02 "$@"; }
+ctl harvest-run-pass 0 '^harvest: 3 agent fixes \(2 known to the toolkit, 1 new\), 1 new error codes, 1 scripts, 1 toolkit items$' \
+  -- hv --work $HV/run --inbox $HV/tk --brain-inbox $HV/bi
+ctl harvest-new-fix-catch 0 'decision-frob.*Widget_Fake\.FrobAction\(\)' '!decision-mxlogger.*\[CHANGES' -- sed -n '/^## Fixes the agent made/,/^## Known/p' $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-known-fix-pass 0 'repair-row-13.*\[known: steps/repair\.md row 13\]' 'decision-mxlogger.*\[known: BACKLOG\.md #102' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-code-script-item-pass 0 '^- CE9987 ' 'frob_fix\.py \(3 lines\): Rewrite the frob widgets' 'trail: 2 gap' '!CE1613' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md
+ctl harvest-scrub-pass 0 '!'"$HV" -- cat $HV/tk/2026-01-02-HV1-harvest.md $HV/bi/2026-01-02-HV1-upgrade.md
+ctl harvest-denylist-catch 1 'Acmecorp' '!^harvest: wrote' -- sh -c "python3 -I $B/harvest.py --code HV1 --brain $HV/brain --date 2026-01-02 --work $HV/run-deny --inbox $HV/tk-deny --brain-inbox $HV/bi-deny 2>&1; rc=\$?; ls $HV/tk-deny 2>/dev/null; exit \$rc"
+ctl harvest-denylist-wrote-nothing-pass 0 '^none$' -- sh -c "ls $HV/tk-deny/*.md 2>/dev/null || echo none"
+ctl harvest-bad-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code 'a b' --inbox $HV/tk-bad
+ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code Acmecorp --inbox $HV/tk-bad
+
+# submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
+# internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a
+# learnings/ branch cut from the remote, and leaves the inbox. A file remote opens no PR.
+SL=$T/submit; mkdir -p $SL; git init -q --bare -b main $SL/origin.git
+git clone -q $SL/origin.git $SL/repo 2> /dev/null; mkdir -p $SL/repo/upgrade-toolkit/contrib/inbox
+cp $TK/contrib/inbox/README.md $TK/contrib/inbox/TEMPLATE.md $SL/repo/upgrade-toolkit/contrib/inbox/
+git -C $SL/repo add -A && git -C $SL/repo -c user.email=ctl@example.invalid -c user.name=ctl commit -qm init && git -C $SL/repo push -q origin main 2> /dev/null
+git -C $SL/repo remote set-head origin main
+SI=$SL/repo/upgrade-toolkit/contrib/inbox
+sl() { GIT_AUTHOR_NAME=ctl GIT_AUTHOR_EMAIL=ctl@example.invalid GIT_COMMITTER_NAME=ctl GIT_COMMITTER_EMAIL=ctl@example.invalid bash $B/submit-learnings.sh "$@"; }
+ctl submit-nothing-pass 0 'nothing to submit' -- sl toolkit --inbox $SI
+printf '# CE9987 frob\nfrom the Acmecorp run\n' > $SI/2026-01-02-HV1-deny.md
+ctl submit-denylist-catch 1 '2026-01-02-HV1-deny\.md:2:.*denylisted name' 'REFUSED' -- sl toolkit --inbox $SI
+rm $SI/2026-01-02-HV1-deny.md; printf '# x\nlog at /home/jdoe/run/check.log\nlog at /home/<user>/run/ok.log\n' > $SI/2026-01-02-HV1-home.md
+ctl submit-home-path-catch 1 'HV1-home\.md:2:.*home folder path' '!HV1-home\.md:3:' -- sl toolkit --inbox $SI
+rm $SI/2026-01-02-HV1-home.md; cp $HV/bi/2026-01-02-HV1-upgrade.md $SI/
+ctl submit-internal-to-toolkit-catch 1 'internal text, belongs in the brain' -- sl toolkit --inbox $SI
+ctl submit-brain-in-toolkit-catch 1 'inside the toolkit repo' -- sl brain --inbox $TK/contrib/inbox
+rm $SI/2026-01-02-HV1-upgrade.md; cp $HV/tk/2026-01-02-HV1-harvest.md $SI/
+ctl submit-dry-run-pass 0 'checks clean, 1 file' 'branch learnings/[0-9-]+-HV1-harvest off main' '^dry run: nothing committed or pushed$' -- sl toolkit --inbox $SI --dry-run
+ctl submit-dry-run-no-branch-pass 0 '^none$' -- sh -c "git -C $SL/origin.git branch --list 'learnings/*' | grep . || echo none"
+ctl submit-push-pass 0 '^submitted: learnings/[0-9-]+-HV1-harvest \(1 file\(s\) left the inbox\)$' -- sl toolkit --inbox $SI
+ctl submit-pushed-branch-pass 0 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-harvest\.md' -- sh -c "git -C $SL/origin.git ls-tree -r --name-only \$(git -C $SL/origin.git branch --list 'learnings/*' --format='%(refname)' | head -1)"
+ctl submit-inbox-emptied-pass 0 '^README\.md TEMPLATE\.md $' -- sh -c "ls $SI | tr '\n' ' '"
+ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-current
+
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

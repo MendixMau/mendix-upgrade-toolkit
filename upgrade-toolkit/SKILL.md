@@ -124,6 +124,14 @@ the verdict, and a `Time:` line in `gate-summary.md`. Set `UPG_APP_CODE` and `UP
 information section in `NEEDS-JUDGMENT.md` and fix the cause. **FIELD-RUNS.md still needs committing through a toolkit PR**
 (explicit paths, `git commit -- <paths>`); the pipeline prints the reminder. Details: [SETUP.md](SETUP.md), [steps/report.md](steps/report.md).
 
+## Harvest the learnings
+
+At the end of every run, before the work folder goes: `bin/harvest.py --work $WORK --code <APP>` drafts what the run taught
+into `contrib/inbox/` (toolkit, generic, code names) and `$UPG_BRAIN/inbox/` (brain note drafts, internal, only for lessons the
+brain lacks). Review them, then `bin/submit-learnings.sh toolkit|brain [--dry-run]`: denylist, credential and home-path checks,
+then one `learnings/` branch and one PR. A single finding by hand: copy `contrib/inbox/TEMPLATE.md`. The other direction, brain
+to toolkit table rows, is `bin/brain_mine.py`. Details: [contrib/inbox/README.md](contrib/inbox/README.md).
+
 ## Run done
 
 A run is DONE when there are 0 open items and the owner has signed off. Every item ends in exactly one closed state:
