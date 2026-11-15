@@ -16,6 +16,11 @@ ok()   { printf 'ok    %-11s %s\n' "$1" "$2"; }
 warn() { printf 'WARN  %-11s %s\n      fix: %s\n' "$1" "$2" "$3"; nwarn=$((nwarn + 1)); }
 fail() { printf 'FAIL  %-11s %s\n      fix: %s\n' "$1" "$2" "$3"; nfail=$((nfail + 1)); }
 have() { command -v "$1" > /dev/null 2>&1; }
+# bounded SECS CMD...: a probe that cannot hang (a stopped Docker Desktop makes `docker info` sit silent for minutes; the
+# mxcli project toolkit's doctor bounds it the same way). perl ships with macOS; GNU timeout does not.
+bounded() { local s=$1; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"; }
+
+[ -n "$TOOLS" ] || echo "note: UPG_TOOLS is not set; for a run folder made by setup, source <run dir>/upg-env.sh first (toolsets and the run's mxcli are then checked too)"
 
 # shell and git
 if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then ok bash "$BASH_VERSION"
@@ -42,10 +47,10 @@ else fail login "no MENDIX_PAT and no ~/.mxcli/auth.json: module updates (market
 
 # docker
 if ! have docker; then fail docker "no docker CLI" "install Docker Desktop or colima (brew install colima docker && colima start)"
-elif ! docker info > /dev/null 2>&1; then
-  fail docker "the docker daemon does not answer (DOCKER_HOST=${DOCKER_HOST:-unset})" "start it (colima start / Docker Desktop); with colima under another HOME: export DOCKER_HOST=unix://<real home>/.colima/default/docker.sock"
+elif ! bounded 8 docker info > /dev/null 2>&1; then
+  fail docker "the docker daemon does not answer within 8 s (DOCKER_HOST=${DOCKER_HOST:-unset})" "start it: Apple Silicon colima with Rosetta (colima start -p upgrade --vm-type vz --vz-rosetta, then export DOCKER_HOST=unix://\$HOME/.colima/upgrade/docker.sock), or Docker Desktop"
 else
-  ok docker "daemon up ($(docker info --format '{{.ServerVersion}} {{.Architecture}}' 2> /dev/null))"
+  ok docker "daemon up ($(bounded 8 docker info --format '{{.ServerVersion}} {{.Architecture}}' 2> /dev/null))"
   # Apple Silicon: the amd64 tools need Rosetta in the VM. Under qemu the Linux mxcli dies with SIGSEGV in triage
   # (cold test WM1: "unexpected fault address" in modelsdk decoding; the same commit built natively reads the app fine).
   if [ "$(uname -sm)" = "Darwin arm64" ]; then
@@ -70,7 +75,7 @@ else
   ok node "$(node --version)"
   pw=${UPG_PW_DIR:-$HOME/mendix-playwright}
   if [ ! -d "$pw/node_modules/playwright" ]; then fail playwright "no Playwright module in $pw" "UPG_SETUP_STEPS=playwright bash bin/setup-container.sh <run dir> <versions>"
-  elif out=$(cd "$pw" && timeout 60 node -e "require('playwright').chromium.launch({args:['--use-mock-keychain','--password-store=basic']}).then(b=>b.close()).then(()=>console.log('ok'))" 2>&1) && [ "$out" = ok ]; then
+  elif out=$(cd "$pw" && bounded 60 node -e "require('playwright').chromium.launch({args:['--use-mock-keychain','--password-store=basic']}).then(b=>b.close()).then(()=>console.log('ok'))" 2>&1) && [ "$out" = ok ]; then
     ok chromium "launches (Playwright in $pw)"
   else fail chromium "Chromium does not launch: $(echo "$out" | grep -m1 -iE 'executable|error' | cut -c1-100)" \
     "cd $pw && npx playwright install chromium; if that hangs, curl the zip from playwright.download.prss.microsoft.com (SETUP.md)"; fi
