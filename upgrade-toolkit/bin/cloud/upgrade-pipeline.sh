@@ -249,14 +249,16 @@ cockpit_regen() {
   fi
   cockpit_live
 }
-# The live cockpit: from triage on, the page is open in the browser and reloads itself when it changes. bin/cockpitserve.py serves
+# The live cockpit: from triage on (also a stop in triage), the page is open in the browser and reloads itself when it changes. bin/cockpitserve.py serves
 # COCKPIT-view.html next to the one cockpit; the page polls it, and each poll is a heartbeat in .cockpit-seen. After every step
 # (and at a stop) the view is rewritten, and when no tab polled in the last UPG_COCKPIT_SEEN seconds (default 90: a background
 # tab polls at least once a minute) the page is opened again. On by default where a desktop is (macOS, or Linux with a display);
 # UPG_COCKPIT_OPEN=0 turns it off, =1 forces it; UPG_COCKPIT_OPENER replaces the open command (controls).
 cockpit_live() {
   local d opener port i
-  [ "$DRY" != 1 ] && [ "${UPG_COCKPIT_OPEN:-auto}" != 0 ] && [ -f "$WORK/state/triage.done" ] || return 0
+  [ "$DRY" != 1 ] && [ "${UPG_COCKPIT_OPEN:-auto}" != 0 ] || return 0
+  # from triage on: after it, or when it stops for a decision (exactly when the owner should look)
+  case "${STEP:-}" in ""|fetch) [ -f "$WORK/state/triage.done" ] || return 0 ;; esac
   opener=${UPG_COCKPIT_OPENER:-}
   if [ -z "$opener" ]; then
     if [ "$(uname -s)" = Darwin ] && command -v open > /dev/null; then opener=open

@@ -106,9 +106,9 @@ PY
          printf '#!/bin/bash\necho "$1" >> %s/opens\n' "$T" > "$T/opener"; chmod +x "$T/opener"
          export UPG_COCKPIT_OPEN=1 UPG_COCKPIT_OPENER=$T/opener UPG_COCKPIT_SEEN=2
          op() { cockpit_live > /dev/null; echo "$1: opened $(cat "$T/opens" 2> /dev/null | wc -l | tr -d ' ')"; }
-         op "before triage"; date > "$W/state/triage.done"; op "after triage"
-         touch "$W/.cockpit-seen"; op "tab polling"
-         sleep 3; op "tab gone"; sleep 3; UPG_COCKPIT_OPEN=0 op "off"
+         STEP=fetch op "before triage"; STEP=triage op "stopped in triage"; date > "$W/state/triage.done"; STEP=build op "after triage"
+         touch "$W/.cockpit-seen"; STEP=build op "tab polling"
+         sleep 3; STEP=build op "tab gone"; sleep 3; STEP=build UPG_COCKPIT_OPEN=0 op "off"
          kill "$(cat "$W/.cockpit-pid")" 2> /dev/null ;;
   cockpit-flag) cp -R "$here/fixtures/cockpit/run" "$T/r2"; bash "$B/cloud/upgrade-pipeline.sh" --cockpit --work "$T/r2/work" && test -s "$T/r2/work/COCKPIT.html" && echo "COCKPIT.html written" ;;
   matrix-*) # the matrix page: read the embedded data with a small python helper, print what it saw

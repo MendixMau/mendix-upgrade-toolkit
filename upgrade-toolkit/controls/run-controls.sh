@@ -6576,7 +6576,7 @@ ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"\)' 'decisions"\)\.doc\(it\.id\)\.set' 'signoffs"\)\.doc\(await user\.id\(\)\)\.set' 'decisions"\)\.onSnapshot' 'never reads window\.claude\.db' -- $CK pattern
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
-ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
+ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'stopped in triage: opened 1' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
 ctl cockpit-flag-regenerates-only-pass 0 'COCKPIT\.html written' -- $CK cockpit-flag
 ctl decisions-add-last-wins-pass 0 'P-1 = o2 by Ana via chat' 'P-1 = rec by Ben via chat' '"by": "Ana"' '"by": "Ben"' -- $CK add
 ctl decisions-add-unknown-item-catch 2 'unknown item' -- $CK add-bad
