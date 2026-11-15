@@ -100,6 +100,17 @@ PY
          s1=$(curl -s "$u/stamp"); echo "heartbeat written: $([ -f "$T/.cockpit-seen" ] && echo True || echo False)"
          sleep 1; touch "$T/COCKPIT-view.html"; s2=$(curl -s "$u/stamp")
          echo "stamp moved after a change: $([ -n "$s1" ] && [ "$s1" != "$s2" ] && echo True || echo False)"; kill $sp ;;
+  running) # the "Running now" bar: own pid = running, a dead pid or no file = hidden; /status serves the same; a running step never masks a bad state (the fixture has no gate, so "bad" stays)
+         mkdir -p "$W/state" "$W/logs"; printf '+ python3 /x/bin/runapp.py start old\nstarting the old app on db_x\n' > "$W/logs/basewalk.log"
+         printf 'basewalk\t%s\t%s\n' "$(( $(date +%s) - 300 ))" "$$" > "$W/state/running"; ck > /dev/null
+         echo "bar: $(grep -o '<div class="nowrun" id="nowrun" aria-live="polite"><span class="pulse"></span><div><b>[^<]*</b><small>[^<]*' "$T/out.html" | sed 's/.*<b>//; s/<\/b><small>/ | /')"
+         echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
+         echo "$W" > "$T/.cockpit-work"; python3 "$B/cockpitserve.py" --dir "$T" --idle-exit 20 & sp=$!
+         for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/.cockpit-port" ] && break; sleep 0.3; done
+         echo "status: $(curl -s "http://127.0.0.1:$(cat "$T/.cockpit-port")/status")"; kill $sp
+         printf 'basewalk\t%s\t999999\n' "$(date +%s)" > "$W/state/running"; ck > /dev/null
+         echo "dead pid: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")"
+         rm "$W/state/running"; ck > /dev/null; echo "no file: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")" ;;
   live-open) # cockpit_live as the pipeline runs it, with a stub opener that counts the opens
          { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
          . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; rm -f "$W/state/triage.done"

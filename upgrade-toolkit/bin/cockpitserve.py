@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """cockpitserve.py: serve the live cockpit page on localhost, so the browser tab reloads itself when the run changes it.
 
-  cockpitserve.py --dir D [--idle-exit SECONDS]
+  cockpitserve.py --dir D [--port N] [--idle-exit SECONDS]
 
-A file opened from disk cannot see that it changed; this tiny server can. It binds 127.0.0.1 on a free port and serves:
+A file opened from disk cannot see that it changed; this tiny server can. It binds 127.0.0.1 on a free port (--port N: that one, so an open tab keeps working after a restart) and serves:
   /          D/COCKPIT-view.html (cockpitpage.py --standalone --live writes it)
+  /status    the step running now (cockpitpage.running on the rung named in D/.cockpit-work): step, minutes, the script it
+             is in and its last line; the page fills its "Running now" bar from it every few seconds, without a reload
   /stamp     the page's change stamp (mtime in ns); the page polls it every few seconds and reloads when it moves.
              Every /stamp request also touches D/.cockpit-seen: the pipeline reads that heartbeat to know a tab is open,
              and opens the page again at the next step when no tab has asked for a while (cockpit_live in upgrade-pipeline.sh).
 Writes D/.cockpit-port and D/.cockpit-pid at start. Exits on its own after --idle-exit seconds without a request (default 6 h).
 Exit: 0 idle exit, 2 usage.
 """
-import argparse, http.server, os, sys, threading, time
+import argparse, http.server, json, os, sys, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpitpage  # noqa: E402
 
 VIEW = "COCKPIT-view.html"
 
@@ -19,6 +24,7 @@ VIEW = "COCKPIT-view.html"
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dir", required=True)
+    ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--idle-exit", type=int, default=6 * 3600)
     a = ap.parse_args()
     if not os.path.isdir(a.dir):
@@ -37,6 +43,10 @@ def main():
                     os.utime(os.path.join(d, ".cockpit-seen"))
                 body = str(os.stat(view).st_mtime_ns if os.path.exists(view) else 0).encode()
                 ctype = "text/plain"
+            elif path == "/status":   # the step running now in the rung the pipeline named (.cockpit-work), or null
+                work = (cockpitpage.rd(os.path.join(d, ".cockpit-work")) or "").strip()
+                body = json.dumps(cockpitpage.running(work) if work else None).encode()
+                ctype = "application/json"
             elif path in ("/", "/" + VIEW) and os.path.exists(view):
                 with open(view, "rb") as f:
                     body = f.read()
@@ -54,7 +64,7 @@ def main():
         def log_message(self, *args):
             pass
 
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", a.port), H)
     for name, val in ((".cockpit-port", srv.server_address[1]), (".cockpit-pid", os.getpid())):
         with open(os.path.join(d, name + ".tmp"), "w") as f:
             f.write(f"{val}\n")

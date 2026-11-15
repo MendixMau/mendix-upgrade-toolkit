@@ -1275,6 +1275,12 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .ver{overflow-wrap:anywhere}
 .card.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 #feed,#feed *{overflow-wrap:anywhere}
+.nowrun{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--wait);font-size:14px}
+.nowrun[hidden]{display:none}
+.nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
+@keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.nowrun .pulse{animation:none}}
+.nowrun b{font-weight:600}.nowrun small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .hero{display:grid;gap:18px;padding:20px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
 .hmsg{display:flex;gap:14px;align-items:center}
 .hmsg .tick{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--ok);color:#fff;font-size:24px;font-weight:700}
@@ -1698,6 +1704,17 @@ def h_legend(M):
     return "".join(f'<span><i style="background:var(--{k})"></i>{t}</span>' for k, t in LEGEND if k in used)
 
 
+def h_running(r):
+    """The step running now (cockpitpage.running): a bar under the header. Always present, hidden when idle, so the live
+    page (cockpitserve.py /status) can fill it in place without a reload."""
+    if not r:
+        return '<div class="nowrun" id="nowrun" hidden aria-live="polite"><span class="pulse"></span><div><b></b><small></small></div></div>'
+    what = " · ".join(x for x in [f'{r["mins"]} min' if r["mins"] else "just started",
+                                  f'now in {r["tool"]}' if r["tool"] else "", r["said"]] if x)
+    return (f'<div class="nowrun" id="nowrun" aria-live="polite"><span class="pulse"></span><div><b>Running now: {E(r["text"])} ({E(r["step"])})</b>'
+            f'<small>{E(what)}</small></div></div>')
+
+
 def render(model, matrix):
     data = json.dumps(dict({k: model[k] for k in ("title", "sub", "state", "planHash", "signed", "phases", "items")}, matrix=matrix), ensure_ascii=False)
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
@@ -1711,6 +1728,7 @@ def render(model, matrix):
             f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
+            f"  {h_running(model.get('running'))}\n"
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'

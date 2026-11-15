@@ -267,6 +267,7 @@ cockpit_live() {
     else return 0; fi
   fi
   d=$(dirname "${UPG_COCKPIT_OUT:-$WORK/COCKPIT.html}")
+  echo "$WORK" > "$d/.cockpit-work"   # the rung now running: cockpitserve.py reads its state/running and step log for /status
   # rewritten only when it differs, so the tab reloads on a change and not after every step
   python3 "$B/cockpitpage.py" --work "$WORK" --out "$d/.COCKPIT-view.new" --standalone --live >> "$WORK/logs/decisions.log" 2>&1 || return 0
   if cmp -s "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; then rm -f "$d/.COCKPIT-view.new"; else mv "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; fi
@@ -348,9 +349,12 @@ now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 timing_open() { # timing_open STEP
   [ "$DRY" != 1 ] || return 0
   TIMING_STEP=$1; TIMING_START=$(now_utc)
+  # the running step for the cockpit ("Running now"): step, start (epoch), the pipeline's pid (a dead pid = not running)
+  printf '%s\t%s\t%s\n' "$1" "$(date +%s)" "$$" > "$WORK/state/running" 2> /dev/null || true
 }
 timing_close() { # timing_close EXITCODE
   [ -n "$TIMING_STEP" ] || return 0
+  rm -f "$WORK/state/running"
   local f="$WORK/state/timing.tsv" end
   end=$(now_utc)
   { [ -s "$f" ] || printf 'step\tstart_utc\tend_utc\texit\n' > "$f"; printf '%s\t%s\t%s\t%s\n' "$TIMING_STEP" "$TIMING_START" "$end" "$1" >> "$f"; } 2> /dev/null || true
@@ -1591,6 +1595,7 @@ run_step() { # run_step NAME
   esac
   printf '%-10s %s\n' "$STEP" "running (log: $LOG)"
   timing_open "$STEP"
+  cockpit_regen   # the page shows the step as running from its start, not only after it
   "step_$STEP"
   nj_flush
   timing_close 0 || true
