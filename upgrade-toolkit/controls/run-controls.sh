@@ -107,6 +107,7 @@ export UPG_LOCK=$T/test.lock UPG_LOCK_POLL=1   # controls never wait on the real
 # container exports JAVA_TOOL_OPTIONS: the container-wrapper controls then saw the run's own docker arguments. Controls set
 # their own environment; these never come from the caller.
 unset UPG_EXTRA UPG_ENV_FILE UPG_CA UPG_DRYRUN UPG_NAME
+export UPG_COCKPIT_OPEN=0   # a control run never opens browser tabs (the live-cockpit controls turn it on with a stub opener)
 npass=0; nfail=0; nskip=0; failed=""; skipped=""
 
 # ctl NAME EXIT [PATTERN ...] -- CMD ...      PATTERN: egrep regex that must occur; !REGEX must not occur
@@ -6573,6 +6574,9 @@ ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' --
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"\)' 'decisions"\)\.doc\(it\.id\)\.set' 'signoffs"\)\.doc\(await user\.id\(\)\)\.set' 'decisions"\)\.onSnapshot' 'never reads window\.claude\.db' -- $CK pattern
+ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
+ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
+ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
 ctl cockpit-flag-regenerates-only-pass 0 'COCKPIT\.html written' -- $CK cockpit-flag
 ctl decisions-add-last-wins-pass 0 'P-1 = o2 by Ana via chat' 'P-1 = rec by Ben via chat' '"by": "Ana"' '"by": "Ben"' -- $CK add
 ctl decisions-add-unknown-item-catch 2 'unknown item' -- $CK add-bad

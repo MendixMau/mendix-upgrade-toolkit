@@ -703,11 +703,23 @@ def build_model(work):
             "signed": list(signed) if signed else None, "phases": phases, "items": items}
 
 
+# --live: poll the server's stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes
+LIVE_JS = """<script>
+(function(){var k="cockpit-scroll",s=null,due=false;
+try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
+function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
+setInterval(function(){var dr=document.getElementById("drawer");if(due){if(!dr||dr.hidden)reload();return;}
+fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if(!dr||dr.hidden)reload();}}).catch(function(){});},3000);})();
+</script>
+"""
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--work", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--standalone", action="store_true", help="wrap the page content in doctype, html, head and body (a file opened directly, for example on a phone)")
+    ap.add_argument("--live", action="store_true", help="with --standalone: the page polls ./stamp and reloads when the run changes it (served by cockpitserve.py)")
     a = ap.parse_args()
     if not os.path.isdir(a.work):
         print(f"cockpitpage: no work folder {a.work}", file=sys.stderr)
@@ -717,7 +729,7 @@ def main():
     matrix = cockpitmatrix.build(a.work, model)
     page = cockpitmatrix.render(model, matrix)
     if a.standalone:
-        page = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n' + page.replace("<style>", "<style>", 1).replace("\n<div class=\"wrap\">", "\n</head><body>\n<div class=\"wrap\">", 1) + "</body></html>\n"
+        page = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n' + page.replace("<style>", "<style>", 1).replace("\n<div class=\"wrap\">", "\n</head><body>\n<div class=\"wrap\">", 1) + (LIVE_JS if a.live else "") + "</body></html>\n"
     tmp = a.out + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(page)

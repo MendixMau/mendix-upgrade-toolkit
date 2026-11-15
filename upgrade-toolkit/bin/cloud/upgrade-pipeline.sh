@@ -247,6 +247,40 @@ cockpit_regen() {
     local h; h=$(dirname "${UPG_COCKPIT_OUT:-$WORK/COCKPIT.html}")/cockpit-history; mkdir -p "$h"
     cp "$WORK/COCKPIT.html" "$h/$(date +%Y%m%d-%H%M%S)-$(basename "$(dirname "$WORK/x")").html" 2>/dev/null || true
   fi
+  cockpit_live
+}
+# The live cockpit: from triage on, the page is open in the browser and reloads itself when it changes. bin/cockpitserve.py serves
+# COCKPIT-view.html next to the one cockpit; the page polls it, and each poll is a heartbeat in .cockpit-seen. After every step
+# (and at a stop) the view is rewritten, and when no tab polled in the last UPG_COCKPIT_SEEN seconds (default 90: a background
+# tab polls at least once a minute) the page is opened again. On by default where a desktop is (macOS, or Linux with a display);
+# UPG_COCKPIT_OPEN=0 turns it off, =1 forces it; UPG_COCKPIT_OPENER replaces the open command (controls).
+cockpit_live() {
+  local d opener port i
+  [ "$DRY" != 1 ] && [ "${UPG_COCKPIT_OPEN:-auto}" != 0 ] && [ -f "$WORK/state/triage.done" ] || return 0
+  opener=${UPG_COCKPIT_OPENER:-}
+  if [ -z "$opener" ]; then
+    if [ "$(uname -s)" = Darwin ] && command -v open > /dev/null; then opener=open
+    elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open > /dev/null; then opener=xdg-open
+    elif [ "${UPG_COCKPIT_OPEN:-auto}" = 1 ]; then say "cockpit: no browser opener here (open, xdg-open); set UPG_COCKPIT_OPENER"; return 0
+    else return 0; fi
+  fi
+  d=$(dirname "${UPG_COCKPIT_OUT:-$WORK/COCKPIT.html}")
+  # rewritten only when it differs, so the tab reloads on a change and not after every step
+  python3 "$B/cockpitpage.py" --work "$WORK" --out "$d/.COCKPIT-view.new" --standalone --live >> "$WORK/logs/decisions.log" 2>&1 || return 0
+  if cmp -s "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; then rm -f "$d/.COCKPIT-view.new"; else mv "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; fi
+  if ! { [ -f "$d/.cockpit-pid" ] && kill -0 "$(cat "$d/.cockpit-pid")" 2> /dev/null; }; then
+    rm -f "$d/.cockpit-port"
+    nohup python3 "$B/cockpitserve.py" --dir "$d" > /dev/null 2>&1 < /dev/null &
+    for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done
+  fi
+  port=$(cat "$d/.cockpit-port" 2> /dev/null) || return 0
+  [ -n "$port" ] || return 0
+  if [ -f "$d/.cockpit-seen" ] && [ $(( $(date +%s) - $(python3 -c 'import os,sys; print(int(os.stat(sys.argv[1]).st_mtime))' "$d/.cockpit-seen") )) -lt "${UPG_COCKPIT_SEEN:-90}" ]; then
+    return 0
+  fi
+  touch "$d/.cockpit-seen"   # the tab polls within seconds; until then the next step does not open a second one
+  say "cockpit: http://127.0.0.1:$port/ (opened in the browser; it reloads itself as the run goes)"
+  $opener "http://127.0.0.1:$port/" > /dev/null 2>&1 || true
 }
 
 # ---- Postgres / apps ----

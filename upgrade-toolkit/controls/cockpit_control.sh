@@ -91,6 +91,25 @@ d=json.loads(re.search(r"const D=(.*?);\n", open(sys.argv[1]).read(), re.S).grou
 print(sum(1 for i in d["items"] if i["id"]=="signoff"))
 PY
 ;;
+  live-script) for f in "--standalone --live:live" "--standalone:standalone without --live" ":content page"; do
+              python3 "$B/cockpitpage.py" --work "$W" --out "$T/l.html" ${f%%:*} > /dev/null; echo "${f#*:}: polls stamp $(cnt -c 'fetch("stamp"' "$T/l.html")"; done ;;
+  serve) python3 "$B/cockpitpage.py" --work "$W" --out "$T/COCKPIT-view.html" --standalone --live > /dev/null
+         python3 "$B/cockpitserve.py" --dir "$T" --idle-exit 20 & sp=$!
+         for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/.cockpit-port" ] && break; sleep 0.3; done; u=http://127.0.0.1:$(cat "$T/.cockpit-port")
+         echo "page served: $(curl -s "$u/" | grep -q 'fetch("stamp"' && echo True || echo False)"
+         s1=$(curl -s "$u/stamp"); echo "heartbeat written: $([ -f "$T/.cockpit-seen" ] && echo True || echo False)"
+         sleep 1; touch "$T/COCKPIT-view.html"; s2=$(curl -s "$u/stamp")
+         echo "stamp moved after a change: $([ -n "$s1" ] && [ "$s1" != "$s2" ] && echo True || echo False)"; kill $sp ;;
+  live-open) # cockpit_live as the pipeline runs it, with a stub opener that counts the opens
+         { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
+         . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; rm -f "$W/state/triage.done"
+         printf '#!/bin/bash\necho "$1" >> %s/opens\n' "$T" > "$T/opener"; chmod +x "$T/opener"
+         export UPG_COCKPIT_OPEN=1 UPG_COCKPIT_OPENER=$T/opener UPG_COCKPIT_SEEN=2
+         op() { cockpit_live > /dev/null; echo "$1: opened $(cat "$T/opens" 2> /dev/null | wc -l | tr -d ' ')"; }
+         op "before triage"; date > "$W/state/triage.done"; op "after triage"
+         touch "$W/.cockpit-seen"; op "tab polling"
+         sleep 3; op "tab gone"; sleep 3; UPG_COCKPIT_OPEN=0 op "off"
+         kill "$(cat "$W/.cockpit-pid")" 2> /dev/null ;;
   cockpit-flag) cp -R "$here/fixtures/cockpit/run" "$T/r2"; bash "$B/cloud/upgrade-pipeline.sh" --cockpit --work "$T/r2/work" && test -s "$T/r2/work/COCKPIT.html" && echo "COCKPIT.html written" ;;
   matrix-*) # the matrix page: read the embedded data with a small python helper, print what it saw
             mx() { python3 - "$@" <<'PY'
