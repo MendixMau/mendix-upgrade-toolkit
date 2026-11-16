@@ -17,7 +17,7 @@ import cockpitpage as cp
 import steps as stp
 
 STAGES = ("triage", "plan", "upgrade", "test")
-GROUPS = [("app", "App and platform"), ("setup", "Testing setup"), ("golive", "Go-live")]
+GROUPS = [("app", "App and platform"), ("setup", "How we prove it still works"), ("golive", "Go-live")]
 STEP_GROUP = ("steps", "Steps of this run")   # added after "app" when work/steps.jsonl exists
 STATUSES = ("ok", "wait", "bad", "none", "you")
 LOOP = ("Found", "Proposed", "Trying", "Fixed")
@@ -465,14 +465,63 @@ def derive(work, model):
         rows.append(row("release", "Release notes", f"{n} rows", "app",
                         {"triage": t, "plan": p, "upgrade": nowork("Release notes are read, not applied."), "test": release_cell(g)}))
 
-    # Click paths
+    # How we prove it still works: one row per kind of app part in test-inventory.md, with the gate rungs that measure it
+    # (cold test WM1: 13 kinds of test sat in test-inventory.md and the matrix showed one row, "Click paths: Not needed")
+    inv = {}
+    for line in (cp.rd(os.path.join(work, "test-inventory.md")) or "").splitlines():
+        c = [x.strip() for x in line.strip().strip("|").split("|")]
+        if len(c) >= 4 and c[0] not in ("app part", "---"):
+            inv[c[0]] = c
+    js = cp.rd(os.path.join(work, "journey-scope.md")) or ""
+    jb = cp.rd(os.path.join(work, "journeys-base.out")) or ""
     jo = cp.rd(os.path.join(work, "journeys.out")) or ""
+    scope = re.search(r"journeys in scope: (\d+) reachable", js)
+    nopath = re.search(r"(\d+) reachable actions have no click path", js)
+    jbase = re.search(r"(\d+) journeys .*?(\d+) pass on baseline", jb)
     cov = re.search(r"coverage (\d+)/(\d+) \((\d+)%\)", jo)
-    ct = rungs_cell(g, ["journeys"])
-    if cov and ct["s"] != "none":
-        ct["l"] = f"{cov.group(3)}% of buttons reached"
-        ct["steps"].insert(0, f"{cov.group(1)} of {cov.group(2)} buttons have a test that clicks them.")
-    rows.append(row("clicks", "Click paths", f"{cov.group(1)}/{cov.group(2)} buttons" if cov else "", "setup", {"test": ct}))
+    shots = len(os.listdir(os.path.join(work, "smoke-before-shots"))) if os.path.isdir(os.path.join(work, "smoke-before-shots")) else 0
+    # (inventory key, row name, what we prove, how in plain words, gate rungs)
+    TESTS = [("Persistent entities", "Data survives", "every table keeps its rows and values",
+              "Count the rows and checksum every column of every table on a copy of the database, before and after.", ["data"]),
+             ("Role home pages and menu", "Pages per role", "every role still lands on its home page and opens its menu",
+              "Log in as each role, open the home page and every menu item, and compare the screens before and after.", ["smoke", "screens"]),
+             (None, "Buttons and journeys", "the buttons and flows people use still work",
+              "Click every reachable button and run the recorded journeys, on the old app first and then on the new one.", ["journeys"]),
+             ("Published REST operations", "Published APIs", "other systems can still call this app",
+              "Compare the API contract before and after, and call every safe read operation once.", ["apis"]),
+             ("Scheduled events", "Scheduled jobs", "the background jobs still run on the same schedule",
+              "Compare each job's schedule and on/off state before and after; trigger it once in the test.", []),
+             ("Pluggable widgets", "Widgets", "every widget still renders",
+              "Open each page that uses the widget, check for errors and compare the screen before and after.", ["smoke", "screens"]),
+             ("Java actions", "Java code", "the app's own Java still compiles and runs",
+              "The build proves it compiles; the journeys that use it prove it runs.", ["build"])]
+    for key, name, what, how, rungs in TESTS:
+        if key is None:
+            if not (scope or jbase or cov):
+                continue
+            found = (f"{scope.group(1)} buttons in reach of a user" if scope else "") + (f"; {nopath.group(1)} have no click path yet" if nopath else "")
+            auto = True
+            sub = f"{scope.group(1)} buttons" if scope else ""
+            pl = [how] + ([f"{jbase.group(2)} of {jbase.group(1)} journeys already pass on the old app."] if jbase else []) \
+                 + ([f"{nopath.group(1)} buttons only show up with the right data; the test reaches them through their flow or a person checks them."] if nopath else [])
+        else:
+            c = inv.get(key)
+            if not c or re.match(r"^0\b", c[1]):
+                continue
+            found, sub = c[1], c[1].split(" (")[0]
+            auto = c[3].startswith("auto")
+            pl = [how] + ([] if auto else [f"Part of it needs a person: {c[3]}."])
+            if key == "Role home pages and menu" and shots:
+                pl.append(f"{shots} screens of the old app are already taken as the reference.")
+        t = cell("ok", "Found", [f"Found: {found}."], ["test-inventory.md"], d=found[:60])
+        p = cell("ok" if auto else "wait", "Automatic" if auto else "Partly by a person", pl, d=how.split(",")[0][:60])
+        ct = rungs_cell(g, rungs) if rungs else notyet("No automatic check measures this yet.")
+        if name == "Buttons and journeys" and cov and ct["s"] != "none":
+            ct["l"] = f"{cov.group(3)}% of buttons reached"
+            ct["steps"].insert(0, f"{cov.group(1)} of {cov.group(2)} buttons have a test that clicks them.")
+        rows.append(row("t-" + re.sub(r"\W+", "-", name.lower()), name, sub, "setup",
+                        {"triage": t, "plan": p, "upgrade": nowork("Tests do not change the app."), "test": ct},
+                        story={"found": [f"Found: {found}."], "means": [f"The test has to prove that {what}."], "plan": pl}))
 
     # Test repairs (self-healing)
     hr = heal.get("rows", [])
@@ -504,7 +553,7 @@ def derive(work, model):
                 rows.append(rw)
                 nopen += 1
     # an open ledger question shows as a purple cell on the item it belongs to, never as its own row
-    home = {"journeys": "clicks", "apis": "outside", "release": "release", "smoke": "findings", "screens": "findings"}
+    home = {"journeys": "t-buttons-and-journeys", "apis": "outside", "release": "release", "smoke": "findings", "screens": "findings"}
     for it in pending_j:
         tgt = next((r for r in rows if r["id"] == home.get(it.get("step"), "findings")), None) or rows[0]
         c = tgt["cells"]["test"]
@@ -709,7 +758,7 @@ def tiles(rows, chips, open_reg=None):
     def per(k):
         u = [x for x in units if x["kind"] == k]
         return [sum(1 for x in u if done(x)), len(u)]
-    measured = bool(any(r["id"] == "heal" or r["regression"] for r in rows)) or any(r["cells"]["test"]["s"] != "none" for r in rows if r["id"] == "clicks")
+    measured = bool(any(r["id"] == "heal" or r["regression"] for r in rows)) or any(r["cells"]["test"]["s"] != "none" for r in rows if r["id"] == "t-buttons-and-journeys")
     return {"up": [sum(1 for r in up if r["cells"]["upgrade"]["s"] == "ok"), len(up)],
             "reg": open_reg if open_reg is not None else (sum(1 for r in rows if r["regression"]) if measured else None),
             "upg": per("upgrade"), "gap": per("testgap"), "own": per("owner")[1], "gol": per("golive")[1],
@@ -1274,7 +1323,7 @@ span.chip{cursor:default}
 .shade{position:fixed;inset:0;background:var(--shade);z-index:20}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:21;overflow-y:auto;
   padding:calc(20px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) 22px;display:grid;gap:16px;align-content:start}
-.agentnote{margin:14px 2px 0;font-size:13px;color:var(--muted)}.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
+details.kpi summary{cursor:pointer;list-style:none}details.kpi summary b{display:block}details.kpi summary span{font-size:13px;color:var(--muted)}.agentnote{margin:14px 2px 0;font-size:13px;color:var(--muted)}.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
 .drawer .x{all:unset;cursor:pointer;position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));font-size:22px;color:var(--muted);padding:4px 8px;border-radius:6px}
 .drawer .x:focus-visible{outline:2px solid var(--accent)}
 .drawer h3{margin:0;font-size:21px;padding-right:36px;text-wrap:balance}
@@ -1765,13 +1814,27 @@ def h_band(b):
         bad = b["state"] == "ok" and b["reg"]
         reg = f'<span class="rg{" bad" if bad else ""}">{E(b["sub"])}</span>'
     chips = "".join(f'<span class="cc"><b>{c["n"]}</b>{E(c["label"])}</span>' for c in b["closed"]["chips"])
-    rows = "".join(f'<div class="ns"><b>{E(o["group"])}</b><span>{E(o["text"])}</span><em>{E(o["owner"])}</em></div>' for o in b["open"]["items"])
+    # who closes each open topic, and when (cold test WM1: "16 open topics still to validate" and the owner asked "what should a
+    # person do with this? validate when, by who?"; all 16 were the agent's, closed later in the run)
+    WHEN = {"Regression": "now", "To fix": "during the upgrade", "Coverage": "at the test stage", "At deploy": "at deploy"}
+    its = b["open"]["items"]
+    mine = [o for o in its if o["owner"] != "agent" and o["group"] != "At deploy"]
+    later = [o for o in its if o["group"] == "At deploy"]
+    agent = [o for o in its if o not in mine and o not in later]
+
+    def lst(xs, who):
+        return "".join(f'<div class="ns"><b>{E(o["group"])}</b><span>{E(o["text"])}</span><em>{E(who or WHEN.get(o["group"], ""))}</em></div>' for o in xs)
+    you = (f'<div class="kpi open"><b>{len(mine)}</b><span>for you now</span><div class="next">{lst(mine, "you")}</div></div>' if mine
+           else '<div class="kpi good"><b>0</b><span>for you now: nothing to do, the agent goes on</span></div>')
+    agentbox = (f'<details class="kpi"><summary><b>{len(agent)}</b><span>the agent closes these itself, later in the run (open to see when)</span></summary>'
+                f'<div class="next">{lst(agent, "")}</div></details>' if agent else "")
+    laterbox = (f'<details class="kpi"><summary><b>{len(later)}</b><span>for a person at deploy, not now</span></summary>'
+                f'<div class="next">{lst(later, "")}</div></details>' if later else "")
     closed = (f'<div class="kpi good"><b>{b["closed"]["n"]}</b><span>items closed successfully</span><div class="ccs">{chips}</div></div>'
               if b["closed"]["n"] else "")
     return (f'<section class="hero {b["state"]}" aria-label="Progress">\n'
             f'<div class="hmsg"><span class="tick">{tick}</span><div><b>{E(b["head"])}</b>{reg}</div></div>\n'
-            f'<div class="kpis">{closed}<div class="kpi open"><b>{b["open"]["n"]}</b><span>open topics still to validate</span>'
-            f'<div class="next">{rows}</div></div></div></section>')
+            f'<div class="kpis">{you}{closed}{agentbox}{laterbox}</div></section>')
 
 
 def h_tiles(M):
