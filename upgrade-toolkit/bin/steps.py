@@ -199,7 +199,7 @@ def load(work):
                   and (r.get("approval") is None or "state" in r["approval"]))
             if not ok:
                 raise Damaged(f"step {r['id']} is incomplete")
-        return recs, None
+        return [r for r in recs if not r.get("withdrawn")], None
     except (Damaged, OSError, UnicodeDecodeError, KeyError, TypeError, ValueError) as e:
         return None, str(e) or "unreadable"
 
@@ -273,6 +273,8 @@ def fold(evs):
         rec["tested"] = {"results": [fs[k]["value"] for k in sorted(fs, key=lambda k: fs[k]["at"]) if k.startswith("test:")]}
         rec["gaps"] = {k[4:]: fs[k]["value"] for k in fs if k.startswith("gap:")}
         rec["status"] = derive_status(rec)
+        if v("withdrawn"):   # the plan no longer holds the item (withdraw): kept in the file, left out of every reader
+            rec["withdrawn"], rec["status"] = v("withdrawn"), "withdrawn"
         recs.append(rec)
     return sorted(recs, key=lambda r: idnum(r["id"]))
 
@@ -302,11 +304,25 @@ def ensure(work, topic, title, fields, by="toolkit"):
         append(work, sid, "topic", topic, by)
         append(work, sid, "title", title, by)
     cur = lastmap(events(work)).get(sid, {})
+    if cur.get("withdrawn", {}).get("value"):   # back in the plan
+        append(work, sid, "withdrawn", "", by)
     for f, v in fields.items():
         if v is None or v == [] or (f in cur and cur[f]["value"] == v):
             continue
         append(work, sid, f, v, by)
     return sid
+
+
+def withdraw(work, keep, say, by="toolkit"):
+    """Mark every plan-item step (one with a P-n alias) of this phase that is not in keep as withdrawn: the plan no longer holds
+    it. Cold test WM1: ten "keep or update module" steps from a crashed update stayed on the cockpit as "not approved yet"
+    after the rerun had dropped them from the plan. Returns the ids withdrawn now."""
+    out = []
+    for r in fold(events(work)):
+        if r.get("alias", "").startswith("P-") and mine(r) and r["id"] not in keep and not r.get("withdrawn"):
+            append(work, r["id"], "withdrawn", clean(say), by)
+            out.append(r["id"])
+    return out
 
 
 def approval_of(work, sid):

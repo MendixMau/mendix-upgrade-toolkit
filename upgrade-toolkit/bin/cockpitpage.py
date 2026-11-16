@@ -447,7 +447,9 @@ def build_model(work):
     nj = rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
     m = re.match(r"# NEEDS JUDGMENT: step (\w+), exit (\d+)", nj)
     stopped = (m.group(1), int(m.group(2))) if m else None
-    done = {s: bool(rd(os.path.join(work, "state", s + ".done"))) for s in STEP_ORDER}
+    if stopped and running(work):   # the run went on after that stop (cold test WM1: red "waits for you" bar after the approval)
+        stopped = None
+    done ={s: bool(rd(os.path.join(work, "state", s + ".done"))) for s in STEP_ORDER}
     per = run_minutes(work)
     commits = app_commits(work)
 

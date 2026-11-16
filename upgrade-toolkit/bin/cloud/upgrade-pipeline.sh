@@ -250,6 +250,11 @@ decisions_apply() {
 cockpit_regen() {
   [ "$DRY" != 1 ] || return 0
   python3 "$B/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html" >> "$WORK/logs/decisions.log" 2>&1 || true
+  # the page must not contradict the run (cold test WM1: ghost "Not approved yet" rows, a stop bar while running); a problem is
+  # said in the step log and kept in cockpit-check.txt, never a failed step
+  if ! python3 "$B/cockpitcheck.py" --work "$WORK" > "$WORK/cockpit-check.txt" 2>&1; then
+    say "cockpit: the page contradicts the run, see $WORK/cockpit-check.txt"; sed 's/^/  /' "$WORK/cockpit-check.txt"
+  fi
   # rung 2 also refreshes the cockpit of rung 1, so the run keeps one page from start to end
   [ -z "${UPG_COCKPIT_OUT:-}" ] || [ ! -f "$WORK/COCKPIT.html" ] || cp "$WORK/COCKPIT.html" "$UPG_COCKPIT_OUT" 2>/dev/null || true
   # UPG_COCKPIT_HISTORY=1 keeps every version of the page (a demo video shows the cockpit filling up), next to the one cockpit

@@ -544,6 +544,7 @@ def write_steps(F, work):
             "proposed_say": "A person does this. The toolkit lists it so it is not forgotten.",
             "why": "The toolkit has no way to do this on its own."})
         out[sid] = f"4:{it['key']}"
+    steps.withdraw(work, set(out), "No longer in the plan: a rerun of the proposal dropped this item.")
     return out
 
 

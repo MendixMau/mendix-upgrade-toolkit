@@ -375,5 +375,16 @@ PY
               matrix-dashes)        cp "$here/fixtures/cockpit/items.json" "$W/cockpit-items.json"; ck >/dev/null
                                     echo "dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$T/out.html")"; echo "generator dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$B/cockpitmatrix.py")" ;;
             esac ;;
+  # cockpitcheck.py: the page never contradicts itself (cold test WM1: ghost "Not approved yet" rows, a red stop bar while running)
+  check-ghost) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
+  check-withdraw) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            python3 -c "import sys; sys.path.insert(0,'$B'); import steps; print('withdrawn', steps.withdraw('$W', {'S-1','S-2','S-3'}, 'No longer in the plan.'))"
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "rows Oldmod: $(cnt 'module Oldmod' "$T/out.html")" ;;
+  check-running) sleep 300 & sp=$!; mkdir -p "$W/state" "$W/logs"; printf 'update\t%s\t%s\n' "$(date +%s)" "$sp" > "$W/state/running"
+            printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
+            python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
   *) echo "unknown case $case_"; exit 2 ;;
 esac
