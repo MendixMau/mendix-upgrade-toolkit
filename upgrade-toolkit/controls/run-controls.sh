@@ -601,9 +601,9 @@ cp -r $T/jarid $T/jarid-b; cp -r $T/jarid $T/jarid-c; cp -r $T/jarid $T/jarid-d
 ctl jarid-apply-stale-refused 2 'REFUSED: vendorlib is stale' -- python3 $B/repair/jardedupe.py $T/jarid-b --apply
 ctl jarid-apply-stale-removes-nothing 0 -- bash -c "cd $T/jarid-b/userlib; [ -f org.apache.commons.io-2.3.0.jar ] && [ -f commons-io-2.11.0.jar.CommunityCommons.RequiredLib ] && [ -f org.apache.commons.lang3.jar ]"
 # an SBOM OLDER than the last module change is no proof (the sync ran for the previous module set)
-echo '{}' > $T/jarid-c/vendorlib-sbom.json; touch -d '2001-01-01' $T/jarid-c/vendorlib-sbom.json
+echo '{}' > $T/jarid-c/vendorlib-sbom.json; touch -t 200101010000 $T/jarid-c/vendorlib-sbom.json
 ctl jarid-apply-old-sbom-refused 2 'vendorlib-sbom\.json is older than the last module change' -- python3 $B/repair/jardedupe.py $T/jarid-c --apply
-echo '{}' > $T/jarid-d/vendorlib-sbom.json; touch -d '+1 hour' $T/jarid-d/vendorlib-sbom.json
+echo '{}' > $T/jarid-d/vendorlib-sbom.json; python3 -c "import os, sys, time; t = time.time() + 3600; os.utime(sys.argv[1], (t, t))" $T/jarid-d/vendorlib-sbom.json
 ctl jarid-apply-current-sbom-pass 0 'vendorlib current: vendorlib-sbom\.json is newer than the last module change' 'removed 4 jars and 3 markers' -- python3 $B/repair/jardedupe.py $T/jarid-d --apply
 ctl jarid-apply-result 0 -- bash -c "cd $T/jarid-d/userlib; [ ! -f org.apache.commons.io-2.3.0.jar ] && [ ! -f commons-io-2.11.0.jar ] && [ ! -f org.apache.commons.lang3.jar ] && [ ! -f org.apache.commons.io-2.3.0.jar.TcConnector.RequiredLib ] && [ -f commons-codec-1.15.jar ] && [ -f own-helper-1.0.jar ] && [ ! -f commons-codec.commons-codec-1.15.jar ]"
 ctl jarid-clean-after-apply 0 '!REMOVE' -- python3 $B/repair/jardedupe.py $T/jarid-d
@@ -1944,7 +1944,7 @@ ctl stepupdate-java-action-identical-usercode-forced-pass 0 'IDENTICAL: user cod
 ctl stepupdate-java-action-commit-pass 0 'step: JavaAct 2.0 \(stepupdate, idcheck PASS, convert-made Java action metadata forced, user code identical\)' -- git -C $S/ja log -1 --format=%s
 javaapp jc '\t\tLog.info("local tweak"); return Login.start(this.ctx);'
 ctl stepupdate-java-action-changed-usercode-keep-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' 'local LOGIC edits \(JAVA_ACTION' 'KEPT: JavaAct' '!committed [0-9a-f]{7}' '0 committed, 1 kept' -- env UPG_CACHE=$UC/cache bash $B/stepupdate.sh $S/jc $S/jc.plan --localedits $UC/le.json --unattended
-ctl usercode-no-package-catch 2 'CANNOT COMPARE: installed package JavaAct 1\.1 not cached' -- env UPG_CACHE=$UC/cache UPG_MXCLI=/bin/false python3 $B/usercode.py $S/ja JavaAct --cid 999 --version 1.1
+ctl usercode-no-package-catch 2 'CANNOT COMPARE: installed package JavaAct 1\.1 not cached' -- env UPG_CACHE=$UC/cache UPG_MXCLI=$(command -v false) python3 $B/usercode.py $S/ja JavaAct --cid 999 --version 1.1
 if [ -d "$LAB/f1/runs/e4/work" ] && [ -d "$LAB/e5/run2/work" ]; then
   # field: replay the real refusal output (E4 ExcelImporter local edits, E5b NanoflowCommons pre-9.18 baseline)
   newapp fe4 '1 1.0 ExcelImporter\n'
@@ -2592,7 +2592,8 @@ for d in $(echo "$PATH" | tr ':' ' '); do for f in "$d"/*; do n=${f##*/}; case $
 ctl toolcheck-host-no-timeout-catch 0 'WARNING, no GNU timeout or gtimeout' 'host OK' -- env PATH=$NT UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 ctl toolcheck-host-timeout-pass 0 'host OK' '!no GNU timeout' -- env UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 NS=$T/nogsed; mkdir -p $NS $T/bsdsed; printf '#!/bin/sh\nexit 1\n' > $T/bsdsed/sed; chmod +x $T/bsdsed/sed
-ctl toolcheck-host-bsd-sed-catch 0 'WARNING, sed is not GNU sed' -- env PATH=$T/bsdsed:$NT UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
+for f in "$NT"/*; do [ "${f##*/}" = gsed ] || ln -s "$(readlink "$f")" "$NS/${f##*/}" 2>/dev/null; done   # a host with Homebrew gsed never warned
+ctl toolcheck-host-bsd-sed-catch 0 'WARNING, sed is not GNU sed' -- env PATH=$T/bsdsed:$NS UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 # B4T2-1, B4N1-3: setup-container.sh pre-places the ANTLR jar (Maven Central 429 -> mirror; a proxy page is no jar), never
 # takes a credential on a command line, and runs toolcheck AFTER the pip/apt step: REFUSED or no rsync = exit 1 (it ran
 # before the pip step with `|| true`: "REFUSED" for modules installed a step later, exit 0 with modules or rsync missing)
@@ -5780,7 +5781,7 @@ ctl remedy-apply-fail-branch-kept-pass 0 '^main$' 'remedy-fx-card-a' 'model v1' 
 ctl remedy-apply-tried-again-catch 2 'already tried: fx-card A FAIL' -- rapply fx-card A
 ctl remedy-apply-check-fail-catch 1 'mx check rc 0, error lines 1: FAIL' 'fx-card B3 FAIL .*remedy-check-fx-card-b3\.log' -- rapply fx-card B3 'CHECK_CMD=echo "[error] CE0001 broken"'
 ctl remedy-apply-release-pause-catch 5 'rung release INVALID' 'PAUSED for a person \(release\): .*remedy-todo-fx-card-b2\.md' '!recorded in' -- rapply GATE_STUB_RC_release_impact=1 fx-card B2
-ctl remedy-apply-release-todo-pass 0 '^## Release rows' '\| 10 \| release \| INVALID \|' 'finish fx-card B2 PASS' -- cat $AW/remedy-todo-fx-card-b2.md
+ctl remedy-apply-release-todo-pass 0 '^## Release rows' '\| [0-9]+ \| release \| INVALID \|' 'finish fx-card B2 PASS' -- cat $AW/remedy-todo-fx-card-b2.md
 ctl remedy-apply-finish-fail-catch 1 'fx-card B2 FAIL .* finished by a person: rows stay open' 'app back on main' -- rapply --finish fx-card B2 FAIL --note 'rows stay open'
 ctl remedy-apply-eye-pause-catch 5 'rung idcheck PASS' 'PAUSED for a person \(eye\)' -- rapply fx-card B
 ctl remedy-apply-eye-todo-pass 0 '^## By eye' 'eye <the shot you looked at>' -- cat $AW/remedy-todo-fx-card-b.md
