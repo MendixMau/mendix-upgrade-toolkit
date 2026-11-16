@@ -109,6 +109,9 @@ export UPG_LOCK=$T/test.lock UPG_LOCK_POLL=1   # controls never wait on the real
 # container exports JAVA_TOOL_OPTIONS: the container-wrapper controls then saw the run's own docker arguments. Controls set
 # their own environment; these never come from the caller.
 unset UPG_EXTRA UPG_ENV_FILE UPG_CA UPG_DRYRUN UPG_NAME
+# Controls prepend stubs with an unquoted `env PATH=$X:$PATH`; a PATH entry with a space (VS Code's "Application Support/
+# .../copilot-chat/debugCommand") split it, and 11 controls failed exit 127 on a healthy toolkit (2026-11-17)
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v ' ' | paste -sd: -); export PATH
 export UPG_COCKPIT_OPEN=0   # a control run never opens browser tabs (the live-cockpit controls turn it on with a stub opener)
 npass=0; nfail=0; nskip=0; failed=""; skipped=""
 
