@@ -101,7 +101,11 @@ fast=0; only=""
 while [ $# -gt 0 ]; do
   case "$1" in --fast) fast=1; shift;; --only) only=$2; shift 2;; *) echo "usage: run-controls.sh [--fast] [--only REGEX]"; exit 2;; esac
 done
-T=$(mktemp -d "${TMPDIR:-/tmp}/upg-controls.XXXXXX")
+# One spelling of the temp folder: TMPDIR ends in '/' on macOS ('/T//' in paths) and /var is /private/var; tools that
+# resolve their paths then never matched the expected ones (gate-config-relative-*, mxrun-*). Fixtures are stamped in UTC:
+# on a +08 machine the archive and timing controls read local time as UTC. Controls never write bytecode under controls/.
+T=$(cd "$(mktemp -d "${TMPDIR:-/tmp}"/upg-controls.XXXXXX)" && pwd -P)
+export TZ=UTC PYTHONDONTWRITEBYTECODE=1
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/out" "$T/m" "$T/field"
 export UPG_LOCK=$T/test.lock UPG_LOCK_POLL=1   # controls never wait on the real heavy lock (except the start control)
@@ -735,7 +739,7 @@ ctl scsscase-input-catch 2 -- python3 $B/repair/scsscase.py $T/empty-nothing
 # B4T1-3, B4T2-2, B4T4-1, B4T5-2, B4T7-2, B4T8-1: a fixture that .gitignore swallows (*.log) is never committed, so its
 # controls FAIL in every fresh clone. No file under controls/ may be ignored (needs git; SKIP outside a work tree).
 if git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
-  IGN='n=$(git -C "$1" ls-files -o -i --exclude-standard . | tee /dev/stderr | wc -l); echo "ignored under controls: $n"'
+  IGN='n=$(git -C "$1" ls-files -o -i --exclude-standard . | tee /dev/stderr | wc -l | tr -d " "); echo "ignored under controls: $n"'
   ctl controls-fixtures-not-ignored-pass 0 '^ignored under controls: 0$' -- bash -c "$IGN" _ "$here"
   # catch: a file git still ignores (.DS_Store) placed under fixtures is found (the probe is removed again)
   mkdir -p "$here/fixtures/zz-ignore-probe" && : > "$here/fixtures/zz-ignore-probe/.DS_Store"
@@ -1799,9 +1803,9 @@ hgapp() {  # hgapp NAME: App.mpr 4.0.0 + files, then the install commit (4.1.0, 
   hgit $HG/$1 add -A .; hgit $HG/$1 commit -qm "step: Administration 4.1.0 (stepupdate, content 23513)"
 }
 hgapp hclean; echo notes > $HG/hclean/README.md; hgit $HG/hclean add README.md; hgit $HG/hclean commit -qm "docs"
-sed -i 's/\r$//' $HG/hclean/themesource/administration/web/_variables.scss; hgit $HG/hclean commit -qam "line ends only"
+sedi 's/\r$//' $HG/hclean/themesource/administration/web/_variables.scss; hgit $HG/hclean commit -qam "line ends only"
 ctl themefiles-history-clean-pass 0 '^FILES-UNEDITED-BY-HISTORY Administration since [0-9a-f]{7} [0-9-]+ "step: Administration 4\.1\.0 \(stepupdate' '[0-9]+ files, provenance: toolkit step' '!FILES-EDITED' '!FILES-UNKNOWN' -- python3 $B/themefiles.py history $HG/hclean Administration --mpr App.mpr
-hgapp hedit; sed -i 's/f26522/00ff00/; s/^\$brand-primary: *[^;]*/$brand-primary: #00ff00/' $HG/hedit/themesource/administration/web/_variables.scss; echo '$brand-extra: #123;' >> $HG/hedit/themesource/administration/web/_variables.scss; hgit $HG/hedit commit -qam "brand colour"
+hgapp hedit; sedi 's/f26522/00ff00/; s/^\$brand-primary: *[^;]*/$brand-primary: #00ff00/' $HG/hedit/themesource/administration/web/_variables.scss; echo '$brand-extra: #123;' >> $HG/hedit/themesource/administration/web/_variables.scss; hgit $HG/hedit commit -qam "brand colour"
 ctl themefiles-history-edited-catch 1 '^FILES-EDITED themesource/administration/web/_variables\.scss \(by history, since [0-9a-f]{7}\)' '!FILES-UNEDITED' -- python3 $B/themefiles.py history $HG/hedit Administration --mpr App.mpr --json $HG/hedit.json
 ctl themefiles-history-edited-vars-pass 0 'brand-extra: #123;' -- cat $HG/hedit.json
 git clone -q --depth 1 file://$HG/hclean $HG/hshallow
@@ -3196,7 +3200,7 @@ ctl release-impact-auto-one-mpr-pass 0 'facts: 1[0-9] counted from .*facts-clean
 ctl release-impact-auto-one-mpr-flags-pass 0 'facts: 1[0-9] counted from' '!auto cannot use: runtime_os' '!auto cannot use: db_vendor' 'dotnet-ide-host' 'other-db-version: row is about postgresql 13' -- sh -c "$RIN --auto --from-mpr $M/facts-clean/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --out $RI/one2.md; cat $RI/one2.md"
 ctl release-impact-one-mpr-no-auto-catch 1 'go together' -- $RIN --from-mpr $M/facts-clean/App.mpr --out $RI/one3.md
 # T2F-4: an entry whose row the brain reworded is listed, kept across reruns, and returns with its row
-cp -r $RN $RI/brain-n19b; sed -i 's/Intel-based Macs are no longer supported/Intel Macs are dropped/' $RI/brain-n19b/baseline/versions/studio-pro-upgrade-11.md
+cp -r $RN $RI/brain-n19b; sedi 's/Intel-based Macs are no longer supported/Intel Macs are dropped/' $RI/brain-n19b/baseline/versions/studio-pro-upgrade-11.md
 [ -f $RI/n19.md ] && sed -E 's/^(\| 4 \|.*\|) +\|$/\1 handled: evidence\/mac.md (arm64 checked) |/' $RI/n19.md > $RI/n19h.md
 ctl release-impact-orphan-catch 0 'orphan entries: 1 handled entries matched no row' '^## Entries that matched no row \(1\)' '\| o1 \| Studio Pro \| 11\.6\.8 \| Studio Pro on macOS now runs natively on Apple Silicon \(arm64\)\. Intel-based Macs are no longer supported\. \| handled: evidence/mac\.md' -- sh -c "python3 $B/release_impact.py --brain $RI/brain-n19b --from 11.6.3 --to 11.12.3 --auto --facts $RF/facts-n19.json --out $RI/n19h.md; cat $RI/n19h.md"
 ctl release-impact-orphan-check-pass 1 '^auto: 10, human: 0, open: 2$' '!OPEN .*o1' -- python3 $B/release_impact.py --check $RI/n19h.md
@@ -5882,7 +5886,7 @@ ctl runlog-code-name-accepted-pass 0 'rc=0' '!customer name' 'rows=1' \
   -- sh -c "python3 -I $B/runlog.py --work $RL/w1 --log $RL/log6.md --app CODE-A --type 'template app' 2>&1 >/dev/null; echo rc=\$?; echo rows=\$(grep -c '^| 2' $RL/log6.md)"
 # backfill: a root with two run folders (one copy of the fixture, one more); dry run prints and writes nothing
 mkdir -p $RL/root/a/work $RL/root/b/work; cp -R $RLF/. $RL/root/a/work/; cp -R $RLF/. $RL/root/b/work/
-sed -i 's/ 20261013041248\./ 20261013999999./' $RL/root/b/work/gate-summary.md
+sedi 's/ 20261013041248\./ 20261013999999./' $RL/root/b/work/gate-summary.md
 ctl runlog-backfill-dry-run-catch 0 '^ADD +a/work' '^ADD +b/work' '2 run folders under .*: 2 to add' 'Dry run: nothing written' 'log=absent' \
   -- sh -c "python3 -I $B/runlog.py --backfill $RL/root --log $RL/log7.md --app CODE-A; [ -e $RL/log7.md ] && echo log=present || echo log=absent"
 ctl runlog-backfill-write-pass 0 '^ADDED +a/work' '2 added' 'rows=2' \
@@ -5902,7 +5906,7 @@ mkdir -p $RL/xroot/x1 $RL/xroot/x2; cp -R $RLF/. $RL/xroot/x1/; printf '# journa
 ctl runlog-explain-skipped-reason-catch 0 '^x1: WOULD-ADD' '^x2: SKIPPED no gate-summary\.md and no SCORECARD verdict' 'log=absent' \
   -- sh -c "python3 -I $B/runlog.py --explain $RL/xroot --log $RL/log12.md --app CODE-A; [ -e $RL/log12.md ] && echo log=present || echo log=absent"
 mkdir -p $RL/sroot/a $RL/sroot/b; cp -R $RLF/. $RL/sroot/a/; cp -R $RLF/. $RL/sroot/b/
-sed -i 's/ 20261013041248\./ 20261015999999./; s/2026-10-13T/2026-10-15T/' $RL/sroot/b/gate-summary.md
+sedi 's/ 20261013041248\./ 20261015999999./; s/2026-10-13T/2026-10-15T/' $RL/sroot/b/gate-summary.md
 ctl runlog-summary-latest-per-app-idempotent-pass 0 '^- \*\*CODE-A\*\* \(template app\): latest run 2026-10-15; highest version reached 11\.12\.5; .*; 2 runs$' 'same=yes' 'apps=1' \
   -- sh -c "L=$RL/log13.md; python3 -I $B/runlog.py --backfill $RL/sroot --log \$L --app CODE-A --type 'template app' --write >/dev/null; python3 -I $B/runlog.py --summary --log \$L >/dev/null; a=\$(md5sum < \$L); python3 -I $B/runlog.py --summary --log \$L >/dev/null; [ \"\$a\" = \"\$(md5sum < \$L)\" ] && echo same=yes; grep '^- \*\*' \$L; echo apps=\$(grep -c '^- \*\*' \$L)"
 # the pipeline hook: record_runlog and cleanup, extracted and run under the pipeline's own set -Eeu / ERR trap
@@ -5932,7 +5936,8 @@ set -Eeu
 trap 'exit 4' ERR
 WORK=$1; TIMES=$2; shift 2
 . "$FN"
-date() { local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
+# the cockpit's running marker asks `date +%s` (b4ddb02); it must not use up a tick of the listed clock
+date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
 mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { :; }
