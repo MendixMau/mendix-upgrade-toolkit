@@ -859,7 +859,14 @@ if (require.main !== module) return;
 
   const { browser, page } = await H.launchBrowser();
 
-  const li = await H.login(page);
+  let li;
+  if (process.env.UPG_ANONYMOUS) {   // anonymous role: no credentials; open the app root (anonymous home) and require a sign-in form
+    await page.context().clearCookies();
+    await page.goto(cfg.baseUrl + '/', { waitUntil: 'domcontentloaded' });   // the anonymous home, as a visitor sees it
+    const form = await page.locator('input[type=password]').first()
+      .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+    li = form ? { ok: true, user: 'anonymous', usedFallback: false } : { ok: false, reason: 'anonymous login page did not render' };
+  } else li = await H.login(page);
   // Identity, not presence. A silent degrade to admin bypasses the role grants the
   // journey exists to exercise, and every assertion below would be measuring an
   // access path no real user takes.

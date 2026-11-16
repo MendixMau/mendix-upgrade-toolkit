@@ -65,6 +65,7 @@ DO $$
 DECLARE
   r record; uid bigint; given text := {leaf}; leaf text; sid bigint; n int := 0; has_acc boolean; cur text; tbl text;
   sup text; chain text[]; t text; deeper text; have text; mine text; nmine int;
+  donor bigint; best int; k int; m int; moved int; a record; c record;
 BEGIN
   has_acc := to_regclass('"administration$account"') IS NOT NULL;
   FOR r IN SELECT id, name FROM "system$userrole" {role_filter} ORDER BY name LOOP
@@ -125,6 +126,34 @@ BEGIN
     INSERT INTO "system$userroles" ("system$userid", "system$userroleid") VALUES (uid, r.id);
     RAISE NOTICE 'smoke user % -> role % (%)', 'smoke_' || lower(r.name), r.name, leaf;
     IF {'true' if sole else 'false'} THEN   -- PR-F32: the smoke user is the role's only holder
+      -- the smoke user takes over the domain links of the holder with the most (FSM: a Mechanic sees only the
+      -- appointments of the Technician its Account links to; a bare smoke_mechanic saw an empty Scheduler)
+      donor := NULL; best := 0;
+      FOR c IN SELECT u.id FROM "system$user" u JOIN "system$userroles" ur ON ur."system$userid" = u.id
+                WHERE ur."system$userroleid" = r.id AND u.name NOT LIKE 'smoke\\_%' AND u.id <> uid LOOP
+        k := 0;
+        FOR a IN SELECT x.table_name, CASE WHEN pe.table_name = ANY(chain) THEN x.parent_column_name ELSE x.child_column_name END AS col
+                   FROM "mendixsystem$association" x JOIN "mendixsystem$entity" pe ON pe.id = x.parent_entity_id
+                   JOIN "mendixsystem$entity" ce ON ce.id = x.child_entity_id
+                  WHERE (pe.table_name = ANY(chain) OR ce.table_name = ANY(chain)) AND x.table_name NOT LIKE 'system$%' LOOP
+          EXECUTE format('SELECT count(*) FROM %I WHERE %I = $1', a.table_name, a.col) INTO m USING c.id; k := k + m;
+        END LOOP;
+        IF k > best THEN best := k; donor := c.id; END IF;
+      END LOOP;
+      IF donor IS NOT NULL THEN
+        moved := 0;
+        FOR a IN SELECT x.table_name, CASE WHEN pe.table_name = ANY(chain) THEN x.parent_column_name ELSE x.child_column_name END AS col
+                   FROM "mendixsystem$association" x JOIN "mendixsystem$entity" pe ON pe.id = x.parent_entity_id
+                   JOIN "mendixsystem$entity" ce ON ce.id = x.child_entity_id
+                  WHERE (pe.table_name = ANY(chain) OR ce.table_name = ANY(chain)) AND x.table_name NOT LIKE 'system$%' LOOP
+          BEGIN
+            EXECUTE format('UPDATE %I SET %I = $1 WHERE %I = $2', a.table_name, a.col, a.col) USING uid, donor;
+            GET DIAGNOSTICS m = ROW_COUNT; moved := moved + m;
+          EXCEPTION WHEN unique_violation THEN NULL;   -- a one-to-one the smoke user already holds: keep its own
+          END;
+        END LOOP;
+        RAISE NOTICE 'sole target: smoke_% took % domain link(s) of user id %', lower(r.name), moved, donor;
+      END IF;
       DELETE FROM "system$userroles" ur USING "system$user" u
        WHERE ur."system$userroleid" = r.id AND u.id = ur."system$userid" AND u.name NOT LIKE 'smoke\\_%';
       GET DIAGNOSTICS nmine = ROW_COUNT;
