@@ -2174,6 +2174,15 @@ if [ -f ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js ]; then
   else skip journeys-engine-login-page-home-catch "no playwright with a browser"; skip journeys-landing-guard-catch "no playwright with a browser"; skip journeys-landing-guard-pass "no playwright with a browser"; fi
 else skip journeys-engine-patch-pass "no shared journey engine"; skip journeys-engine-syntax-pass "no shared journey engine"; skip journeys-engine-ready-any-match-pass "no shared journey engine"; skip journeys-engine-patch-drift-catch "no shared journey engine"
   skip journeys-engine-login-page-home-patch-pass "no shared journey engine"; skip journeys-engine-login-page-home-catch "no shared journey engine"; fi
+# E2E-R1: the rendered verb (bin/widgetrender.js) on fixtures/widgetrender in a real browser: a collapsed or display:none part fails,
+# the drawn one passes, an error logged before the step is not this step's. Needs no journey engine, only playwright with a browser.
+RPW=${PLAYWRIGHT_NODE_PATH:-$HOME/mendix-playwright/node_modules}
+NODE_PATH=$RPW node -e "require('playwright')" 2> /dev/null || RPW=$(npm root -g 2> /dev/null)
+# a test launch, not executablePath(): a headless-shell install has no full Chrome at that path and still launches
+if NODE_PATH=$RPW node -e "require('playwright').chromium.launch({args:['--use-mock-keychain','--password-store=basic']}).then(b=>b.close()).then(()=>process.exit(0),()=>process.exit(1))" 2> /dev/null; then
+  ctl journeys-rendered-catch 0 '^ok +broken: 0 px subgrid' '^ok +broken: part display:none' '^ok +broken, no data flag' '^ok +error logged during the step' '!^FAIL' -- env NODE_PATH=$RPW node $here/widgetrender_control.js
+  ctl journeys-rendered-pass 0 '^ok +fixed: rows and events drawn: PASS' '^ok +fixed, no data flag: PASS' '^ok +error logged before the step: PASS' '!^FAIL' -- env NODE_PATH=$RPW node $here/widgetrender_control.js
+else skip journeys-rendered-catch "no playwright with a browser"; skip journeys-rendered-pass "no playwright with a browser"; fi
 # FN-3..FN-7, FN-11 (field finish pass): generator fixes on fake models (controls/generator_fn_control.py)
 GFN="python3 $here/generator_fn_control.py"
 ctl gen-fn-in-list-pass 0 '^ok +fields keep a list input, marked' '^ok +in_list fill is optional' '^ok +in_list fill has no own-row check' '^ok +fields leave a plain input unmarked' '!^FAIL' -- $GFN

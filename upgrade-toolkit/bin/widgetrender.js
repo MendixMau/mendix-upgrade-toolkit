@@ -13,13 +13,13 @@
 //   size     its box is wider and taller than 0
 //   drawn    it has a drawn descendant (box above 2 x 2 px, not hidden) with text, an image, a canvas or an svg
 //   no error no "Could not render widget" / .alert-danger text inside it
-//   no client error from a widget script: a pageerror or console error since the last check whose text or stack names
+//   no client error from a widget script: a pageerror or console error logged during this step whose text or stack names
 //            /widgets/ (resource 404s and errors from other scripts are listed as notes, not FAILs; "strict": true
 //            FAILs on every client error)
 // Per widget, playbooks/widget-render.tsv rows whose root class (one of a comma list) the widget has: "h>0" (every match drawn with a height)
 // and "min=N" (at least N drawn matches); rows marked data apply only with "data": true (the step's DB check showed
 // the records exist: an empty scheduler on an empty table is not a defect). Inline "expect": [{"sel", "min"|"h"}] too.
-// It polls up to timeoutMs (default 15000) until every rule holds on a still widget (nothing loading, two looks one
+// It polls up to timeoutMs (default 15000; env WIDGETRENDER_TIMEOUT_MS or "timeoutMs") until every rule holds on a still widget (nothing loading, two looks one
 // second apart alike), so a widget still fetching gets its time; the verdict is the last state seen.
 //
 //   journey step: {"do": "rendered", "widget": "bizzomateUltimateScheduler1", "data": true}
@@ -43,10 +43,10 @@ function rules(file = PLAYBOOK) {
   return rows.map(l => Object.fromEntries(l.split('\t').map((v, i) => [head[i], v])));
 }
 
-// Record client errors from the moment the page exists; check() reads the ones since its previous call.
+// Record client errors from the moment the page exists; check() reads the ones logged since it started.
 function watch(page) {
   if (LOGS.has(page)) return;
-  const log = { errs: [], seen: 0 }; LOGS.set(page, log);
+  const log = { errs: [] }; LOGS.set(page, log);
   page.on('pageerror', e => log.errs.push('pageerror: ' + String(e.stack || e.message).slice(0, 600)));
   page.on('console', m => {
     if (m.type() !== 'error') return;
@@ -74,7 +74,7 @@ function measure(page, name, parts) {
     const got = parts.map(p => {
       const m = [...el.querySelectorAll(p.sel)];
       return { ...p, n: m.length, drawn: m.filter(shown).length,
-               flat: m.filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height < 1; }).length };
+               flat: m.filter(e => !shown(e) || e.getBoundingClientRect().height < 1).length };
     });
     return { found: true, cls: el.className, box: [r.x, r.y, r.width, r.height].map(Math.round), kids: kids.length, drawn,
              errText, busy: !!el.querySelector('[class*="is-fetching"], [class*="is-loading"], .mx-progress'), parts: got };
@@ -87,7 +87,7 @@ function verdict(m, name) {
   if (!m.drawn) return `nothing drawn: ${m.kids} shown descendants, none with text, an image, a canvas or an svg`;
   if (m.errText.length) return 'error text in the widget: ' + m.errText[0];
   for (const p of m.parts) {
-    if (p.h && (!p.n || p.flat)) return `${p.sel}: ${p.flat} of ${p.n} drawn 0 px tall (${p.why})`;
+    if (p.h && (!p.n || p.flat)) return `${p.sel}: ${p.flat} of ${p.n} not drawn or 0 px tall (${p.why})`;
     if (p.min && p.drawn < p.min) return `${p.sel}: ${p.drawn} drawn, at least ${p.min} expected (${p.why})`;
   }
   return null;
@@ -96,8 +96,9 @@ function verdict(m, name) {
 // a: {widget, data, strict, expect, timeoutMs, rules}. Returns {ok, reason, m, errors, notes}; never throws on a FAIL.
 async function check(page, a) {
   watch(page);
+  const log = LOGS.get(page), from = log.errs.length;   // only errors logged from this step on count (an earlier page's error is not this step's)
   const all = a.rules || rules();
-  const ms = a.timeoutMs || 15000, until = Date.now() + ms;
+  const ms = a.timeoutMs || Number(process.env.WIDGETRENDER_TIMEOUT_MS) || 15000, until = Date.now() + ms;
   let m, bad, parts = [], last = '';
   for (;;) {
     // the root's classes pick the playbook rows; read each round, the widget may mount after the page opened
@@ -114,7 +115,7 @@ async function check(page, a) {
     last = sig;
     await page.waitForTimeout(bad ? 500 : 1000);
   }
-  const log = LOGS.get(page); const errs = log.errs.slice(log.seen); log.seen = log.errs.length;
+  const errs = log.errs.slice(from);
   const mine = errs.filter(e => !IGNORE.some(re => re.test(e)) && (a.strict || /\/widgets\//.test(e)));
   const notes = errs.filter(e => !mine.includes(e));
   if (mine.length) bad = (bad ? bad + '; ' : '') + 'client error from a widget script: ' + mine[0].split('\n')[0].slice(0, 200);
@@ -166,7 +167,7 @@ if (require.main === module) (async () => {
     out.push(r);
     const m = r.m || {};
     console.log(`${r.verdict.padEnd(7)} ${role} .mx-name-${o.widget}${r.reason ? ': ' + r.reason : ''}`);
-    if (m.found) console.log(`        box ${m.box.join(',')}, ${m.drawn} drawn of ${m.kids} shown descendants; ` + m.parts.map(p => `${p.sel} ${p.drawn}/${p.n} drawn${p.flat ? ', ' + p.flat + ' at 0 px' : ''}`).join('; '));
+    if (m.found) console.log(`        box ${m.box.join(',')}, ${m.drawn} drawn of ${m.kids} shown descendants; ` + m.parts.map(p => `${p.sel} ${p.drawn}/${p.n} drawn${p.flat ? ', ' + p.flat + ' not drawn or 0 px' : ''}`).join('; '));
     for (const e of r.errors || []) console.log('        error: ' + e.split('\n')[0].slice(0, 160));
     for (const e of r.notes || []) console.log('        note:  ' + e.split('\n')[0].slice(0, 160));
   }
