@@ -498,6 +498,20 @@ def build_model(work):
              "title": j.get("question", j.get("id")), "step": j.get("step", ""), "meta": f"Open since step {j.get('step', '?')}, effort {opts[0].get('effort', '') if opts else ''}".replace(", effort ", ""),
              "problem": short(j.get("what", ""), 260) + (" " + short(j.get("why_matters", ""), 160) if j.get("why_matters") else ""),
              "rec": rec, "rec_text": j.get("recommended_why", ""), "options": opts})
+    # a judgment stop: each NEEDS-JUDGMENT.md section is a row, unless decisions-open.json already holds that step's items
+    # (cold test WM1: basewalk stopped with exit 11 and three sections, the page said "0 your tasks" and the run sat overnight)
+    stopinfo = None
+    if stopped:
+        rerun = (re.search(r"then rerun:\n\n {4}(.+)", nj) or [None, ""])[1]
+        secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
+        stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun}
+    if stopped and not any(j.get("step") == stopped[0] for j in djo):
+        for k, (title, code, body) in enumerate(secs, 1):
+            add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
+                 "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
+                 "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),
+                 "rec": "rerun", "rec_text": "Decide in writing as the text says, then rerun from this step.",
+                 "options": [{"key": "rerun", "label": "Decided, rerun", "causes": rerun or "Rerun the pipeline from this step."}]})
     conf = {}   # change id -> {"label","tech","commit"}; from AGENT-DECISIONS rows marked confirm and gate-notes lines that ask for a look
     for bid, d in AD.items():
         if d["confirm"]:
@@ -731,6 +745,8 @@ def build_model(work):
     nn = len(open_visible)
     if nb:
         state = ("bad", f"Not ready yet. Testing found {pl(nb, 'real problem')}, {pl(nn, 'thing')} {'needs' if nn == 1 else 'need'} you.")
+    elif stopped:
+        state = ("bad", f"Stopped at {stopped[0]}. {pl(nn, 'thing')} {'needs' if nn == 1 else 'need'} you before the run goes on.")
     elif nn:
         state = ("warn", f"Waiting for you. {pl(nn, 'thing')} {'needs' if nn == 1 else 'need'} you.")
     elif gate["overall"] == "PASS":
@@ -748,7 +764,8 @@ def build_model(work):
     if stopped:
         sub += f" · stopped at {stopped[0]}"
     return {"title": f"{app_name(work)} upgrade", "sub": sub, "state": {"dot": state[0], "text": state[1]}, "planHash": P["hash"],
-            "signed": list(signed) if signed else None, "phases": phases, "items": items, "running": run}
+            "signed": list(signed) if signed else None, "phases": phases, "items": items, "running": run,
+            "stopped": stopinfo}
 
 
 # --live: poll the server's status (the "Running now" bar, in place) and stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes

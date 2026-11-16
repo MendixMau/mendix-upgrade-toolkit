@@ -115,7 +115,8 @@ the instrument cannot fail: stop. The run exits 0 when every ui-landing row is P
 counted as INFO UNPROVEN: they stay INVALID in the gate, but they are not control failures (E7-12).
 
 create-spec.json, once per app: `{"role", "nav": {"group", "item"}, "newButton", "fields": [{"widget", "value", "attr"}],
-"saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. Without it create-and-save stays a todo,
+"saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. A reference selector is a field
+`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). Without it create-and-save stays a todo,
 which is INVALID, never covered. `textPresent` is the saved value as the grid shows it, `textAbsent` the validation
 messages: a ready selector alone was satisfied by the grid BEHIND a popup whose save was refused (E4-14, E5b-12), and
 gen_journeys warns when the spec has no textPresent. Put `${RUN_ID}` in the field value and in textPresent: it is

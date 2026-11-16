@@ -458,7 +458,10 @@ def create_journey(spec, data_rung=False):
     acts = [{"do": "nav", "group": spec["nav"].get("group"), "item": spec["nav"]["item"]}]
     acts += [{"do": "click", "widget": c["widget"], "label": c.get("label") or c["widget"]} for c in spec.get("path", [])]
     acts += [{"do": "click", "widget": spec["newButton"], "label": "New"}]
-    acts += [{"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
+    # a field with "do": "select" picks from a reference selector ({"match": caption} or {"first": true}); the rest fill
+    # (cold test WM1: an Office needs its Time zone, a reference selector, before Save is accepted)
+    acts += [{"do": "select", "widget": f["widget"], **({"match": f["match"]} if f.get("match") else {"first": True})}
+             if f.get("do") == "select" else {"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
     acts += [{"do": "click", "widget": spec["saveButton"], "label": "Save"}]
     ui = {"ready": spec.get("ready") or ".mx-page"}
     for k in ("textPresent", "textAbsent"):
@@ -470,7 +473,7 @@ def create_journey(spec, data_rung=False):
         # E2E-9: +1 says some row arrived; the own-row check says it is THIS run's row with the typed value
         own = [{"label": f"the run's own row: {f['attr']} = {f['value']}", "expect": 1,
                 "sql": f"SELECT COUNT(*) AS n FROM {spec['entity']} WHERE {f['attr']} = '{f['value']}'"}
-               for f in spec.get("fields", []) if f.get("attr")]
+               for f in spec.get("fields", []) if f.get("attr") and f.get("do") != "select"]
         if own:
             step["data"]["oql"] = own
     j = journey("create-save", f"Core create-and-save: {spec['entity']}", spec["role"],
