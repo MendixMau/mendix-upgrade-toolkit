@@ -36,6 +36,11 @@
 //                                                              side bar and top bar items of a layout.
 //   {"do": "menu", "widget": "pop_upMenu5"}                     PR-F35: open a Pop-up menu so its items render; no-op
 //                                                              when open, error when it never opens.
+//   {"do": "rendered", "widget": "scheduler1", "data": true}   E2E-R1: the widget is drawn, not only in the DOM
+//                                                              (widgetrender.js: size, drawn content, no error text, no
+//                                                              client error from a widget script, the playbook's parts;
+//                                                              "data": true after a DB check that the records exist).
+//                                                              FAIL = error with the first broken rule.
 //   {"do": "confirm", "optional": true}                       D97: no error when no dialog is open (the app raises it only sometimes)
 //   {"do": "confirm"} or {"do": "confirm", "label": "Proceed"}
 //                                                              the topmost open dialog: its primary button, or the
@@ -56,6 +61,7 @@
 // snippet earlier in the DOM; the guard checked only that one and every park walk of leg 3 FAILed "never appeared").
 
 const SETTLE = require('./settle.js');
+const R = require('./widgetrender.js');
 
 const DIALOG = '.modal-dialog, .mx-dialog, .mx-window';
 
@@ -695,4 +701,14 @@ function dateAs(ph, v) {
   return { value: out, note: `date typed as "${ph}" (the picker's placeholder): ${out}` };
 }
 
-module.exports = { openDialog, dateAs, field, fields, upload, SEED_FILE, DIALOG, ROWS, ANY_ROW, topmost, ack, cover, pageWidget, toggle, select, combo, row, tab, item, menuitem, menu, confirm, reached };
+// E2E-R1: a pluggable widget drawn, or an error naming the first broken rule; returns the measurement line
+async function rendered(page, a) {
+  const r = await R.check(page, a);
+  const m = r.m || {};
+  const said = m.found ? `${m.box[2]} x ${m.box[3]} px, ` + (m.parts.map(p => `${p.sel} ${p.drawn}/${p.n}`).join(', ') || `${m.drawn} drawn`) : r.reason;
+  if (!r.ok) throw new Error(`.mx-name-${a.widget} not drawn: ${r.reason}`);
+  for (const e of r.notes) console.log('    rendered: note ' + e.split('\n')[0].slice(0, 160));
+  return said;
+}
+
+module.exports = { openDialog, dateAs, field, fields, upload, SEED_FILE, DIALOG, ROWS, ANY_ROW, topmost, ack, cover, pageWidget, toggle, select, combo, row, tab, item, menuitem, menu, confirm, reached, rendered, watch: R.watch };

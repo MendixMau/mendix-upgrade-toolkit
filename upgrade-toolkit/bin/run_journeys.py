@@ -252,6 +252,22 @@ PATCHES = [
      "      const got = await V.upload(page, a, String(subst(a.file ?? '', vars)));\n"
      "      note('ui', `upload: ${got} into ${a.widget}`, 'PASS', got); break;\n    }\n"
      "    case 'dismissModal': await H.dismissModal(page); break;"),
+    # E2E-R1: a pluggable widget is drawn, not only in the DOM (FSM 11.12: the scheduler page opened, every check
+    # PASSed and the scheduler was a header over a 0 px rows area); client errors are recorded from the first page on
+    ("act: rendered, a pluggable widget drawn (E2E-R1)",
+     "    case 'dismissModal': await H.dismissModal(page); break;",
+     "    case 'rendered': {\n"
+     "      const got = await V.rendered(page, a);\n"
+     "      note('ui', `rendered: ${a.widget} is drawn`, 'PASS', got); break;\n    }\n"
+     "    case 'dismissModal': await H.dismissModal(page); break;"),
+    ("describe: rendered reads as a sentence (E2E-R1)",
+     "    case 'wait':     return { verb: 'Wait'",
+     "    case 'rendered': return { verb: 'Check', target: `${a.label || a.widget} is drawn${a.data ? ' with its records' : ''}`, selector: `.mx-name-${a.widget}` };\n"
+     "    case 'wait':     return { verb: 'Wait'"),
+    ("browser: record client errors from the first page, for the rendered verb (E2E-R1)",
+     "  await seedStorage(context);\n  const page = await context.newPage();",
+     "  await seedStorage(context);\n  const page = await context.newPage();\n  require(__dirname + '/widgetrender.js').watch(page);",
+     "helpers.js"),
     ("describe: upload reads as a sentence (PR-F44)",
      "    case 'wait':     return { verb: 'Wait'",
      "    case 'upload': return { verb: 'Upload', target: `${v(a.file || V.SEED_FILE)} into ${a.label || a.widget}`, selector: `.mx-name-${a.widget}` };\n"
@@ -354,8 +370,9 @@ def copy_engine(eng):
     eng.mkdir(parents=True, exist_ok=True)
     for f in ENGINE:
         shutil.copy2(TOOLKIT_E2E / f, eng / f)
-    for f in ("settle.js", "journey-verbs.js", "pgdata.js", "pgmap.py"):
+    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "pgdata.js", "pgmap.py"):
         shutil.copy2(HERE / f, eng / f)
+    shutil.copy2(HERE.parent / "playbooks" / "widget-render.tsv", eng / "widget-render.tsv")
     texts = {}
     report = []
     for name, old, new, *where in PATCHES:

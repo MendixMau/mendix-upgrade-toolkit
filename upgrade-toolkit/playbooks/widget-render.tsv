@@ -1,0 +1,11 @@
+# What a drawn widget has, beyond the generic rules of bin/widgetrender.js (size, drawn content, no error text, no client
+# error from the widget's own script). Read by widgetrender.js; one row per (widget, part).
+# root: a class on the widget's root element (the element with the mx-name-* class); a comma list when versions differ
+# (Ultimate Scheduler 1.4.0 bizzomate-scheduler, 3.8.0 ciphix-scheduler: both draw a Bryntum grid). selector: inside that root.
+# rule: "h>0" = every match is drawn with a height above 0 (a part that collapsed to nothing); "min=N" = at least N drawn
+# matches. when: always, or data = only when the check is told the records exist ("data": true, after a DB check).
+# A row is added from a real broken render, with the build it was seen on.
+root	selector	rule	when	reason	source
+bizzomate-scheduler,ciphix-scheduler	.b-grid-subgrid	h>0	always	the resource rows area: 0 px tall with Ultimate Scheduler 1.4.0 on the 11.12 React client (header and toolbar drawn, no rows)	FSM 11.12.7 before the 3.8.0 swap: TypeError setTimeSpan, React #520
+bizzomate-scheduler,ciphix-scheduler	.b-grid-row	min=1	data	one row per resource (technician)	same build: 0 rows, the fixed build 4
+bizzomate-scheduler,ciphix-scheduler	.b-sch-event	min=1	data	the planned appointments	same build: 0 events, the fixed build 4
