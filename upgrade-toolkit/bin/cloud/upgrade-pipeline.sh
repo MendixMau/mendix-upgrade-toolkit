@@ -983,6 +983,9 @@ assoc_unreplayed() {
 route_kept() {
   if [ "$DRY" = 1 ]; then x python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt"; return 0; fi
   [ -s "$APP/.stepupdate/kept.txt" ] || return 0
+  # a rerun of the step starts fresh: the earlier run's rows would read as "kept again for the same reason" and hold all
+  local old="$WORK/.editroute-prev-$(date +%Y%m%d%H%M%S)" f
+  for f in edit-routes.json replay; do [ ! -e "$WORK/$f" ] || { mkdir -p "$old"; mv "$WORK/$f" "$old/"; }; done
   local rc=0 le=()
   [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
   xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
