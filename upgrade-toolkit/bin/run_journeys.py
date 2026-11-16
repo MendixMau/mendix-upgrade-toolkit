@@ -449,6 +449,8 @@ def runner_env(a, role, cred, role_dir, pgenv, pglog):
     env = dict(os.environ, READY_SELECTORS=ready, LOGIN_PATH=a.login_path, APP_PORT=str(a.port), M2EE_ADMIN_PORT=str(a.admin_port), M2EE_ADMIN_PASS=a.admin_pass,
                TEST_USER=cred["user"], TEST_PASS=cred["pass"], FALLBACK_USER="", NODE_PATH=NODE_PATH,
                MXCLI=os.environ.get("MXCLI", str(Path("~/.local/bin/mxcli").expanduser())))
+    if cred.get("anonymous"):
+        env["UPG_ANONYMOUS"] = "1"
     for k in ("UPG_PSQL", "UPG_PGMAP", "UPG_PGDATA_DOWN"):
         env.pop(k, None)
     env.update(pgenv, UPG_PGDATA_LOG=str(pglog))
@@ -982,7 +984,51 @@ def check_unreachable(j, entry, refs, acts_file, acts):
 DEFECT_MAX = 0.30   # E2E-11: more than 30% of the generated set failing on the OLD app = the instrument is not measuring
 
 
-def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip_reasons=None, oos=None):
+APP_DOWN = 75   # AD-1: the app stopped answering during the run; says nothing about the upgrade (pipeline restarts it, --resume)
+DOWN_WHY = "app went down during the run: not a test result (restart the app on the same database, run again with --resume)"
+
+
+def app_alive(port, timeout=10):
+    """AD-1: does the app answer HTTP at all (any status)? A runtime that dies mid-run (FSM 10.24 baseline: 297 journeys
+    "runner did not run", counted as baseline defects) must be told apart from a journey that failed."""
+    import urllib.error, urllib.request
+    try:
+        urllib.request.urlopen(f"http://localhost:{port}/", timeout=timeout)
+        return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:
+        return False
+
+
+def impacted_actions(path, acts):
+    """AD-2: the action ids triage points at (impact.json): the host page, the target or a page on the way is a changed
+    document, or the host or target module is an updated module. Not the whole call tree ("reach"): on FSM 11.12 one
+    re-routed flow line in a shared microflow marked 351 of 725 actions impacted. The deep end of the test:
+    an upgrade breaks what it changed, so the coverage line says how much of THAT is walked and passes."""
+    if not path or acts is None or not Path(path).exists():
+        return None
+    imp = json.load(open(path))
+    docs, mods = set(), set()
+    for c in imp.get("changes", []):
+        if c.get("kind") == "module":
+            mods.add(c.get("qn") or c.get("module"))
+            continue
+        if c.get("qn"):
+            docs.add(c["qn"])
+        for k in ("added", "changed", "tree_changed", "callers"):
+            if isinstance(c.get(k), list):
+                docs.update(q for q in c[k] if isinstance(q, str))
+    hit = set()
+    for i, x in acts.items():
+        names = [x.get("host"), x.get("target"), *(x.get("via_pages") or [])]
+        names = [n for n in names if isinstance(n, str) and n]
+        if any(n in docs for n in names) or any(n.split(".")[0] in mods for n in names[:2]):
+            hit.add(i)
+    return hit
+
+
+def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip_reasons=None, oos=None, impacted=None):
     """The coverage line and the honesty rules of rung 8 (E2E-11, plan section 3). Returns a dict: line, the counts,
     defects {journey: (class or None, detail)}, invalid [reasons] (only with compare: they make the rung INVALID)."""
     links = (cur_set or {}).get("links")
@@ -1006,10 +1052,13 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         units = {j: [j] for j in links}   # no denominator: count journeys, stated as such
     base = before if compare else js
     ok = lambda side, jids: all(side.get(j, {}).get("verdict") == "PASS" for j in jids)
+    down = lambda side, jids: not ok(side, jids) and any(side.get(j, {}).get("app_down") for j in jids)
     G = len(units)
     B = sum(1 for u in units.values() if ok(base, u))
-    D = G - B
+    X = sum(1 for u in units.values() if down(base, u))   # AD-1: not run, the app was down: no defect, no pass
+    D = G - B - X
     N = sum(1 for u in units.values() if ok(js, u)) if compare else None
+    XN = sum(1 for u in units.values() if down(js, u)) if compare else 0
     R = sum(1 for u in units.values() if any(js.get(j, {}).get("compare") == "REGRESSION" for j in u)) if compare else None
     nr = lambda x: "-" if x is None else x
     if acts is not None:
@@ -1027,8 +1076,13 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         tt = f"{T} todo" + (": " + ", ".join(f"{k} {n}" for k, n in sorted(todo.items(), key=lambda x: (-x[1], x[0]))) if todo else "")
         Am = A - len(apart & set(acts)) - len(set(oos) - apart)   # PR-P4: the destructive actions are counted on their own line
         cov = f"{B}/{Am}" + (f" ({100 * B // Am}%)" if Am else "")
-        line = (f"actions {A} found · {G} generated ({tt}) · {B} pass on baseline ({D} defect) · {nr(N)} pass on new · "
-                f"{nr(R)} regression · coverage {cov}")
+        line = (f"actions {A} found · {G} generated ({tt}) · {B} pass on baseline ({D} defect"
+                + (f", {X} not run: app went down" if X else "") + f") · {nr(N)} pass on new"
+                + (f" ({XN} not run: app went down)" if XN else "") + f" · {nr(R)} regression · coverage {cov}")
+        if impacted is not None:   # AD-2: the triage-pointed actions, the deep end of the test
+            iu = [u for i, u in units.items() if i in impacted]
+            line += (f" · impacted {len(impacted)} ({len(iu)} walked, {sum(1 for u in iu if ok(base, u))} pass on baseline"
+                     + (f", {sum(1 for u in iu if ok(js, u))} on new" if compare else "") + ")")
         if apart:
             line += f" · {len(apart)} destructive run apart (own line)"
         if oos:   # journey_scope.py: INFO with a reason, never INVALID, not counted in the coverage denominator
@@ -1042,10 +1096,13 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         why = f"no denominator: {waive}" if waive else "no actions.json: coverage unknown"
         line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect) · {nr(N)} pass on new · "
                 f"{nr(R)} regression · coverage ? ({why})")
-    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "defects": {}, "invalid": invalid,
+    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "defects": {}, "invalid": invalid,
            "out_of_scope": len(oos) if acts is not None and oos else 0}
     if not compare:
         return out
+    if X or XN:   # AD-1: a run the app did not finish is never a verdict
+        invalid.append(f"not finished: the app went down ({X} actions not run on the baseline, {XN} on new); "
+                       "restart it on the same database and run again with --resume")
     if acts is None and not waive:
         invalid.append("coverage unknown: no --actions (actions.json, bin/action_inventory.py) and no --no-actions REASON")
     if not (base_set or {}).get("sha256"):
@@ -1066,8 +1123,8 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     # same way: a destructive journey that did not PASS on the old app needs the same checked evidence, else it kept the
     # tag "BASELINE DEFECT (before FAIL)" with no evidence and sat in FAIL although the old app failed it too.
     for j in sorted(set(links) | {d for d in dest if d in base}):
-        if base.get(j, {}).get("verdict") == "PASS":
-            continue
+        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down"):
+            continue   # AD-1: not run is not a defect; it is listed as not run
         hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
         if hit is None:
             out["defects"][j] = (None, "no evidence")
@@ -1330,6 +1387,11 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--positive-control", action="store_true")
     ap.add_argument("--only", help="comma list of journey ids")
+    ap.add_argument("--resume", action="store_true",
+                    help="AD-1: run again only the journeys the last run of this label could not run because the app went "
+                         "down (summary.json app_down), and merge them into that summary.json (exit 75 = still some left)")
+    ap.add_argument("--impact", help="impact.json (triage): the coverage line counts the impacted actions apart "
+                                     "(default: impact.json next to the journeys folder)")
     ap.add_argument("--compare", help="the same journey set on the old app: work folder, label folder or summary.json (gate)")
     ap.add_argument("--shot-accept", help="shotdiff accept file: screen changes that are expected, each with a reason")
     ap.add_argument("--psql", default=os.environ.get("UPG_PSQL") or None,
@@ -1411,10 +1473,24 @@ def main():
         out = work / a.label
         out.mkdir(parents=True, exist_ok=True)
         only = set(a.only.split(",")) if a.only else None
+        prev = None
+        if a.resume:   # AD-1: the same run, continued on the restarted app; what did run keeps its verdict
+            if not (out / "summary.json").exists():
+                ap.error(f"--resume: no {out / 'summary.json'} to continue")
+            prev = json.load(open(out / "summary.json"))
+            left = {j for j, s in prev["journeys"].items() if s.get("app_down")}
+            only = (only & left) if only else left
+            print(f"resume: {len(only)} journeys the app could not run last time", file=sys.stderr)
 
         backend, pgenv = data_backend(a.psql, eng)
         summary = {"label": a.label, "port": a.port, "login_path": a.login_path, "engine_patches": patches,
                    "data_backend": backend, "journey_set": journey_set(a.gen_dir), "roles": {}, "journeys": {}}
+        if prev:
+            for s in prev["journeys"].values():
+                s.pop("compare", None); s.pop("screen", None); s.pop("effect", None)
+            summary.update(roles=prev.get("roles", {}), journeys=prev["journeys"], resumed=prev.get("resumed", 0) + 1)
+            if prev.get("park"):
+                summary["park"] = prev["park"]
         print(f"data: {backend}", file=sys.stderr)
         jdir = Path(a.gen_dir) / "journeys"
         harness = login_preflight(a.port, a.login_path)
@@ -1425,7 +1501,8 @@ def main():
         # one value for the whole run, not one per role: the legs of one process (E2E-16) type and check the same value
         parked = None
         dirty = None   # PR-P4: the destructive journey that last ran on this database, "<id> (<scope>)"
-        for key, role, role_dir, files in data_waves(jdir, a.gen_dir, only):
+        sfx = f".resume{summary['resumed']}" if prev else ""
+        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only)):
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
@@ -1441,7 +1518,16 @@ def main():
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": harness}
                 continue
+            if not app_alive(a.port):   # AD-1: nothing to run against; never a verdict about these journeys
+                summary["roles"][key] = {"login": "INVALID", "why": DOWN_WHY, "app_down": True}
+                for f in files:
+                    summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": DOWN_WHY, "app_down": True}
+                print(f"app down: {key} not run ({len(files)} journeys)", file=sys.stderr)
+                continue
             cred = users.get(role)
+            anon_p = Path(a.gen_dir) / "plan.json"
+            if not cred and role == (json.load(open(anon_p)).get("anonymous_role") if anon_p.exists() else None):
+                cred = {"user": "", "pass": "", "anonymous": True}   # anonymous role: no sign-in, the runner opens the login path
             if not cred:
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "no test user for role"}
@@ -1471,23 +1557,29 @@ def main():
                 if art.exists():
                     shutil.rmtree(art)
                 p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
-                (out / f"{key}.log" if not tries else out / f"{key}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
+                (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
                 tries += 1
                 wait = session_wait(a)
                 print(f"session cap: {role} refused by the runtime's session limit; waiting {wait}s for sessions to expire, retry {tries} of {a.session_retries}", file=sys.stderr)
                 time.sleep(wait)
+            if not fj.exists() and not app_alive(a.port):   # AD-1: the app died under this batch
+                summary["roles"][key] = {"exit": p.returncode, "login": "INVALID", "why": DOWN_WHY, "app_down": True}
+                for f in files:
+                    summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": DOWN_WHY, "app_down": True}
+                print(f"app down: {key} stopped under the runner ({len(files)} journeys)", file=sys.stderr)
+                continue
             if not fj.exists():
                 summary["roles"][key] = {"exit": p.returncode, "login": "INVALID", "why": "runner wrote no findings; see log"}
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "runner did not run"}
                 continue
-            shutil.copy2(fj, out / f"{key}-{name}")
+            shutil.copy2(fj, out / f"{key}{sfx}-{name}")
             shots = out / f"shots-{key}"
-            if shots.exists():
+            if shots.exists() and not prev:   # a resume adds to the shots of the journeys that did run
                 shutil.rmtree(shots)
-            shutil.copytree(art, shots, ignore=shutil.ignore_patterns("*.json"))
+            shutil.copytree(art, shots, ignore=shutil.ignore_patterns("*.json"), dirs_exist_ok=True)
             F = json.load(open(fj))
             login = next((r for r in F["results"] if r["rung"] == "ui" and r["name"] == "login"), None)
             # PR-P4: a login that FAILs after a destructive journey ran on this same database is not a finding about this
@@ -1535,6 +1627,14 @@ def main():
                 cond = shown_if_at(read_journey(f), w["steps"]) if v != "PASS" else None
                 if cond:
                     summary["journeys"][jid]["shown_if"] = cond
+            if not app_alive(a.port):   # AD-1: the app died during this batch: what did not PASS here is not a result
+                n = 0
+                for f in files:
+                    s = summary["journeys"].get(read_journey(f)["id"])
+                    if s and s["verdict"] != "PASS":
+                        s.update(verdict="INVALID", why=DOWN_WHY, app_down=True, before_down=s.get("not_pass", [])[:2]); n += 1
+                summary["roles"][key]["app_down"] = True
+                print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
         # a hand-written journey may close plan items: "closes": ["menu:Wizard", ...] (E7-3)
         for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
             d = read_journey(f)
@@ -1630,8 +1730,9 @@ def main():
             oos_map = {e["action"]: e.get("class", "?") for e in json.load(open(plan_p)).get("out_of_scope", []) if e.get("action")}
         if plan_p.exists():   # PRF-2: the generator's reason for an action it did not walk, named in the coverage line
             skr = {e["action"]: (e.get("reasons") or [""])[0] for e in json.load(open(plan_p)).get("skipped", []) if e.get("action")}
+        ip = a.impact or str(Path(a.gen_dir).parent / "impact.json")
         cov = coverage(summary["journeys"], before_all.get("journeys", {}), cur_set, before_all.get("journey_set"),
-                       acts, a.no_actions, evidence, bool(a.compare), skr, oos_map)
+                       acts, a.no_actions, evidence, bool(a.compare), skr, oos_map, impacted_actions(ip, acts))
         for j, (cls, detail) in cov["defects"].items():
             s = summary["journeys"].get(j)
             if not s or s["verdict"] not in ("PASS", "FAIL"):
@@ -1651,7 +1752,13 @@ def main():
     pcov = None
     if not a.positive_control and plan_p.exists():   # E2E-16: the process line, next to the action coverage line
         before_j = json.load(open(cmp_summary)).get("journeys", {}) if a.compare else None
-        pcov = process_coverage(summary["journeys"], json.load(open(plan_p)), before_j)
+        plan_j = json.load(open(plan_p))
+        hp = Path(a.work).parent / "hand-processes.json" if a.work else None   # WORK/hand-processes.json
+        if hp and hp.exists():   # hand-written processes: {"id": ["journey id", ...]}, counted as confirmed + compiled
+            pr = plan_j.setdefault("processes", {"confirmed": 0, "compiled": 0, "legs": {}})
+            for pid, ls in json.load(open(hp)).items():
+                pr["legs"][pid] = ls; pr["confirmed"] += 1; pr["compiled"] += 1
+        pcov = process_coverage(summary["journeys"], plan_j, before_j)
         if pcov:
             summary["processes"] = pcov
     anon = None
@@ -1660,6 +1767,8 @@ def main():
     dsum = destructive_summary(summary["journeys"]) if not a.positive_control else None
     if dsum:
         summary["destructive"] = dsum
+    downs = sorted(j for j, s in summary["journeys"].items() if s.get("app_down"))
+    summary["app_down"] = len(downs)
     if not a.rejudge:
         (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"== {a.label} (:{a.port})" + (f" compared with {a.compare}" if a.compare else ""))
@@ -1771,6 +1880,10 @@ def main():
         ex = process_bar(summary, pcov, ex, nc, anon)
     elif ex == INVALID_ONLY:
         print(invalid_only_line(summary, json.load(open(cmp_summary)).get("journeys", {}) if a.compare else {}))
+    if downs:   # AD-1: unfinished beats every verdict: the pipeline restarts the app and runs --resume
+        print(f"app down: {len(downs)} journeys not run (summary.json app_down); restart the app on the same database "
+              f"and run again with --resume (exit {APP_DOWN})")
+        ex = APP_DOWN
     sys.exit(ex)
 
 

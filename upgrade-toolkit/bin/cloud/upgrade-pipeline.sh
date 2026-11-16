@@ -711,6 +711,8 @@ step_basewalk() {
     ev+=(--actions "$WORK/actions.json")
   fi
   must python3 "$B/gen_journeys.py" "$WORK/impact-base.json" --out-dir "$WORK/journeys-base" --roles-with-users "$roles" --data-rung "${create[@]}"
+  # hand-written journeys (WORK/hand-journeys/<Role>/*.journey.json, e.g. the anonymous visitor) join the generated set
+  [ ! -d "$WORK/hand-journeys" ] || cp -R "$WORK/hand-journeys/." "$WORK/journeys-base/journeys/"
   db=$(fresh_name "${X}_smoke_jbase")
   copy_db "$X_FROZEN" "$db"
   app_up oldj "$old" "$SOURCE" "$db" || die4 "old app did not start for the journeys (log: $LOG)"
@@ -1109,6 +1111,22 @@ step_afterwalk() {
 # rung was INVALID "no --psql / UPG_PSQL", though the pipeline made that database itself).
 # --data-rung: the journeys always get --psql (F7), so the own-row check (a create's ${RUN_ID} row exists) is asked
 heal_on() { [ "${UPG_HEAL:-1}" != 0 ]; }
+# AD-1: run_journeys.py exit 75 = the app went down under the run (FSM 10.24 baseline: the runtime died after 53 min, 297
+# journeys "did not run" and counted as baseline defects). Restart the app on the SAME database, as if it had not stopped,
+# and run only the journeys left (--resume merges them into the same summary.json); at most UPG_RESUME_TRIES (2) times.
+journeys_resume() { # journeys_resume NAME MDA FULLVER DB OUTFILE RC -- run_journeys command...  -> the last exit code
+  local name=$1 mda=$2 ver=$3 db=$4 outf=$5 rc=$6 k=0; shift 7
+  while [ "$rc" = 75 ] && [ "$k" -lt "${UPG_RESUME_TRIES:-2}" ]; do
+    k=$((k + 1))
+    note "the $name app went down during the journeys: restart on the same database, run the rest again ($k of ${UPG_RESUME_TRIES:-2})"
+    app_down "$name"
+    app_up "$name" "$mda" "$ver" "$db" || { note "the $name app did not start again: the journeys stay unfinished (INVALID)"; break; }
+    [ "$k" != 1 ] || cp "$outf" "${outf%.out}.run0.out"
+    rc=0; xo "${outf%.out}.resume$k.out" "$@" --resume || rc=$?
+    cp "${outf%.out}.resume$k.out" "$outf"   # the last run judges the merged summary: the main file is the whole report
+  done
+  return "$rc"
+}
 # journeys: impact-picked set on the old app (before-picked) and the new app (after, --compare). Scripts: gen_journeys.py, run_journeys.py
 step_journeys() {
   local roles rc=0 db create=() old
@@ -1134,6 +1152,7 @@ step_journeys() {
   local si=()   # UPG_STANDIN=1: the whole journeys run on the stand-in APIs (apimock.py), on the old and the new app alike, with the journeys it makes possible
   if [ -n "${UPG_STANDIN:-}" ] && [ "$DRY" != 1 ]; then si=(--standin); heal_standin_start; fi
   must python3 "$B/gen_journeys.py" "$WORK/impact.json" ${act[@]+"${act[@]}"} --out-dir "$WORK/journeys" --roles-with-users "$roles" --users "$WORK/users.json" --data-rung "${create[@]}" ${si[@]+"${si[@]}"} ${SC[@]+"${SC[@]}"}
+  [ ! -d "$WORK/hand-journeys" ] || cp -R "$WORK/hand-journeys/." "$WORK/journeys/journeys/"   # hand-written journeys join the impact set too
   # PR-F25: confirmed user processes (process_journeys.py) were never compiled by the pipeline, so a hand-confirmed
   # "submit a purchase request" never ran. Exit 3 is either a process INVALID (stops below) or no confirmed process
   if [ -f "$WORK/processes.md" ] && [ "${#act[@]}" -gt 0 ]; then
@@ -1152,8 +1171,10 @@ step_journeys() {
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
-  rc=0; xo "$WORK/journeys-before-picked.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --port "$APP_PORT" --psql "$(psql_str "$db")" \
-    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"} || rc=$?
+  local jb=(python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --port "$APP_PORT" --psql "$(psql_str "$db")"
+    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"})
+  rc=0; xo "$WORK/journeys-before-picked.out" "${jb[@]}" || rc=$?
+  local r0=$rc; rc=0; journeys_resume oldjp "$old" "$SOURCE" "$db" "$WORK/journeys-before-picked.out" "$r0" -- "${jb[@]}" || rc=$?
   app_down oldjp
   mark_used "$db" journeys
   [ "$rc" = 0 ] || note "before-picked journeys on the old app exit $rc (baseline defects are listed apart): $WORK/journeys-before-picked.out"
@@ -1165,9 +1186,11 @@ step_journeys() {
   local sa=() ev=()
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
   [ ! -f "$WORK/baseline-evidence.txt" ] || ev=(--baseline-evidence "$WORK/baseline-evidence.txt")   # BT-4: same file the gate reads
-  rc=0; xo "$WORK/journeys-after.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label after --port "$APP_PORT" --psql "$(psql_str "$db")" \
-    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-after" --pause 50 ${act[@]+"${act[@]}"} \
-    --compare "$WORK/e2e-before-picked" "${sa[@]}" ${ev[@]+"${ev[@]}"} || rc=$?
+  local ja=(python3 "$B/run_journeys.py" "$WORK/journeys" --label after --port "$APP_PORT" --psql "$(psql_str "$db")"
+    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-after" --pause 50 ${act[@]+"${act[@]}"}
+    --compare "$WORK/e2e-before-picked" ${sa[@]+"${sa[@]}"} ${ev[@]+"${ev[@]}"})
+  rc=0; xo "$WORK/journeys-after.out" "${ja[@]}" || rc=$?
+  local r0=$rc; rc=0; journeys_resume newjp "$(mda_new)" "$TARGET" "$db" "$WORK/journeys-after.out" "$r0" -- "${ja[@]}" || rc=$?
   app_down newjp
   mark_used "$db" journeys
   [ "${#si[@]}" = 0 ] || heal_standin_stop
@@ -1235,6 +1258,7 @@ heal_gen() { # the journeys again, with --standin: an action whose only todo is 
   [ ! -s "$WORK/actions.json" ] || { act=(--actions "$WORK/actions.json"); scope_run; }
   [ ! -f "$WORK/create-spec.json" ] || create=(--create "$WORK/create-spec.json")
   must python3 "$B/gen_journeys.py" "$WORK/impact.json" ${act[@]+"${act[@]}"} --out-dir "$WORK/journeys" --roles-with-users "$roles" --users "$WORK/users.json" --data-rung ${create[@]+"${create[@]}"} --standin ${SC[@]+"${SC[@]}"}
+  [ ! -d "$WORK/hand-journeys" ] || cp -R "$WORK/hand-journeys/." "$WORK/journeys/journeys/"   # hand-written journeys join the impact set too
   if [ -f "$WORK/processes.md" ] && [ "${#act[@]}" -gt 0 ]; then
     xo "$WORK/processes.out" python3 "$B/process_journeys.py" "$WORK/processes.md" --actions "$WORK/actions.json" --out-dir "$WORK/journeys" --users "$WORK/users.json" || rc=$?
   fi
@@ -1445,6 +1469,7 @@ step_diff() {
     [ ! -s "$WORK/actions.json" ] || kv+=("ACTIONS=$WORK/actions.json")
     [ ! -f "$WORK/shot-accept.txt" ] || kv+=("JOURNEY_SHOT_ACCEPT=$WORK/shot-accept.txt")
     [ ! -f "$WORK/baseline-evidence.txt" ] || kv+=("JOURNEY_EVIDENCE=$WORK/baseline-evidence.txt")
+    [ ! -f "$WORK/effect-accept.txt" ] || kv+=("JOURNEY_EFFECT_ACCEPT=$WORK/effect-accept.txt")   # the journeys rung's effect REVIEWs had no written-accept path
     only="$only,journeys"
   fi
   # PRC-4: the change ledger (gate.sh `Changes:` line) reads the app's git repo; the app is not always under $WORK/app

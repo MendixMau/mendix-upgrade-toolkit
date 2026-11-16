@@ -202,7 +202,7 @@ def all_nodes(x, typ, out=None):
 
 
 SCOPES = ("identity", "delete-all", "reimport", "row")   # PR-P4, most severe first; the first three are "destructive"
-RESET_NAME = re.compile(r"demodata|reset|import", re.I)
+RESET_NAME = re.compile(r"demodata|reset|import|dataremoval|removedata|removealldata|cleardata", re.I)  # FSM AppSettings ACT_DataRemoval_RemoveData wiped the shared demo DB mid-run (2026-11-10)
 
 
 ROW_PROPS = {"columns", "content"}  # PR-F35: the Data grid 2 / Gallery properties rendered once per row
@@ -286,6 +286,7 @@ class Inventory:
         self.on = {}            # page qn -> hosts it renders (closures(); reach)
         self._expanded = {}     # reach: qn -> (docs, unknown), one hop, memoised
         self.not_actions = collections.Counter()
+        self._makes = {}        # hop_makes memo
         self.excluded = 0
 
     # ------------------------------------------------------------------ model facts
@@ -303,6 +304,8 @@ class Inventory:
                         rec["persistable"] = False   # PR-P5: no table: a query on it is rejected
                     if short == "Enumeration":
                         rec["enum"] = t.get("Enumeration", "")
+                    if short == "Boolean" and isinstance(a.get("Value"), dict):
+                        rec["default"] = str(a["Value"].get("DefaultValue")).lower()   # a dynamic class reads it (collapsed_by)
                     if short == "String" and isinstance(t.get("Length"), int) and t["Length"] > 0:
                         rec["length"] = t["Length"]   # E2E-10: a generated value must fit
                     out[f"{d.module}.{e.get('Name')}.{a.get('Name')}"] = rec
@@ -620,6 +623,19 @@ class Inventory:
                 continue
             self._walk(v, host, owner, cont, conditional, pts)
 
+    def collapsed_by(self, x):
+        """The attribute that, at its default, puts a BEM `--collapsed|--hidden|--closed` dynamic class on widget x
+        (`if $currentObject/A = false then '..--collapsed'` with A defaulting to false), else None."""
+        ap = x.get("Appearance") if isinstance(x.get("Appearance"), dict) else {}
+        dc = ap.get("DynamicClasses")
+        mt = re.search(r"if\s+\$\w+/(\w+)\s*=\s*(true|false)\s+then\s+'[^']*--(?:collapsed|hidden|closed)'", dc) \
+            if isinstance(dc, str) else None
+        if not mt:
+            return None
+        defaults = {rec.get("default") for k, rec in getattr(self, "attr", {}).items()
+                    if k.rsplit(".", 1)[-1] == mt.group(1) and rec.get("default")}
+        return f"{mt.group(1)} = {mt.group(2)} at its default" if defaults == {mt.group(2)} else None
+
     def fields(self, dv):
         """Inputs inside data view dv, not inside a nested list or data view. E2E-10 (what gen_journeys needs to fill
         one): password (a password box), render (a reference selector's DropDown or Form), date_format, and hidden (the
@@ -648,6 +664,15 @@ class Inventory:
                 return
             if not hidden and x.get("ConditionalVisibilitySettings"):
                 hidden = f"conditionally visible ({x.get('Name') or t.split('$')[-1]})"
+            # FSM Scheduler.PageContext_View: the filter bar (Ticket ID, Asset ID, ...) is a container whose dynamic class
+            # `if $currentObject/_ShowSidebarFilter = false then 'fsm-scheduler__filterbar--collapsed'` slides it away until
+            # the Filters button is pressed (the attribute defaults to false): the inputs are in the DOM but not visible, and
+            # 4 status-tab journeys filled them and died on "input not visible". The sidebar next to it has the same class
+            # shape with a default of true: shown, so its fields stay.
+            if not hidden:
+                cb = Inventory.collapsed_by(self, x)   # unbound: fields() is also called on a stand-in (controls)
+                if cb:
+                    hidden = f"collapsed by a dynamic class ({x.get('Name') or t.split('$')[-1]}: {cb})"
             if t == "Forms$TabControl":
                 for i, tp in enumerate(lst(x.get("TabPages"))):
                     walk(tp, False, hidden or (f"on tab page {tp.get('Name') or i + 1}, not shown first" if i else None), in_list)
@@ -727,6 +752,15 @@ class Inventory:
     def _flow_of(self, p):
         a = p["node"]
         return first(a.get("MicroflowSettings"), "Microflow") or a.get("Nanoflow") or first(a, "Nanoflow") or ""
+
+    def hop_makes(self, p):
+        """Does clicking p create the object its page shows (a create-object action, or a flow that creates)? Cached."""
+        memo, k = self.__dict__.setdefault("_makes", {}), id(p)   # setdefault: a partly built Inventory (controls) has none
+        if k not in memo:
+            act = p.get("action")
+            f = Inventory._flow_of(self, p) if act in ("microflow", "nanoflow") else ""
+            memo[k] = act == "create" or bool(f and f in self.m.docs and "create" in set(self.flow(f)["effects"]))
+        return memo[k]
 
     def supplies(self, p, page):
         """Does clicking p give page its parameters? A flow, a create or a task open supplies its own object; an
@@ -841,8 +875,14 @@ class Inventory:
             # that a condition hides (Purchase Request pipe-30: 62 of 91 baseline FAILs clicked a conditionally
             # visible hop; the audit trail path went through "Open parent workflow", shown only for a sub-workflow
             # in an app that has none)
-            for p, pg in [(p, pg) for want in (False, True) for pg in frontier for h in on.get(pg, [pg])
-                          for p in self.points.get(h, []) + getattr(self, "menu_hops", {}).get(h, []) if bool(p.get("conditional")) == want]:
+            # FSM Form_Overview: "New" (ACT_FormVersion_Create) and "Open" (ACT_FormVersion_Edit) both open
+            # FormVersion_NewEdit and "New" came first, so 17 buttons on the questions list (listView1 rows, Add option,
+            # Delete) were walked on an EMPTY new form and died "never appeared". Within a layer a hop that opens an
+            # existing object comes before one that creates a new one: its page has the object's data, and a create
+            # hop is still taken when it is the only way in.
+            for p, pg in [(p, pg) for want in (False, True) for mk in (False, True) for pg in frontier for h in on.get(pg, [pg])
+                          for p in self.points.get(h, []) + getattr(self, "menu_hops", {}).get(h, [])
+                          if bool(p.get("conditional")) == want and Inventory.hop_makes(self, p) == mk]:   # unbound: stand-ins (controls)
                 for tgt in self.targets(p):
                     if tgt in parent or tgt not in on:
                         continue

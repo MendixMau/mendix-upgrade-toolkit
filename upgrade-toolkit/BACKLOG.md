@@ -23,6 +23,7 @@ An item is done only when its "done when" check holds on a real app, not when th
 
 | # | Item | Done when | Size | Source |
 |---|---|---|---|---|
+| AD-3 | A show-page button is clicked only by roles with access to its target page (the runtime does not render it for the others): action_inventory.py role check `rs &= page_roles(target)` | FSM Dashboard "View all" (SLA notifications) is no-role for CallCenterEmployee and ServiceRegionManager; the Starter Kit card controls (hw14, gen-actions-*, process-*, journeys-anonymous-*) are rewritten for "as User" (the fixture's Administrator lacks StarterKit.User) | M | FSM 11.12 rung 2, taken out of feat/test-resilience because ~40 controls encode the old rule |
 | 9 | Replay restores access rules of re-created associations; total idcheck compares member sets | a dropped member is RED in a control and on the Purchase Request replay | M | PR-F18 |
 | 10 | New module roles reported unmapped, with a proposed mapping (judgment item) | Atlas_Core 4.5.0 on Purchase Request is flagged before the build | S | PR-F19, NR2-16 |
 | 11 | Atlas 3→4 compat check: classes on own widgets, live CSS old vs new, proposed compat stylesheet | reproduces D17's finding on Purchase Request without the visual diff | M | PR-F20, theme_clash.py |

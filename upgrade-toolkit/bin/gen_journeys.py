@@ -965,8 +965,16 @@ class ActionGen:
         if self.model is None or "menu_item" in h:
             return [], []
         import impact_map as I
+        # FSM Dashboard.DashboardExternal: the hop is {click: actionButton15, row: grid2}. The grid sits on tab 'Open'; a SNIPPET
+        # of the same page has its own grid2 (tab shown first), and widget names are unique per document only, so the tab walk
+        # for the row answered "no tab" and 43 journeys died on a hidden button. The click's own name may be the unique one:
+        # ask for both and keep the answer with more tab pages (a wrong match is always the shallower one).
         w = h["row"] if h.get("row") else h["click"]
         tabs, why = I.tab_path(self.model, page, w, host=h.get("on"))
+        if h.get("row") and h.get("click") and not h.get("row_only"):
+            t2, why2 = I.tab_path(self.model, page, h["click"], host=h.get("on"))
+            if len(t2) > len(tabs):
+                w, tabs, why = h["click"], t2, why2
         notes = [dict(t, widget=w) for t in tabs]
         if why and (tabs or "not found" not in why):
             notes.append({"widget": w, "why": why})

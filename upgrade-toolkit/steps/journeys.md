@@ -385,6 +385,39 @@ Every run of run_journeys.py prints, under `journeys:`, and stores in summary.js
 - Proof: controls `journeys-coverage-*` (each rule a catch and a pass), `journeys-headline-*`, `journeys-unreachable-*`,
   `gate-journey-actions-*`, `gate-journey-coverage-*`.
 
+## Test layers: wide, deep, keys (AD-1, AD-2)
+
+Triage decides what is tested (impact map, journey scope above); the test run proves it. Three layers, all automatic:
+
+| Layer | What | Where it comes from |
+|---|---|---|
+| Wide | every reachable button once, old app vs new app, plus the smoke walk and the data diff | actions.json + journey scope (triage 8b) |
+| Deep | the actions triage points at: host page, target or a page on the way changed, or an updated module | impact.json |
+| Keys | the confirmed processes per role, end to end | processes.md (E2E-16) |
+
+A full manual regression is not the alternative: the wide layer costs machine time, not people, and the old app is the
+expected result, so nobody writes expected values. What a person reads is the deep layer and the keys.
+
+**Impacted (AD-2).** The coverage line ends with ` · impacted I (W walked, B pass on baseline, N on new)`: I actions
+triage points at, W of them with a journey, and how many PASS. Default `impact.json` next to the journeys folder;
+`--impact FILE` names another. The call tree is not used: on FSM 11.12 one re-routed flow line in a shared microflow
+marked 351 of 725 actions impacted; host, target and pages on the way marked 83. An impacted action that is not walked
+is the first work item (a click path, a hand-written journey), before the rest of the wide layer.
+
+**App went down (AD-1).** FSM 10.24 baseline: the old runtime died 53 minutes into the run. 297 journeys were marked
+"runner did not run" and counted as baseline defects, so coverage read 19% when the old app really failed 68. Now
+run_journeys.py asks the app for HTTP before each role batch and after it. A batch the app died under is not a result:
+its journeys that did not PASS become INVALID with `app_down` ("app went down during the run: not a test result"), the
+coverage line says `(D defect, X not run: app went down)` and the rung is INVALID (`not finished`), never a defect and
+never PASS. The run exits **75**. The pipeline (journeys step, old and new app) then restarts the app on the **same
+database**, as if it had not stopped, and runs `--resume`: only the `app_down` journeys, merged into the same
+summary.json (logs and findings get a `.resume<k>` suffix, shots are added). At most `UPG_RESUME_TRIES` (2) times;
+`journeys-<label>.out` is the last, whole report, the first run is kept as `.run0.out`. By hand:
+
+```
+python3 $B/run_journeys.py $W/journeys --label before-picked ... --resume
+```
+
 ## Fixture preflight (E2E-12): why a seed returns nothing, before the run
 
 ```

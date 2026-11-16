@@ -23,3 +23,11 @@ INSERT INTO "system$user" (id, name, submetaobjectname) VALUES (10, 'MxAdmin', '
 INSERT INTO "mendixsso$mendixssouser" VALUES (11), (13), (14), (15);
 INSERT INTO "partner$partneruser" VALUES (12);
 INSERT INTO "system$userroles" VALUES (10, 1), (11, 1), (12, 1), (13, 2), (14, 2), (10, 4), (15, 4);
+-- PR-F32: one domain association on the user (a task links to the approver who owns it); demo_approver_2 holds the most
+-- links, so smoke_approver takes those over when it becomes Approver's sole holder
+CREATE TABLE "mendixsystem$association" (id varchar(36) PRIMARY KEY, association_name varchar(511), table_name varchar(255),
+  parent_entity_id varchar(36), child_entity_id varchar(36), parent_column_name varchar(255), child_column_name varchar(255));
+INSERT INTO "mendixsystem$entity" VALUES ('t', 'App.Task', 'app$task', NULL, false);
+INSERT INTO "mendixsystem$association" VALUES ('x', 'App.Task_Approver', 'app$task_approver', 't', 's', 'app$taskid', 'mendixsso$mendixssouserid');
+CREATE TABLE "app$task_approver" ("app$taskid" bigint, "mendixsso$mendixssouserid" bigint);
+INSERT INTO "app$task_approver" VALUES (100, 13), (101, 14), (102, 14);

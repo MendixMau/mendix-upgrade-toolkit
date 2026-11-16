@@ -58,6 +58,8 @@
 # FN (field finish pass): gen-fn-* / action-inventory-branch-entry-* / impact-map-dropdown-container-* / impact-map-js-snippet-*
 #              (controls/generator_fn_control.py on fake models), journeys-verbs-fn-*, journeys-engine-fill-optional-pass,
 #              journeys-coverage-closed-row-*.
+# AD-1/AD-2 (FSM 11.12): journeys-appdown-* (app went down: not run, exit 75), journeys-resume-*, pipeline-resume-wired-*,
+#              journeys-impacted-* (the triage-pointed actions on the coverage line).
 # B6: replace-* (bin/replacement_check.py over playbooks/replacements.tsv, fixtures/models/replace-*.json) and
 #              field-replace-customer-pass.
 # B6-2: brain-mine-* (bin/brain_mine.py over fixtures/brain-mine).
@@ -978,7 +980,7 @@ else
     'smoke_ops -> role Ops \(MendixSSO\.MendixSSOUser\)' \
     -- python3 $B/smoke_users.py fx_ctl_f28 --apply
   ctl smoke-users-shared-roles-catch 0 'Approver=demo_approver,' '!sole target' -- sh -c "cat $T/out/smoke-users-per-role-pass.txt; $(declare -f holders); holders"
-  ctl smoke-users-sole-target-pass 0 'sole target: role Approver taken from 2 other' 'sole target: role Admin taken from 3 other' \
+  ctl smoke-users-sole-target-pass 0 'sole target: role Approver taken from 2 other' 'smoke_approver took 2 domain link\(s\) of user id 14' 'sole target: role Admin taken from 3 other' \
     'holders Admin=smoke_admin,Approver=smoke_approver,Ops=smoke_ops,Viewer=smoke_viewer$' \
     -- sh -c "python3 $B/smoke_users.py fx_ctl_f28 --sole-target --apply && $(declare -f holders); holders"
   docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28 > /dev/null
@@ -2351,6 +2353,34 @@ CVD=(--compare $CV/d3 --actions $CV/actions.json)
 ctl journeys-coverage-defect-no-evidence-catch 3 'FAIL +j3-Administrator .*\[BASELINE DEFECT \(before FAIL\): no evidence\]' '3 pass on baseline \(1 defect\)' \
   'coverage INVALID: 1 baseline defects without evidence' '0 with evidence, 1 without \(INVALID\)' -- $RJC --work $CV/d3n "${CVD[@]}"
 python3 $B/fixture_check.py $CV/gen --psql "$SHOP" --out $CV/fc.json > /dev/null 2>&1
+# AD-1: a journey the app could not run (it went down under the runner) is no defect and no pass: listed apart, the run
+# is unfinished (exit 75, coverage INVALID) until the pipeline restarts the app and runs --resume
+cvdown() { python3 -c "import json,sys; f=sys.argv[1] + '/summary.json'; d=json.load(open(f))
+for j in sys.argv[2].split(','): d['journeys'][j + '-Administrator'].update(verdict='INVALID', why='app went down', app_down=True)
+json.dump(d, open(f, 'w'))" "$1" "$2"; }
+cvs $CV/dn/before $CV/gen ''; cvdown $CV/dn/before j3
+# the new run itself is whole (no exit 75: nothing to resume here); the unfinished baseline makes the rung INVALID
+ctl journeys-appdown-baseline-catch 3 '3 pass on baseline \(0 defect, 1 not run: app went down\)' \
+  'coverage INVALID: not finished: the app went down \(1 actions not run on the baseline, 0 on new\)' '!^app down:' \
+  '!BASELINE DEFECT' -- $RJC --work $CV/ok --compare $CV/dn --actions $CV/actions.json
+cvs $CV/dnn/after $CV/gen ''; cvdown $CV/dnn/after j4
+ctl journeys-appdown-new-catch 75 ' · 3 pass on new \(1 not run: app went down\) · 0 regression' '!REGRESSION\]' -- $RJC --work $CV/dnn "${CVA[@]}"
+ctl journeys-appdown-none-pass 0 '!not run: app went down' '!^app down' -- $RJC --work $CV/ok "${CVA[@]}"
+echo '{}' > $CV/users.json
+ctl journeys-resume-no-summary-catch 2 'no .*summary.json to continue' -- python3 $B/run_journeys.py $CV/gen --label nothing-yet --resume \
+  --work $CV/rs --port 1 --admin-port 1 --admin-pass x --users $CV/users.json
+ctl pipeline-resume-wired-pass 0 'journeys_resume oldjp' 'journeys_resume newjp' -- grep 'journeys_resume [on]' $B/cloud/upgrade-pipeline.sh
+# AD-2: the impacted actions (impact.json: host, target or a page on the way changed, or an updated module) on their own
+mkdir -p $CV/imp; python3 -c "import json; a=json.load(open('$CV/actions.json'))['actions']
+for x in a: x['host'] = x['id'].rsplit('.', 1)[0]
+json.dump({'actions': a}, open('$CV/imp/actions.json', 'w'))
+json.dump({'changes': [{'kind': 'document', 'qn': 'Shop.P3'}, {'kind': 'document', 'qn': 'Shop.P7', 'severity': 'low'}]}, open('$CV/imp/doc.json', 'w'))
+json.dump({'changes': [{'kind': 'module', 'qn': 'Shop'}]}, open('$CV/imp/mod.json', 'w'))"
+ctl journeys-impacted-document-pass 0 ' · coverage 4/6 \(66%\) · impacted 2 \(1 walked, 1 pass on baseline, 1 on new\)$' \
+  -- $RJC --work $CV/ok --compare $CV/base --actions $CV/imp/actions.json --impact $CV/imp/doc.json
+ctl journeys-impacted-module-pass 0 ' · impacted 6 \(4 walked, 4 pass on baseline, 4 on new\)$' \
+  -- $RJC --work $CV/ok --compare $CV/base --actions $CV/imp/actions.json --impact $CV/imp/mod.json
+ctl journeys-impacted-none-pass 0 '!impacted' -- $RJC --work $CV/ok "${CVA[@]}"
 echo 'j3-Administrator FIXTURE fc.json # control: no Veg category in the fixture' > $CV/ev-fixture.txt
 ctl journeys-coverage-defect-fixture-pass 0 '\[BASELINE DEFECT FIXTURE \(FIXTURE: seed cat returned nothing \(fc.json\)\)\]' \
   '^defects: 1 failing on the baseline: 1 with evidence \(FIXTURE 1\) = 1 PASS\*, 0 without' '!coverage INVALID' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-fixture.txt

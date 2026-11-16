@@ -119,6 +119,9 @@ Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
    per line) names own-looking modules that are really vendor code (item 3, NS-4). Read the `--md` list once: an
    "unreachable" page that a customer says they open is a finding about the model (a page opened only by a widget
    setting the scan cannot see), not about the toolkit: add it to the click paths by hand.
+   The impact map of this step is also the deep layer of the test: the journeys run prints how many of the impacted
+   actions are walked and pass (`impacted I (W walked, ...)`, journeys.md "Test layers"). An impacted action with no
+   click path is the first testability item, ahead of the rest.
 9. mxcli writes a `.claude/` folder into the app; stepupdate.sh puts it in .gitignore (E5b-17). Check
    `git -C app status` is clean before step 2.
 10. Release impact (required, V31-RI): the brain holds the official Studio Pro and Marketplace release notes; read
