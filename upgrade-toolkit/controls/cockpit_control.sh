@@ -121,7 +121,7 @@ PY
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
          rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
-  decide) # Decide now (cold test WM1): every open question is a card with one button per option, the sign-off last; the local
+  decide) # Blocked on you (cold test WM1): every open question is a sidebar row and a dialog with one button per option, the sign-off last; the local
          # server's POST /decide writes the same ledger as the page import, refuses bad answers and form posts, and a card
          # disappears once answered
          ck > /dev/null
@@ -131,13 +131,14 @@ PY
          python3 "$B/cockpitserve.py" --dir "$d" --idle-exit 60 > /dev/null 2>&1 & sp=$!
          for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done; u=http://127.0.0.1:$(cat "$d/.cockpit-port")/decide
          post() { curl -s -X POST -H 'Content-Type: application/json' -d "$1" "$u"; echo; }
-         echo "no name: $(post '{"item":"P-1","choice":"rec"}')"
+         echo "rows: $(grep -o '<button type="button" class="resolve" data-q="q[0-9]*"' "$T/out.html" | wc -l | tr -d ' ')"
+         echo "says: $(grep -o '<dialog class="qdlg" id="q4">.*' "$T/out.html" | grep -c 'The module stays exactly as it is now')"
          echo "bad option: $(post '{"item":"P-1","choice":"zzz","by":"Ana"}' | grep -o '"ok": false')"
          echo "form post: $(curl -s -o /dev/null -w '%{http_code}' -X POST -d item=P-1 "$u")"
          echo "answer: $(post '{"item":"P-2","choice":"o1","by":"Ana"}')"
          echo "ledger: $(python3 -c 'import json,sys; print(*[r["item"]+"="+r["choice"]+" by "+r["by"]+" via "+r["source"] for r in json.load(open(sys.argv[1]))])' "$W/decisions.json")"
-         echo "sign: $(post '{"item":"signoff","by":"Ana"}')"
-         echo "signed: $(grep '^Signed-off: Ana ' "$W/PROPOSAL.md")"
+         echo "sign: $(post '{"item":"signoff"}')"
+         echo "signed: $(grep -c "^Signed-off: $(git config user.name) " "$W/PROPOSAL.md")"
          echo "page cards: $(grep -o '<div class="qcard" data-item="[^"]*"' "$d/COCKPIT-view.html" | sed 's/.*data-item="//;s/"//' | paste -sd ' ' -)"
          echo "decided log: $(wc -l < "$d/.cockpit-decided" | tr -d ' ')"
          kill $sp 2> /dev/null ;;

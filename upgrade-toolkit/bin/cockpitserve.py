@@ -10,7 +10,8 @@ A file opened from disk cannot see that it changed; this tiny server can. It bin
   /stamp     the page's change stamp (mtime in ns); the page polls it every few seconds and reloads when it moves.
              Every /stamp request also touches D/.cockpit-seen: the pipeline reads that heartbeat to know a tab is open,
              and opens the page again at the next step when no tab has asked for a while (cockpit_live in upgrade-pipeline.sh).
-  POST /decide  one answer from a "Decide now" card: {"item", "choice", "by", "reason"?}, or {"item": "signoff", "by"}.
+  POST /decide  one answer from a question dialog: {"item", "choice", "by"?, "reason"?}, or {"item": "signoff"}. Without "by"
+             the answer carries the machine's Git name (git config user.name): the dev work is tracked in Git anyway.
              It goes through decisions.py import (source page; a sign-off carries the current plan hash) and apply, into the
              same decisions.json the pipeline reads, then the page is written again and D/.cockpit-decided is touched, so
              the session that drives the run sees the answer within seconds. JSON only (a cross-site form cannot send it).
@@ -26,11 +27,16 @@ VIEW = "COCKPIT-view.html"
 BIN = os.path.dirname(os.path.abspath(__file__))
 
 
+def git_name():
+    r = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def decide(d, work, body):
     """One answer from the page into the run's decision ledger; returns (http status, message)."""
-    item, by = str(body.get("item") or ""), " ".join(str(body.get("by") or "").split())[:80]
+    item, by = str(body.get("item") or ""), " ".join(str(body.get("by") or git_name()).split())[:80]
     if not item or not by:
-        return 400, "an answer needs the item and your name"
+        return 400, "an answer needs the item and a name (no git config user.name on this machine)"
     if item == "signoff":
         data = {"signoffs": [{"by": by, "plan": cockpitpage.build_model(work)["planHash"], "source": "page"}]}
     else:

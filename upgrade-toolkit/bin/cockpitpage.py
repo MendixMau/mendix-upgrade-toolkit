@@ -572,7 +572,7 @@ def build_model(work):
         add({"id": "signoff", "kind": "signoff", "dot": "warn", "title": "Sign the plan",
              "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing goes live without your name",
              "step": "propose", "problem": "Nothing goes live without your name on the plan. Review it under Plan. To change one choice first, say so in chat (decisions.py pending lists them).",
-             "rec": "sign", "rec_text": "Read the plan, then sign.", "options": [{"key": "sign", "label": "Sign the plan"}], "plan_hash": P["hash"]})
+             "rec": "sign", "rec_text": "", "options": [{"key": "sign", "label": "Approve and continue"}], "plan_hash": P["hash"]})
     visible = [i for i in items if not i.get("hidden")]
     open_visible = [i for i in visible if not (i.get("decided") and i["kind"] != "signoff") and i.get("open", 1)]
     order = {"bad": 0, "warn": 1}
@@ -779,18 +779,17 @@ function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r){b.hi
 var w=[r.mins?r.mins+" min":"just started"];if(r.tool)w.push("now in "+r.tool);if(r.said)w.push(r.said);
 b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.querySelector("small").textContent=w.join(" \u00b7 ");b.hidden=false;}
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
-setInterval(function(){var dr=document.getElementById("drawer");if(due){if(!dr||dr.hidden)reload();return;}
-fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if(!dr||dr.hidden)reload();}}).catch(function(){});},3000);})();
-(function(){var n=document.getElementById("dname");if(!n)return;try{n.value=localStorage.getItem("cockpit-name")||"";}catch(e){}
-document.querySelectorAll("#decide button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
-var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]"),who=n.value.trim();
-if(!who){m.textContent="Type your name at the top first.";n.focus();return;}try{localStorage.setItem("cockpit-name",who);}catch(e){}
-c.querySelectorAll("button").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
-fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:c.dataset.item,choice:b.dataset.choice,by:who})})
+setInterval(function(){var dr=document.getElementById("drawer"),qo=document.querySelector("dialog.qdlg[open]");if(due){if((!dr||dr.hidden)&&!qo)reload();return;}
+fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if((!dr||dr.hidden)&&!qo)reload();}}).catch(function(){});},3000);})();
+(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal)d.showModal();});});
+document.querySelectorAll(".qclose").forEach(function(c){c.addEventListener("click",function(){c.closest("dialog").close();});});
+document.querySelectorAll(".qcard button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
+var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]");c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
+fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:c.dataset.item,choice:b.dataset.choice})})
 .then(function(r){return r.json();}).then(function(r){if(r.ok){c.classList.add("done");m.textContent=r.said+". The agent picks it up within 15 seconds.";}
-else{c.querySelectorAll("button").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+r.said;}})
-.catch(function(e){c.querySelectorAll("button").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+e;});});});
-var h=document.querySelector("#decide .qhint");if(h)h.textContent="One click per question. Your answer goes into the run; the agent picks it up within 15 seconds.";})();
+else{c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+r.said;}})
+.catch(function(e){c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+e;});});});
+document.querySelectorAll(".qhint").forEach(function(h){h.textContent="Saved into the run with your Git name; the agent picks it up within 15 seconds.";});})();
 </script>
 """
 
