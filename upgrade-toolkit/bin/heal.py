@@ -168,6 +168,9 @@ class Run:
     def data_row(self, r):
         c, det = r["check"], r["detail"]
         id_ = "data:" + c
+        if r.get("verdict") == "NEW_ENDPOINT":   # WM1: "status 404 -> 200" read as counts 404 -> 200, called lost data
+            return self.row(id_, c, "likely-real", f"{det}: a new surface the old app did not have (often an updated module's "
+                            "API doc); nothing was lost, but a person accepts it in writing or switches it off")
         n = counts_of(det)
         if "gone" in det or "lost" in det or "dropped" in det or (n and n[1] < n[0]):
             return self.row(id_, c, "real-regression", f"{det}: rows or columns of the old data are missing after the upgrade")

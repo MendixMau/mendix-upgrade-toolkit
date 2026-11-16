@@ -6451,10 +6451,12 @@ hcls() { python3 -I -c "
 import json,sys
 for r in json.load(open('$HL/h1/heal.json'))['rows']:
     if r['id']==sys.argv[1]: print(r['id'], '=>', r['class'], '/', r['heal_kind'], '/', r['evidence'])" "$1"; }
-ctl heal-classes-line-pass 0 'classes: startup-noise 1, no-test-data 1, no-click-path 1, outside-call 1, test-setup 4, real-regression 3, likely-real 2' 'CHANGED 6' -- cat $HL/plan1.out
+ctl heal-classes-line-pass 0 'classes: startup-noise 1, no-test-data 1, no-click-path 1, outside-call 1, test-setup 4, real-regression 3, likely-real 3' 'CHANGED 6' -- cat $HL/plan1.out
 ctl heal-startup-noise-evidence-catch 0 'data:Shop\.Item\.changedDate => startup-noise / allow / start noise: .* also differs between two starts of the SAME old app' -- hcls data:Shop.Item.changedDate
 ctl heal-allow-line-reason-pass 0 '^Shop\.Item\.changedDate 3 rows differ # start noise: ' '!Shop\.Customer' '!Shop\.Order' -- cat $HL/h1/heal-allow.txt
 ctl heal-no-twin-no-noise-catch 0 'data:Shop\.Customer\.name => likely-real' '!startup-noise' -- hcls data:Shop.Customer.name
+# WM1 2026-11-17: 'status 404 -> 200' was read as counts 404 -> 200 and called lost data (real-regression)
+ctl heal-new-endpoint-not-lost-data-catch 0 'data:http\./rest-doc/shop/openapi\.json => likely-real / None / .*a new surface the old app did not have' '!real-regression' '!missing after the upgrade' -- hcls data:http./rest-doc/shop/openapi.json
 ctl heal-lost-rows-real-regression-catch 0 'data:Shop\.Order\.total => real-regression / None' 'missing after the upgrade' -- hcls data:Shop.Order.total
 ctl heal-harness-log-accepted-catch 0 'test-setup / logallow / known harness line: .*SessionTimeout 30000' -- hcls 'log:log.start.NEW_WARNING:WARNING_Configuration_Using_derived_value_for_Se'
 ctl heal-log-allow-line-pass 0 '^WARNING Configuration: Using derived value for SessionKeepAliveUpdatesInterval\* # test harness: ' '!Something else' -- cat $HL/h1/heal-log-allow.txt

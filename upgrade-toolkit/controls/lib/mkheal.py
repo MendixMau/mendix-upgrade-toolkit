@@ -19,6 +19,7 @@ put("diff.md", "# diff\n\n## All rows\n"
     "- REVIEW log.start.NEW_WARNING: WARNING Configuration: Using derived value for SessionKeepAliveUpdatesInterval (SessionTimeout 30000)\n"
     "- REVIEW log.start.NEW_ERROR: ERROR Shop failed to start the queue\n"
     "- REVIEW log.start.NEW_WARNING: WARNING Something else changed\n"
+    "- NEW_ENDPOINT http./rest-doc/shop/openapi.json: status 404 -> 200: endpoint did not exist before\n"
     "- PASS Shop.Other: same\n")
 put("twin-old.md", "# twin\n\n## All rows\n- FAIL Shop.Item.changedDate: 3 rows differ\n")
 J = {
