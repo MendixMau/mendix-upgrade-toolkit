@@ -30,6 +30,7 @@ Routes, per refused module (the module is updated in all of them except HOLD):
   (Email_Connector, WM1: COSMETIC, then XASSOC for the 3 associations the app's Email module owns into it). The same reason
   twice is a HOLD.
 
+  editroute.py reset   --work W   first thing in the update step: an earlier routing's lines and files out of the way
   editroute.py score   --work W --app A --plan W/plan.txt [--ledger F]   did each route work: editroute-score.tsv, exit 1 when a
                        kept module did not end on the plan's version (held, replay failed, or kept again)
   editroute.py plan    --work W --app A --original W/original.mpr --plan W/plan.txt   writes the route files, prints ROUTE lines
@@ -174,6 +175,7 @@ def cmd_plan(a):
         if r in ("REPLAY", "UNREAD") and e.get("cid") and e.get("version"):
             extra["pkg"] = localedits.fetch_pkg(e["cid"], e["version"], cache)[0]
         row = {"module": mod, "route": r, "reason": reason, "kept_because": why, "original": a.original, "app_mpr": mpr, **extra}
+        row["brain"] = brain_for(mod, r, reason)
         if p and p["route"] != "HOLD" and r != "HOLD":
             for k in ("ui", "cosmetic", "assocs", "vendor"):
                 row[k] = sorted(set(p.get(k, [])) | set(row.get(k, [])))
@@ -197,6 +199,28 @@ def cmd_plan(a):
     append(os.path.join(W, "approved-step.txt"), [f"{qn} # editroute XASSOC: removed by the {x['module']} update, replayed with its original id"
                                                   for x in rows for qn in x.get("assocs", [])])
     return 0 if go else 1
+
+
+HINT = {"HOLD": "edited Marketplace module extension module local edits", "REPLAY": "layout page snippet edited in Marketplace module",
+        "XASSOC": "module update drops associations another module owns data", "VENDOR": "module update removes attribute data loss",
+        "FILES": "theme styling files edited in module overwritten by update", "UNREAD": "Marketplace module update local edits",
+        "COSMETIC": "Marketplace module update local edits"}
+_NOTES = None
+
+
+def brain_for(mod, route, reason, k=2):
+    """[{path, title}] of the company brain's notes for this route (brainnotes.py); [] without a brain on this machine."""
+    global _NOTES
+    try:
+        import brainnotes
+        if _NOTES is None:
+            b = brainnotes.brain_dir(None)
+            _NOTES = brainnotes.load(b) if b and os.path.isdir(os.path.join(b, "internal")) else []
+        q = f"{mod.replace('_', ' ')} {HINT.get(route.split('+')[0], '')} {reason}"
+        r = brainnotes.search(_NOTES, q, k) if _NOTES else []
+        return [{"path": p, "title": t} for sc, p, t in r if sc >= 0.5 * r[0][0]]   # a far weaker second match is noise
+    except Exception:
+        return []
 
 
 def norm(t):
@@ -350,6 +374,33 @@ def cmd_collect(a):
     return 0 if n else 1
 
 
+def cmd_reset(a):
+    """A rerun of the update step starts as the first run did: editroute's own lines leave the decision files (a person's
+    lines stay), the earlier routes and replays move aside. Why (WM1 rerun, 2026-11-16): the earlier run's 'Atlas_Core #
+    editroute REPLAY' in force-ui.txt made the first update pass force Atlas_Core before any routing, so its edits were saved
+    and never merged back: every page on the vendor layouts again."""
+    W = os.path.abspath(a.work)
+    n = 0
+    for f in ("force-ui.txt", "accept-unsaved.txt", "approved.txt", "approved-step.txt"):
+        p = os.path.join(W, f)
+        lines = rd(p).splitlines(True)
+        keep = [ln for ln in lines if "# editroute " not in ln]
+        if len(keep) != len(lines):
+            n += len(lines) - len(keep)
+            with open(p, "w") as fh:
+                fh.writelines(keep)
+    old = os.path.join(W, ".editroute-prev-" + time.strftime("%Y%m%d%H%M%S"))
+    moved = []
+    for f in ("edit-routes.json", "replay", "editroute-score.tsv"):
+        if os.path.exists(os.path.join(W, f)):
+            os.makedirs(old, exist_ok=True)
+            os.replace(os.path.join(W, f), os.path.join(old, f))
+            moved.append(f)
+    print(f"editroute-reset: {n} line(s) of an earlier routing removed from the decision files"
+          + (f", {', '.join(moved)} moved to {os.path.basename(old)}" if moved else ""))
+    return 0
+
+
 def cmd_score(a):
     """Did each route work? One row per module the update kept, judged on the app's own git log and the run's files."""
     W, app = os.path.abspath(a.work), os.path.abspath(a.app)
@@ -409,8 +460,10 @@ def main():
     s = sp.add_parser("score")
     s.add_argument("--work", required=True); s.add_argument("--app", required=True); s.add_argument("--plan")
     s.add_argument("--ledger", help="append the rows here too (cross-run: UPG_ROUTE_LEDGER)"); s.add_argument("--label")
+    r = sp.add_parser("reset")
+    r.add_argument("--work", required=True)
     a = ap.parse_args()
-    return {"plan": cmd_plan, "collect": cmd_collect, "score": cmd_score}[a.cmd](a)
+    return {"plan": cmd_plan, "collect": cmd_collect, "score": cmd_score, "reset": cmd_reset}[a.cmd](a)
 
 
 if __name__ == "__main__":

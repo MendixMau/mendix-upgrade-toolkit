@@ -6645,6 +6645,10 @@ ctl editroute-collect-check-held-catch 0 '^HELD Uimod layout Bad: mxcli check re
 # cold test WM1 Email_Connector: diagram-only, then the routed update kept it for 3 associations; routed again, routes add up
 # does routing work across real runs: a route that ends off the plan's version is counted, never hidden
 ctl editroute-score-pass 0 '^SCORE Cosmo COSMETIC -> ON TARGET' '^SCORE Uimod REPLAY -> REPLAY FAILED' '^SCORE Realmod HOLD -> HOLD' 'ended on the plan.s version' '^rc=1$' '^ledger: .*app1' -- $ER score
+# the brain's practice notes reach the card that needs them (WM1: the PDFBox note existed, nobody saw it); measured, not assumed
+ctl editroute-brain-notes-pass 0 "^brain: Realmod \['architecture/ext'" "^brain: Uimod \['ux-ui/atlas'" '^- company brain \(internal\): Never edit Marketplace modules' 'brainnotes hit@3: 2/2' '^rc=0$' '^no brain rc=0$' -- $ER brain
+# WM1 rerun: the earlier run's 'Atlas_Core # editroute REPLAY' forced Atlas_Core before routing; its edits were never merged back
+ctl editroute-reset-pass 0 '^editroute-reset: [1-9][0-9]* line' '^force-ui.txt: Handmod # a person forced this$' '!^force-ui.txt: .*# editroute' '^approved-step editroute lines: 0$' '!^work: edit-routes.json$' '^rc=0$' -- $ER reset
 ctl editroute-reroute-adds-route-pass 0 '^ROUTE Cosmo XASSOC' '^routes: Cosmo COSMETIC\+XASSOC$' '^route-plan.txt: 7 2.0.0 Cosmo$' -- $ER reroute
 ctl editroute-reroute-same-reason-held-catch 0 '^ROUTE Cosmo HOLD: the routed update kept it again for the same reason' '^rc=1$' -- $ER reroute
 ctl cockpit-check-keep-recommended-catch 0 "'keep old version \(kept list\); ': CAUGHT" "'keep old version until 2027-03': ok" "'update to the latest version a': ok" -- $ER gate

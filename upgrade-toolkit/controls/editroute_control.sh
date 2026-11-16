@@ -4,6 +4,8 @@
 #   plan     one kept module per route; prints the ROUTE lines and the files editroute writes
 #   collect  the replay files after the routed update: the app's change merged onto the new element, never the saved whole element
 #   score    did each route work: on the plan's version, held, or replay failed; one ledger line per module across runs
+#   brain    each route carries the company brain's notes for it, shown on the card; hit@k measured on a labelled set
+#   reset    a rerun of the update step drops an earlier routing's own lines (a person's stay) and moves its files aside
 #   reroute  a routed update keeps a module for a second reason: routed again, routes add up; the same reason twice is a HOLD
 #   gate     cockpitcheck on a module card that recommends the old version, with and without an end date
 set -u
@@ -89,6 +91,23 @@ case "${1:-}" in
         mkdir -p "$W/replay"; echo x > "$W/replay/Uimod.mdl"; echo "MDL081" > "$W/replay-Uimod.out"
         python3 "$B/editroute.py" score --work "$W" --app "$A" --plan "$W/plan.txt" --ledger "$T/ledger.tsv" --label app1; echo "rc=$?"
         sed 's/^/ledger: /' "$T/ledger.tsv" | cut -f1-3,5,6,11 | head -3 ;;
+  brain) Bd="$T/fake-brain"; mkdir -p "$Bd/baseline/versions" "$Bd/internal/architecture" "$Bd/internal/ux-ui" "$Bd/internal/upgrade"
+        touch "$Bd/baseline/versions/studio-pro-upgrade-10.md"
+        printf -- '---\ntitle: Never edit Marketplace modules, use an extension module\nkeywords: [extension module, local edits]\n---\nPut changes in a separate module.\n' > "$Bd/internal/architecture/ext.md"
+        printf -- '---\ntitle: Hide Atlas layouts in the company UI module\nkeywords: [Atlas_Core layouts, design system]\n---\nsettings.json excludes.\n' > "$Bd/internal/ux-ui/atlas.md"
+        printf -- '---\ntitle: Java dependency sync behind a proxy\nkeywords: [gradle, proxy]\n---\nSet the proxy.\n' > "$Bd/internal/upgrade/proxy.md"
+        printf 'id\tslugs\twhy\nS1\tarchitecture/ext\tx\nS2\tux-ui/atlas\tx\nS3\tNONE\tx\n' > "$T/gold.tsv"
+        printf 'S1 | edited Marketplace module, local edits refuse the update\nS2 | Atlas_Core layouts point at the company design system\nS3 | nothing like this\n' > "$T/q.txt"
+        UPG_BRAIN="$Bd" python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        python3 -c "import json,sys; [print('brain:', x['module'], [b['path'] for b in x['brain']]) for x in json.load(open(sys.argv[1])) if x['module'] in ('Realmod','Uimod')]" "$W/edit-routes.json"
+        UPG_BRAIN="$Bd" python3 "$B/evidence.py" --work "$W" Realmod | head -3
+        UPG_BRAIN="$Bd" python3 "$B/brainnotes.py" --eval "$T/gold.tsv" --queries "$T/q.txt"; echo "rc=$?"
+        UPG_BRAIN="$T/none" python3 "$B/brainnotes.py" "anything"; echo "no brain rc=$?" ;;
+  reset) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        echo "Handmod # a person forced this" >> "$W/force-ui.txt"; mkdir -p "$W/replay"
+        python3 "$B/editroute.py" reset --work "$W"; echo "rc=$?"
+        sed 's/^/force-ui.txt: /' "$W/force-ui.txt"; grep -c 'editroute' "$W/approved-step.txt" | sed 's/^/approved-step editroute lines: /'
+        ls "$W" | sed 's/^/work: /' ;;
   reroute) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         # the routed update keeps Cosmo again, now for associations another module owns into it
         printf 'Cosmo idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x\n' > "$S/kept.txt"

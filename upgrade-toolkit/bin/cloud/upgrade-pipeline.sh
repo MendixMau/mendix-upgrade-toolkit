@@ -983,9 +983,6 @@ assoc_unreplayed() {
 route_kept() {
   if [ "$DRY" = 1 ]; then x python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt"; return 0; fi
   [ -s "$APP/.stepupdate/kept.txt" ] || return 0
-  # a rerun of the step starts fresh: the earlier run's rows would read as "kept again for the same reason" and hold all
-  local old="$WORK/.editroute-prev-$(date +%Y%m%d%H%M%S)" f
-  for f in edit-routes.json replay; do [ ! -e "$WORK/$f" ] || { mkdir -p "$old"; mv "$WORK/$f" "$old/"; }; done
   local rc=0 le=()
   [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
   xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
@@ -1001,13 +998,15 @@ route_kept() {
   done
   rc=0; xo "$WORK/editroute-collect.out" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
   cat "$WORK/editroute-collect.out" >> "$LOG"
-  ! grep -q '^HELD ' "$WORK/editroute-collect.out" || note "editroute: $(grep -c '^HELD ' "$WORK/editroute-collect.out") replayed element(s) held for a person: $(grep '^HELD ' "$WORK/editroute-collect.out" | head -3 | tr '\n' ';')"
-  note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out") kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out") held for a person (edit-routes.json)"
+  ! grep -q '^HELD ' "$WORK/editroute-collect.out" || note "editroute: $(grep -c '^HELD ' "$WORK/editroute-collect.out" || true) replayed element(s) held for a person: $(grep '^HELD ' "$WORK/editroute-collect.out" | head -3 | tr '\n' ';')"
+  note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out" || true) kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out" || true) held for a person (edit-routes.json)"
 }
 
 # update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
+  # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
+  [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
   replay_edits

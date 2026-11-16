@@ -107,6 +107,7 @@ def for_item(work, name):
     for x in json.loads(_rd(os.path.join(work, "edit-routes.json")) or "[]"):
         if x.get("module") == name:
             what.insert(0, ("held for a person: " if x["route"] == "HOLD" else f"the pipeline updates it anyway ({x['route']}): ") + x["reason"])
+            what[1:1] = [f"company brain (internal): {b['title']} ({b['path']})" for b in x.get("brain") or []]
             files.insert(0, _rel(work, os.path.join(work, "edit-routes.json")))
     return {"what": what, "files": files}
 
