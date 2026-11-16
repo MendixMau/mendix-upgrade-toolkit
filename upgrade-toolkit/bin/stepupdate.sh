@@ -517,7 +517,7 @@ PY
     echo "STOP: idcheck input error after $mod"; exit 2
   fi
   # NS-7: idcheck warns when the update re-created a module (every unit id new) instead of updating it in place
-  grep -E '^warn ' "$app/.stepupdate/step$n-$mod.idcheck" | sed 's/^/   /'
+  grep -E '^(warn|info MODULE_RECREATED) ' "$app/.stepupdate/step$n-$mod.idcheck" | sed 's/^/   /'
   # NS-6: a module import also replaces shared widgets/*.mpk (notification-service cdd62cc5: the Email Connector import
   # swapped Datagrid 2.28.3 -> 2.30.6 and 8 more; reverted on day 111). Name every widget the step changed.
   wout=$(python3 "$bin/widgetdiff.py" "$app" 2>/dev/null)

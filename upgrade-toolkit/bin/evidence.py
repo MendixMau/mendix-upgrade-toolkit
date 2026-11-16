@@ -70,7 +70,7 @@ def for_item(work, name):
             r = re.match(r"RED\s+(\w+)\s+(\w+)\s+([\w.]+)", ln)
             if r:
                 rows.append(f"{r.group(2)} {r.group(3)}: {r.group(1).lower()} by the new version, its data is lost")
-            elif ln.startswith("warn MODULE_RECREATED"):
+            elif ln.startswith("warn MODULE_RECREATED"):   # the info form (element identities kept) is no data row
                 rows.append("the new version replaces the module as a whole (all ids new), pages that use it are rewritten too")
         if rows:
             what += rows

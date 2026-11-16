@@ -1465,11 +1465,15 @@ ctl stepupdate-widgets-unchanged-pass 0 'committed' '!WIDGETS' -- bash $B/stepup
 ctl widgetdiff-bad-rev-catch 2 'not a commit' -- python3 $B/widgetdiff.py $S/wg --rev no-such-rev
 # NS-7: an update that deletes and re-imports a module (cc318c0b, DataWidgets 2.27.6): every unit id of it is new
 mkdir -p $S/recreate; cp $M/base/App.mpr $S/recreate/App.mpr; python3 $here/lib/reid_module.py $S/recreate/App.mpr Administration > /dev/null
-ctl idcheck-module-recreated-catch 0 '^warn MODULE_RECREATED Administration: all 5 unit ids new \(5 units now\)' '^verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $S/recreate/App.mpr
+# WM1: mxcli's update gives new unit ids but keeps every element identity: info, the data is safe
+ctl idcheck-module-recreated-ids-kept-info-pass 0 '^info MODULE_RECREATED Administration: all 5 unit ids new \(5 units now\), but all 7 element identities kept' '!^warn MODULE_RECREATED' '^verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $S/recreate/App.mpr
+# a real delete and re-import: the element GUIDs are new too: warn, and the GUID changes are RED
+mkdir -p $S/recreate-g; cp $M/base/App.mpr $S/recreate-g/App.mpr; python3 $here/lib/reid_module.py $S/recreate-g/App.mpr Administration --guids > /dev/null
+ctl idcheck-module-recreated-catch 1 '^warn MODULE_RECREATED Administration: all 5 unit ids new \(5 units now\), 0 of 7 element identities kept' '!^info MODULE_RECREATED' 'GUID_CHANGED' -- python3 $B/idcheck.py $M/base/App.mpr $S/recreate-g/App.mpr
 ctl idcheck-module-updated-pass 0 '!MODULE_RECREATED' -- python3 $B/idcheck.py $M/base/App.mpr $M/step1-adds/App.mpr
 ctl idcheck-module-recreated-json-pass 0 '"module": "Administration"' -- sh -c "python3 $B/idcheck.py $M/base/App.mpr $S/recreate/App.mpr --json $T/recreate.json > /dev/null && cat $T/recreate.json"
 newapp rc '1 1.0 Recreate\n'
-ctl stepupdate-module-recreated-catch 0 '^ +warn MODULE_RECREATED Administration' 'committed' -- bash $B/stepupdate.sh $S/rc $S/rc.plan
+ctl stepupdate-module-recreated-catch 0 '^ +info MODULE_RECREATED Administration: .*element identities kept' 'committed' -- bash $B/stepupdate.sh $S/rc $S/rc.plan
 # NS-10/NS-13: notification-service 3fbf1566 is the 11.12.4 convert (model units, Badge.mpk and 22 more without their
 # appstore.id entry, widgets-appstore-metadata.json, regenerated JSDoc) squashed together with toolkit files
 for k in cn cnok cnw; do rm -rf $S/$k; mkdir -p $S/$k/mprcontents/0a $S/$k/javascriptsource/nanoflowcommons/actions

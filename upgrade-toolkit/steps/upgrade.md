@@ -16,6 +16,8 @@ Goal: reach the target version with every step proven not to change a runtime id
    re-imported instead of updated in place; NS-7, notification-service cc318c0b: DataWidgets 2.27.6 rewrote 12 own pages
    and was reverted the next day). After a MODULE_RECREATED line, diff the own pages the step touched
    (`git show --stat HEAD`) before going on, or revert the step and update the module with Studio Pro.
+   `info MODULE_RECREATED` is the same with every element identity kept (WM1: mxcli's update copies the documents
+   with new unit ids; 28 of 28 such lines had no GUID change): the data is safe, only the page diff remains.
    - approved.txt: one fnmatch pattern per line on the element or "FINDING kind name", then `# reason`. Only for
      findings accepted in writing.
    - Local edits refusal ("Save them first: --save-edits"). stepupdate names the edited element kinds. UI only
