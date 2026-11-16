@@ -481,6 +481,12 @@ for f in bcprov-jdk18on-1.85.jar commons-io-2.21.0.jar xercesImpl-2.12.2.jar; do
 ctl jardedupe-catch 1 'bcprov-jdk18on-1\.78' 'commons-io-2\.11\.0' 'KEEP.*xercesImpl' -- python3 $B/repair/jardedupe.py $J
 ctl jardedupe-apply-stale-refused 2 'REFUSED: vendorlib is stale' -- python3 $B/repair/jardedupe.py $J --apply
 ctl jardedupe-apply 0 'vendorlib current: stated with --vendorlib-synced' -- python3 $B/repair/jardedupe.py $J --apply --vendorlib-synced
+# WM1 2026-11-17: the 9->10 gate stopped on System-module drops; approved only when the baseline count is 0
+PD="bash $B/../controls/platform_drops_control.sh"
+ctl platform-drops-zero-approved-pass 0 '^approved: System.Gone # platform drop \(platform_drops.py\): Mendix removes it; 0 rows in basedb$' '^platform_drops: 1 approved by count, 2 kept' -- $PD
+ctl platform-drops-data-kept-catch 0 '^KEEP System.Kept.HasData: 3 non-null values' '!approved: System.Kept' -- $PD
+ctl platform-drops-query-fail-kept-catch 0 '^KEEP System.Broken.Col: count failed' '!approved: System.Broken' -- $PD
+ctl platform-drops-app-and-info-untouched-pass 0 '!Shop.Order' '!System.Info' '!APPROVE System.Already' -- $PD
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"

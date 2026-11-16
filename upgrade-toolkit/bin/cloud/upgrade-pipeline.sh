@@ -1535,6 +1535,13 @@ step_diff() {
   [ ! -f "$WORK/allow-effective.txt" ] || allowf=allow-effective.txt
   local notesf=gate-notes.txt; [ ! -f "$WORK/gate-notes-effective.txt" ] || notesf=gate-notes-effective.txt   # the person's notes plus the heal's behaviour-change lines
   [ ! -f "$WORK/log-allow-effective.txt" ] || logallowf=log-allow-effective.txt
+  # platform drops (System module) with no data in the baseline are approved by count, not by a person (WM1, FSM: 9->10
+  # drops System.DataBrokerEntityMetadata; 0 rows); any other count stays open for a person
+  local bdb; bdb=$(awk '$2 == "snapshot" && $3 == "before" { d = $1 } END { print d }' "$WORK/db-ledger.txt" 2> /dev/null)
+  if [ -n "$bdb" ] && [ -f "$(mda_old)" ] && [ -f "$(mda_new)" ]; then
+    xo "$WORK/platform-drops.out" python3 "$B/platform_drops.py" "$(mda_old)" "$(mda_new)" --approved "$WORK/approved.txt" --psql "$(psql_str "$bdb")" || true
+    [ "$DRY" = 1 ] || note "$(tail -1 "$WORK/platform-drops.out") (see $WORK/platform-drops.out)"
+  fi
   for f in APPROVED=approved.txt CONST_OVERRIDES=env-values.json CONST_ALLOW=const-allow.txt ALLOW=$allowf LOG_ALLOW=$logallowf SMOKE_SHOT_ACCEPT=shot-accept.txt GATE_NOTES=$notesf HEAL_JSON=heal.json; do
     k=${f%%=*}; [ ! -f "$WORK/${f#*=}" ] || kv+=("$k=$WORK/${f#*=}")
   done
