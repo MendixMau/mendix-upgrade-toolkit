@@ -996,7 +996,9 @@ route_kept() {
     cat "$WORK/editroute.out" >> "$LOG"
     [ "$rc" = 0 ] || break
   done
-  rc=0; xo "$WORK/editroute-collect.out" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
+  # check with the mxcli that exec runs (the container's may be older than the local one)
+  local chk="$B/mxcli-container.sh"; [ -z "${MXCLI:-}" ] || [ ! -x "$MXCLI" ] || chk=$MXCLI
+  rc=0; xo "$WORK/editroute-collect.out" env UPG_MXCLI_CHECK="$chk" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
   cat "$WORK/editroute-collect.out" >> "$LOG"
   ! grep -q '^HELD ' "$WORK/editroute-collect.out" || note "editroute: $(grep -c '^HELD ' "$WORK/editroute-collect.out" || true) replayed element(s) held for a person: $(grep '^HELD ' "$WORK/editroute-collect.out" | head -3 | tr '\n' ';')"
   note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out" || true) kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out" || true) held for a person (edit-routes.json)"

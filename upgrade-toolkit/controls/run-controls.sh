@@ -6625,23 +6625,25 @@ ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-runn
 ER="bash $here/editroute_control.sh"
 ctl editroute-cosmetic-pass 0 '^ROUTE Cosmo COSMETIC: only diagram layout differs' '^force-ui.txt: Cosmo ' -- $ER plan
 ctl editroute-real-logic-held-catch 0 '^ROUTE Realmod HOLD: real logic edit: microflow RealFlow \(move it to Realmod_Ext' '!route-plan.txt: .* Realmod$' -- $ER plan
-ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 4 UI' '^force-ui.txt: Uimod ' -- $ER plan
+ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 7 UI' '^force-ui.txt: Uimod ' -- $ER plan
 ctl editroute-unread-unedited-pass 0 '^ROUTE Unread UNREAD' -- $ER plan
 ctl editroute-files-accept-pass 0 '^ROUTE Filesmod FILES' '^accept-unsaved.txt: Filesmod ' -- $ER plan
 ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: Vendmod.E.Gone # editroute VENDOR' -- $ER plan
 ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan
 ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
 ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
-ctl editroute-collect-pass 0 'Uimod.mdl: create or modify layout Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
+ctl editroute-collect-pass 0 'Uimod.mdl: create or modify snippet Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
 # cold test WM1 Atlas_Core: a saved whole element lost the master-layout link and carried the old widget's properties; the change
 # is merged onto the new element instead, and a result mxcli check refuses is held, never executed
 ctl editroute-collect-prop-merge-pass 0 "^Uimod.mdl:   class: 'mine',$" "^Uimod.mdl:   title: 'y'$" '!saved whole element' -- $ER collect
-ctl editroute-collect-app-added-pass 0 "layout Added: added by the app" "^Uimod.mdl:   class: 'own'$" "constant K: the vendor did not change it" -- $ER collect
+ctl editroute-collect-app-added-pass 0 "snippet Added: added by the app" "^Uimod.mdl:   class: 'own'$" "constant K: the vendor did not change it" -- $ER collect
 # data test 2026-11-16: save-edits wrote no association file; a re-created association lost its member access; a saved
 # whole entity put widened vendor attributes back
 ctl editroute-collect-assoc-from-original-pass 0 'association Other.A_B: from the original model' '^Target.mdl: grant read \(A_B, Name\), write \(A_B\) on entity Other.X to Other.User;$' '!Other.Guest' -- $ER collect
 ctl editroute-collect-no-whole-entity-catch 0 '!entity-Whole' '!saved whole element entity' -- $ER collect
-ctl editroute-collect-check-held-catch 0 '^HELD Uimod layout Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
+# WM1 rerun: mxcli never writes a layout into a Marketplace module; the app's redirect to its design module becomes a page repoint
+ctl editroute-collect-layout-repoint-pass 0 '^Uimod.mdl: ALTER PAGES SET LAYOUT = Brand.Main WHERE LAYOUT = Uimod.Redir;$' '^SKIP Uimod layout Spare: used by nothing' '^HELD Uimod layout UsedOwn: mxcli never writes a layout' '!create or modify layout' -- $ER collect
+ctl editroute-collect-check-held-catch 0 '^HELD Uimod snippet Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
 # cold test WM1 Email_Connector: diagram-only, then the routed update kept it for 3 associations; routed again, routes add up
 # does routing work across real runs: a route that ends off the plan's version is counted, never hidden
 ctl editroute-score-pass 0 '^SCORE Cosmo COSMETIC -> ON TARGET' '^SCORE Uimod REPLAY -> REPLAY FAILED' '^SCORE Realmod HOLD -> HOLD' 'ended on the plan.s version' '^rc=1$' '^ledger: .*app1' -- $ER score

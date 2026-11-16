@@ -285,11 +285,38 @@ def prop_patch(base, ours, theirs):
     return out if sets else None
 
 
+LAYOUT_OF = re.compile(r"^\s*Layout:\s*([\w]+\.[\w]+)", re.M | re.I)
+
+
+def layout_route(qn, ours, orig):
+    """-> (mdl or None, how) for an edited layout inside a Marketplace module. mxcli never writes a layout there (any build:
+    the update would overwrite it), so the merged layout cannot go back in. WM1 (rerun 2026-11-16): Atlas_Default and
+    Atlas_TopBar were rewritten to sit on DISW_DesignSystem layouts; the replay stopped the run. What the app meant is
+    "pages use the company layout": repoint the pages to it. mxcli skips and names pages inside Marketplace modules;
+    those show the vendor layout after the update."""
+    m = LAYOUT_OF.search(ours or "")
+    if m and m.group(1).split(".")[0] != qn.split(".")[0]:
+        return (f"mdl 1;\nALTER PAGES SET LAYOUT = {m.group(1)} WHERE LAYOUT = {qn};\n",
+                f"the app redirected it to {m.group(1)}: the app's pages repointed there (pages in Marketplace modules "
+                "keep the vendor layout)")
+    rc, out = mx(["refs", "-p", orig, qn])
+    if rc == 0 and "no references found" in out:
+        return "", "used by nothing: not carried"
+    return None, "mxcli never writes a layout into a Marketplace module: copy it to the app's own module, repoint its pages"
+
+
 def checked(mdl, app_mpr, tmp, qn):
     p = os.path.join(tmp, f"{qn}.check.mdl")
     with open(p, "w") as f:
         f.write(mdl)
-    rc, out = mx(["check", p, "-p", app_mpr])
+    # the mxcli that exec runs, when the pipeline names it: WM1's container mxcli (2026-10-13) refused a layout the local
+    # one (with mendixlabs/mxcli#1411) passed, so check said yes and the replay stopped the run
+    pre = os.environ.get("UPG_MXCLI_CHECK", "").split()
+    if pre:
+        r = subprocess.run(pre + ["check", p, "-p", app_mpr], capture_output=True, text=True)
+        rc, out = r.returncode, (r.stdout or "") + (r.stderr or "")
+    else:
+        rc, out = mx(["check", p, "-p", app_mpr])
     return rc == 0, " ".join(ln.strip() for ln in out.splitlines() if "✗" in ln or "error" in ln.lower())[:300]
 
 
@@ -319,7 +346,16 @@ def cmd_collect(a):
                 if "UNREAD" not in routes and re.sub(r"\W", "", name).lower() not in keep:
                     continue
                 qn = f"{mod}.{name}"
-                if kind in ("layout", "snippet", "page", "constant") and x.get("original") and x.get("app_mpr"):
+                if kind == "layout" and x.get("original"):
+                    ours = describe(x["original"], kind, qn)
+                    base = describe(x["pkg"], kind, qn) if x.get("pkg") else None
+                    if ours and base and norm(ours) == norm(base):
+                        continue
+                    mdl, how = layout_route(qn, ours, x["original"]) if ours else (None, "unreadable in the original model")
+                    if mdl is not None and not mdl.strip():
+                        print(f"SKIP {mod} {kind} {name}: {how}")
+                        continue
+                elif kind in ("layout", "snippet", "page", "constant") and x.get("original") and x.get("app_mpr"):
                     mdl, how = merge_element(kind, qn, x.get("pkg"), x["original"], x["app_mpr"], tmp)
                 else:
                     mdl, how = rd(f), "saved element (no describe for this kind)"

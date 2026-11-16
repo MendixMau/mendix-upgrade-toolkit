@@ -26,7 +26,11 @@ if a[0] == "describe":
         el = {"Uimod.L1": {"base": ["class: 'a',", "title: 'x'"], "ours": ["class: 'mine',", "title: 'x'"], "theirs": ["class: 'a',", "title: 'y'"]},
               "Uimod.K": {"base": ["value: '1'"], "ours": ["value: '2'"], "theirs": ["value: '1'"]},
               "Uimod.Added": {"ours": ["class: 'own'"]},
-              "Uimod.Bad": {"base": ["class: 'a'"], "ours": ["class: 'BROKEN'"], "theirs": ["class: 'a'"]}}.get(qn, {}).get(side)
+              "Uimod.Bad": {"base": ["class: 'a'"], "ours": ["class: 'BROKEN'"], "theirs": ["class: 'a'"]},
+              # layouts: one redirected to the app's design module, one the app added and nothing uses, one edited and used
+              "Uimod.Redir": {"base": ["class: 'a',", "title: 'x'"], "ours": ["Layout: Brand.Main"], "theirs": ["class: 'a',", "title: 'y'"]},
+              "Uimod.Spare": {"ours": ["class: 'copy'"]},
+              "Uimod.UsedOwn": {"base": ["class: 'a'"], "ours": ["class: 'own'"], "theirs": ["class: 'a'"]}}.get(qn, {}).get(side)
         if el:
             print(f"mdl 1;\ncreate or modify {kind} {qn} (\n" + "\n".join("  " + x for x in el) + "\n) {\n};")
         sys.exit(0)
@@ -52,7 +56,7 @@ refuse() { printf 'refusing to update: %s element(s) have been changed locally a
   local m=$2; shift 2; for e in "$@"; do printf '    %s\n' "$e" >> "$S/step$n-$m.log"; done; printf '\n  - Save them first:  --save-edits <dir>\n' >> "$S/step$n-$m.log"; }
 n=1; refuse 1 Cosmo "MICROFLOW CosmeticFlow"
 n=2; refuse 2 Realmod "MICROFLOW RealFlow"
-n=3; refuse 3 Uimod "LAYOUT L1" "CONSTANT K" "LAYOUT Added" "LAYOUT Bad"
+n=3; refuse 3 Uimod "SNIPPET L1" "CONSTANT K" "SNIPPET Added" "SNIPPET Bad" "LAYOUT Redir" "LAYOUT Spare" "LAYOUT UsedOwn"
 printf '5 element(s) could not be read, so it cannot be shown that the module is unedited.\n' > "$S/step4-Unread.log"
 touch "$S/step5-Filesmod.log" "$S/step6-Vendmod.log" "$S/step7-Usedmod.log" "$S/step8-Target.log" "$S/step9-Javamod.log"
 printf 'RED  REMOVED      attribute   Vendmod.E.Gone  (column/table dropped; intended?)\n' > "$S/step6-Vendmod.idcheck"
@@ -80,7 +84,7 @@ case "${1:-}" in
         for f in route-plan.txt force-ui.txt accept-unsaved.txt approved.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
   collect) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         mkdir -p "$W/saved-edits/Uimod" "$W/saved-edits/Target"
-        for e in layout-L1 constant-K layout-Added layout-Bad page-NotRefused entity-Whole; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done
+        for e in snippet-L1 constant-K snippet-Added snippet-Bad layout-Redir layout-Spare layout-UsedOwn page-NotRefused entity-Whole; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done
         printf 'mdl 1;\ncreate or modify association Other.A_B from Other.X to Target.Y;\n' > "$W/saved-edits/Target/association-Other_A_B.mdl"
         python3 "$B/editroute.py" collect --work "$W"; echo "rc=$?"
         sed 's/^/Uimod.mdl: /' "$W/replay/Uimod.mdl"; sed 's/^/Target.mdl: /' "$W/replay/Target.mdl"; sed 's/^/Target.guids: /' "$W/replay/Target.guids" ;;
