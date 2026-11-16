@@ -203,7 +203,7 @@ ns=re.sub(r"<script>.*?</script>","",t,flags=re.S)      # what a viewer without 
 chips={c["label"]:c["n"] for c in B["closed"]["chips"]}
 if case=="static":
     print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "open topics still to validate" in ns)
-    print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress", ns)))
+    print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress|Stopped at \w+, waiting for you", ns)))
     print("matrix cells without JS:", len(re.findall(r'data-i="\d+" data-s="', ns)), "of", 4*len(D["matrix"]["rows"]))
     print("feed and readiness without JS:", ns.count("<li>")>0, ns.count('data-ready=')+ns.count('class="chip ok"')>0)
     print("viewport meta:", 'name="viewport" content="width=device-width,initial-scale=1"' in ns)
