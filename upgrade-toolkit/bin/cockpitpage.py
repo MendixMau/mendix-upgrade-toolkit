@@ -382,6 +382,51 @@ def run_minutes(work):
 
 
 # ---- the model ----
+STEP_TEXT = {"fetch": "Unpacking the app", "triage": "Scanning the app: modules, local edits, Java, release notes",
+             "baseline": "Building the old app, starting it on a fresh database, seeding test data",
+             "basewalk": "Clicking through every page of the old app", "propose": "Writing the proposal",
+             "convert": "Converting the model to the new Mendix version", "update": "Updating the Marketplace modules",
+             "build": "Building the new app", "after": "Starting the new app on a copy of the old data",
+             "afterwalk": "Clicking through every page of the new app", "journeys": "Running the user journeys on old and new",
+             "heal": "Explaining every test difference", "apidirect": "Replaying the REST calls on old and new",
+             "diff": "Comparing old and new: data, settings, logs, screens", "gate": "The final gate"}
+_CMD = re.compile(r"^\+ (?:\S+=\S+ )*(?:env (?:\S+=\S+ )*)?(?:bash|zsh|python3|node|sh)?\s*(\S+)(.*)$")
+
+
+def running(work, now=None):
+    """The step running now, from state/running (step, start epoch, pipeline pid) and the tail of its log; None when idle.
+    'now' is the last script the step called and the last plain line it printed, so the page can say what happens inside a step."""
+    line = (rd(os.path.join(work, "state", "running")) or "").strip().split("\t")
+    if len(line) < 3 or not line[1].isdigit() or not line[2].isdigit():
+        return None
+    try:
+        os.kill(int(line[2]), 0)
+    except ProcessLookupError:
+        return None   # the pipeline died without removing the file
+    except OSError:
+        pass
+    step, since = line[0], int(line[1])
+    tool, said = "", ""
+    try:
+        with open(os.path.join(work, "logs", step + ".log"), "rb") as f:
+            f.seek(0, 2); f.seek(max(0, f.tell() - 16384))
+            tail = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        tail = []
+    for t in reversed(tail):
+        t = t.strip()
+        if not tool and t.startswith("+ "):
+            m = _CMD.match(t)
+            if m:
+                tool = os.path.basename(m.group(1))
+        elif not said and t and not t.startswith(("+", "|", "at ", "goroutine")) and not set(t) <= set("■ |%.0123456789"):
+            said = re.sub(r"(/[^\s/]+)+/([^\s/]+)", r"\2", t)[:140]   # paths shortened to their last part
+        if tool and said:
+            break
+    return {"step": step, "text": STEP_TEXT.get(step, step), "since": since,
+            "mins": max(0, int(((now or datetime.datetime.now().timestamp()) - since) // 60)), "tool": tool, "said": said}
+
+
 def build_model(work):
     work = os.path.abspath(work)
     P = parse_proposal(rd(os.path.join(work, "PROPOSAL.md")))
@@ -693,6 +738,9 @@ def build_model(work):
     else:
         lastdone = next((s for s in reversed(STEP_ORDER) if done[s]), None)
         state = ("idle", f"In progress. Last finished step: {lastdone}." if lastdone else "Not started.")
+    run = running(work)
+    if run and state[0] in ("idle", "ok"):
+        state = ("run", f"Running now: {run['text']} ({run['step']}).")
     total = sum(per.values())
     cost = (rj(os.path.join(work, "run-cost.json")) or {}).get("usd")
     runname = os.path.basename(os.path.dirname(work)) if os.path.basename(work) == "work" else os.path.basename(work)
@@ -700,7 +748,22 @@ def build_model(work):
     if stopped:
         sub += f" · stopped at {stopped[0]}"
     return {"title": f"{app_name(work)} upgrade", "sub": sub, "state": {"dot": state[0], "text": state[1]}, "planHash": P["hash"],
-            "signed": list(signed) if signed else None, "phases": phases, "items": items}
+            "signed": list(signed) if signed else None, "phases": phases, "items": items, "running": run}
+
+
+# --live: poll the server's status (the "Running now" bar, in place) and stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes
+LIVE_JS = """<script>
+(function(){var k="cockpit-scroll",s=null,due=false;
+try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
+function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
+function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r){b.hidden=true;return;}
+var w=[r.mins?r.mins+" min":"just started"];if(r.tool)w.push("now in "+r.tool);if(r.said)w.push(r.said);
+b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.querySelector("small").textContent=w.join(" \u00b7 ");b.hidden=false;}
+setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
+setInterval(function(){var dr=document.getElementById("drawer");if(due){if(!dr||dr.hidden)reload();return;}
+fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if(!dr||dr.hidden)reload();}}).catch(function(){});},3000);})();
+</script>
+"""
 
 
 def main():
@@ -708,6 +771,7 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--standalone", action="store_true", help="wrap the page content in doctype, html, head and body (a file opened directly, for example on a phone)")
+    ap.add_argument("--live", action="store_true", help="with --standalone: the page polls ./stamp and reloads when the run changes it (served by cockpitserve.py)")
     a = ap.parse_args()
     if not os.path.isdir(a.work):
         print(f"cockpitpage: no work folder {a.work}", file=sys.stderr)
@@ -717,7 +781,7 @@ def main():
     matrix = cockpitmatrix.build(a.work, model)
     page = cockpitmatrix.render(model, matrix)
     if a.standalone:
-        page = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n' + page.replace("<style>", "<style>", 1).replace("\n<div class=\"wrap\">", "\n</head><body>\n<div class=\"wrap\">", 1) + "</body></html>\n"
+        page = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n' + page.replace("<style>", "<style>", 1).replace("\n<div class=\"wrap\">", "\n</head><body>\n<div class=\"wrap\">", 1) + (LIVE_JS if a.live else "") + "</body></html>\n"
     tmp = a.out + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(page)
