@@ -6643,6 +6643,8 @@ ctl editroute-collect-assoc-from-original-pass 0 'association Other.A_B: from th
 ctl editroute-collect-no-whole-entity-catch 0 '!entity-Whole' '!saved whole element entity' -- $ER collect
 ctl editroute-collect-check-held-catch 0 '^HELD Uimod layout Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
 # cold test WM1 Email_Connector: diagram-only, then the routed update kept it for 3 associations; routed again, routes add up
+# does routing work across real runs: a route that ends off the plan's version is counted, never hidden
+ctl editroute-score-pass 0 '^SCORE Cosmo COSMETIC -> ON TARGET' '^SCORE Uimod REPLAY -> REPLAY FAILED' '^SCORE Realmod HOLD -> HOLD' 'ended on the plan.s version' '^rc=1$' '^ledger: .*app1' -- $ER score
 ctl editroute-reroute-adds-route-pass 0 '^ROUTE Cosmo XASSOC' '^routes: Cosmo COSMETIC\+XASSOC$' '^route-plan.txt: 7 2.0.0 Cosmo$' -- $ER reroute
 ctl editroute-reroute-same-reason-held-catch 0 '^ROUTE Cosmo HOLD: the routed update kept it again for the same reason' '^rc=1$' -- $ER reroute
 ctl cockpit-check-keep-recommended-catch 0 "'keep old version \(kept list\); ': CAUGHT" "'keep old version until 2027-03': ok" "'update to the latest version a': ok" -- $ER gate

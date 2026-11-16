@@ -3,6 +3,7 @@
 # rule. A stub mxcli answers describe and refs, so no project or network is needed.
 #   plan     one kept module per route; prints the ROUTE lines and the files editroute writes
 #   collect  the replay files after the routed update: the app's change merged onto the new element, never the saved whole element
+#   score    did each route work: on the plan's version, held, or replay failed; one ledger line per module across runs
 #   reroute  a routed update keeps a module for a second reason: routed again, routes add up; the same reason twice is a HOLD
 #   gate     cockpitcheck on a module card that recommends the old version, with and without an end date
 set -u
@@ -81,6 +82,13 @@ case "${1:-}" in
         printf 'mdl 1;\ncreate or modify association Other.A_B from Other.X to Target.Y;\n' > "$W/saved-edits/Target/association-Other_A_B.mdl"
         python3 "$B/editroute.py" collect --work "$W"; echo "rc=$?"
         sed 's/^/Uimod.mdl: /' "$W/replay/Uimod.mdl"; sed 's/^/Target.mdl: /' "$W/replay/Target.mdl"; sed 's/^/Target.guids: /' "$W/replay/Target.guids" ;;
+  score) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        git -C "$A" init -q; git -C "$A" commit -q --allow-empty -m "step: Cosmo 2.0.0 (stepupdate, idcheck PASS, forced)"
+        sed -i.bak '/^Cosmo /d' "$S/kept.txt"   # stepupdate takes a module it committed out of kept.txt (E6-12)
+        printf '7 2.0.0 Cosmo\n7 2.0.0 Uimod\n' >> "$W/plan.txt"
+        mkdir -p "$W/replay"; echo x > "$W/replay/Uimod.mdl"; echo "MDL081" > "$W/replay-Uimod.out"
+        python3 "$B/editroute.py" score --work "$W" --app "$A" --plan "$W/plan.txt" --ledger "$T/ledger.tsv" --label app1; echo "rc=$?"
+        sed 's/^/ledger: /' "$T/ledger.tsv" | cut -f1-3,5,6,11 | head -3 ;;
   reroute) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         # the routed update keeps Cosmo again, now for associations another module owns into it
         printf 'Cosmo idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x\n' > "$S/kept.txt"

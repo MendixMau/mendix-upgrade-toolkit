@@ -1011,6 +1011,11 @@ step_update() {
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
   replay_edits
+  if [ "$DRY" != 1 ] && [ -s "$WORK/edit-routes.json" ]; then   # did each route work, here and across runs (route ledger)
+    local sl="${UPG_ROUTE_LEDGER:-${UPG_CACHE:-$HOME/.cache/upgrade-toolkit}/route-ledger.tsv}"; mkdir -p "$(dirname "$sl")"
+    python3 "$B/editroute.py" score --work "$WORK" --app "$APP" --plan "$WORK/plan.txt" --ledger "$sl" > "$WORK/editroute-score.out" 2>&1 || true
+    note "$(tail -1 "$WORK/editroute-score.out") (editroute-score.tsv; all runs: $sl)"
+  fi
   assoc_unreplayed
   if [ "$DRY" != 1 ]; then
     [ ! -s "$APP/.stepupdate/kept.txt" ] || cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"

@@ -30,12 +30,14 @@ Routes, per refused module (the module is updated in all of them except HOLD):
   (Email_Connector, WM1: COSMETIC, then XASSOC for the 3 associations the app's Email module owns into it). The same reason
   twice is a HOLD.
 
+  editroute.py score   --work W --app A --plan W/plan.txt [--ledger F]   did each route work: editroute-score.tsv, exit 1 when a
+                       kept module did not end on the plan's version (held, replay failed, or kept again)
   editroute.py plan    --work W --app A --original W/original.mpr --plan W/plan.txt   writes the route files, prints ROUTE lines
   editroute.py collect --work W                                                       after the routed update: builds replay/
 Files: W/edit-routes.json (one row per module), W/route-plan.txt (the plan lines of the routed modules, plan order), and
 appends to W/force-ui.txt, W/accept-unsaved.txt, W/approved.txt, W/approved-step.txt. Exit 0 = something routed, 1 = nothing.
 """
-import argparse, difflib, glob, json, os, re, subprocess, sys
+import argparse, difflib, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import localedits  # noqa: E402  (MXCLI, CACHE, fetch_pkg)
@@ -348,6 +350,54 @@ def cmd_collect(a):
     return 0 if n else 1
 
 
+def cmd_score(a):
+    """Did each route work? One row per module the update kept, judged on the app's own git log and the run's files."""
+    W, app = os.path.abspath(a.work), os.path.abspath(a.app)
+    try:
+        rows = json.load(open(os.path.join(W, "edit-routes.json")))
+    except (OSError, ValueError):
+        print("editroute-score: no edit-routes.json, nothing was routed")
+        return 0
+    r = subprocess.run(["git", "-C", app, "log", "--format=%s"], capture_output=True, text=True)
+    log = r.stdout.splitlines() if r.returncode == 0 else []
+    want = {}
+    for ln in rd(a.plan).splitlines() if a.plan else []:
+        f = ln.split()
+        if len(f) >= 3 and f[0].isdigit():
+            want[f[2]] = f[1]
+    kept = {ln.split(" ", 1)[0] for ln in rd(os.path.join(app, ".stepupdate", "kept.txt")).splitlines() if ln.strip()}
+    out, tot = [], {"modules": 0, "routed": 0, "on_target": 0, "held_modules": 0, "held_elements": 0, "replay_failed": 0}
+    for x in rows:
+        mod = x["module"]
+        got = next((m.group(1) for ln in log if (m := re.match(rf"step: {re.escape(mod)} (\S+) \(stepupdate, idcheck PASS", ln))), "")
+        replayed = any(ln.startswith(f"replay: {mod}") for ln in log)
+        rp = os.path.join(W, "replay", f"{mod}.mdl")
+        failed = os.path.exists(rp) and not replayed and os.path.exists(os.path.join(W, f"replay-{mod}.out"))
+        on = bool(got) and mod not in kept and (not want.get(mod) or got == want[mod])
+        held = len(x.get("held") or [])
+        verdict = ("HOLD" if x["route"] == "HOLD" else "REPLAY FAILED" if failed else "ON TARGET" if on
+                   else "KEPT" if mod in kept else "OFF TARGET")
+        tot["modules"] += 1; tot["routed"] += x["route"] != "HOLD"; tot["on_target"] += on
+        tot["held_modules"] += x["route"] == "HOLD"; tot["held_elements"] += held; tot["replay_failed"] += failed
+        out.append([mod, x["route"], got or "-", want.get(mod, "-"), "yes" if replayed else "no" if os.path.exists(rp) else "-",
+                    str(held), verdict, x.get("reason", "")[:160]])
+    head = ["module", "route", "installed", "plan_target", "replayed", "held_elements", "verdict", "reason"]
+    with open(os.path.join(W, "editroute-score.tsv"), "w") as f:
+        f.write("\t".join(head) + "\n" + "".join("\t".join(o) + "\n" for o in out))
+    if a.ledger:   # one line per module per run, across apps: the route that was chosen and whether it worked
+        new = not os.path.exists(a.ledger)
+        with open(a.ledger, "a") as f:
+            if new:
+                f.write("\t".join(["date", "app", "work"] + head) + "\n")
+            for o in out:
+                f.write("\t".join([time.strftime("%Y-%m-%d"), a.label or os.path.basename(app), W] + o) + "\n")
+    for o in out:
+        print(f"SCORE {o[0]} {o[1]} -> {o[6]} (installed {o[2]}, plan {o[3]}, held {o[5]})")
+    print(f"editroute-score: {tot['on_target']}/{tot['modules']} kept module(s) ended on the plan's version, "
+          f"{tot['held_modules']} held, {tot['held_elements']} element(s) held, {tot['replay_failed']} replay(s) failed")
+    return 0 if tot["on_target"] == tot["modules"] else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -356,8 +406,11 @@ def main():
     p.add_argument("--original", required=True); p.add_argument("--plan", required=True); p.add_argument("--localedits")
     c = sp.add_parser("collect")
     c.add_argument("--work", required=True)
+    s = sp.add_parser("score")
+    s.add_argument("--work", required=True); s.add_argument("--app", required=True); s.add_argument("--plan")
+    s.add_argument("--ledger", help="append the rows here too (cross-run: UPG_ROUTE_LEDGER)"); s.add_argument("--label")
     a = ap.parse_args()
-    return cmd_plan(a) if a.cmd == "plan" else cmd_collect(a)
+    return {"plan": cmd_plan, "collect": cmd_collect, "score": cmd_score}[a.cmd](a)
 
 
 if __name__ == "__main__":
