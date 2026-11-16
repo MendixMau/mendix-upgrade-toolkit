@@ -931,7 +931,8 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
     mod=$(basename "$f"); mod=${mod%.*}
     if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
     # one replay per module per rung: the 10.24 rung's replay must not skip the 11 rung's (editroute writes a new replay/ each rung)
-    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -qxF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}"; then note "replay $mod skipped: replayed already"; continue; fi
+    # no -q: grep must read the whole log, or git dies of SIGPIPE and pipefail makes the check false
+    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -xF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" > /dev/null; then note "replay $mod skipped: replayed already"; continue; fi
     if [ "$DRY" != 1 ] && grep -q "^$mod " "$APP/.stepupdate/kept.txt" 2> /dev/null; then note "replay $mod skipped: the module was kept, its edits are in place"; continue; fi
     rc=0
     case "$f" in
@@ -1288,7 +1289,9 @@ step_journeys() {
     local code=11
     # only SCREEN REVIEW lines and no FAIL/REGRESSION/INVALID journey: a comparison job (12), else a journey fix (11)
     if [ -f "$WORK/journeys-after.out" ] && grep -q 'SCREEN REVIEW' "$WORK/journeys-after.out" &&
-       ! grep -E 'REGRESSION|NOT IN BASELINE|INVALID|\bFAIL\b' "$WORK/journeys-after.out" | grep -vq 'SCREEN REVIEW'; then code=12; fi
+       [ "$(grep -E 'REGRESSION|NOT IN BASELINE|INVALID|\bFAIL\b' "$WORK/journeys-after.out" | grep -vc 'SCREEN REVIEW' || true)" = 0 ]; then code=12; fi
+    # a count, not `| grep -vq`: under pipefail an early-quitting grep -q made the first grep die of SIGPIPE, and `!` turned
+    # that into "only SCREEN REVIEW lines" (stop 12) for a run that had FAIL lines
     nj_file "$code" "Journeys on the NEW app (exit $rc): REGRESSION/FAIL is a gate FAIL, INVALID blocks DONE, SCREEN REVIEW needs both images opened and a reason in shot-accept.txt" "$WORK/journeys-after.out" 60 'REGRESSION|NOT IN BASELINE|INVALID|FAIL|SCREEN|todo|skipped|journeys:'
     nj_add "$code" "Evidence" "summary: $WORK/e2e-after/after/summary.json ; plan: $WORK/journeys/plan.json ; screens: $WORK/e2e-after"
     nj_flush
