@@ -988,8 +988,17 @@ route_kept() {
   xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
   cat "$WORK/editroute.out" >> "$LOG"
   [ "$rc" = 0 ] || { note "editroute: no kept module could be routed, they stay kept (see $WORK/editroute.out)"; return 0; }
-  run_stepupdate "$WORK/route-plan.txt" routed
+  local pass
+  for pass in 1 2 3; do   # a routed update can keep a module for a second reason (WM1 Email_Connector: diagram-only, then 3 associations)
+    run_stepupdate "$WORK/route-plan.txt" routed
+    [ -s "$APP/.stepupdate/kept.txt" ] && [ "$pass" -lt 3 ] || break
+    rc=0; xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
+    cat "$WORK/editroute.out" >> "$LOG"
+    [ "$rc" = 0 ] || break
+  done
   rc=0; xo "$WORK/editroute-collect.out" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
+  cat "$WORK/editroute-collect.out" >> "$LOG"
+  ! grep -q '^HELD ' "$WORK/editroute-collect.out" || note "editroute: $(grep -c '^HELD ' "$WORK/editroute-collect.out") replayed element(s) held for a person: $(grep '^HELD ' "$WORK/editroute-collect.out" | head -3 | tr '\n' ';')"
   note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out") kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out") held for a person (edit-routes.json)"
 }
 

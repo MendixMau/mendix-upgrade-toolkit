@@ -6625,7 +6625,7 @@ ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-runn
 ER="bash $here/editroute_control.sh"
 ctl editroute-cosmetic-pass 0 '^ROUTE Cosmo COSMETIC: only diagram layout differs' '^force-ui.txt: Cosmo ' -- $ER plan
 ctl editroute-real-logic-held-catch 0 '^ROUTE Realmod HOLD: real logic edit: microflow RealFlow \(move it to Realmod_Ext' '!route-plan.txt: .* Realmod$' -- $ER plan
-ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 2 UI' '^force-ui.txt: Uimod ' -- $ER plan
+ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 4 UI' '^force-ui.txt: Uimod ' -- $ER plan
 ctl editroute-unread-unedited-pass 0 '^ROUTE Unread UNREAD' -- $ER plan
 ctl editroute-files-accept-pass 0 '^ROUTE Filesmod FILES' '^accept-unsaved.txt: Filesmod ' -- $ER plan
 ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: Vendmod.E.Gone # editroute VENDOR' -- $ER plan
@@ -6633,6 +6633,14 @@ ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Use
 ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
 ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
 ctl editroute-collect-pass 0 'Uimod.mdl: create or modify layout Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
+# cold test WM1 Atlas_Core: a saved whole element lost the master-layout link and carried the old widget's properties; the change
+# is merged onto the new element instead, and a result mxcli check refuses is held, never executed
+ctl editroute-collect-prop-merge-pass 0 "^Uimod.mdl:   class: 'mine',$" "^Uimod.mdl:   title: 'y'$" '!saved whole element' -- $ER collect
+ctl editroute-collect-app-added-pass 0 "layout Added: added by the app" "^Uimod.mdl:   class: 'own'$" "constant K: the vendor did not change it" -- $ER collect
+ctl editroute-collect-check-held-catch 0 '^HELD Uimod layout Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
+# cold test WM1 Email_Connector: diagram-only, then the routed update kept it for 3 associations; routed again, routes add up
+ctl editroute-reroute-adds-route-pass 0 '^ROUTE Cosmo XASSOC' '^routes: Cosmo COSMETIC\+XASSOC$' '^route-plan.txt: 7 2.0.0 Cosmo$' -- $ER reroute
+ctl editroute-reroute-same-reason-held-catch 0 '^ROUTE Cosmo HOLD: the routed update kept it again for the same reason' '^rc=1$' -- $ER reroute
 ctl cockpit-check-keep-recommended-catch 0 "'keep old version \(kept list\); ': CAUGHT" "'keep old version until 2027-03': ok" "'update to the latest version a': ok" -- $ER gate
 ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"\)' 'decisions"\)\.doc\(it\.id\)\.set' 'signoffs"\)\.doc\(await user\.id\(\)\)\.set' 'decisions"\)\.onSnapshot' 'never reads window\.claude\.db' -- $CK pattern
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
