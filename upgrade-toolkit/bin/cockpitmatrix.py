@@ -1274,7 +1274,7 @@ span.chip{cursor:default}
 .shade{position:fixed;inset:0;background:var(--shade);z-index:20}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:21;overflow-y:auto;
   padding:calc(20px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) 22px;display:grid;gap:16px;align-content:start}
-.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
+.agentnote{margin:14px 2px 0;font-size:13px;color:var(--muted)}.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
 .drawer .x{all:unset;cursor:pointer;position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));font-size:22px;color:var(--muted);padding:4px 8px;border-radius:6px}
 .drawer .x:focus-visible{outline:2px solid var(--accent)}
 .drawer h3{margin:0;font-size:21px;padding-right:36px;text-wrap:balance}
@@ -1981,7 +1981,10 @@ def render(model, matrix):
             f"  {h_health(matrix.get('health'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
-            f'  <aside class="side">{qside}{h_band(matrix["band"])}</aside>\n  </div>\n</div>\n{qdlgs}\n'
+            f'  <aside class="side">{qside}{h_band(matrix["band"])}'
+            # the page can lag the run; the session that drives it always knows (cold test WM1, Maurits)
+            '<p class="agentnote">Page not up to date, or stuck? Talk to your agent in the chat. It is easier.</p>'
+            f'</aside>\n  </div>\n</div>\n{qdlgs}\n'
             '<div class="shade" id="shade" hidden></div>\n'
             '<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Details">\n'
             '  <button class="x" id="dClose" type="button" aria-label="Close">×</button>\n  <div id="dBody"></div>\n</aside>\n\n'
