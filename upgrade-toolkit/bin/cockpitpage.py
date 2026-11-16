@@ -24,6 +24,8 @@ Output is page content only (title, style, markup, script), no doctype/html/head
 Exit: 0 written, 2 usage.
 """
 import argparse, datetime, glob, html, json, os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import evidence  # noqa: E402  (what exactly sits behind a plan item)
 
 PHASES = [("find", "Find", ("fetch", "triage")), ("plan", "Plan", ("propose",)),
           ("upgrade", "Upgrade", ("baseline", "convert", "update", "build")),
@@ -569,7 +571,8 @@ def build_model(work):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
                       "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
-                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt)})
+                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
+                      "evidence": evidence.for_item(work, it["name"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
         # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices

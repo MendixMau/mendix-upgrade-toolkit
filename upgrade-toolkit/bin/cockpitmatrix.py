@@ -1431,6 +1431,7 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .qdlg{max-width:640px;width:calc(100% - 32px);border:0;border-radius:16px;padding:0;background:var(--panel);color:var(--fg);box-shadow:0 20px 60px rgba(0,0,0,.35)}
 .qdlg::backdrop{background:rgba(0,0,0,.4)}.qcard{padding:18px 20px}.qcard.done{opacity:.6}
 .qk{font:12px var(--mono);color:var(--muted)}.qcard h3{margin:4px 0 10px;font-size:19px}.qcard p{margin:6px 0;font-size:14px;line-height:1.45}
+.qev{margin:10px 0;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px}.qev ul{margin:6px 0 4px 18px;padding:0}.qev li{margin:2px 0}.qev small{opacity:.7}
 .qrec{padding:8px 10px;border-radius:10px;background:var(--accentbg)}
 .qopts{display:grid;gap:8px;margin-top:12px}
 .qopts button{font:inherit;font-size:14px;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
@@ -2003,6 +2004,12 @@ def h_questions(model, matrix=None):
             btns.append(f'<button type="button" disabled data-choice="{E(o["key"])}" class="{"rec" if rec else ""}"><b>{E(lab)}</b>'
                         f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:220]) + "</small>" if say else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
+        # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
+        ev = i.get("evidence") or {}
+        if ev.get("what"):
+            ctx += ('<div class="qev"><b>What exactly</b><ul>' + "".join(f"<li>{E(w)}</li>" for w in ev["what"][:15])
+                    + (f"<li>and {len(ev['what']) - 15} more</li>" if len(ev["what"]) > 15 else "") + "</ul>"
+                    + f'<small>From: {E(", ".join(ev.get("files") or []))}</small></div>')
         why = plain(i.get("rec_text") or "")
         rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
         if rl and why.startswith(rl) and why[len(rl):].startswith(";"):   # the option itself is the button; keep effort and risk
