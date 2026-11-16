@@ -746,8 +746,16 @@ def main():
     F.build()
     ids_for(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
-    ident = [f"2|{it['key']}|{it['text']}" for it in F.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in F.items3] \
-        + [f"4|{it['key']}|{it['text']}" for it in F.items4] + [f"v|{F.src}|{F.tgt}|{F.tgt2}"]
+    # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
+    # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
+    # signed path below accepts those items at their recommendation (keep old version), which is what the update already did.
+    H = F
+    if F.kept:
+        H = Facts(a)
+        H.keptmods = lambda: None
+        H.build()
+    ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
+        + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
     hashval = hashlib.sha256("\n".join(sorted(ident)).encode()).hexdigest()
     prev_hash = next((m.group(1) for m in (HASH.match(x) for x in (old or "").splitlines()) if m), None)
     so = parse_signoff(old)

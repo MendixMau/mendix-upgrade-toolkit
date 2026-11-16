@@ -5578,6 +5578,11 @@ ctl proposal-changed-block-catch 0 '^## Changed since signed \(Jan Jansen, 2026-
 ctl proposal-changed-status-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal.py --status --work $PR/changed
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
 ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bash $PR/prop.sh $PR/changed
+# the update step keeps a module after the sign-off (kept.txt): that is the run's own result, not a new plan (cold test WM1: 7 kept
+# modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation, keep the old version
+printf 'Newmod local edits refuse the update\n' > $PR/changed/kept.txt
+ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item' -- bash $PR/prop.sh $PR/changed
+ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*keep old version.*accepted with the sign-off of Jan Jansen' -- cat $PR/changed/DECISIONS.md
 # --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
 # ssum.sh WORK: one line per step: id, topic, alias, approval state, by, source, whether found and proposed are set
 cat > $PR/ssum.sh <<'SH'

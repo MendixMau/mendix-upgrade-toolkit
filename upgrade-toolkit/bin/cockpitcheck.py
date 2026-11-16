@@ -7,7 +7,7 @@ Why (cold test WM1, 2026-11-16): the owner saw rows that said "Not approved yet"
 now". Each was a separate cockpit bug; this check makes the whole class fail a run instead of confusing a person.
 
 Rules (each line of output names one):
-  ghost-step       a plan-item step (P-n alias) on the page that the current PROPOSAL.md no longer holds
+  ghost-step       an undecided plan-item step (P-n alias) on the page that the current PROPOSAL.md no longer holds
   wait-no-ask      a row whose plan cell asks for an approval ("Not approved yet", "Needs your OK") while the plan is signed
                    and Blocked on you does not hold that item
   stop-no-ask      the red stop bar says the run waits for you, and Blocked on you is empty
@@ -37,7 +37,8 @@ def check(work):
     in_plan = set(re.findall(r"\[(P-\d+)\]", plan))
     recs, _ = stp.load(work)
     for r in recs or []:
-        if plan and r.get("alias", "").startswith("P-") and stp.mine(r) and r["alias"] not in in_plan:
+        decided = (r.get("approval") or {}).get("state") in ("approved", "rejected")   # a module the update kept after the sign-off
+        if plan and r.get("alias", "").startswith("P-") and stp.mine(r) and r["alias"] not in in_plan and not decided:
             out.append(f"ghost-step {r['id']} ({r['alias']}, {r['title']}): not in the current plan")
     signed = bool(model.get("signed"))
     for row in M["rows"]:
