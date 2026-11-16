@@ -146,6 +146,13 @@ set -u
 : "${UPG_TOOLS:=$RUN/tools}"
 : "${MXCLI:=${UPG_MXCLI:-}}"
 B="$TK/bin"
+# Apple Silicon: every container call goes to a VM with Rosetta (bin/dockerhost.sh). Cold test WM1: the run used a qemu VM,
+# mxcli crashed on all 10 module updates and each was recorded as "kept".
+if DH=$(bash "$B/dockerhost.sh"); then
+  [ -z "$DH" ] || [ "$DH" = "${DOCKER_HOST:-}" ] || { echo "upgrade-pipeline.sh: containers run on $DH (Rosetta)"; export DOCKER_HOST="$DH"; }
+elif [ "${DRY:-0}" != 1 ]; then
+  exit 2
+fi
 PORT_OFF=${PORT_OFF:-0}
 APP_PORT=$((8080 + PORT_OFF)); ADMIN_PORT=$((8090 + PORT_OFF))
 export TK RUN UPG_TOOLS
@@ -243,6 +250,11 @@ decisions_apply() {
 cockpit_regen() {
   [ "$DRY" != 1 ] || return 0
   python3 "$B/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html" >> "$WORK/logs/decisions.log" 2>&1 || true
+  # the page must not contradict the run (cold test WM1: ghost "Not approved yet" rows, a stop bar while running); a problem is
+  # said in the step log and kept in cockpit-check.txt, never a failed step
+  if ! python3 "$B/cockpitcheck.py" --work "$WORK" > "$WORK/cockpit-check.txt" 2>&1; then
+    say "cockpit: the page contradicts the run, see $WORK/cockpit-check.txt"; sed 's/^/  /' "$WORK/cockpit-check.txt"
+  fi
   # rung 2 also refreshes the cockpit of rung 1, so the run keeps one page from start to end
   [ -z "${UPG_COCKPIT_OUT:-}" ] || [ ! -f "$WORK/COCKPIT.html" ] || cp "$WORK/COCKPIT.html" "$UPG_COCKPIT_OUT" 2>/dev/null || true
   # UPG_COCKPIT_HISTORY=1 keeps every version of the page (a demo video shows the cockpit filling up), next to the one cockpit
@@ -601,6 +613,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     note "no module-jumps.txt: release-impact.md holds Studio Pro rows only; module rows NOT generated"
   fi
   [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
+  dojo_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
@@ -765,8 +778,9 @@ proposal_stop() { # proposal_stop RC: rc 14 / 15 end the run with NEEDS-JUDGMENT
   case "$1" in
     0) return 0 ;;
     14) nj_add 14 "Upgrade proposal awaits sign-off: read $WORK/PROPOSAL.md" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
-Nothing in the app model has changed. Read PROPOSAL.md, answer the section-3 items in chat (steps/decide.md; the P-n lines go to $WORK/DECISIONS.md), then a person writes one line in section 6:
-\`Signed-off: <name> <yyyy-mm-dd>\` to go on, or \`Status: PAUSED <reason>\` to stop on purpose. An agent never writes that line. Then run the command at the top of this file."
+Nothing in the app model has changed. Answer the questions under Blocked on you in the live cockpit and approve the plan there
+(the approval carries your Git name), or answer the section-3 items in chat (steps/decide.md) and approve on the page.
+To stop on purpose, write \`Status: PAUSED <reason>\` in PROPOSAL.md section 6. Then run the command at the top of this file."
        nj_file 14 "PROPOSAL.md (head)" "$WORK/PROPOSAL.md" 30 ;;
     15) nj_add 15 "Upgrade proposal PAUSED by the owner" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
 The run stopped on purpose; no step after propose has run. Resume: remove the \`Status: PAUSED\` line from $WORK/PROPOSAL.md section 6, write \`Signed-off: <name> <yyyy-mm-dd>\`, then
@@ -775,8 +789,20 @@ The run stopped on purpose; no step after propose has run. Resume: remove the \`
   esac
   nj_flush
 }
+# Dojo to React (B6-4) on every run, against the last rung: the move is part of each upgrade, not a later project. Cold
+# test WM1: the pipeline never ran dojo_report.py, so 144 legacy core widgets in 83 documents showed up nowhere.
+dojo_report() {
+  [ "$DRY" != 1 ] || { say "+ dojo_report.py $WORK/original.mpr --to ${TARGET2:-$TARGET} --out $WORK/dojo-react.md"; return 0; }
+  [ -f "$WORK/original.mpr" ] || return 0
+  local rc=0
+  xo "$WORK/dojo-react.out" python3 "$B/dojo_report.py" "$WORK/original.mpr" --to "${TARGET2:-$TARGET}" --out "$WORK/dojo-react.md" || rc=$?
+  [ "$rc" = 0 ] || note "dojo_report.py exit $rc, see $WORK/dojo-react.out"
+}
+
 step_propose() {
   local rc=0
+  # a run whose triage predates the report
+  [ -s "$WORK/dojo-react.md" ] || dojo_report
   if [ "$DRY" = 1 ]; then
     say "+ action_inventory.py $WORK/original.mpr --out $WORK/actions.json; apimock.py inventory $WORK/original.mpr --json $WORK/apimock-inventory.json"
     say "+ proposal.py --work $WORK --source $SOURCE --target $TARGET (exit 14 unsigned, 15 PAUSED, 0 signed or unattended)"
@@ -899,7 +925,8 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
     [ -f "$f" ] || continue
     mod=$(basename "$f"); mod=${mod%.*}
     if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
-    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -qxF "replay: $mod"; then note "replay $mod skipped: replayed already"; continue; fi
+    # one replay per module per rung: the 10.24 rung's replay must not skip the 11 rung's (editroute writes a new replay/ each rung)
+    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -qxF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}"; then note "replay $mod skipped: replayed already"; continue; fi
     if [ "$DRY" != 1 ] && grep -q "^$mod " "$APP/.stepupdate/kept.txt" 2> /dev/null; then note "replay $mod skipped: the module was kept, its edits are in place"; continue; fi
     rc=0
     case "$f" in
@@ -928,7 +955,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
                else rc=1; fi ;;
     esac
     [ "$rc" = 0 ] || { nj_file 13 "replay of $mod failed (exit $rc): $f" "$WORK/replay-$mod$([ "${f##*.}" = patch ] && echo -patch).out" 30; nj_flush; }
-    commit_app "replay: $mod" replay "replay-$mod"
+    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod"
     note "replayed the local edits of $mod from $f"
   done
 }
@@ -950,10 +977,27 @@ assoc_unreplayed() {
   done
 }
 
-# update: module updates with the post-convert plan; kept modules are recorded (SKILL stop rules), decided at the gate.
+# route_kept (cold test WM1): a module the update refused is not kept at its old version by default. editroute.py routes each one
+# (diagram-only, UI and constants replayed, unreadable but unedited, files kept as copies, vendor drops nothing uses, associations
+# of other modules replayed with their ids) and a second stepupdate pass updates the routed modules; only HOLD rows stay kept.
+route_kept() {
+  if [ "$DRY" = 1 ]; then x python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt"; return 0; fi
+  [ -s "$APP/.stepupdate/kept.txt" ] || return 0
+  local rc=0 le=()
+  [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
+  xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
+  cat "$WORK/editroute.out" >> "$LOG"
+  [ "$rc" = 0 ] || { note "editroute: no kept module could be routed, they stay kept (see $WORK/editroute.out)"; return 0; }
+  run_stepupdate "$WORK/route-plan.txt" routed
+  rc=0; xo "$WORK/editroute-collect.out" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
+  note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out") kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out") held for a person (edit-routes.json)"
+}
+
+# update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
   run_stepupdate "$WORK/plan.txt" post-convert
+  route_kept
   replay_edits
   assoc_unreplayed
   if [ "$DRY" != 1 ]; then

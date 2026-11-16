@@ -16,7 +16,7 @@ Not triggers: INVALID from missing inputs (fix the measurement), a first-seen re
 ## Options per kind (at most 4, plus "something else")
 | kind | 1 | 2 | 3 | 4 |
 |---|---|---|---|---|
-| Marketplace module | keep old version (kept list) | replace with the Marketplace equivalent (`replacements.tsv` row) | rebuild locally, drop the module | hand to a named person |
+| Marketplace module | update to the latest version and carry the edits over (`editroute.py`) | update, move the edits to `<Module>_Ext` by hand | keep old version for now (a reason and an end date) | hand to a named person |
 | page / snippet | keep as converted, accept the look (PASS* path) | rebuild with the new widgets | remove if dead (`impact_map`) | hand to a named person |
 | widget (.mpk) | keep old package, accept the risk | swap to the successor (`dojo-successors.tsv`) | rebuild as pluggable / native | hand to a named person |
 | Java action / vendor Java | keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person |
@@ -26,8 +26,26 @@ Widget swap, properties with no counterpart: map every property the source widge
 ## Asking
 One question per item, with the options above and the evidence path in the question. On Claude Code use AskUserQuestion;
 on any other harness print the same as a numbered markdown list ending "5. something else". Either way end the turn and
-wait. Recommending an option from the evidence is fine; choosing silently is not. UNATTENDED runs keep the existing
-default (keep at the old version) and record it ASSUMED.
+wait. Recommending an option from the evidence is fine; choosing silently is not. UNATTENDED runs take the recommendation and
+record it ASSUMED. For an edited Marketplace module the recommendation is always the update: an edit is no reason to stay behind
+(the old version misses fixes and may not run on the next Mendix version). `bin/editroute.py` carries the edits over; only a real
+logic edit, Java user code or a removal the app still uses is held, and its card names the element and says to move it into
+`<Module>_Ext` (a module of the app's own that calls the Marketplace module) before the update. "Keep" is never the
+recommendation unless it names a reason and an end date (cockpitcheck `keep-recommended`).
+
+The live cockpit asks the same questions: "Blocked on you" in the sidebar lists one row per open item, and Resolve opens
+the question with its context, one button per option and what each option does; the plan approval comes last (cold test
+WM1: the questions were two or three clicks deep in drawers and nobody found them). The approval carries the person's Git
+name; nobody types a name. A click posts to cockpitserve.py /decide, which runs decisions.py import and apply, so the page
+and the chat write one ledger. The session that drives the run watches `<cockpit dir>/.cockpit-decided` every 15 s
+(Monitor on `tail -F`), says what came in, and reruns from the stop once the plan is approved. A person can answer in
+either place.
+
+A triage check that did not run (for example the release notes, when the company brain's version tables are missing) is
+never a silent pass: proposal.py makes it a section-3 question ("run the check first", "go on without it, a named person
+reads the release notes", "pause"), so the plan cannot be approved before someone chose. "Needs a person anyway" items
+(key-user confirmation, visual check, real test systems, go-live) are not plan questions: they belong to the test stage
+and go-live, and the cockpit shows them as "For a person", never as blocking.
 
 ## Pattern catalogue (playbooks/rearchitecture.md)
 Before asking, look for an RA entry for the item: bin/proposal.py already cites it in section 3 (`[RA-n, status]`). Ask with that

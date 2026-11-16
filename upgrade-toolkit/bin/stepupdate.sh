@@ -434,6 +434,11 @@ PY
   fi
   if [ $rc != 0 ]; then
     tail -5 "$log"
+    # a crash of the tool is not a fact about the module: never record it as kept (cold test WM1: mxcli under qemu
+    # crashed on all 10 updates and every module was "kept")
+    if grep -qE '^(panic: |fatal error: )|SIGSEGV' "$log"; then
+      revert; echo "STOP: mxcli crashed while updating $mod (a tool fault, not the module: $(grep -m1 -E '^(panic: |fatal error: )' "$log")); tree reverted. On Apple Silicon run the containers through Rosetta (bin/dockerhost.sh), then rerun"; exit 3
+    fi
     keep "$mod" "update failed, exit $rc" && continue
     echo "STOP: update of $mod failed (exit $rc, $log); tree left as is"; exit 2
   fi

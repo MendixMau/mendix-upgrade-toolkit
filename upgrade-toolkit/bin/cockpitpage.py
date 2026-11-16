@@ -24,6 +24,8 @@ Output is page content only (title, style, markup, script), no doctype/html/head
 Exit: 0 written, 2 usage.
 """
 import argparse, datetime, glob, html, json, os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import evidence  # noqa: E402  (what exactly sits behind a plan item)
 
 PHASES = [("find", "Find", ("fetch", "triage")), ("plan", "Plan", ("propose",)),
           ("upgrade", "Upgrade", ("baseline", "convert", "update", "build")),
@@ -447,7 +449,9 @@ def build_model(work):
     nj = rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
     m = re.match(r"# NEEDS JUDGMENT: step (\w+), exit (\d+)", nj)
     stopped = (m.group(1), int(m.group(2))) if m else None
-    done = {s: bool(rd(os.path.join(work, "state", s + ".done"))) for s in STEP_ORDER}
+    if stopped and running(work):   # the run went on after that stop (cold test WM1: red "waits for you" bar after the approval)
+        stopped = None
+    done ={s: bool(rd(os.path.join(work, "state", s + ".done"))) for s in STEP_ORDER}
     per = run_minutes(work)
     commits = app_commits(work)
 
@@ -467,6 +471,10 @@ def build_model(work):
 
     def add(it):
         it["decided"] = last.get(it["id"])
+        # an approval counts only for the plan it was given on (cold test WM1: the plan changed after the approval, the
+        # pipeline asked again, but the page still hid the button)
+        if it["kind"] == "signoff" and it["decided"] and it["decided"].get("plan_hash") not in (None, it.get("plan_hash")):
+            it["decided"] = None
         items.append(it)
 
     for e in rgroups:
@@ -505,7 +513,8 @@ def build_model(work):
         rerun = (re.search(r"then rerun:\n\n {4}(.+)", nj) or [None, ""])[1]
         secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
         stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun}
-    if stopped and not any(j.get("step") == stopped[0] for j in djo):
+    # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
+    if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
         for k, (title, code, body) in enumerate(secs, 1):
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
@@ -553,24 +562,26 @@ def build_model(work):
         rec_txt = it["sub"].get("recommendation", "")
         opts = [{"key": "rec", "label": short(rec_txt.split(";")[0] if rec_txt else "Take the recommendation", 110), "causes": ""}]
         for n, o in enumerate(opts_txt, 1):
-            opts.append({"key": f"o{n}", "label": short(o, 110), "causes": ""})
+            if short(o, 110) != opts[0]["label"]:   # the recommended option is already the first one (WM1: "keep old version" twice)
+                opts.append({"key": f"o{n}", "label": short(o, 110), "causes": ""})
         for o in opts:
             o["writes"] = [{"decisions_md": {"id": pid, "name": it["name"], "kind": it["kind"], "option": o["label"]}}]
         is_assumed = bool(row and "ASSUMED" in (row[5] if len(row) > 5 else "")) or not row
         if is_assumed and not last.get(pid):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
-                      "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 200),
-                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt)})
+                      "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
+                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
+                      "evidence": evidence.for_item(work, it["name"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
         # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices
         # in PROPOSAL.md / DECISIONS.md that nobody answered (len(assumed)).
         n = len(AD) + len(assumed) if recs is None else sum(1 for r in recs if (r.get("approval") or {}).get("state") == "assumed")
         add({"id": "signoff", "kind": "signoff", "dot": "warn", "title": "Sign the plan",
-             "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing goes live without your name",
-             "step": "propose", "problem": "Nothing goes live without your name on the plan. Review it under Plan. To change one choice first, say so in chat (decisions.py pending lists them).",
-             "rec": "sign", "rec_text": "Read the plan, then sign.", "options": [{"key": "sign", "label": "Sign the plan"}], "plan_hash": P["hash"]})
+             "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing changes in the app before you approve",
+             "step": "propose", "problem": "Nothing changes in the app before you approve the plan. Review it under Plan. To change one choice first, answer its question or say so in chat (decisions.py pending lists them).",
+             "rec": "sign", "rec_text": "", "options": [{"key": "sign", "label": "Approve and continue"}], "plan_hash": P["hash"]})
     visible = [i for i in items if not i.get("hidden")]
     open_visible = [i for i in visible if not (i.get("decided") and i["kind"] != "signoff") and i.get("open", 1)]
     order = {"bad": 0, "warn": 1}
@@ -769,7 +780,7 @@ def build_model(work):
 
 
 # --live: poll the server's status (the "Running now" bar, in place) and stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes
-LIVE_JS = """<script>
+LIVE_JS = """<script>window.UPG_LIVE=true;</script><script>
 (function(){var k="cockpit-scroll",s=null,due=false;
 try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
 function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
@@ -777,8 +788,17 @@ function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r){b.hi
 var w=[r.mins?r.mins+" min":"just started"];if(r.tool)w.push("now in "+r.tool);if(r.said)w.push(r.said);
 b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.querySelector("small").textContent=w.join(" \u00b7 ");b.hidden=false;}
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
-setInterval(function(){var dr=document.getElementById("drawer");if(due){if(!dr||dr.hidden)reload();return;}
-fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if(!dr||dr.hidden)reload();}}).catch(function(){});},3000);})();
+setInterval(function(){var dr=document.getElementById("drawer"),qo=document.querySelector("dialog.qdlg[open]");if(due){if((!dr||dr.hidden)&&!qo)reload();return;}
+fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if((!dr||dr.hidden)&&!qo)reload();}}).catch(function(){});},3000);})();
+(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal)d.showModal();});});
+document.querySelectorAll(".qclose").forEach(function(c){c.addEventListener("click",function(){c.closest("dialog").close();});});
+document.querySelectorAll(".qcard button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
+var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]");c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
+fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:c.dataset.item,choice:b.dataset.choice})})
+.then(function(r){return r.json();}).then(function(r){if(r.ok){c.classList.add("done");m.textContent=r.said+". The agent picks it up within 15 seconds.";setTimeout(function(){location.reload();},1200);}
+else{c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+r.said;}})
+.catch(function(e){c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+e;});});});
+document.querySelectorAll(".qhint").forEach(function(h){h.textContent="Saved into the run with your Git name; the agent picks it up within 15 seconds.";});})();
 </script>
 """
 

@@ -121,6 +121,27 @@ PY
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
          rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+  decide) # Blocked on you (cold test WM1): every open question is a sidebar row and a dialog with one button per option, the sign-off last; the local
+         # server's POST /decide writes the same ledger as the page import, refuses bad answers and form posts, and a card
+         # disappears once answered
+         ck > /dev/null
+         echo "cards: $(grep -o '<div class="qcard" data-item="[^"]*"' "$T/out.html" | sed 's/.*data-item="//;s/"//' | paste -sd ' ' -)"
+         echo "keep twice: $(grep -o '<div class="qcard" data-item="P-1".*' "$T/out.html" | sed 's/<div class="qcard" data-item="P-2".*//' | grep -o 'data-choice="[^"]*"' | paste -sd ' ' -)"
+         d=$T/srv; mkdir -p "$d"; echo "$W" > "$d/.cockpit-work"
+         python3 "$B/cockpitserve.py" --dir "$d" --idle-exit 60 > /dev/null 2>&1 & sp=$!
+         for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done; u=http://127.0.0.1:$(cat "$d/.cockpit-port")/decide
+         post() { curl -s -X POST -H 'Content-Type: application/json' -d "$1" "$u"; echo; }
+         echo "rows: $(grep -o '<button type="button" class="resolve" data-q="q[0-9]*"' "$T/out.html" | wc -l | tr -d ' ')"
+         echo "says: $(grep -o '<dialog class="qdlg" id="q4">.*' "$T/out.html" | grep -c 'The module stays as it is now')"
+         echo "bad option: $(post '{"item":"P-1","choice":"zzz","by":"Ana"}' | grep -o '"ok": false')"
+         echo "form post: $(curl -s -o /dev/null -w '%{http_code}' -X POST -d item=P-1 "$u")"
+         echo "answer: $(post '{"item":"P-2","choice":"o1","by":"Ana"}')"
+         echo "ledger: $(python3 -c 'import json,sys; print(*[r["item"]+"="+r["choice"]+" by "+r["by"]+" via "+r["source"] for r in json.load(open(sys.argv[1]))])' "$W/decisions.json")"
+         echo "sign: $(post '{"item":"signoff"}')"
+         echo "signed: $(grep -c "^Signed-off: $(git config user.name) " "$W/PROPOSAL.md")"
+         echo "page cards: $(grep -o '<div class="qcard" data-item="[^"]*"' "$d/COCKPIT-view.html" | sed 's/.*data-item="//;s/"//' | paste -sd ' ' -)"
+         echo "decided log: $(wc -l < "$d/.cockpit-decided" | tr -d ' ')"
+         kill $sp 2> /dev/null ;;
   live-open) # cockpit_live as the pipeline runs it, with a stub opener that counts the opens
          { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
          . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; rm -f "$W/state/triage.done"
@@ -202,12 +223,12 @@ D=json.loads(re.search(r"const D=(.*?);\n", t, re.S).group(1)); B=D["matrix"]["b
 ns=re.sub(r"<script>.*?</script>","",t,flags=re.S)      # what a viewer without JavaScript gets
 chips={c["label"]:c["n"] for c in B["closed"]["chips"]}
 if case=="static":
-    print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "open topics still to validate" in ns)
+    print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "for you now" in ns)
     print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress|Stopped at \w+, waiting for you", ns)))
     print("matrix cells without JS:", len(re.findall(r'data-i="\d+" data-s="', ns)), "of", 4*len(D["matrix"]["rows"]))
     print("feed and readiness without JS:", ns.count("<li>")>0, ns.count('data-ready=')+ns.count('class="chip ok"')>0)
     print("viewport meta:", 'name="viewport" content="width=device-width,initial-scale=1"' in ns)
-    print("closed total = sum of chips:", B["closed"]["n"]==sum(chips.values()), "| exactly two numbers:", ns.count('class="kpi ')==2)
+    print("closed total = sum of chips:", B["closed"]["n"]==sum(chips.values()), "| one for-you number:", ns.count("for you now")==1)
 elif case=="framing":
     legend=re.search(r'<div class="legend">(.*?)</div>', ns, re.S).group(1)
     used={c["s"] for r in D["matrix"]["rows"] for c in r["cells"].values()}|{c["s"] for c in D["matrix"]["ready"]}
@@ -354,5 +375,16 @@ PY
               matrix-dashes)        cp "$here/fixtures/cockpit/items.json" "$W/cockpit-items.json"; ck >/dev/null
                                     echo "dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$T/out.html")"; echo "generator dash count: $(cnt -E $'\xe2\x80\x94|\xe2\x80\x93' "$B/cockpitmatrix.py")" ;;
             esac ;;
+  # cockpitcheck.py: the page never contradicts itself (cold test WM1: ghost "Not approved yet" rows, a red stop bar while running)
+  check-ghost) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
+  check-withdraw) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            python3 -c "import sys; sys.path.insert(0,'$B'); import steps; print('withdrawn', steps.withdraw('$W', {'S-1','S-2','S-3'}, 'No longer in the plan.'))"
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "rows Oldmod: $(cnt 'module Oldmod' "$T/out.html")" ;;
+  check-running) sleep 300 & sp=$!; mkdir -p "$W/state" "$W/logs"; printf 'update\t%s\t%s\n' "$(date +%s)" "$sp" > "$W/state/running"
+            printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
+            python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
   *) echo "unknown case $case_"; exit 2 ;;
 esac

@@ -16,7 +16,7 @@ table row itself: the brain names components by display name, the table detects 
 
 usage: brain_mine.py [--brain DIR] [--table replacements.tsv] [--to VER] [--min N] [--out brain-patterns.md]
                      [--tsv candidates.tsv]
-  --brain  default $UPG_BRAIN or ~/Mendix/<company>-brain (read only, never written)
+  --brain  default: bin/brainpath.py, a ~/Mendix/*-brain with version tables (read only, never written)
   --table  default playbooks/replacements.tsv next to this bin/
   --to     drop rows of component versions whose min Mendix is above VER (not installable on the target)
   --min    components a successor needs to count as recurring (default 2)
@@ -107,7 +107,8 @@ def covered_by(names, cov):
 def main():
     here = Path(__file__).resolve().parent
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    ap.add_argument("--brain", default=os.environ.get("UPG_BRAIN")
+    import brainpath
+    ap.add_argument("--brain", default=brainpath.find()[0] or os.environ.get("UPG_BRAIN")
                     or str(Path.home() / "Mendix/<company>-brain"))
     ap.add_argument("--table", default=str(here.parent / "playbooks" / "replacements.tsv"))
     ap.add_argument("--to")

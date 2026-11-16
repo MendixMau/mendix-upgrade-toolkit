@@ -36,6 +36,10 @@ action_inventory.py and apimock.py inventory on original.mpr.
 """
 import argparse, datetime, hashlib, json, os, re, sys
 
+# cold test WM1 (2026-11-16): an edited Marketplace module is updated, not kept. Editing a module does not stop its update; an old
+# module misses fixes and may not run on the next Mendix version. editroute.py carries the edits over (bin/editroute.py routes).
+UPDATE_CARRY = "update to the latest version and carry the edits over (diagram-only dropped, UI and constants replayed, vendor drops checked)"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TK = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -128,7 +132,6 @@ class Facts:
         self.sizes = {}
         self.systems = None
         self.nendpoints = None; self.api_mocked = 0; self.api_unknown = []; self.api_excluded = 0
-        self.dojo_adv = []
         self.release_open = None
         self.release_total = None
         self.actions = None
@@ -252,6 +255,14 @@ class Facts:
     def release(self):
         t = self.need("release-impact.md", "steps/triage.md item 10")
         if t is None:
+            # cold test WM1: the release-note check could not run (no brain version tables) and the plan still went to sign-off,
+            # so nobody had read what Mendix 10 and 11 change. A check that did not run is a question, never a silent pass.
+            why = (read(self.p("release-impact.out")) or "release-impact.md was not written").strip().splitlines()[0]
+            self.add3("check", "Release notes", f"the release-note check did not run: {why}",
+                      "run the check first: give the run the company brain (its version tables), then rerun triage | "
+                      "go on without it: a named person reads the Mendix release notes for every version on the route before go-live | "
+                      "pause the upgrade",
+                      "run the check first: give the run the company brain (its version tables), then rerun triage", "S", "a change in the new Mendix versions is only found at the build or the test, or after go-live")
             return
         tot = opn = 0
         for head, rows in tables(t):
@@ -303,6 +314,14 @@ class Facts:
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
         if t is None:
             return
+        # the move to React is part of every upgrade (where a path exists): plan work, not advice. Only a widget without
+        # a React path is a decision (below)
+        last = getattr(self.a, "target2", None) or self.a.target or "the target"
+        for head, rows in tables(t):
+            if head[:2] == ["widget", "count"]:
+                for r in rows:
+                    if len(r) > 3 and r[1].isdigit():
+                        self.items2.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
         for head, rows in tables(t):
             if head[:3] != ["status", "package", "version"]:
                 continue
@@ -312,16 +331,16 @@ class Facts:
                 if st in ("can't move", "not researched", "unreadable"):
                     self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"), f"dojo-react.md: {st}: {r[3] if len(r) > 3 else ''}",
                               "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
-                              "keep old package, accept the risk (advisory on 11, blocking on 12)", "L" if st == "can't move" else "M",
+                              "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
                 elif st in ("can move", "delete"):
-                    self.dojo_adv.append(f"{pkg} ({st})")
+                    self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
                         # the successor depends on what each snippet holds (HTML only, a little script, DOM work): a decision per snippet
                         self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"),
                                   f"dojo-react.md: can move: {r[3] if len(r) > 3 else ''}; the successor depends on the content of each snippet",
                                   "keep on the Dojo client for now | HTML Element widget | JavaScript action + nanoflow + Events | pluggable widget | hand to a named person",
-                                  "keep on the Dojo client on an 11 target (advisory on 11, blocking on 12); classify every snippet first", "M",
+                                  "HTML Element widget for every snippet that holds HTML only; classify the rest (script, DOM work) per snippet", "M",
                                   "script in a snippet runs on the Dojo page DOM; Mendix 12 removes the Dojo client")
 
     def sizes_and_actions(self):
@@ -407,10 +426,11 @@ class Facts:
                           "M", "references and data of the old module are moved by hand" if self.renamed[m]["kind"] == "RENAMED" else "the installed version may not run on the target")
                 continue
             self.add3(kind, m, why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")",
-                      "keep old version (kept list) | replace with the Marketplace equivalent (replacements.tsv row) | rebuild locally, drop the module | hand to a named person"
+                      f"{UPDATE_CARRY} | update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
+                      "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person"
                       if kind == "module" else "keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person",
                       "hand to a named person (no version fits; port, replace or remove)" if stranded else
-                      "keep old version (kept list); the stop rule keeps it unattended" if kind == "module" else "keep old jar, pin",
+                      f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin",
                       "L" if stranded else "M", "data loss if a RED edit is replaced" if m in self.red else "behaviour of local edits is lost on update")
         for m, rows in sorted(self.files.items()):
             if any(x.get("kind") == "theme" for x in rows):
@@ -489,7 +509,9 @@ def write_steps(F, work):
     groups = [("modules", "Routine module updates", "module", ("module update in the plan that the toolkit does on its own", "module updates in the plan that the toolkit does on its own"),
                "Update these modules to the versions that fit the new Mendix version."),
               ("repairs", "Predicted repairs", "repair", ("repair that the toolkit expects to make", "repairs that the toolkit expects to make"),
-               "Make these repairs during the upgrade, as the repair table describes.")]
+               "Make these repairs during the upgrade, as the repair table describes."),
+              ("react", "Dojo to React client", "react", ("move to the React client that the toolkit makes", "moves to the React client that the toolkit makes"),
+               "Move the app to the React client on the last rung: every legacy widget to its React successor, then test (playbooks/dojo-to-react.md).")]
     for topic, title, key, what, prop in groups:
         its = [x for x in F.items2 if x["key"].startswith(key + ":")]
         if not its:
@@ -527,6 +549,7 @@ def write_steps(F, work):
             "proposed_say": "A person does this. The toolkit lists it so it is not forgotten.",
             "why": "The toolkit has no way to do this on its own."})
         out[sid] = f"4:{it['key']}"
+    steps.withdraw(work, set(out), "No longer in the plan: a rerun of the proposal dropped this item.")
     return out
 
 
@@ -636,8 +659,6 @@ def render(F, hashval, changed_block, signoff_text):
         L.append(f"- {it['text']}")
         if it["detail"]:
             L.append(f"  - {it['detail']}")
-    if F.dojo_adv:
-        L.append("- React client switch, advisory on 11 (not done in this run): " + ", ".join(F.dojo_adv[:12]) + (" ..." if len(F.dojo_adv) > 12 else ""))
     # section 5
     cnt = {}
     for it in F.items3:
@@ -730,8 +751,17 @@ def main():
     F.build()
     ids_for(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
-    ident = [f"2|{it['key']}|{it['text']}" for it in F.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in F.items3] \
-        + [f"4|{it['key']}|{it['text']}" for it in F.items4] + [f"v|{F.src}|{F.tgt}|{F.tgt2}"]
+    # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
+    # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
+    # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
+    # routed what it could, so what is still kept is exactly that held edit.
+    H = F
+    if F.kept:
+        H = Facts(a)
+        H.keptmods = lambda: None
+        H.build()
+    ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
+        + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
     hashval = hashlib.sha256("\n".join(sorted(ident)).encode()).hexdigest()
     prev_hash = next((m.group(1) for m in (HASH.match(x) for x in (old or "").splitlines()) if m), None)
     so = parse_signoff(old)

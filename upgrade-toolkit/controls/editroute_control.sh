@@ -1,0 +1,83 @@
+#!/bin/bash
+# editroute_control.sh CASE: controls of bin/editroute.py (kept modules routed to an update) and the cockpitcheck keep-recommended
+# rule. A stub mxcli answers describe and refs, so no project or network is needed.
+#   plan     one kept module per route; prints the ROUTE lines and the files editroute writes
+#   collect  the replay files built from saved edits after the routed update
+#   gate     cockpitcheck on a module card that recommends the old version, with and without an end date
+set -u
+B=$(cd "$(dirname "$0")/../bin" && pwd)
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+W=$T/work; A=$T/app; S=$A/.stepupdate; C=$T/cache
+mkdir -p "$W" "$S" "$C/7-1.0.0"
+touch "$A/App.mpr" "$C/7-1.0.0.mpk" "$C/7-1.0.0/project.mpr"
+cat > "$T/mxcli" <<'PY'
+#!/usr/bin/env python3
+import sys
+a = sys.argv[1:]
+if a[0] == "describe":
+    mpr, qn = a[2], a[4]
+    pkg = mpr.endswith("project.mpr")
+    body = "logic A" if pkg or "Cosmetic" in qn else "logic B"
+    print(("@position(1, 1)\n" if pkg else "@position(9, 9)\n@anchor(from: right, to: left)\n") + body)
+elif a[0] == "refs":
+    print(f"References to {a[3]}\n| Caller |" if "Used" in a[3] else f"(no references found to attribute {a[3]})")
+PY
+chmod +x "$T/mxcli"
+export UPG_MXCLI=$T/mxcli UPG_CACHE=$C
+refuse() { printf 'refusing to update: %s element(s) have been changed locally and the update would discard them:\n' "$#" > "$S/step$1-$2.log"
+  local m=$2; shift 2; for e in "$@"; do printf '    %s\n' "$e" >> "$S/step$n-$m.log"; done; printf '\n  - Save them first:  --save-edits <dir>\n' >> "$S/step$n-$m.log"; }
+n=1; refuse 1 Cosmo "MICROFLOW CosmeticFlow"
+n=2; refuse 2 Realmod "MICROFLOW RealFlow"
+n=3; refuse 3 Uimod "LAYOUT L1" "CONSTANT K"
+printf '5 element(s) could not be read, so it cannot be shown that the module is unedited.\n' > "$S/step4-Unread.log"
+touch "$S/step5-Filesmod.log" "$S/step6-Vendmod.log" "$S/step7-Usedmod.log" "$S/step8-Target.log" "$S/step9-Javamod.log"
+printf 'RED  REMOVED      attribute   Vendmod.E.Gone  (column/table dropped; intended?)\n' > "$S/step6-Vendmod.idcheck"
+printf 'RED  REMOVED      attribute   Usedmod.E.Used  (column/table dropped; intended?)\n' > "$S/step7-Usedmod.idcheck"
+printf 'RED  REMOVED      association Other.A_B  (column/table dropped; intended?)\n' > "$S/step8-Target.idcheck"
+cat > "$S/kept.txt" <<'K'
+Cosmo local edits refuse the update
+Realmod local edits refuse the update
+Uimod local edits refuse the update
+Unread elements could not be read, module not shown unedited
+Filesmod FILES-UNKNOWN: update replaced 1 theme/javascript/java file(s), unproven unedited
+Vendmod idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
+Usedmod idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
+Target idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
+Javamod local Java user code edits (FILES-EDITED javasource)
+K
+python3 - "$W/localedits.json" <<'PY'
+import json, sys
+mods = ["Cosmo", "Realmod", "Uimod", "Unread", "Filesmod", "Vendmod", "Usedmod", "Target", "Javamod"]
+json.dump([{"name": m, "cid": 7, "version": "1.0.0", "domain": [], "ui": [], "logic": []} for m in mods], open(sys.argv[1], "w"))
+PY
+for m in Cosmo Realmod Uimod Unread Filesmod Vendmod Usedmod Target Javamod; do echo "7 2.0.0 $m"; done > "$W/plan.txt"
+case "${1:-}" in
+  plan) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$A/App.mpr" --plan "$W/plan.txt"; echo "rc=$?"
+        for f in route-plan.txt force-ui.txt accept-unsaved.txt approved.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
+  collect) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$A/App.mpr" --plan "$W/plan.txt" > /dev/null
+        mkdir -p "$W/saved-edits/Uimod" "$W/saved-edits/Target"
+        printf 'mdl 1;\ncreate or modify layout Uimod.L1;\n' > "$W/saved-edits/Uimod/layout-L1.mdl"
+        printf 'mdl 1;\ncreate or modify constant Uimod.K;\n' > "$W/saved-edits/Uimod/constant-K.mdl"
+        printf 'mdl 1;\ncreate or modify page Uimod.NotRefused;\n' > "$W/saved-edits/Uimod/page-NotRefused.mdl"
+        printf 'mdl 1;\ncreate or modify association Other.A_B from Other.X to Target.Y;\n' > "$W/saved-edits/Target/association-Other_A_B.mdl"
+        python3 "$B/editroute.py" collect --work "$W"; echo "rc=$?"
+        sed 's/^/Uimod.mdl: /' "$W/replay/Uimod.mdl"; sed 's/^/Target.mdl: /' "$W/replay/Target.mdl"; sed 's/^/Target.guids: /' "$W/replay/Target.guids" ;;
+  gate) python3 - "$B" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import cockpitcheck, cockpitpage, cockpitmatrix, steps
+def card(rec):
+    return {"id": "P-1", "kind": "plan-choice", "title": "Oldmod (module)", "rec_text": rec, "options": [{"label": "x"}],
+            "evidence": {"what": ["layout L1: changed in this app"]}}
+for rec in ("keep old version (kept list); effort M", "keep old version until 2027-03-01: the vendor fix for X is not out",
+            "update to the latest version and carry the edits over"):
+    cockpitpage.build_model = lambda w: {"items": [], "signed": True}
+    cockpitmatrix.build = lambda w, m: {"rows": [], "band": {"open": {"items": []}}}
+    cockpitmatrix.open_questions = lambda m, r=rec: [card(r)]
+    steps.load = lambda w: ([], None)
+    out = [x for x in cockpitcheck.check("/nonexistent") if x.startswith("keep-recommended")]
+    print(f"{rec[:30]!r}: {'CAUGHT' if out else 'ok'}")
+PY
+  ;;
+  *) echo "unknown case ${1:-}"; exit 2 ;;
+esac
