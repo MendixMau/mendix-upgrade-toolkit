@@ -494,6 +494,10 @@ ctl platform-drops-zero-approved-pass 0 '^approved: System.Gone # platform drop 
 ctl platform-drops-data-kept-catch 0 '^KEEP System.Kept.HasData: 3 non-null values' '!approved: System.Kept' -- $PD
 ctl platform-drops-query-fail-kept-catch 0 '^KEEP System.Broken.Col: count failed' '!approved: System.Broken' -- $PD
 ctl platform-drops-app-and-info-untouched-pass 0 '!Shop.Order' '!System.Info' '!APPROVE System.Already' -- $PD
+# rerun 9: editroute approved MendixSSO.AuthRequest.Nonce as a VENDOR drop ("nothing refers to it"); it held 5 values
+ctl platform-drops-vendor-data-held-catch 0 '^HELD MendixSSO.AuthRequest.Nonce: 5 non-null values' '^approved: # HELD by platform_drops.py: 5 non-null values' '!^approved: MendixSSO' -- $PD
+ctl platform-drops-vendor-empty-stays-pass 0 '^VENDOR-OK Vend.Old: 0 rows' '^approved: Vend.Old # editroute VENDOR' -- $PD
+ctl platform-drops-vendor-count-fail-held-catch 0 '^HELD Vend.Odd.Col: count failed' '!^approved: Vend.Odd' '2 vendor drop\(s\) held for data$' -- $PD
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"
