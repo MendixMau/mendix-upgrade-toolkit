@@ -4,7 +4,8 @@ Goal: know the version path, the module plan and the traps before anything chang
 
 Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
-`BR=~/Mendix/<company>-brain` (company brain, plain markdown).
+`BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
+with version tables; the scripts find it the same way).
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).

@@ -786,7 +786,7 @@ document.querySelectorAll(".qclose").forEach(function(c){c.addEventListener("cli
 document.querySelectorAll(".qcard button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
 var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]");c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
 fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:c.dataset.item,choice:b.dataset.choice})})
-.then(function(r){return r.json();}).then(function(r){if(r.ok){c.classList.add("done");m.textContent=r.said+". The agent picks it up within 15 seconds.";}
+.then(function(r){return r.json();}).then(function(r){if(r.ok){c.classList.add("done");m.textContent=r.said+". The agent picks it up within 15 seconds.";setTimeout(function(){location.reload();},1200);}
 else{c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+r.said;}})
 .catch(function(e){c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+e;});});});
 document.querySelectorAll(".qhint").forEach(function(h){h.textContent="Saved into the run with your Git name; the agent picks it up within 15 seconds.";});})();

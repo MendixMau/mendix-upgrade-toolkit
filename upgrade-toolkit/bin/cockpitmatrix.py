@@ -1679,7 +1679,8 @@ async function decideStep(btn){
     if(window.UPG_LIVE){   // cold test WM1: the step buttons only knew the hosted page's database and stayed grey in the live cockpit
       const r=await fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({item:btn.dataset.sid,choice:btn.dataset.choice},why?{reason:why}:{}))});
       const t=await r.text();if(!r.ok)throw new Error(t||r.status);
-      msg.textContent=t+" The agent picks it up within 15 seconds.";return;}
+      msg.textContent=t+" The agent picks it up within 15 seconds.";
+      setTimeout(()=>location.reload(),1200);return;}   // the server rerendered the page before it answered; the item leaves Blocked on you
     const row={item:btn.dataset.sid,choice:btn.dataset.choice,by:await user.id(),at:new Date().toISOString(),source:"page"};
     if(why)row.reason=why;
     await db.collection("decisions").doc(row.item).set(row);
