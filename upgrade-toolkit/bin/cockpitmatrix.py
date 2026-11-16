@@ -2061,7 +2061,7 @@ def render(model, matrix):
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
             f'  <aside class="side">{qside}{h_band(matrix["band"])}'
-            # the page can lag the run; the session that drives it always knows (cold test WM1, Maurits)
+            # the page can lag the run; the session that drives it always knows (cold test WM1)
             '<p class="agentnote">Page not up to date, or stuck? Talk to your agent in the chat. It is easier.</p>'
             f'</aside>\n  </div>\n</div>\n{qdlgs}\n'
             '<div class="shade" id="shade" hidden></div>\n'
