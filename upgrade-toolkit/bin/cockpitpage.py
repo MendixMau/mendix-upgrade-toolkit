@@ -567,6 +567,10 @@ def build_model(work):
         for o in opts:
             o["writes"] = [{"decisions_md": {"id": pid, "name": it["name"], "kind": it["kind"], "option": o["label"]}}]
         is_assumed = bool(row and "ASSUMED" in (row[5] if len(row) > 5 else "")) or not row
+        # an item the sign-off accepted at its recommendation is answered (cold test WM1: seven module cards stayed in
+        # Blocked on you while DECISIONS.md held them CONFIRMED with the sign-off)
+        if not last.get(pid) and signed and row and len(row) > 5 and row[5] in ("CONFIRMED", "DECIDED"):
+            last[pid] = {"item": pid, "choice": row[2], "by": row[4], "via": "sign-off"}
         if is_assumed and not last.get(pid):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",

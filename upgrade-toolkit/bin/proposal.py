@@ -777,6 +777,14 @@ def main():
         print(f"proposal: PAUSED by the owner: {so[1]}. Resume: remove the Status line and sign, then rerun the pipeline.")
         return 15
     if so and so[0] == "signed" and prev_hash == hashval:
+        # same plan, newer wording (cold test WM1: the signed cards kept saying "keep old version" after the toolkit
+        # recommended the update): re-render the items, the person's sign-off section is copied over as written
+        i = old.find("\n## 6. Sign-off\n")
+        cur = render(F, hashval, None, old[i + len("\n## 6. Sign-off\n"):].strip("\n")) if i >= 0 else old
+        if cur != old and parse_signoff(cur) == so:
+            with open(out_path + ".tmp", "w", encoding="utf-8") as f:
+                f.write(cur)
+            os.replace(out_path + ".tmp", out_path)
         n = accept_answers(so[1])
         approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
