@@ -18,6 +18,9 @@
 # heal (steps/heal.md): classifies every failing row, heals what belongs to the test (start noise, selection-gated buttons, a runner
 # that did not run, outside calls via apimock, known harness log lines) and reruns only the affected journeys, at most 2 rounds.
 # UPG_HEAL=0 turns it off (journeys then stops on a failure as before). Resume it with --from heal.
+# UPG_SMOKE_MICROFLOWS=1: the smoke walks (basewalk, afterwalk) also follow microflow homes and menu items (smokewalk.js
+# --microflows). Safe: each walk runs on its own copy of the frozen DB. Needed when a role reaches every page through a
+# microflow (WM1: the User home and both menu items), else that role's walk is all SKIPPED and INVALID.
 # Each finished step writes $WORK/state/<step>.done and is skipped on the next run. Logs: $WORK/logs/<step>.log.
 # Judgment stops write $WORK/NEEDS-JUDGMENT.md. Exit codes:
 #    0 gate PASS, nothing left for a person
@@ -437,6 +440,7 @@ import json, sys
 roles, out, pw = sys.argv[1], sys.argv[2], sys.argv[3]
 json.dump({r: {"user": "smoke_" + r.lower(), "pass": pw} for r in roles.split(",") if r}, open(out, "w"), indent=1)' "$1" "$2" "$SMOKE_PW"
 }
+smoke_mf() { [ "${UPG_SMOKE_MICROFLOWS:-0}" != 1 ] || echo --microflows; }   # UPG_SMOKE_MICROFLOWS (header)
 user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
   UARGS=(); local r
   IFS=',' read -ra _rl <<< "$1"
@@ -693,11 +697,13 @@ step_basewalk() {
   copy_db "$X_FROZEN" "$db"
   app_up oldwalk "$old" "$SOURCE" "$db" || die4 "old app did not start for the smoke walk (log: $LOG)"
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
-  rc=0; x node "$B/smokewalk.js" --plan "$WORK/plan.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" --login-path "$(login_path)" \
+  rc=0; x node "$B/smokewalk.js" --plan "$WORK/plan.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --out "$WORK/smoke-before.json" --shots "$WORK/smoke-before-shots" || rc=$?
   app_down oldwalk
   mark_used "$db" walk
   [ "$rc" -le 1 ] || { nj_file 11 "Smoke walk on the OLD app is INVALID (exit $rc)" "$LOG" 30 'INVALID|FAIL|credential'; }
+  [ "$rc" -le 1 ] || [ "${UPG_SMOKE_MICROFLOWS:-0}" = 1 ] || ! grep -q 'microflow (use --microflows)' "$LOG" 2> /dev/null ||
+    nj_add 11 "The smoke walk SKIPPED microflow steps" "A role that reaches its pages only through microflows (home, menu items) proves nothing without them. Rerun with UPG_SMOKE_MICROFLOWS=1: the walk runs on its own copy of the frozen DB, so their side effects stay there."
   [ "$rc" != 1 ] || note "smoke walk on the old app has FAIL steps (baseline defects, listed apart): $WORK/smoke-before.json"
   # always-on journeys
   # BT-4: baseline-evidence.txt (a NO-SIGNOUT line for an app with no sign-out UI) is read here as well as at the gate
@@ -1097,7 +1103,7 @@ step_afterwalk() {
   db=$(fresh_name "${X}_smoke_new"); copy_db "$X_FROZEN" "$db"
   app_up newwalk "$(mda_new)" "$TARGET" "$db" || { nj_file 10 "New app did not start for the smoke walk" "$WORK/logs/runtime-newwalk.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
-  x node "$B/smokewalk.js" --plan "$WORK/plan-new.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" --login-path "$(login_path)" \
+  x node "$B/smokewalk.js" --plan "$WORK/plan-new.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --compare "$WORK/smoke-before.json" --out "$WORK/smoke-after.json" --shots "$WORK/smoke-after-shots" || rc=$?
   app_down newwalk
   mark_used "$db" walk

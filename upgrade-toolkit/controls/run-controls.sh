@@ -1540,6 +1540,9 @@ ctl pipeline-ladder-9-goes-through-10-24-pass 0 'version ladder 9\.24\.2\.1 -> 1
 ctl pipeline-ladder-10-24-goes-straight-pass 0 'version ladder 10\.24\.3\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.3.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-no-10-24-toolset-catch 2 'goes to 11\.12\.7 through 10\.24: no mxbuild-10\.24\.\* toolset found, give --via' '!unexpected failure' -- env UPG_TOOLS=$V/none bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --target 10.24.1 --work $V/lw --dry-run
+# UPG_SMOKE_MICROFLOWS=1 passes --microflows to the smoke walk (WM1: a role whose home and menu are all microflows); off by default
+ctl pipeline-dry-smoke-microflows-pass 0 'smokewalk\.js .* --microflows --login-path' -- env UPG_SMOKE_MICROFLOWS=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf1 --only basewalk --dry-run
+ctl pipeline-dry-smoke-microflows-off-catch 0 'smokewalk\.js .* --login-path' '!--microflows' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf0 --only basewalk --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
 mkdir -p $V/pw4/replay; printf 'MendixSSO\n' > $V/pw4/force-ui.txt; echo 'create or modify association A.R_X from A.R to B.U;' > $V/pw4/replay/MendixSSO.mdl
