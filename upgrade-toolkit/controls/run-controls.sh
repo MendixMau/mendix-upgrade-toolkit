@@ -498,6 +498,13 @@ ctl platform-drops-app-and-info-untouched-pass 0 '!Shop.Order' '!System.Info' '!
 ctl platform-drops-vendor-data-held-catch 0 '^HELD MendixSSO.AuthRequest.Nonce: 5 non-null values' '^approved: # HELD by platform_drops.py: 5 non-null values' '!^approved: MendixSSO' -- $PD
 ctl platform-drops-vendor-empty-stays-pass 0 '^VENDOR-OK Vend.Old: 0 rows' '^approved: Vend.Old # editroute VENDOR' -- $PD
 ctl platform-drops-vendor-count-fail-held-catch 0 '^HELD Vend.Odd.Col: count failed' '!^approved: Vend.Odd' '2 vendor drop\(s\) held for data$' -- $PD
+# a failed replay is held: its changes undone, the run goes on, the gate stops 13 until a person fixes or acknowledges it
+RH="bash $B/../controls/replay_hold_control.sh"
+ctl replay-hold-undone-catch 0 '^note: replay Mod HELD \(exit 3\)' '^mpr: orig$' '^untracked: $' '^held: Mod exit 3: ' '^commits: original\|$' '!^STOP' -- $RH fail
+ctl replay-hold-dirty-tree-stops-catch 13 '^STOP 13: replay of Mod failed \(exit 3\) on a tree that was not clean' '!HELD' -- $RH dirty
+ctl replay-hold-cleared-on-success-pass 0 '^commit: replay: Mod$' '^held: Other exit 1' '!^held: Mod' '^mpr: replayed$' -- $RH ok
+ctl replay-hold-gate-stops-catch 13 '^STOP 13: upgrade complete except held replays' '!gate went through' -- $RH gate
+ctl replay-hold-gate-ack-pass 0 '^gate went through$' '!^STOP' -- $RH gate-ack
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"

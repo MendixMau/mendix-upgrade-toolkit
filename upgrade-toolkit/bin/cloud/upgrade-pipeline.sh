@@ -30,7 +30,7 @@
 #   10 mx check / mxbuild / quick start errors after convert+update: repair needed (steps/repair.md)
 #   11 journeys INVALID or FAIL on the old app or the new one: fix the journey or write the todo (steps/journeys.md)
 #   12 diff / gate REVIEW, FAIL or INVALID items need a comparison by a person (steps/gate.md). A FAIL is never a pass.
-#   13 module plan missing, or a module kept / a data-bearing finding needs a decision (steps/upgrade.md)
+#   13 module plan missing, or a module kept / a replay held / a data-bearing finding needs a decision (steps/upgrade.md)
 #   14 the upgrade proposal awaits sign-off ($WORK/PROPOSAL.md section 6, steps/propose.md); also when a plan input changed
 #      after the sign-off (the sign-off is cleared). Nothing in the app model has changed yet.
 #   15 the owner paused the run on purpose (`Status: PAUSED <reason>` in PROPOSAL.md); NEEDS-JUDGMENT.md has the resume command
@@ -919,7 +919,8 @@ run_stepupdate() { # run_stepupdate PLAN label
 #                                "create or modify entity" drops every attribute it does not list)
 #   $WORK/replay/<Module>.patch  file edits (theme SCSS, JavaScript), a diff against the OLD package with paths relative to
 #                                the app folder, applied with git apply onto the NEW files: copying the old files back would
-#                                undo the update. A patch that does not apply is a judgment stop, never a partial apply.
+#                                undo the update. A patch that does not apply is never applied in part: like a failed .mdl it is
+#                                HELD (replay-held.txt, the gate stops 13), its own changes undone.
 # A module that was kept (not updated) is not replayed: its edits are still there. The total idcheck that follows compares
 # the result with the original, so a replay that misses a model edit stays visible.
 replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan does not touch (their final version came
@@ -934,7 +935,8 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
     # no -q: grep must read the whole log, or git dies of SIGPIPE and pipefail makes the check false
     if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -xF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" > /dev/null; then note "replay $mod skipped: replayed already"; continue; fi
     if [ "$DRY" != 1 ] && grep -q "^$mod " "$APP/.stepupdate/kept.txt" 2> /dev/null; then note "replay $mod skipped: the module was kept, its edits are in place"; continue; fi
-    rc=0
+    rc=0 clean=1
+    [ "$DRY" = 1 ] || [ -z "$(git_app status --porcelain 2> /dev/null)" ] || clean=0
     case "$f" in
       *.mdl) xo "$WORK/replay-$mod.out" mxcli_run exec "$f" -p "$MPR" || rc=$?
              # F14 (Purchase Request 10.24, real run): MendixSSO 10.6.2 dropped the six associations PurchaseApprovals
@@ -960,7 +962,19 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
                  note "replay $mod: context changed, applied without context (each removed line unique in its file)"
                else rc=1; fi ;;
     esac
-    [ "$rc" = 0 ] || { nj_file 13 "replay of $mod failed (exit $rc): $f" "$WORK/replay-$mod$([ "${f##*.}" = patch ] && echo -patch).out" 30; nj_flush; }
+    local rlog="$WORK/replay-$mod$([ "${f##*.}" = patch ] && echo -patch).out"
+    if [ "$rc" != 0 ] && [ "$clean" = 0 ]; then
+      nj_file 13 "replay of $mod failed (exit $rc) on a tree that was not clean before it, so it cannot be undone: $f" "$rlog" 30; nj_flush
+    elif [ "$rc" != 0 ]; then
+      # a failed replay is held, not a stop (WM1): its own changes are undone (the tree was clean before it), the build,
+      # journeys and gate still run and give evidence, and the gate stops 13 on replay-held.txt until a person decides
+      git_app checkout -q -- . 2> /dev/null || true
+      git_app ls-files -z --others --exclude-standard 2> /dev/null | (cd "$APP" && xargs -0 rm -f --)   # paths are relative to the app
+      printf '%s exit %s: %s (log: %s)\n' "$mod" "$rc" "$f" "$rlog" >> "$WORK/replay-held.txt"
+      note "replay $mod HELD (exit $rc): its changes undone, the run goes on; the gate stops on $WORK/replay-held.txt"
+      continue
+    fi
+    [ ! -f "$WORK/replay-held.txt" ] || { grep -v "^$mod exit " "$WORK/replay-held.txt" > "$WORK/replay-held.txt.n" || true; mv "$WORK/replay-held.txt.n" "$WORK/replay-held.txt"; }
     commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod"
     note "replayed the local edits of $mod from $f"
   done
@@ -1610,6 +1624,12 @@ step_gate() {
     nj_add 13 "Decision" "Update them by hand (steps/upgrade.md, playbooks/edited-modules.md), or acknowledge the list: copy $WORK/kept.txt to $WORK/kept-ack.txt (then the verdict says 'complete except kept modules')."
     nj_flush
   fi
+  # held replays: the module is updated but its local edits are not back (replay_edits)
+  if [ "$DRY" != 1 ] && [ -s "$WORK/replay-held.txt" ] && [ ! -f "$WORK/replay-held-ack.txt" ]; then
+    nj_file 13 "upgrade complete except held replays (the local edits of these modules are NOT in the app)" "$WORK/replay-held.txt" 40
+    nj_add 13 "Decision" "Fix the replay (its log is named per line) and rerun --from upgrade, or acknowledge the loss in writing: copy $WORK/replay-held.txt to $WORK/replay-held-ack.txt with a reason per line."
+    nj_flush
+  fi
   write_summary
   record_runlog || true
 }
@@ -1621,6 +1641,7 @@ write_summary() {
     printf 'No judgment stop remained. Evidence (all under %s):\n' "$WORK"
     printf -- '- build: check-*.log, build-%s.log, quick start log logs/runtime-new.log\n- gate: gate-summary.md (one row per rung)\n- identity: idcheck.md, idcheck-total.md\n- constants: constants.md\n- data: diff.md (before.json, after.json)\n- start log: logdiff.md\n- smoke walk: smoke-after.json, shotdiff-smoke.md\n- journeys: e2e-after/, journeys-after.out\n- release impact: release-impact.md (check clean)\n\n' "$TARGET"
     if [ -s "$WORK/kept.txt" ]; then printf 'upgrade complete except kept modules (acknowledged): see kept.txt\n\n'; fi
+    if [ -s "$WORK/replay-held.txt" ]; then printf 'local edits NOT replayed (acknowledged): see replay-held-ack.txt\n\n'; fi
     case "$(python3 "$B/proposal.py" --status --work "$WORK" 2> /dev/null)" in
       signed|none) ;;
       *) printf 'proposal not signed: %s/PROPOSAL.md has no Signed-off line (unattended run); the verdict is not an owner-approved upgrade.\n\n' "$WORK" ;;
