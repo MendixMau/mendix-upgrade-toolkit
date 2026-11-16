@@ -13,7 +13,9 @@ Rules (each line of output names one):
   stop-no-ask      the red stop bar says the run waits for you, and Blocked on you is empty
   stop-and-running the red stop bar and the "Running now" bar at the same time
   ask-no-evidence  a plan question card that lists no element, file or finding behind it (evidence.py found nothing)
-  count-mismatch   the "for you now" number differs from the Blocked on you list while the run is stopped for a person
+  count-mismatch   a Blocked on you card that "for you now" does not list while the run is stopped for a person
+  keep-recommended a module card that recommends keeping the old version without a reason and an end date (an edit is no
+                   reason to stay behind: editroute.py carries edits over; cold test WM1, all seven cards said "keep")
 
   cockpitcheck.py --work W       prints CONSISTENT, or one line per problem; exit 0 / 1 (2 usage)
 Run by: upgrade-pipeline.sh after each cockpit render (a problem is a note and a cockpit item, never a silent page), and controls.
@@ -49,6 +51,10 @@ def check(work):
     for i in asks:   # a question with nothing under it cannot be decided (cold test WM1: "local edits refuse the update", no list)
         if i["kind"] == "plan-choice" and not (i.get("evidence") or {}).get("what"):
             out.append(f"ask-no-evidence {i['id']} ({i['title']}): the card asks a person to decide but shows no element, file or finding")
+        rec = (i.get("rec_text") or "").lower()
+        if i["kind"] == "plan-choice" and i.get("title", "").endswith("(module)") and rec.startswith("keep") \
+                and not re.search(r"\buntil\b|\bend date\b|\d{4}-\d{2}-\d{2}", rec):
+            out.append(f"keep-recommended {i['id']} ({i['title']}): recommends the old version without a reason and an end date")
     stopped, running = model.get("stopped"), model.get("running")
     if stopped and not asks and str(stopped.get("code")) in ("14", "15"):
         out.append("stop-no-ask the red bar says the plan waits for your answers, and Blocked on you is empty")
@@ -56,8 +62,10 @@ def check(work):
         out.append(f"stop-and-running the red stop bar (exit {stopped.get('code')}) shows while the run is running")
     if stopped:
         mine = [o for o in M["band"]["open"]["items"] if o["owner"] != "agent" and o["group"] != "At deploy"]
-        if len(mine) != len(asks):
-            out.append(f"count-mismatch the run waits for a person: Blocked on you holds {len(asks)}, \"for you now\" says {len(mine)}")
+        miss = [i["title"] for i in asks if i["kind"] != "signoff" and not any(
+            re.sub(r"\s*\((module|widget|jar|java|check)\)$", "", i["title"]) in o["text"] for o in mine)]
+        if miss:
+            out.append(f"count-mismatch the run waits for a person: Blocked on you holds {len(asks)}, \"for you now\" lacks {len(miss)} of them ({', '.join(miss[:5])})")
     return out
 
 

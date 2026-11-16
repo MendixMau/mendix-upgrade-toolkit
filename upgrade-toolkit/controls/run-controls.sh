@@ -5579,10 +5579,12 @@ ctl proposal-changed-status-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
 ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bash $PR/prop.sh $PR/changed
 # the update step keeps a module after the sign-off (kept.txt): that is the run's own result, not a new plan (cold test WM1: 7 kept
-# modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation, keep the old version
+# modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation: update, a real logic edit held
 printf 'Newmod local edits refuse the update\n' > $PR/changed/kept.txt
 ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item' -- bash $PR/prop.sh $PR/changed
-ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*keep old version.*accepted with the sign-off of Jan Jansen' -- cat $PR/changed/DECISIONS.md
+ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*accepted with the sign-off of Jan Jansen' -- cat $PR/changed/DECISIONS.md
+# an edited module is updated, never recommended to stay behind (cold test WM1: seven "keep old version" cards)
+ctl proposal-edited-module-recommends-update-pass 0 'recommendation: update to the latest version and carry the edits over' '!recommendation: keep old version' -- cat $PR/changed/PROPOSAL.md
 # --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
 # ssum.sh WORK: one line per step: id, topic, alias, approval state, by, source, whether found and proposed are set
 cat > $PR/ssum.sh <<'SH'
@@ -6618,6 +6620,20 @@ ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
 ctl cockpit-check-withdraw-pass 0 "withdrawn \['S-4'\]" '!ghost-step' 'rows Oldmod: 0' -- $CK check-withdraw
 ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-running
+# editroute.py (cold test WM1): a module the update refused is routed to an update; only a real logic edit, Java code, a removal
+# something still uses or a tool fault stays kept. A stub mxcli answers describe and refs.
+ER="bash $here/editroute_control.sh"
+ctl editroute-cosmetic-pass 0 '^ROUTE Cosmo COSMETIC: only diagram layout differs' '^force-ui.txt: Cosmo ' -- $ER plan
+ctl editroute-real-logic-held-catch 0 '^ROUTE Realmod HOLD: real logic edit: microflow RealFlow \(move it to Realmod_Ext' '!route-plan.txt: .* Realmod$' -- $ER plan
+ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 2 UI' '^force-ui.txt: Uimod ' -- $ER plan
+ctl editroute-unread-unedited-pass 0 '^ROUTE Unread UNREAD' -- $ER plan
+ctl editroute-files-accept-pass 0 '^ROUTE Filesmod FILES' '^accept-unsaved.txt: Filesmod ' -- $ER plan
+ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: Vendmod.E.Gone # editroute VENDOR' -- $ER plan
+ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan
+ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
+ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
+ctl editroute-collect-pass 0 'Uimod.mdl: create or modify layout Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
+ctl cockpit-check-keep-recommended-catch 0 "'keep old version \(kept list\); ': CAUGHT" "'keep old version until 2027-03': ok" "'update to the latest version a': ok" -- $ER gate
 ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"\)' 'decisions"\)\.doc\(it\.id\)\.set' 'signoffs"\)\.doc\(await user\.id\(\)\)\.set' 'decisions"\)\.onSnapshot' 'never reads window\.claude\.db' -- $CK pattern
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve

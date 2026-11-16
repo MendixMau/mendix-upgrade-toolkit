@@ -15,6 +15,7 @@ Sources, per module (app = state/app-dir, S = app/.stepupdate):
   S/step*-<M>.files      theme, JavaScript and Java files the update replaced and that could not be proven unedited
   W/localedits.md        the local edits found in triage (UI, domain model, logic)
   W/apimock-inventory.json  the outside calls of the module, with their stand-in status
+  W/edit-routes.json     how editroute.py carries the module's edits over (or why it holds them for a person)
 """
 import argparse, glob, json, os, re, sys
 
@@ -103,6 +104,10 @@ def for_item(work, name):
     if rows:
         what += rows
         files.append(_rel(work, os.path.join(work, "apimock-inventory.json")))
+    for x in json.loads(_rd(os.path.join(work, "edit-routes.json")) or "[]"):
+        if x.get("module") == name:
+            what.insert(0, ("held for a person: " if x["route"] == "HOLD" else f"the pipeline updates it anyway ({x['route']}): ") + x["reason"])
+            files.insert(0, _rel(work, os.path.join(work, "edit-routes.json")))
     return {"what": what, "files": files}
 
 

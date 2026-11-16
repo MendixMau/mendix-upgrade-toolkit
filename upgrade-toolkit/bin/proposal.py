@@ -36,6 +36,10 @@ action_inventory.py and apimock.py inventory on original.mpr.
 """
 import argparse, datetime, hashlib, json, os, re, sys
 
+# cold test WM1 (2026-11-16): an edited Marketplace module is updated, not kept. Editing a module does not stop its update; an old
+# module misses fixes and may not run on the next Mendix version. editroute.py carries the edits over (bin/editroute.py routes).
+UPDATE_CARRY = "update to the latest version and carry the edits over (diagram-only dropped, UI and constants replayed, vendor drops checked)"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TK = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -422,10 +426,11 @@ class Facts:
                           "M", "references and data of the old module are moved by hand" if self.renamed[m]["kind"] == "RENAMED" else "the installed version may not run on the target")
                 continue
             self.add3(kind, m, why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")",
-                      "keep old version (kept list) | replace with the Marketplace equivalent (replacements.tsv row) | rebuild locally, drop the module | hand to a named person"
+                      f"{UPDATE_CARRY} | update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
+                      "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person"
                       if kind == "module" else "keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person",
                       "hand to a named person (no version fits; port, replace or remove)" if stranded else
-                      "keep old version (kept list); the stop rule keeps it unattended" if kind == "module" else "keep old jar, pin",
+                      f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin",
                       "L" if stranded else "M", "data loss if a RED edit is replaced" if m in self.red else "behaviour of local edits is lost on update")
         for m, rows in sorted(self.files.items()):
             if any(x.get("kind") == "theme" for x in rows):
@@ -748,7 +753,8 @@ def main():
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
-    # signed path below accepts those items at their recommendation (keep old version), which is what the update already did.
+    # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
+    # routed what it could, so what is still kept is exactly that held edit.
     H = F
     if F.kept:
         H = Facts(a)

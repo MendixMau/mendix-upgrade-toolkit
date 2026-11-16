@@ -925,7 +925,8 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
     [ -f "$f" ] || continue
     mod=$(basename "$f"); mod=${mod%.*}
     if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
-    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -qxF "replay: $mod"; then note "replay $mod skipped: replayed already"; continue; fi
+    # one replay per module per rung: the 10.24 rung's replay must not skip the 11 rung's (editroute writes a new replay/ each rung)
+    if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -qxF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}"; then note "replay $mod skipped: replayed already"; continue; fi
     if [ "$DRY" != 1 ] && grep -q "^$mod " "$APP/.stepupdate/kept.txt" 2> /dev/null; then note "replay $mod skipped: the module was kept, its edits are in place"; continue; fi
     rc=0
     case "$f" in
@@ -954,7 +955,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
                else rc=1; fi ;;
     esac
     [ "$rc" = 0 ] || { nj_file 13 "replay of $mod failed (exit $rc): $f" "$WORK/replay-$mod$([ "${f##*.}" = patch ] && echo -patch).out" 30; nj_flush; }
-    commit_app "replay: $mod" replay "replay-$mod"
+    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod"
     note "replayed the local edits of $mod from $f"
   done
 }
@@ -976,10 +977,27 @@ assoc_unreplayed() {
   done
 }
 
-# update: module updates with the post-convert plan; kept modules are recorded (SKILL stop rules), decided at the gate.
+# route_kept (cold test WM1): a module the update refused is not kept at its old version by default. editroute.py routes each one
+# (diagram-only, UI and constants replayed, unreadable but unedited, files kept as copies, vendor drops nothing uses, associations
+# of other modules replayed with their ids) and a second stepupdate pass updates the routed modules; only HOLD rows stay kept.
+route_kept() {
+  if [ "$DRY" = 1 ]; then x python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt"; return 0; fi
+  [ -s "$APP/.stepupdate/kept.txt" ] || return 0
+  local rc=0 le=()
+  [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
+  xo "$WORK/editroute.out" python3 "$B/editroute.py" plan --work "$WORK" --app "$APP" --original "$WORK/original.mpr" --plan "$WORK/plan.txt" "${le[@]}" || rc=$?
+  cat "$WORK/editroute.out" >> "$LOG"
+  [ "$rc" = 0 ] || { note "editroute: no kept module could be routed, they stay kept (see $WORK/editroute.out)"; return 0; }
+  run_stepupdate "$WORK/route-plan.txt" routed
+  rc=0; xo "$WORK/editroute-collect.out" python3 "$B/editroute.py" collect --work "$WORK" || rc=$?
+  note "editroute: $(grep -c '^ROUTE' "$WORK/editroute.out") kept module(s) routed, $(grep -c ' HOLD:' "$WORK/editroute.out") held for a person (edit-routes.json)"
+}
+
+# update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
   run_stepupdate "$WORK/plan.txt" post-convert
+  route_kept
   replay_edits
   assoc_unreplayed
   if [ "$DRY" != 1 ]; then

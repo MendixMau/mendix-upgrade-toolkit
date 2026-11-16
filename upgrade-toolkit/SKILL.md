@@ -110,7 +110,9 @@ rung whether the app can be judged, what the customer must supply, and the best 
   associations that other modules own; all of them hold data. List the targets with `idcheck.py app.mpr --xmod` and
   update those modules LAST (or not headless). Step idcheck catches it (E1: 27 associations).
 - Updating an edited module replaces it with the package: the local edit is gone, and re-creating it gives new GUIDs
-  (data dropped, while mx check, mxbuild and the start all succeed). See the edited-modules playbook.
+  (data dropped, while mx check, mxbuild and the start all succeed). See the edited-modules playbook. `bin/editroute.py`
+  handles the safe cases (diagram-only, UI, constants, unused vendor drops, other modules' associations with their GUIDs).
+  A real logic edit belongs in `<Module>_Ext`, a module of the app's own: never edit a Marketplace module in place.
 - A module update resets the module's constants to package defaults (E1: `MFAmodule.EnabledMFA` True to False, MFA
   silently off) and can ADD a switch whose default hides data (E4 and E5b: a new boolean emptied the dashboard
   charts, every journey PASSed). constcheck.py lists an added boolean as REVIEW; shotdiff shows the empty page.
@@ -172,8 +174,10 @@ plain PASS; a failure that is not a call into an excluded system stays FAIL, an 
 
 - Proposal not signed: `$W/PROPOSAL.md` section 6 has no `Signed-off: <name> <date>` (pipeline exit 14), or it says `Status: PAUSED` (exit 15), or a plan input changed after the sign-off (the sign-off is cleared). Do not convert, update or repair. An agent never writes the sign-off line. Unattended runs sign nothing: ASSUMED (unattended) in DECISIONS.md, "proposal not signed" in every report.
 
-- RED line in localedits for a module on the plan: ask (steps/decide.md). UNATTENDED default: keep that module at its version, carry
-  on with the rest, and report "upgrade complete except kept modules: <list>" (never PASS for the kept ones).
+- RED line in localedits for a module on the plan: ask (steps/decide.md). The recommendation is the update with the edits carried
+  over (`bin/editroute.py`), never "keep" without a reason and an end date. UNATTENDED: editroute routes what it can; a module it
+  HOLDs (real logic edit, Java user code, a removal still used) stays at its version, the rest carries on, and the report says
+  "upgrade complete except held modules: <list>" (never PASS for the held ones).
 - `bin/steps.py check --work $W` names a D row of AGENT-DECISIONS.md that has no step ("MISSING D71: ..."): open the step
   (`steps.py propose --new`), write its `S-n` in the row, then go on. Do not start the next change of that kind first.
 

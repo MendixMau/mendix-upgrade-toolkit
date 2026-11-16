@@ -1198,7 +1198,8 @@ def band(model, rows, chips, g, tl, kpi=None):
     if model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
         s = model["stopped"]
         st, head = "bad", f"Stopped at {s['step']}, waiting for you"
-        sub = f"{len(s['titles'])} {'item' if len(s['titles']) == 1 else 'items'} to decide, then rerun (see the red bar)."
+        n = len(open_questions(model)) or len(s["titles"])   # the cards in Blocked on you, not the stop file's older list
+        sub = f"{n} {'item' if n == 1 else 'items'} to decide, then rerun (see the red bar)."
     closed =closed_items(rows, g, tl)
     for it in kpi.get("closed") or []:
         if isinstance(it, dict) and isinstance(it.get("label"), str) and isinstance(it.get("n"), int):
@@ -1211,6 +1212,11 @@ def band(model, rows, chips, g, tl, kpi=None):
     for it in kpi.get("open") or []:
         if isinstance(it, dict) and isinstance(it.get("text"), str):
             opens.append({"group": str(it.get("group") or "Coverage"), "text": it["text"], "owner": str(it.get("owner") or "agent")})
+    # every Blocked on you card is also in "for you now" (cold test WM1: 1 here, 7 there): add the ones the matrix did not list
+    for i in open_questions(model):
+        nm = re.sub(r"\s*\((module|widget|jar|java|check)\)$", "", i.get("title", ""))
+        if i["kind"] != "signoff" and not any(nm and nm in o["text"] for o in opens if o["owner"] != "agent"):
+            opens.append({"group": "Your call", "text": question_of(i), "owner": "you"})
     order = {"Regression": 0, "To fix": 1, "Your call": 2, "At deploy": 3, "Coverage": 4}
     opens.sort(key=lambda x: order.get(x["group"], 9))   # stable: same group keeps its order
     hide = [str(h).lower() for h in (kpi.get("hide") or []) if isinstance(h, str) and h]
@@ -1948,7 +1954,9 @@ def plain(t):
 
 
 # what an option of a module plan choice does, in words, by the phrase the proposal uses for it
-OPTION_SAYS = [("keep old", "The module stays exactly as it is now. Nothing is lost. It misses the Marketplace fixes and is checked again on every Mendix version."),
+OPTION_SAYS = [("update to the latest", "Take the newest Marketplace version. The pipeline carries the app's edits over: diagram-only changes are dropped, pages, layouts and constants are replayed, and data the vendor drops is checked for use first."),
+               ("update, move", "Take the newest version after a person moves the app's own logic into a module of its own (<Module>_Ext) that works with the Marketplace module."),
+               ("keep old", "The module stays as it is now. It misses the Marketplace fixes and may not run on the next Mendix version: only with a reason and an end date."),
                ("replace", "Take the new Marketplace version. The app's own additions to the module are removed, and their data with them unless it is moved first."),
                ("rebuild", "Move the app's own additions into a module of its own, then take the clean Marketplace version. Most work, cleanest result."),
                ("hand to", "Park this one. The run waits until the named person answers.")]

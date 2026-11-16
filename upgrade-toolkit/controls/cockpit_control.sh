@@ -132,7 +132,7 @@ PY
          for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done; u=http://127.0.0.1:$(cat "$d/.cockpit-port")/decide
          post() { curl -s -X POST -H 'Content-Type: application/json' -d "$1" "$u"; echo; }
          echo "rows: $(grep -o '<button type="button" class="resolve" data-q="q[0-9]*"' "$T/out.html" | wc -l | tr -d ' ')"
-         echo "says: $(grep -o '<dialog class="qdlg" id="q4">.*' "$T/out.html" | grep -c 'The module stays exactly as it is now')"
+         echo "says: $(grep -o '<dialog class="qdlg" id="q4">.*' "$T/out.html" | grep -c 'The module stays as it is now')"
          echo "bad option: $(post '{"item":"P-1","choice":"zzz","by":"Ana"}' | grep -o '"ok": false')"
          echo "form post: $(curl -s -o /dev/null -w '%{http_code}' -X POST -d item=P-1 "$u")"
          echo "answer: $(post '{"item":"P-2","choice":"o1","by":"Ana"}')"

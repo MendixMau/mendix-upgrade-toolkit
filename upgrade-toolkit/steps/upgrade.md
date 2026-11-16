@@ -63,6 +63,11 @@ Goal: reach the target version with every step proven not to change a runtime id
      update) reverts the tree (tracked files restored, files the update created removed, untracked files from before
      kept), records the module in `.stepupdate/kept.txt` and continues. The summary line says
      "N steps: N run, N committed, N kept, N network"; exit 1 when anything was kept. Report every kept module (SKILL stop rules).
+   - Kept is not the end (cold test WM1): the pipeline's `route_kept` runs `bin/editroute.py plan`, which routes each kept module
+     (COSMETIC diagram-only, REPLAY UI and constants, UNREAD unreadable but unedited, FILES copies kept, VENDOR drops nothing
+     uses, XASSOC other modules' associations replayed with their ids, HOLD), writes `force-ui.txt`, `accept-unsaved.txt`,
+     `approved.txt`, `approved-step.txt` and `route-plan.txt`, runs a second stepupdate pass on `route-plan.txt`, and
+     `editroute.py collect` builds `replay/<Module>.mdl` (and `.guids`) from the saved edits. Only HOLD modules stay kept.
    - Tool and network errors are never a verdict on a module (batch 1: every worker lost a whole pass to "14 steps
      done, 14 kept" that was really a broken command). A TOOL ERROR (mxcli "accepts 1 arg(s)", x509 / certificate,
      "no credential for profile", proxy unreachable, docker exit 125 to 127) STOPS at once, also unattended: exit 3,
