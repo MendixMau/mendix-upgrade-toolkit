@@ -6297,7 +6297,13 @@ else:
 json.dump({"results": [{"rung": "ui", "name": "login", "verdict": v, "detail": d}], "walks": []}, open("artifacts/journey-findings.json", "w"))
 EOF2
 chmod +x $BT7/bin/node
-bt7() { local w=$1 refusals=$2; shift 2; rm -f $BT7/count.*; env PATH=$BT7/bin:$PATH BT7_COUNT=$BT7/count BT7_REFUSALS=$refusals python3 $B/run_journeys.py $BT7/gen --label before --port 1 --admin-port 2 --admin-pass x --users $BT7/users.json --psql "$SHOP" --work $BT7/$w "$@"; }
+# AD-1 (app_alive): run_journeys.py first asks whether the app answers at all; on --port 1 nothing did, so every role was
+# INVALID "app down" before the stub runner was reached. A plain HTTP server stands in for the app.
+bt7() { local w=$1 refusals=$2 port srv rc=0; shift 2; rm -f $BT7/count.*
+  port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+  python3 -m http.server "$port" --bind 127.0.0.1 --directory $BT7 > /dev/null 2>&1 & srv=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
+  env PATH=$BT7/bin:$PATH BT7_COUNT=$BT7/count BT7_REFUSALS=$refusals python3 $B/run_journeys.py $BT7/gen --label before --port "$port" --admin-port 2 --admin-pass x --users $BT7/users.json --psql "$SHOP" --work $BT7/$w "$@" || rc=$?; kill $srv 2> /dev/null; wait $srv 2> /dev/null; return $rc; }
 bt7sum() { python3 -c "import json; r=json.load(open('$BT7/$1/before/summary.json'))['roles']; print({k: (v['login'], v.get('session_retries', 0)) for k, v in sorted(r.items())})"; }
 ctl bt7-retry-after-refusal-catch 0 'session cap: RoleB refused by the runtime.s session limit; waiting 1s for sessions to expire, retry 1 of 2' -- bash -c "$(declare -f bt7); BT7=$BT7 B=$B SHOP=\"$SHOP\"; bt7 w1 1 --session-wait 1 >/dev/null 2>$BT7/w1.err; cat $BT7/w1.err | grep 'session cap'"
 ctl bt7-retry-recovers-login-catch 0 "^{'RoleA': \('PASS', 0\), 'RoleB': \('PASS', 1\)}\$" -- bt7sum w1
