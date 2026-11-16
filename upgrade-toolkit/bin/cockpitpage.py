@@ -505,7 +505,8 @@ def build_model(work):
         rerun = (re.search(r"then rerun:\n\n {4}(.+)", nj) or [None, ""])[1]
         secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
         stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun}
-    if stopped and not any(j.get("step") == stopped[0] for j in djo):
+    # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
+    if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
         for k, (title, code, body) in enumerate(secs, 1):
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
@@ -553,7 +554,8 @@ def build_model(work):
         rec_txt = it["sub"].get("recommendation", "")
         opts = [{"key": "rec", "label": short(rec_txt.split(";")[0] if rec_txt else "Take the recommendation", 110), "causes": ""}]
         for n, o in enumerate(opts_txt, 1):
-            opts.append({"key": f"o{n}", "label": short(o, 110), "causes": ""})
+            if short(o, 110) != opts[0]["label"]:   # the recommended option is already the first one (WM1: "keep old version" twice)
+                opts.append({"key": f"o{n}", "label": short(o, 110), "causes": ""})
         for o in opts:
             o["writes"] = [{"decisions_md": {"id": pid, "name": it["name"], "kind": it["kind"], "option": o["label"]}}]
         is_assumed = bool(row and "ASSUMED" in (row[5] if len(row) > 5 else "")) or not row
@@ -779,6 +781,16 @@ b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.queryS
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
 setInterval(function(){var dr=document.getElementById("drawer");if(due){if(!dr||dr.hidden)reload();return;}
 fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if(!dr||dr.hidden)reload();}}).catch(function(){});},3000);})();
+(function(){var n=document.getElementById("dname");if(!n)return;try{n.value=localStorage.getItem("cockpit-name")||"";}catch(e){}
+document.querySelectorAll("#decide button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
+var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]"),who=n.value.trim();
+if(!who){m.textContent="Type your name at the top first.";n.focus();return;}try{localStorage.setItem("cockpit-name",who);}catch(e){}
+c.querySelectorAll("button").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
+fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:c.dataset.item,choice:b.dataset.choice,by:who})})
+.then(function(r){return r.json();}).then(function(r){if(r.ok){c.classList.add("done");m.textContent=r.said+". The agent picks it up within 15 seconds.";}
+else{c.querySelectorAll("button").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+r.said;}})
+.catch(function(e){c.querySelectorAll("button").forEach(function(x){x.disabled=false;});m.textContent="Not saved: "+e;});});});
+var h=document.querySelector("#decide .qhint");if(h)h.textContent="One click per question. Your answer goes into the run; the agent picks it up within 15 seconds.";})();
 </script>
 """
 

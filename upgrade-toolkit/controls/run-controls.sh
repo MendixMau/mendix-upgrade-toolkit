@@ -6616,6 +6616,9 @@ ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written:
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
 ctl cockpit-stopped-bar-pass 0 'bar: The run stopped at basewalk \(exit 11\) and waits for you\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
+ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \
+  'no name: {"ok": false, "said": "an answer needs the item and your name"}' 'bad option: "ok": false' 'form post: 404' 'answer: {"ok": true, "said": "Saved: P-2 by Ana"}' \
+  'ledger: P-2=o1 by Ana via page$' 'sign: {"ok": true' 'signed: Signed-off: Ana 20' 'page cards: regression:overlay regression:Gridmod confirm:D2 P-1$' 'decided log: 2' -- $CK decide
 ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'stopped in triage: opened 1' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
 # doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
 ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh

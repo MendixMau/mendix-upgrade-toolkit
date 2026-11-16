@@ -1286,6 +1286,18 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 #feed,#feed *{overflow-wrap:anywhere}
 .nowrun{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--wait);font-size:14px}
 .nowrun[hidden]{display:none}
+.decide{margin:0 0 16px;padding:14px 16px;border-radius:14px;background:var(--youbg);border:2px solid var(--you)}
+.decide .dtop{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.decide h2{margin:0;font-size:19px}.decide label{font-size:14px}.decide input{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg)}
+.qhint{margin:6px 0 10px;font-size:13px;color:var(--muted)}
+.qcard{margin:10px 0 0;padding:12px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.qcard.done{opacity:.6}.qk{font:12px var(--mono);color:var(--muted)}.qcard h3{margin:4px 0 6px;font-size:17px}
+.qwhy,.qrec{margin:4px 0;font-size:14px}.qrec{color:var(--you)}
+.qopts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.qopts button{font:inherit;font-size:14px;text-align:left;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer;max-width:100%}
+.qopts button.rec{border:2px solid var(--accent);background:var(--accentbg)}.qopts button small{display:block;font-size:12px;color:var(--muted)}
+.qopts button:disabled{cursor:default;opacity:.7}.qmsg{margin-top:6px;font-size:13px;font-weight:600}
+.qlink{display:block;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--youbg);border:2px solid var(--you);color:var(--fg);font-weight:600;text-decoration:none}
 .stopbar{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--badbg);border:1px solid var(--bad);font-size:14px}
 .stopbar b{color:var(--bad)}.stopbar ul{margin:6px 0;padding-left:20px}.stopbar small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
@@ -1730,10 +1742,45 @@ def h_stopped(s):
     """A judgment stop (NEEDS-JUDGMENT.md): a red bar under the header, so a run that waits for a person says so first."""
     if not s:
         return ""
+    if str(s["code"]) in ("14", "15"):   # the plan waits for sign-off: the Decide now cards are the questions, no paths or commands
+        return ('<div class="stopbar" role="alert"><b>The run stopped before changing anything: the plan waits for your answers and '
+                'your sign-off.</b><small><a href="#decide">Answer below in Decide now.</a> The run goes on after you sign.</small></div>')
     li = "".join(f"<li>{E(t)}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
     return (f'<div class="stopbar" role="alert"><b>The run stopped at {E(s["step"])} (exit {s["code"]}) and waits for you.</b>'
-            f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder.</small>{cmd}</div>')
+            f'{"<ul>" + li + "</ul>" if li else ""}<small><a href="#decide">Answer below in Decide now.</a> Details: NEEDS-JUDGMENT.md in the work folder.</small>{cmd}</div>')
+
+
+def open_questions(model):
+    """The items a person still has to answer, one question card each: plan choices and judgments first, the sign-off last."""
+    qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup"]
+    return sorted(qs, key=lambda i: i["kind"] == "signoff")
+
+
+def question_of(i):
+    t = i["title"]
+    return {"plan-choice": f"What should the upgrade do with {t}?", "signoff": "Sign the plan? Nothing in the app changes before you do.",
+            "confirm": f"Accept this change: {t}?"}.get(i["kind"], t)
+
+
+def h_decide(model):
+    """Decide now: every open question as a card with one button per option, at the top of the page. The buttons post to the
+    local server (cockpitserve.py /decide, live page only); on a static copy they stay off and the answer goes through chat."""
+    qs = open_questions(model)
+    if not qs:
+        return ""
+    cards = []
+    for n, i in enumerate(qs, 1):
+        btns = "".join(f'<button type="button" disabled data-choice="{E(o["key"])}" class="{"rec" if o["key"] == i.get("rec") else ""}">'
+                       f'{E(o["label"])}{"<small>Recommended</small>" if o["key"] == i.get("rec") and len(i["options"]) > 1 else ""}'
+                       f'{"<small>" + E(o["causes"][:140]) + "</small>" if o.get("causes") else ""}</button>' for o in i["options"])
+        why = f'<p class="qwhy">{E(i["problem"])}</p>' if i.get("problem") else ""
+        rec = f'<p class="qrec">Recommended: {E(i["rec_text"])}</p>' if i.get("rec_text") and len(i["options"]) > 1 else ""
+        cards.append(f'<div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · {E(i.get("step") or "")}</div>'
+                     f'<h3>{E(question_of(i))}</h3>{why}{rec}<div class="qopts">{btns}</div><div class="qmsg" data-qmsg aria-live="polite"></div></div>')
+    return (f'<section class="decide" id="decide" aria-label="Decide now"><div class="dtop"><h2>Decide now: {len(qs)} '
+            f'{"question" if len(qs) == 1 else "questions"} for you</h2><label>Your name <input id="dname" autocomplete="name"></label></div>'
+            '<p class="qhint">The buttons work in the live cockpit. On this copy, answer in chat.</p>' + "".join(cards) + "</section>")
 
 
 def render(model, matrix):
@@ -1749,7 +1796,7 @@ def render(model, matrix):
             f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
-            f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n"
+            f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n  {h_decide(model)}\n"
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'
@@ -1762,7 +1809,7 @@ def render(model, matrix):
             f"  {h_health(matrix.get('health'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
-            f'  <aside class="side">{h_band(matrix["band"])}</aside>\n  </div>\n</div>\n\n'
+            f'  <aside class="side">{(f'<a class="qlink" href="#decide">{len(open_questions(model))} open {"question" if len(open_questions(model)) == 1 else "questions"} for you: answer them in Decide now</a>' if open_questions(model) else "")}{h_band(matrix["band"])}</aside>\n  </div>\n</div>\n\n'
             '<div class="shade" id="shade" hidden></div>\n'
             '<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Details">\n'
             '  <button class="x" id="dClose" type="button" aria-label="Close">×</button>\n  <div id="dBody"></div>\n</aside>\n\n'
