@@ -2767,6 +2767,10 @@ ctl gen-create-data-rung-pass 0 '"creates": "Shop.Item"' -- sh -c "$GJ --out-dir
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'][0]['attr']='Name'; json.dump(d, open('$T/create-spec-attr.json', 'w'))"
 ctl gen-create-own-row-pass 0 "SELECT COUNT\\(\\*\\) AS n FROM Shop.Item WHERE Name = 'Item \\$\\{RUN_ID\\}'" '"expect": 1' -- sh -c "$GJ --out-dir $T/gen-create3 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create3/journeys/Admin/create-save.journey.json"
 ctl gen-create-own-row-missing-catch 0 'no field names its attribute.*own .*row' -- $GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json --data-rung
+# cold test WM1: a "do": "select" field picks from a reference selector (by caption, else its first option) and is no own-row attribute
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'] += [{'widget':'referenceSelector2','do':'select','match':'Europe/Amsterdam'},{'widget':'referenceSelector3','do':'select'}]; json.dump(d, open('$T/create-spec-select.json', 'w'))"
+ctl gen-create-select-pass 0 '"do": "select", "widget": "referenceSelector2", "match": "Europe/Amsterdam"' '"do": "select", "widget": "referenceSelector3", "first": true' '!referenceSelector2.*"value"' \
+  -- sh -c "$GJ --out-dir $T/gen-create-sel --create $T/create-spec-select.json > /dev/null 2>&1; python3 -c 'import json,sys; [print(json.dumps(a)) for st in json.load(open(sys.argv[1]))[\"steps\"] for a in st[\"actions\"]]' $T/gen-create-sel/journeys/Admin/create-save.journey.json"
 # R1: a "path" in the spec puts its clicks between the menu item and the New button, in order (Vendors overview link)
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['path']=[{'widget':'linkVendors','label':'Vendors overview'}]; json.dump(d, open('$T/create-spec-path.json', 'w'))"
 ctl gen-create-path-pass 0 '"do": "nav"[^}]*}, \{"do": "click", "widget": "linkVendors", "label": "Vendors overview"}, \{"do": "click", "widget": "[A-Za-z0-9]+", "label": "New"}' -- sh -c "$GJ --out-dir $T/gen-create5 --create $T/create-spec-path.json > /dev/null 2>&1; python3 -c \"import json,sys; d=json.load(open('$T/gen-create5/journeys/Admin/create-save.journey.json')); print(json.dumps(d['steps'][0]['actions']))\""
@@ -6610,6 +6614,8 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
+ctl cockpit-stopped-bar-pass 0 'bar: The run stopped at basewalk \(exit 11\) and waits for you\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
+  'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'stopped in triage: opened 1' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
 # doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
 ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh

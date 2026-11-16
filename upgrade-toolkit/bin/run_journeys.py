@@ -271,6 +271,8 @@ PATCHES = [
     # of the role on the login form: Purchase Request pipe-19, 1 Requester journey ended it and the next 21 FAILed at
     # "role home". Signing in again here is the reset between independent journeys, not a mid-walk recovery; it is
     # said in the log, and a role whose sign-in fails again stops the walk at the next journey's first step as before.
+    # The anonymous role never signs in here: its home is the sign-in form, and signing in with no credentials put
+    # "username or password incorrect" on the page its journey checks (cold test WM1, anon-signin).
     ("reset: sign in again when the previous journey ended the session (PR-F26)",
      "async function resetToStart(page) {\n  await page.goto(cfg.baseUrl, { waitUntil: 'domcontentloaded' });\n"
      "  await page.waitForTimeout(2500);\n}",
@@ -278,7 +280,7 @@ PATCHES = [
      "  await page.waitForTimeout(2500);\n"
      "  const out = await page.locator('#loginButton, .mx-name-loginButton, input[type=password]').first()\n"
      "    .isVisible().catch(() => false);\n"
-     "  if (out) {\n"
+     "  if (out && !process.env.UPG_ANONYMOUS) {   // anonymous role: the sign-in form IS its page (cold test WM1)\n"
      "    const li = await H.login(page);\n"
      "    console.log(`    reset: the previous journey ended the session; signed in again: ${li.ok ? 'ok' : 'FAILED ' + li.reason}`);\n"
      "  }\n}"),

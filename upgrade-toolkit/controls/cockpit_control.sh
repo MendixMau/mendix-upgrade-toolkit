@@ -111,6 +111,16 @@ PY
          printf 'basewalk\t%s\t999999\n' "$(date +%s)" > "$W/state/running"; ck > /dev/null
          echo "dead pid: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")"
          rm "$W/state/running"; ck > /dev/null; echo "no file: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")" ;;
+  stopped) # a judgment stop (cold test WM1): a red bar with each NEEDS-JUDGMENT.md section and the rerun command, one
+         # needs-you row per section, and the matrix cell lists every section; no NEEDS-JUDGMENT.md = no bar
+         printf '# NEEDS JUDGMENT: step basewalk, exit 11\n\nwork: %s\nRule: the items below are pending, not passed: ..., then rerun:\n\n    upgrade-pipeline.sh --work W --from basewalk\n\n## The smoke walk SKIPPED microflow steps (exit 11)\n\nRerun with UPG_SMOKE_MICROFLOWS=1.\n\n## Role Anonymous has no walk (exit 11)\n\nfile: x\n\n```\nAnonymous: none\n```\n' "$W" > "$W/NEEDS-JUDGMENT.md"; ck > /dev/null
+         echo "bar: $(grep -o '<div class="stopbar" role="alert"><b>[^<]*' "$T/out.html" | sed 's/.*<b>//')"
+         echo "sections: $(grep -o '<div class="stopbar".*</ul>' "$T/out.html" | grep -o '<li>[^<]*' | sed 's/<li>//' | paste -sd '|' -)"
+         echo "rerun: $(grep -o 'Then rerun: <code>[^<]*' "$T/out.html" | sed 's/.*<code>//')"
+         echo "rows: $(grep -o '"id": "stop:basewalk:[0-9]"' "$T/out.html" | sort -u | paste -sd ' ' -)"
+         echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
+         echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
+         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
   live-open) # cockpit_live as the pipeline runs it, with a stub opener that counts the opens
          { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
          . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; rm -f "$W/state/triage.done"
@@ -193,7 +203,7 @@ ns=re.sub(r"<script>.*?</script>","",t,flags=re.S)      # what a viewer without 
 chips={c["label"]:c["n"] for c in B["closed"]["chips"]}
 if case=="static":
     print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "open topics still to validate" in ns)
-    print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress", ns)))
+    print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress|Stopped at \w+, waiting for you", ns)))
     print("matrix cells without JS:", len(re.findall(r'data-i="\d+" data-s="', ns)), "of", 4*len(D["matrix"]["rows"]))
     print("feed and readiness without JS:", ns.count("<li>")>0, ns.count('data-ready=')+ns.count('class="chip ok"')>0)
     print("viewport meta:", 'name="viewport" content="width=device-width,initial-scale=1"' in ns)

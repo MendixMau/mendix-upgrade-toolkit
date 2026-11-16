@@ -431,6 +431,11 @@ def derive(work, model):
     for it in pending_j:
         tgt = next((r for r in rows if r["id"] == home.get(it.get("step"), "findings")), None) or rows[0]
         c = tgt["cells"]["test"]
+        if c.get("s") == "you" and c.get("dec", "").startswith("stop:") and it["id"].startswith("stop:"):
+            # several sections of one judgment stop on one row: list them all (the first one kept only its own title)
+            n = c.get("nstop", 1) + 1
+            c.update(nstop=n, l=f"{n} decisions needed", steps=c["steps"] + [it["title"]])
+            continue
         was = c["l"]
         c.update(s="you", l="Needs your decision", dec=it["id"], steps=[it["title"], it["problem"], f"Before: {was}."][:3] if it["problem"] else [it["title"]])
     return rows, ready_chips(work, P, g, heal, inv, ledit, done), P, g, done, per, ledger
@@ -1055,7 +1060,11 @@ def band(model, rows, chips, g, tl, kpi=None):
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
         st, head, sub = "neutral", (f"Upgrade to Mendix {tgt} in progress" if tgt else "Upgrade in progress"), "The build has not run yet."
-    closed = closed_items(rows, g, tl)
+    if model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
+        s = model["stopped"]
+        st, head = "bad", f"Stopped at {s['step']}, waiting for you"
+        sub = f"{len(s['titles'])} {'item' if len(s['titles']) == 1 else 'items'} to decide, then rerun (see the red bar)."
+    closed =closed_items(rows, g, tl)
     for it in kpi.get("closed") or []:
         if isinstance(it, dict) and isinstance(it.get("label"), str) and isinstance(it.get("n"), int):
             hit = next((c for c in closed if c["label"].lower() == it["label"].lower()), None)
@@ -1277,6 +1286,8 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 #feed,#feed *{overflow-wrap:anywhere}
 .nowrun{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--wait);font-size:14px}
 .nowrun[hidden]{display:none}
+.stopbar{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--badbg);border:1px solid var(--bad);font-size:14px}
+.stopbar b{color:var(--bad)}.stopbar ul{margin:6px 0;padding-left:20px}.stopbar small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
 @keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.nowrun .pulse{animation:none}}
@@ -1715,6 +1726,16 @@ def h_running(r):
             f'<small>{E(what)}</small></div></div>')
 
 
+def h_stopped(s):
+    """A judgment stop (NEEDS-JUDGMENT.md): a red bar under the header, so a run that waits for a person says so first."""
+    if not s:
+        return ""
+    li = "".join(f"<li>{E(t)}</li>" for t in s["titles"])
+    cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
+    return (f'<div class="stopbar" role="alert"><b>The run stopped at {E(s["step"])} (exit {s["code"]}) and waits for you.</b>'
+            f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder.</small>{cmd}</div>')
+
+
 def render(model, matrix):
     data = json.dumps(dict({k: model[k] for k in ("title", "sub", "state", "planHash", "signed", "phases", "items")}, matrix=matrix), ensure_ascii=False)
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
@@ -1728,7 +1749,7 @@ def render(model, matrix):
             f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
-            f"  {h_running(model.get('running'))}\n"
+            f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n"
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'
