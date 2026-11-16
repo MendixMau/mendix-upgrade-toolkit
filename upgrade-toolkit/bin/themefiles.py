@@ -66,8 +66,10 @@ def norm_js_action(text):
         st = re.sub(r"\{\s*", "{ ", re.sub(r"\s*\}", " }", st))
         if st not in JSGEN_IMPORTS:
             imps.add(st)
-    blocks = [f"[{m.group(1)}]\n" + "\n".join(ln.strip() for ln in m.group(2).split("\n") if ln.strip())
-              for m in JSBLOCK.finditer(text)]
+    # an empty block is no code: the 3.0.1 NanoflowCommons package ships GetPlatform.js without the EXTRA CODE markers,
+    # Studio Pro writes them back empty (cold test WM1: 4 such files made the module FILES-EDITED, and it was kept)
+    blocks = [f"[{m.group(1)}]\n" + body for m in JSBLOCK.finditer(text)
+              if (body := "\n".join(ln.strip() for ln in m.group(2).split("\n") if ln.strip()))]
     return "js-action:\n" + "\n".join(sorted(imps)) + "\n" + "\n".join(blocks)
 
 
