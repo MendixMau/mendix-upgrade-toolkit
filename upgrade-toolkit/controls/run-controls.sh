@@ -6676,7 +6676,7 @@ ctl cockpit-matrix-trail-pass 0 "^rows with a trail: \{'modules': 2\}$" '^commit
 ctl cockpit-matrix-trail-malformed-catch 0 '^rows with a trail: 0$' -- $CK matrix-trail-bad
 ctl cockpit-matrix-plan-pass 0 "^plan items: \[\('P-1', 'module', 'Gridmod'\), \('P-2', 'theme', 'Themepack styles'\)\]$" "Sign-off'\]$" -- $CK matrix-plan
 ctl cockpit-matrix-plan-none-pass 0 '^plan sections: 0$' -- $CK matrix-plan-none
-ctl cockpit-band-renders-without-js-pass 0 'band without JS: True' 'headline without JS: True' 'matrix cells without JS: 52 of 52' 'feed and readiness without JS: True True' 'viewport meta: True' 'closed total = sum of chips: True \| exactly two numbers: True' -- $CK matrix-band-static
+ctl cockpit-band-renders-without-js-pass 0 'band without JS: True' 'headline without JS: True' 'matrix cells without JS: 52 of 52' 'feed and readiness without JS: True True' 'viewport meta: True' 'closed total = sum of chips: True \| one for-you number: True' -- $CK matrix-band-static
 ctl cockpit-band-positive-framing-pass 0 'no dashed late marker: True' 'legend only for states on the page: True' 'no unstable or failures wording: True' -- $CK matrix-framing
 ctl cockpit-band-kpi-overrides-pass 0 'closed chip added: True \| renamed count: 2' 'open added: True \| hidden gone: True' 'shown without JS: True' -- $CK matrix-kpi
 ctl cockpit-band-counts-from-gate-rungs-pass 0 "'journeys pass': 12" "'journeys behave as on the old app': 4" "'constants checked': 9" "'release notes handled': 20" 'no rest chip when the rung is missing: True' -- $CK matrix-rungs

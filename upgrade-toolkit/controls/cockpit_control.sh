@@ -223,12 +223,12 @@ D=json.loads(re.search(r"const D=(.*?);\n", t, re.S).group(1)); B=D["matrix"]["b
 ns=re.sub(r"<script>.*?</script>","",t,flags=re.S)      # what a viewer without JavaScript gets
 chips={c["label"]:c["n"] for c in B["closed"]["chips"]}
 if case=="static":
-    print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "open topics still to validate" in ns)
+    print("band without JS:", 'class="hero' in ns and "items closed successfully" in ns and "for you now" in ns)
     print("headline without JS:", bool(re.search(r"<b>The app (runs|builds) on Mendix [\d.]+</b>|Upgrade to Mendix [\d.]+ in progress|Stopped at \w+, waiting for you", ns)))
     print("matrix cells without JS:", len(re.findall(r'data-i="\d+" data-s="', ns)), "of", 4*len(D["matrix"]["rows"]))
     print("feed and readiness without JS:", ns.count("<li>")>0, ns.count('data-ready=')+ns.count('class="chip ok"')>0)
     print("viewport meta:", 'name="viewport" content="width=device-width,initial-scale=1"' in ns)
-    print("closed total = sum of chips:", B["closed"]["n"]==sum(chips.values()), "| exactly two numbers:", ns.count('class="kpi ')==2)
+    print("closed total = sum of chips:", B["closed"]["n"]==sum(chips.values()), "| one for-you number:", ns.count("for you now")==1)
 elif case=="framing":
     legend=re.search(r'<div class="legend">(.*?)</div>', ns, re.S).group(1)
     used={c["s"] for r in D["matrix"]["rows"] for c in r["cells"].values()}|{c["s"] for c in D["matrix"]["ready"]}

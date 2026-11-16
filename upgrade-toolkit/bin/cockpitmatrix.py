@@ -497,7 +497,8 @@ def derive(work, model):
               "The build proves it compiles; the journeys that use it prove it runs.", ["build"])]
     for key, name, what, how, rungs in TESTS:
         if key is None:
-            if not (scope or jbase or cov):
+            if not (scope or jbase or cov):   # nothing measured yet: the row stays, grey (a missing file is never a pass)
+                rows.append(row("t-buttons-and-journeys", name, "", "setup", {"test": rungs_cell(g, rungs)}))
                 continue
             found = (f"{scope.group(1)} buttons in reach of a user" if scope else "") + (f"; {nopath.group(1)} have no click path yet" if nopath else "")
             auto = True
