@@ -27,6 +27,13 @@ if a[0] == "describe":
         if el:
             print(f"mdl 1;\ncreate or modify {kind} {qn} (\n" + "\n".join("  " + x for x in el) + "\n) {\n};")
         sys.exit(0)
+    if kind == "association":   # only the original model still has it
+        if "/orig/" in mpr and qn == "Other.A_B":
+            print(f"mdl 1;\ncreate or modify association {qn}\nfrom Other.X to Target.Y;")
+        sys.exit(0)
+    if kind == "entity" and qn == "Other.X":
+        print("create or modify entity Other.X (\n);\ngrant read (A_B, Name), write (A_B) on entity Other.X to Other.User;\ngrant read (Name) on entity Other.X to Other.Guest;")
+        sys.exit(0)
     body = "logic A" if pkg or "Cosmetic" in qn else "logic B"
     print(("@position(1, 1)\n" if pkg else "@position(9, 9)\n@anchor(from: right, to: left)\n") + body)
 elif a[0] == "check":
@@ -70,7 +77,7 @@ case "${1:-}" in
         for f in route-plan.txt force-ui.txt accept-unsaved.txt approved.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
   collect) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         mkdir -p "$W/saved-edits/Uimod" "$W/saved-edits/Target"
-        for e in layout-L1 constant-K layout-Added layout-Bad page-NotRefused; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done
+        for e in layout-L1 constant-K layout-Added layout-Bad page-NotRefused entity-Whole; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done
         printf 'mdl 1;\ncreate or modify association Other.A_B from Other.X to Target.Y;\n' > "$W/saved-edits/Target/association-Other_A_B.mdl"
         python3 "$B/editroute.py" collect --work "$W"; echo "rc=$?"
         sed 's/^/Uimod.mdl: /' "$W/replay/Uimod.mdl"; sed 's/^/Target.mdl: /' "$W/replay/Target.mdl"; sed 's/^/Target.guids: /' "$W/replay/Target.guids" ;;

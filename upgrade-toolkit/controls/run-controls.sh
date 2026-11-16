@@ -6637,6 +6637,10 @@ ctl editroute-collect-pass 0 'Uimod.mdl: create or modify layout Uimod.L1' 'Uimo
 # is merged onto the new element instead, and a result mxcli check refuses is held, never executed
 ctl editroute-collect-prop-merge-pass 0 "^Uimod.mdl:   class: 'mine',$" "^Uimod.mdl:   title: 'y'$" '!saved whole element' -- $ER collect
 ctl editroute-collect-app-added-pass 0 "layout Added: added by the app" "^Uimod.mdl:   class: 'own'$" "constant K: the vendor did not change it" -- $ER collect
+# data test 2026-11-16: save-edits wrote no association file; a re-created association lost its member access; a saved
+# whole entity put widened vendor attributes back
+ctl editroute-collect-assoc-from-original-pass 0 'association Other.A_B: from the original model' '^Target.mdl: grant read \(A_B, Name\), write \(A_B\) on entity Other.X to Other.User;$' '!Other.Guest' -- $ER collect
+ctl editroute-collect-no-whole-entity-catch 0 '!entity-Whole' '!saved whole element entity' -- $ER collect
 ctl editroute-collect-check-held-catch 0 '^HELD Uimod layout Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
 # cold test WM1 Email_Connector: diagram-only, then the routed update kept it for 3 associations; routed again, routes add up
 ctl editroute-reroute-adds-route-pass 0 '^ROUTE Cosmo XASSOC' '^routes: Cosmo COSMETIC\+XASSOC$' '^route-plan.txt: 7 2.0.0 Cosmo$' -- $ER reroute

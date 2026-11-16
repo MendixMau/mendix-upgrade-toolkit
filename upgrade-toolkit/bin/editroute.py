@@ -285,7 +285,9 @@ def cmd_collect(a):
             keep = {re.sub(r"\W", "", e.split(" ", 1)[1]).lower() for e in x.get("ui", [])}
             for f in sorted(glob.glob(os.path.join(d, "*.mdl"))):
                 b = os.path.basename(f)[:-4]
-                if b.startswith("association-") or "-" not in b:
+                if b.startswith(("association-", "entity-", "microflow-", "nanoflow-")) or "-" not in b:
+                    # a saved whole entity puts the vendor's widened attributes back (EmailTemplate: 5 of them String(2000)
+                    # to String(200), data test 2026-11-16); logic goes to <Module>_Ext, never back into the vendor module
                     continue
                 kind, name = b.split("-", 1)
                 if "UNREAD" not in routes and re.sub(r"\W", "", name).lower() not in keep:
@@ -306,8 +308,27 @@ def cmd_collect(a):
                     continue
                 parts.append((f"{kind} {name}: {how}", mdl))
         if "XASSOC" in routes:
-            for f in sorted(glob.glob(os.path.join(d, "association-*.mdl"))):
-                parts.append((os.path.basename(f), rd(f)))
+            # from the ORIGINAL model, not save-edits: on WM1 the forced update wrote no association-*.mdl for the 4
+            # associations the app's Email module owns into Email_Connector (data test 2026-11-16), so nothing was replayed
+            owners = {}
+            for q in x.get("assocs", []):
+                f = os.path.join(d, f"association-{q.replace('.', '_')}.mdl")
+                mdl = describe(x["original"], "association", q) if x.get("original") else None
+                mdl = mdl or (rd(f) if os.path.exists(f) else None)
+                if not mdl:
+                    held.append(f"association {q}: not in the original model or the saved edits")
+                    continue
+                parts.append((f"association {q}: from the original model, original id restored after", mdl))
+                m = re.search(r"\bfrom\s+([\w.]+)\s+to\b", mdl)
+                if m:
+                    owners.setdefault(m.group(1), []).append(q.split(".", 1)[1])
+            # a re-created association has no member access (ReadWrite became None; a build error on a non-persistent
+            # owner, data test 2026-11-16): the owner's grant lines that name it go in again
+            for ent, names in owners.items():
+                g = [ln.strip() for ln in (describe(x["original"], "entity", ent) or "").splitlines()
+                     if ln.strip().startswith("grant ") and any(re.search(rf"\b{re.escape(n)}\b", ln) for n in names)]
+                if g:
+                    parts.append((f"member access on {ent} for {len(names)} association(s)", "\n".join(g)))
             with open(os.path.join(W, "replay", f"{mod}.guids"), "w") as g:
                 g.write("".join(q + "\n" for q in x.get("assocs", [])))
         for h in held:
