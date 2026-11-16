@@ -146,6 +146,13 @@ set -u
 : "${UPG_TOOLS:=$RUN/tools}"
 : "${MXCLI:=${UPG_MXCLI:-}}"
 B="$TK/bin"
+# Apple Silicon: every container call goes to a VM with Rosetta (bin/dockerhost.sh). Cold test WM1: the run used a qemu VM,
+# mxcli crashed on all 10 module updates and each was recorded as "kept".
+if DH=$(bash "$B/dockerhost.sh"); then
+  [ -z "$DH" ] || [ "$DH" = "${DOCKER_HOST:-}" ] || { echo "upgrade-pipeline.sh: containers run on $DH (Rosetta)"; export DOCKER_HOST="$DH"; }
+elif [ "${DRY:-0}" != 1 ]; then
+  exit 2
+fi
 PORT_OFF=${PORT_OFF:-0}
 APP_PORT=$((8080 + PORT_OFF)); ADMIN_PORT=$((8090 + PORT_OFF))
 export TK RUN UPG_TOOLS
