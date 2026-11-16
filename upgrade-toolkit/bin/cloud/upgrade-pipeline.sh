@@ -885,14 +885,14 @@ run_stepupdate() { # run_stepupdate PLAN label
   # always KEPT, since --unattended keeps every refused module. $WORK/force-ui.txt names them, one per line.
   local fu=()
   if [ -f "$WORK/force-ui.txt" ]; then
-    local mods; mods=$(grep -vE '^[[:space:]]*(#|$)' "$WORK/force-ui.txt" | awk '{print $1}' | paste -sd, -)
+    local mods; mods=$( { grep -vE '^[[:space:]]*(#|$)' "$WORK/force-ui.txt" || true; } | awk '{print $1}' | paste -sd, -)
     [ -z "$mods" ] || fu=(--force-ui "$mods" --saved-edits "$WORK/saved-edits")
   fi
   # R-hook (pr-rerun): $WORK/accept-unsaved.txt names modules whose update may commit although the installed package cannot
   # prove their theme/JavaScript files unedited (stepupdate --accept-unsaved; NanoflowCommons 6.0.0 is not in the catalog)
   local au=()
   if [ -f "$WORK/accept-unsaved.txt" ]; then
-    local amods; amods=$(grep -vE '^[[:space:]]*(#|$)' "$WORK/accept-unsaved.txt" | awk '{print $1}' | paste -sd, -)
+    local amods; amods=$( { grep -vE '^[[:space:]]*(#|$)' "$WORK/accept-unsaved.txt" || true; } | awk '{print $1}' | paste -sd, -)
     [ -z "$amods" ] || au=(--accept-unsaved "$amods")
   fi
   # F14: approved-step.txt holds step-only acceptances (a removal the replay restores): the step idcheck reads them,

@@ -30,7 +30,8 @@ def stem(w):
 
 
 def words(t):
-    return [stem(w) for w in re.findall(r"[a-z0-9_]+", (t or "").lower()) if w not in STOP and len(w) > 1]
+    # Atlas_Core is "Atlas Core" in a title; a version digit ("Atlas 4") is a word of its own
+    return [stem(w) for w in re.findall(r"[a-z0-9]+", (t or "").lower()) if w not in STOP and (len(w) > 1 or w.isdigit())]
 
 
 def load(brain):
