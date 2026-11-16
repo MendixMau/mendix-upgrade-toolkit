@@ -6,7 +6,7 @@
 // Pages: fixtures/widgetrender/*.html, a minimal reconstruction of the Bryntum grid classes the playbook selects,
 // not a captured page. Cases, one line each ("ok <case>: <detail>" or "FAIL <case>: <detail>"):
 //   broken: subgrid 0 px tall, no rows, no events      FAIL naming .b-grid-subgrid
-//   broken, part display:none (n>0, drawn 0)           FAIL naming .b-grid-subgrid (the old flat count missed it)
+//   broken, part visibility:hidden, 200 px tall         FAIL naming .b-grid-subgrid (the old flat count missed it)
 //   fixed: rows and events drawn                       PASS
 //   fixed, no data flag: only the h>0 row applies       PASS
 //   broken, no data flag: the h>0 row still fails       FAIL
@@ -30,7 +30,7 @@ const A = { widget: 'scheduler1', data: true, timeoutMs: 2500 };
   check('broken: 0 px subgrid', !r.ok && /\.b-grid-subgrid/.test(r.reason), r.reason);
   p = await open('scheduler-broken-hidden.html'); r = await R.check(p, A);
   const part = r.m.parts.find(x => x.sel === '.b-grid-subgrid');
-  check('broken: part display:none', !r.ok && /\.b-grid-subgrid: 1 of 1/.test(r.reason) && part.flat === 1, r.reason);
+  check('broken: part hidden', !r.ok && /\.b-grid-subgrid: 1 of 1/.test(r.reason) && part.flat === 1, r.reason);
   p = await open('scheduler-fixed.html'); r = await R.check(p, A);
   check('fixed: rows and events drawn', r.ok, r.ok ? 'PASS' : r.reason);
   r = await R.check(p, { ...A, data: false });

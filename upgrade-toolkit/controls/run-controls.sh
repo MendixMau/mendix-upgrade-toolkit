@@ -2180,7 +2180,7 @@ RPW=${PLAYWRIGHT_NODE_PATH:-$HOME/mendix-playwright/node_modules}
 NODE_PATH=$RPW node -e "require('playwright')" 2> /dev/null || RPW=$(npm root -g 2> /dev/null)
 # a test launch, not executablePath(): a headless-shell install has no full Chrome at that path and still launches
 if NODE_PATH=$RPW node -e "require('playwright').chromium.launch({args:['--use-mock-keychain','--password-store=basic']}).then(b=>b.close()).then(()=>process.exit(0),()=>process.exit(1))" 2> /dev/null; then
-  ctl journeys-rendered-catch 0 '^ok +broken: 0 px subgrid' '^ok +broken: part display:none' '^ok +broken, no data flag' '^ok +error logged during the step' '!^FAIL' -- env NODE_PATH=$RPW node $here/widgetrender_control.js
+  ctl journeys-rendered-catch 0 '^ok +broken: 0 px subgrid' '^ok +broken: part hidden' '^ok +broken, no data flag' '^ok +error logged during the step' '!^FAIL' -- env NODE_PATH=$RPW node $here/widgetrender_control.js
   ctl journeys-rendered-pass 0 '^ok +fixed: rows and events drawn: PASS' '^ok +fixed, no data flag: PASS' '^ok +error logged before the step: PASS' '!^FAIL' -- env NODE_PATH=$RPW node $here/widgetrender_control.js
 else skip journeys-rendered-catch "no playwright with a browser"; skip journeys-rendered-pass "no playwright with a browser"; fi
 # FN-3..FN-7, FN-11 (field finish pass): generator fixes on fake models (controls/generator_fn_control.py)
