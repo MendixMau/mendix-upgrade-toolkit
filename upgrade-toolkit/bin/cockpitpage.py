@@ -467,6 +467,10 @@ def build_model(work):
 
     def add(it):
         it["decided"] = last.get(it["id"])
+        # an approval counts only for the plan it was given on (cold test WM1: the plan changed after the approval, the
+        # pipeline asked again, but the page still hid the button)
+        if it["kind"] == "signoff" and it["decided"] and it["decided"].get("plan_hash") not in (None, it.get("plan_hash")):
+            it["decided"] = None
         items.append(it)
 
     for e in rgroups:
