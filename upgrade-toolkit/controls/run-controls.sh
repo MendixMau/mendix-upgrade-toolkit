@@ -481,6 +481,8 @@ for f in bcprov-jdk18on-1.85.jar commons-io-2.21.0.jar xercesImpl-2.12.2.jar; do
 ctl jardedupe-catch 1 'bcprov-jdk18on-1\.78' 'commons-io-2\.11\.0' 'KEEP.*xercesImpl' -- python3 $B/repair/jardedupe.py $J
 ctl jardedupe-apply-stale-refused 2 'REFUSED: vendorlib is stale' -- python3 $B/repair/jardedupe.py $J --apply
 ctl jardedupe-apply 0 'vendorlib current: stated with --vendorlib-synced' -- python3 $B/repair/jardedupe.py $J --apply --vendorlib-synced
+# WM1 rerun 6: the build repair ran jardedupe without --updated-from-git; pdfbox 2 stayed next to pdfbox 3, javac failed
+ctl pipeline-jardedupe-updated-from-git-pass 0 '^2$' -- bash -c "grep -c 'jardedupe.py\" \"\\\$APP\" --updated-from-git' $B/cloud/upgrade-pipeline.sh"
 ctl jardedupe-pass 0 '!bcprov-jdk18on-1\.78' -- python3 $B/repair/jardedupe.py $J
 ctl jardedupe-keeps-own-and-newer 0 -- bash -c "[ -f $J/userlib/own-helper-1.0.jar ] && [ -f $J/userlib/xercesImpl-2.12.2-sp1.jar ] && [ ! -f $J/userlib/bcprov-jdk18on-1.78.jar.SAML20.RequiredLib ]"
 # U4: -sources and -javadoc jars are their own artifact: never compared with the class jar, never kept over it

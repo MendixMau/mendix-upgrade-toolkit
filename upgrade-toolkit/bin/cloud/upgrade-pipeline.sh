@@ -1077,8 +1077,10 @@ step_build() {
     if [ "$vrc" = 0 ]; then note "mx sync-java-dependencies failed (exit $rc); vendorlib filled by vendorlib_mvn.sh (host Maven)"
     else note "mx sync-java-dependencies failed (exit $rc), vendorlib_mvn.sh exit $vrc (3 = version range to pin), recorded NOT RUN; the build decides"; fi
   fi
-  rc=0; x python3 "$B/repair/jardedupe.py" "$APP" || rc=$?
-  x python3 "$B/repair/jardedupe.py" "$APP" --apply || true
+  # --updated-from-git: the 'step:' commits prove which modules moved; without it the old userlib copies they left behind
+  # stay (WM1: pdfbox 2.0.24 next to vendorlib 3.0.7, javac failed in CommunityCommons Misc.java:643)
+  rc=0; x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git || rc=$?
+  x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git --apply || true
   commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3
   # row 4: missing or broken packages are noted (mx check reports what matters); DEPRECATED-11 builds clean but fails at
   # runtime on 11 (T7-29), so it stops here
