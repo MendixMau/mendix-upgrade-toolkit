@@ -62,6 +62,7 @@ touch "$S/step5-Filesmod.log" "$S/step6-Vendmod.log" "$S/step7-Usedmod.log" "$S/
 printf 'RED  REMOVED      attribute   Vendmod.E.Gone  (column/table dropped; intended?)\n' > "$S/step6-Vendmod.idcheck"
 printf 'RED  REMOVED      attribute   Usedmod.E.Used  (column/table dropped; intended?)\n' > "$S/step7-Usedmod.idcheck"
 printf 'RED  REMOVED      association Other.A_B  (column/table dropped; intended?)\n' > "$S/step8-Target.idcheck"
+printf 'refusing to update: 1 element(s) have been changed locally\n' > "$S/step12-Target.log"   # a later step, no idcheck (WM1)
 cat > "$S/kept.txt" <<'K'
 Cosmo local edits refuse the update
 Realmod local edits refuse the update
@@ -70,7 +71,7 @@ Unread elements could not be read, module not shown unedited
 Filesmod FILES-UNKNOWN: update replaced 1 theme/javascript/java file(s), unproven unedited
 Vendmod idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
 Usedmod idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
-Target idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x
+Target idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see .stepupdate/step8-Target.idcheck
 Javamod local Java user code edits (FILES-EDITED javasource)
 K
 python3 - "$W/localedits.json" <<'PY'

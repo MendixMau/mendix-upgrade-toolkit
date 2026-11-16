@@ -97,7 +97,11 @@ def route_module(mod, why, S, ledit, original, cache, mpr):
     if re.search(r"NETWORK|update failed|Java user code|javasource", why):
         return "HOLD", why, {}
     if "idcheck REVIEW" in why:
-        idc = log[:-4] + ".idcheck" if log else ""
+        # the file the kept reason names: a later step of the same module (WM1: step10, a refusal) has no idcheck, and
+        # reading its log gave "no RED rows read", so Email_Connector was held and its old snippet broke the build (CE0620)
+        m = re.search(r"see \S*?(step\d+-[\w.]+\.idcheck)", why)
+        idc = os.path.join(S, m.group(1)) if m and os.path.exists(os.path.join(S, m.group(1))) else \
+            next((c for c in (p[:-4] + ".idcheck" for p in reversed(logs)) if os.path.exists(c)), "")
         rows, own, xassoc, bad = red_rows(idc), [], [], []
         for finding, kind, qn in rows:
             if finding == "REMOVED" and kind in ("attribute", "entity") and qn.split(".")[0] == mod:
