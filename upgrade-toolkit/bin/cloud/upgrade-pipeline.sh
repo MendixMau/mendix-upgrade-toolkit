@@ -452,7 +452,9 @@ import json, sys
 roles, out, pw = sys.argv[1], sys.argv[2], sys.argv[3]
 json.dump({r: {"user": "smoke_" + r.lower(), "pass": pw} for r in roles.split(",") if r}, open(out, "w"), indent=1)' "$1" "$2" "$SMOKE_PW"
 }
-smoke_mf() { [ "${UPG_SMOKE_MICROFLOWS:-0}" != 1 ] || echo --microflows; }   # UPG_SMOKE_MICROFLOWS (header)
+# UPG_SMOKE_MICROFLOWS (header); the after walk also follows the baseline: a baseline that ran microflow steps compared
+# with a walk that skipped them gave 4 false REGRESSIONs on WM1 (rerun 7, env not set on the rerun)
+smoke_mf() { if [ "${UPG_SMOKE_MICROFLOWS:-0}" = 1 ] || grep -q '"landed": *"microflow ran"' "$WORK/smoke-before.json" 2> /dev/null; then echo --microflows; fi; }
 user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
   UARGS=(); local r
   IFS=',' read -ra _rl <<< "$1"
@@ -1082,6 +1084,18 @@ step_build() {
   rc=0; x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git || rc=$?
   x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git --apply || true
   commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3
+  # module roles an update ADDED, mapped by name (WM1: Atlas_Core 4's language selector needs Atlas_Core.User; unmapped,
+  # every page on an Atlas layout failed "for security reasons" while mx check stayed clean). Guest role: never granted.
+  if [ -f "$WORK/original.mpr" ]; then
+    rm -f "$WORK/modroles.mdl"
+    xo "$WORK/modroles.txt" python3 "$B/repair/modroles.py" "$MPR" --original "$WORK/original.mpr" --mdl "$WORK/modroles.mdl" || true
+    if [ "$DRY" != 1 ] && [ -s "$WORK/modroles.mdl" ]; then
+      rc=0; xo "$WORK/modroles-exec.out" mxcli_run exec "$WORK/modroles.mdl" -p "$MPR" || rc=$?
+      [ "$rc" = 0 ] || note "modroles: exec failed (exit $rc), see $WORK/modroles-exec.out"
+      commit_app "repair: map module roles the updates added" repair repair-modroles
+    fi
+    [ "$DRY" = 1 ] || note "$(tail -1 "$WORK/modroles.txt") (see $WORK/modroles.txt)"
+  fi
   # row 4: missing or broken packages are noted (mx check reports what matters); DEPRECATED-11 builds clean but fails at
   # runtime on 11 (T7-29), so it stops here
   rc=0; xo "$WORK/missing_deps.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?

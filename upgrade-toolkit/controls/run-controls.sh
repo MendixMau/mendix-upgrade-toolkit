@@ -481,6 +481,16 @@ for f in bcprov-jdk18on-1.85.jar commons-io-2.21.0.jar xercesImpl-2.12.2.jar; do
 ctl jardedupe-catch 1 'bcprov-jdk18on-1\.78' 'commons-io-2\.11\.0' 'KEEP.*xercesImpl' -- python3 $B/repair/jardedupe.py $J
 ctl jardedupe-apply-stale-refused 2 'REFUSED: vendorlib is stale' -- python3 $B/repair/jardedupe.py $J --apply
 ctl jardedupe-apply 0 'vendorlib current: stated with --vendorlib-synced' -- python3 $B/repair/jardedupe.py $J --apply --vendorlib-synced
+# WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
+ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
+ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"
+# WM1 2026-11-17: Atlas_Core 4's new module roles unmapped; every Atlas page failed for security reasons (smoke walk only)
+MR="bash $B/../controls/modroles_control.sh"
+ctl modroles-grant-by-name-pass 0 '^mdl: ALTER USER ROLE Administrator ADD MODULE ROLES \(Atlas_Core.Administrator\);' '^mdl: ALTER USER ROLE User ADD MODULE ROLES \(Atlas_Core.User\);' '^modroles: 3 grant' -- $MR
+ctl modroles-guest-held-catch 0 '^GUEST Atlas_Core.User' '!ALTER USER ROLE Anonymous' -- $MR
+ctl modroles-unmatched-catch 0 '^UNMATCHED Atlas_Core.Designer' '^UNMATCHED Widgets.Reader' -- $MR
+ctl modroles-keeps-old-and-unmoved-pass 0 '!Legacy.Viewer' '!Other.User' -- $MR
+ctl pipeline-runs-modroles-pass 0 '^1$' -- bash -c "grep -c 'repair/modroles.py\" \"\\\$MPR\" --original' $B/cloud/upgrade-pipeline.sh"
 # WM1 rerun 6: the build repair ran jardedupe without --updated-from-git; pdfbox 2 stayed next to pdfbox 3, javac failed
 ctl pipeline-jardedupe-updated-from-git-pass 0 '^2$' -- bash -c "grep -c 'jardedupe.py\" \"\\\$APP\" --updated-from-git' $B/cloud/upgrade-pipeline.sh"
 ctl jardedupe-pass 0 '!bcprov-jdk18on-1\.78' -- python3 $B/repair/jardedupe.py $J
