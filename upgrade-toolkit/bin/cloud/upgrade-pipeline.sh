@@ -608,6 +608,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     note "no module-jumps.txt: release-impact.md holds Studio Pro rows only; module rows NOT generated"
   fi
   [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
+  dojo_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
@@ -783,8 +784,20 @@ The run stopped on purpose; no step after propose has run. Resume: remove the \`
   esac
   nj_flush
 }
+# Dojo to React (B6-4) on every run, against the last rung: the move is part of each upgrade, not a later project. Cold
+# test WM1: the pipeline never ran dojo_report.py, so 144 legacy core widgets in 83 documents showed up nowhere.
+dojo_report() {
+  [ "$DRY" != 1 ] || { say "+ dojo_report.py $WORK/original.mpr --to ${TARGET2:-$TARGET} --out $WORK/dojo-react.md"; return 0; }
+  [ -f "$WORK/original.mpr" ] || return 0
+  local rc=0
+  xo "$WORK/dojo-react.out" python3 "$B/dojo_report.py" "$WORK/original.mpr" --to "${TARGET2:-$TARGET}" --out "$WORK/dojo-react.md" || rc=$?
+  [ "$rc" = 0 ] || note "dojo_report.py exit $rc, see $WORK/dojo-react.out"
+}
+
 step_propose() {
   local rc=0
+  # a run whose triage predates the report
+  [ -s "$WORK/dojo-react.md" ] || dojo_report
   if [ "$DRY" = 1 ]; then
     say "+ action_inventory.py $WORK/original.mpr --out $WORK/actions.json; apimock.py inventory $WORK/original.mpr --json $WORK/apimock-inventory.json"
     say "+ proposal.py --work $WORK --source $SOURCE --target $TARGET (exit 14 unsigned, 15 PAUSED, 0 signed or unattended)"

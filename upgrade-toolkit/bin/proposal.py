@@ -128,7 +128,6 @@ class Facts:
         self.sizes = {}
         self.systems = None
         self.nendpoints = None; self.api_mocked = 0; self.api_unknown = []; self.api_excluded = 0
-        self.dojo_adv = []
         self.release_open = None
         self.release_total = None
         self.actions = None
@@ -311,6 +310,14 @@ class Facts:
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
         if t is None:
             return
+        # the move to React is part of every upgrade (where a path exists): plan work, not advice. Only a widget without
+        # a React path is a decision (below)
+        last = getattr(self.a, "target2", None) or self.a.target or "the target"
+        for head, rows in tables(t):
+            if head[:2] == ["widget", "count"]:
+                for r in rows:
+                    if len(r) > 3 and r[1].isdigit():
+                        self.items2.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
         for head, rows in tables(t):
             if head[:3] != ["status", "package", "version"]:
                 continue
@@ -320,16 +327,16 @@ class Facts:
                 if st in ("can't move", "not researched", "unreadable"):
                     self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"), f"dojo-react.md: {st}: {r[3] if len(r) > 3 else ''}",
                               "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
-                              "keep old package, accept the risk (advisory on 11, blocking on 12)", "L" if st == "can't move" else "M",
+                              "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
                 elif st in ("can move", "delete"):
-                    self.dojo_adv.append(f"{pkg} ({st})")
+                    self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
                         # the successor depends on what each snippet holds (HTML only, a little script, DOM work): a decision per snippet
                         self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"),
                                   f"dojo-react.md: can move: {r[3] if len(r) > 3 else ''}; the successor depends on the content of each snippet",
                                   "keep on the Dojo client for now | HTML Element widget | JavaScript action + nanoflow + Events | pluggable widget | hand to a named person",
-                                  "keep on the Dojo client on an 11 target (advisory on 11, blocking on 12); classify every snippet first", "M",
+                                  "HTML Element widget for every snippet that holds HTML only; classify the rest (script, DOM work) per snippet", "M",
                                   "script in a snippet runs on the Dojo page DOM; Mendix 12 removes the Dojo client")
 
     def sizes_and_actions(self):
@@ -497,7 +504,9 @@ def write_steps(F, work):
     groups = [("modules", "Routine module updates", "module", ("module update in the plan that the toolkit does on its own", "module updates in the plan that the toolkit does on its own"),
                "Update these modules to the versions that fit the new Mendix version."),
               ("repairs", "Predicted repairs", "repair", ("repair that the toolkit expects to make", "repairs that the toolkit expects to make"),
-               "Make these repairs during the upgrade, as the repair table describes.")]
+               "Make these repairs during the upgrade, as the repair table describes."),
+              ("react", "Dojo to React client", "react", ("move to the React client that the toolkit makes", "moves to the React client that the toolkit makes"),
+               "Move the app to the React client on the last rung: every legacy widget to its React successor, then test (playbooks/dojo-to-react.md).")]
     for topic, title, key, what, prop in groups:
         its = [x for x in F.items2 if x["key"].startswith(key + ":")]
         if not its:
@@ -644,8 +653,6 @@ def render(F, hashval, changed_block, signoff_text):
         L.append(f"- {it['text']}")
         if it["detail"]:
             L.append(f"  - {it['detail']}")
-    if F.dojo_adv:
-        L.append("- React client switch, advisory on 11 (not done in this run): " + ", ".join(F.dojo_adv[:12]) + (" ..." if len(F.dojo_adv) > 12 else ""))
     # section 5
     cnt = {}
     for it in F.items3:
