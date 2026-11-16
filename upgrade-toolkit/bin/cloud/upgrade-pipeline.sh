@@ -765,8 +765,9 @@ proposal_stop() { # proposal_stop RC: rc 14 / 15 end the run with NEEDS-JUDGMENT
   case "$1" in
     0) return 0 ;;
     14) nj_add 14 "Upgrade proposal awaits sign-off: read $WORK/PROPOSAL.md" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
-Nothing in the app model has changed. Read PROPOSAL.md, answer the section-3 items in chat (steps/decide.md; the P-n lines go to $WORK/DECISIONS.md), then a person writes one line in section 6:
-\`Signed-off: <name> <yyyy-mm-dd>\` to go on, or \`Status: PAUSED <reason>\` to stop on purpose. An agent never writes that line. Then run the command at the top of this file."
+Nothing in the app model has changed. Answer the questions under Blocked on you in the live cockpit and approve the plan there
+(the approval carries your Git name), or answer the section-3 items in chat (steps/decide.md) and approve on the page.
+To stop on purpose, write \`Status: PAUSED <reason>\` in PROPOSAL.md section 6. Then run the command at the top of this file."
        nj_file 14 "PROPOSAL.md (head)" "$WORK/PROPOSAL.md" 30 ;;
     15) nj_add 15 "Upgrade proposal PAUSED by the owner" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
 The run stopped on purpose; no step after propose has run. Resume: remove the \`Status: PAUSED\` line from $WORK/PROPOSAL.md section 6, write \`Signed-off: <name> <yyyy-mm-dd>\`, then

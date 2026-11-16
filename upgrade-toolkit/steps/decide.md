@@ -29,11 +29,19 @@ on any other harness print the same as a numbered markdown list ending "5. somet
 wait. Recommending an option from the evidence is fine; choosing silently is not. UNATTENDED runs keep the existing
 default (keep at the old version) and record it ASSUMED.
 
-The live cockpit asks the same questions: "Decide now" at the top of the page has one card per open item, one button per
-option, the sign-off last (cold test WM1: the questions were two or three clicks deep in drawers and nobody found them).
-A click posts to cockpitserve.py /decide, which runs decisions.py import and apply, so the page and the chat write one
-ledger. The session that drives the run watches `<cockpit dir>/.cockpit-decided` every 15 s (Monitor on
-`tail -F`), says what came in, and reruns from the stop once the plan is signed. A person can answer in either place.
+The live cockpit asks the same questions: "Blocked on you" in the sidebar lists one row per open item, and Resolve opens
+the question with its context, one button per option and what each option does; the plan approval comes last (cold test
+WM1: the questions were two or three clicks deep in drawers and nobody found them). The approval carries the person's Git
+name; nobody types a name. A click posts to cockpitserve.py /decide, which runs decisions.py import and apply, so the page
+and the chat write one ledger. The session that drives the run watches `<cockpit dir>/.cockpit-decided` every 15 s
+(Monitor on `tail -F`), says what came in, and reruns from the stop once the plan is approved. A person can answer in
+either place.
+
+A triage check that did not run (for example the release notes, when the company brain's version tables are missing) is
+never a silent pass: proposal.py makes it a section-3 question ("run the check first", "go on without it, a named person
+reads the release notes", "pause"), so the plan cannot be approved before someone chose. "Needs a person anyway" items
+(key-user confirmation, visual check, real test systems, go-live) are not plan questions: they belong to the test stage
+and go-live, and the cockpit shows them as "For a person", never as blocking.
 
 ## Pattern catalogue (playbooks/rearchitecture.md)
 Before asking, look for an RA entry for the item: bin/proposal.py already cites it in section 3 (`[RA-n, status]`). Ask with that

@@ -37,8 +37,9 @@ CHIPS = [("source", "App source and versions"), ("testdb", "Test database"), ("o
 
 
 # ---- cells and rows ----
-def cell(s, label, steps=None, tech=None, late=False, deploy=False, dec=None):
-    return {"s": s, "l": label, "steps": list(steps or []), "tech": list(tech or []), "late": late, "deploy": deploy, "dec": dec}
+def cell(s, label, steps=None, tech=None, late=False, deploy=False, dec=None, d=""):
+    """d: one short line under the label in the matrix (what was found or what the plan does), so a cell says more than its state."""
+    return {"s": s, "l": label, "steps": list(steps or []), "tech": list(tech or []), "late": late, "deploy": deploy, "dec": dec, "d": d}
 
 
 def notyet(what="No result file yet, so nothing is claimed."):
@@ -49,10 +50,12 @@ def nowork(why="Nothing to do at this stage for this item."):
     return cell("none", "Not needed", [why])
 
 
-def row(rid, name, sub, group, cells, tech=None, fix=None, regression=False):
+def row(rid, name, sub, group, cells, tech=None, fix=None, regression=False, story=None):
+    """story: {found, means, plan} lists of plain sentences, shown at the top of every drawer of the row (cold test WM1: a
+    cell said "Found" or "Approved" and nobody could tell what was found or what the plan does about it)."""
     full = {k: cells.get(k) or nowork() for k in STAGES}
     return {"id": rid, "name": name, "sub": sub, "group": group, "cells": full, "tech": list(tech or []), "fix": fix,
-            "regression": regression}
+            "regression": regression, "story": story or {}}
 
 
 def fixd(problem="", proposal="", steps=None, loop=None, result="", help="", learn=""):
@@ -221,7 +224,9 @@ def derive(work, model):
          if done["triage"] and src else notyet("Triage has not run yet."))
     p = (cell("ok", "Plan written", ["The plan lists the module updates and the choices that need a person.",
                                      f"Signed by {signed[0]}." if signed else "Not signed yet."], ["PROPOSAL.md"])
-         if done["propose"] and P["present"] else notyet("No plan yet."))
+         if done["propose"] and P["present"] else
+         cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
+         else notyet("No plan yet."))
     if done["convert"]:
         u = (cell("ok", "Converted, build clean", [f"The model was converted to Mendix {tgt}.", "The build finished with 0 errors."])
              if done["build"] and any(r["rung"] == "build" and r["verdict"].startswith("PASS") for r in g["rungs"])
@@ -229,8 +234,14 @@ def derive(work, model):
         u["tech"] = [f"{h} {s}" for h, s in commit_rows(lambda s: s.startswith("convert"))]
     else:
         u = notyet("The model has not been converted yet.")
+    if src:
+        t["d"] = f"{src} → {tgt}"
+        p["d"] = p["d"] or "convert, then build"
     rows.append(row("runtime", "Mendix runtime", f"{src} → {tgt}" if src else "", "app",
-                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["build", "data"])}))
+                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["build", "data"])},
+                    story={"found": [f"The app runs on Mendix {src}; the target is Mendix {tgt}."] if src else [],
+                           "means": ["The whole app model is converted to the new version. Pages, microflows and Java code must still build after that."],
+                           "plan": ["Convert the model with the new Studio Pro, then build it. Every repair after the build is its own Git commit."]}))
 
     # Marketplace modules
     planned = []
@@ -244,7 +255,9 @@ def derive(work, model):
     if P["present"]:
         t = cell("ok", f"{len(names)} to update" if names else "None to update",
                  [f"{n}: {a} to {b}." for n, a, b in planned] or ["No Marketplace module needs an update."], ["PROPOSAL.md section 2"])
-        p = cell("ok", f"{len(planned)} steps planned" if planned else "Nothing planned", ["Each update is its own step, with a data identity check after it."]) if done["propose"] else notyet("No plan yet.")
+        p = cell("ok", f"{len(planned)} steps planned" if planned else "Nothing planned", ["Each update is its own step, with a data identity check after it."]) if done["propose"] else \
+            cell("wait", "Planned, not approved", ["Each update is its own step, with a data identity check after it.",
+                                                   "Nothing changes in the app before you approve the plan."], ["PROPOSAL.md section 2"])
     else:
         t, p = notyet("Triage has not written a proposal yet."), notyet("No plan yet.")
     if names and got:
@@ -254,8 +267,19 @@ def derive(work, model):
         u = cell("none", "Not started", ["No update step has been committed yet."])
     else:
         u = nowork("No module needed an update.") if P["present"] else notyet()
+    kept = [i["name"] for i in P["sec3"] if i.get("id") and "keep" in (i["sub"].get("recommendation", "") + i["sub"].get("answer", "")).lower()]
+    arrow = [f"{n} {a} → {b}" for n, a, b in planned]
+    if planned:
+        t["d"] = cp.short(", ".join(n for n, _, _ in planned[:3]) + (f" +{len(planned) - 3}" if len(planned) > 3 else ""), 60)
+        p["d"] = cp.short(arrow[0] + (f" +{len(arrow) - 1} more" if len(arrow) > 1 else ""), 60)
     rows.append(row("modules", "Marketplace modules", f"{len(names)} updates" if names else "", "app",
-                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["const", "logdiff"])}))
+                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["const", "logdiff"])},
+                    story={"found": [f"{len(planned)} Marketplace modules have a newer version for the target." if planned else "No Marketplace module needs an update."]
+                                    + ([f"Kept at the old version: {', '.join(kept)} (see Our own edits in modules)."] if kept else []),
+                           "means": ["An update replaces the module with the vendor's new version. That brings the fixes for the new Mendix version, "
+                                     "and it overwrites anything the app changed inside the module."],
+                           "plan": [f"Update: {x}." for x in arrow[:12]] + ([f"... and {len(arrow) - 12} more."] if len(arrow) > 12 else [])
+                                   + ["Why: the old versions are not built for the new Mendix version. Each update is its own step, with a data check after it."]}))
 
     # Own edits in Marketplace modules
     if ledit is None:
@@ -268,7 +292,7 @@ def derive(work, model):
                 unread.append(m["name"])
             if kinds:
                 edited.append((m["name"], kinds))
-        sec3 = [i for i in P["sec3"] if i.get("id")]
+        sec3 = [i for i in P["sec3"] if i.get("id") and i.get("kind") != "check"]   # a check that did not run has its own row
         open_choices = [i for i in sec3 if not (any(l.get("item") == i["id"] for l in ledger)
                                                 or "CONFIRMED" in ((dm.get(i["id"]) or [""] * 6)[5:6] or [""])[0])]
         t = (cell("wait", f"{len(edited)} modules with edits", [f"{n}: " + ", ".join(f"{k} {c}" for k, c in ks) + "." for n, ks in edited],
@@ -278,30 +302,65 @@ def derive(work, model):
         elif not sec3:
             p = cell("ok", "Nothing to decide", ["Every edit can be saved and put back by the update."])
         else:
-            p = cell("wait" if open_choices else "ok", f"{len(sec3)} choices" + (f", {len(open_choices)} assumed" if open_choices else ""),
+            p = cell("wait" if open_choices else "ok", f"{len(sec3)} choice" + ("" if len(sec3) == 1 else "s") + (f", {len(open_choices)} assumed" if open_choices else ""),
                      [f"{i['name']}: {cp.short(i['sub'].get('recommendation', ''), 110)}" for i in sec3], ["PROPOSAL.md section 3", "DECISIONS.md"])
         rep = commit_rows(lambda s: s.startswith("replay"))
         u = (cell("ok", f"{len(rep)} edit sets put back", [cp.short(s.partition(": ")[2], 110) for _, s in rep], [f"{h} {s}" for h, s in rep]) if rep
              else (cell("none", "Not started", ["No edit has been put back yet."]) if edited else nowork("There were no edits to put back.")))
+        KW = {"domain": "entities", "ui": "pages", "logic": "microflows", "files": "files"}
+        said = [f"{n}: " + ", ".join(f"{c} {KW.get(k, k)}" for k, c in ks) for n, ks in edited]
+        if said:
+            t["d"] = cp.short(said[0] + (f" +{len(said) - 1}" if len(said) > 1 else ""), 60)
+        acts = [f"{i['name']}: " + re.sub(r"\s*\((?:DECIDED|CONFIRMED|ASSUMED)[^)]*\)\)?", "", plain(i['sub'].get('answer') or i['sub'].get('recommendation', '')).split(';')[0]) for i in sec3 if "check" not in i.get("kind", "")]
+        if sec3 and acts:
+            p["d"] = cp.short(acts[0], 60)
         rows.append(row("localedits", "Our own edits in modules", f"{len(edited)} modules", "app",
-                        {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["idcheck"])}))
+                        {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["idcheck"])},
+                        story={"found": [f"The app changed {len(edited)} Marketplace modules itself." if edited else "No module has edits of its own."]
+                                        + [x + "." for x in said[:6]],
+                               "means": ["A Marketplace update overwrites the whole module. Edits the toolkit can save are put back after the update; "
+                                         "edits it cannot put back (new entities hold data) need a choice."],
+                               "plan": [x + "." for x in acts] or ["The toolkit saves each edit and puts it back after the update."]}))
 
     # Java libraries
     jc = cp.rd(os.path.join(work, "jarclash.md"))
+    if jc is None:   # before the build only triage's own scan exists (cold test WM1: the cell said "Not yet" after triage scanned)
+        jc = cp.rd(os.path.join(work, "jarclash-before.md"))
+    jf = re.search(r"summary: (\d+) Java actions scanned, (\d+) assignments", cp.rd(os.path.join(work, "javafinal.md")) or "")
     if jc is None:
         t = notyet("The library check has not run yet.")
         nclash = None
     else:
         nclash = len(re.findall(r"^CLASH ", jc, re.M))
-        t = cell("ok", f"{nclash} libraries twice" if nclash else "No clashes", ["Some libraries are present in two versions." if nclash else "No library is present twice."], ["jarclash.md"])
+        libs = sorted({m.split(".")[1] if m.count(".") > 1 else m for m in re.findall(r"^CLASH \d+ classes in \d+ packages \(([\w.]+)", jc, re.M)})
+        t = cell("ok", f"{nclash} libraries twice" if nclash else "No clashes",
+                 ([f"{nclash} sets of classes are in two jar files ({', '.join(libs[:4])}). The upgrade keeps one copy of each."] if nclash else ["No library is present twice."])
+                 + ([f"{jf.group(1)} Java actions scanned: {'no' if jf.group(2) == '0' else jf.group(2)} code that breaks on the new Java."] if jf else []),
+                 ["jarclash.md" if os.path.exists(os.path.join(work, "jarclash.md")) else "jarclash-before.md"] + (["javafinal.md"] if jf else []))
     fixc = commit_rows(lambda s: re.search(r"jardedupe|java dependencies", s))
     u = (cell("ok", "Settled", ["One copy of each library is kept."], [f"{h} {s}" for h, s in fixc]) if fixc
          else (cell("wait", "Not settled", ["The duplicate libraries are not removed yet."]) if nclash else nowork() if jc is not None else notyet()))
+    if nclash:
+        t["d"] = cp.short(", ".join(libs[:3]) + " in two jars", 60)
+    elif jf:
+        t["d"] = f"{jf.group(1)} Java actions scanned"
+    jp = cell("ok", "Keep one copy", ["The build step removes the second copy of each library."], d="remove the duplicate jars") if nclash else None
     rows.append(row("java", "Java libraries", f"{nclash} duplicates" if nclash else "", "app",
-                    {"triage": t, "upgrade": u, "test": rungs_cell(g, ["build"])}))
+                    {"triage": t, "upgrade": u, "test": rungs_cell(g, ["build"]), **({"plan": jp} if jp else {})},
+                    story={"found": t["steps"] if jc is not None else [],
+                           "means": (["Two copies of the same classes can make the app load the wrong one after the upgrade, and fail at run time."] if nclash else [])
+                                    + (["The app's own Java code uses nothing the new Java version removes."] if jf and jf.group(2) == "0" else []),
+                           "plan": ["Keep one copy of each library (the newest), then build. The build proves the choice."] if nclash else
+                                   ["Nothing to change; the build checks it again."] if jc is not None else []}))
 
     # Findings from the Mendix 11 catalog
-    if not finds and not os.path.exists(os.path.join(work, "findings.json")):
+    if not finds and not os.path.exists(os.path.join(work, "findings.json")) and tgt.startswith("10."):
+        later = cell("none", "At the 10 → 11 step", ["The Mendix 11 catalog is checked when the run upgrades from Mendix 10 to 11, after this step."],
+                     d="checked after Mendix 10")
+        rows.append(row("findings", "Mendix 11 findings", "", "app", {"triage": later},
+                        story={"found": ["Not checked yet: this step goes to Mendix 10."], "means": ["Mendix 11 changes are checked on the Mendix 10 model."],
+                               "plan": ["The second step (10 → 11) scans the app with the Mendix 11 catalog and plans the fixes."]}))
+    elif not finds and not os.path.exists(os.path.join(work, "findings.json")):
         rows.append(row("findings", "Mendix 11 findings", "", "app", {"triage": notyet("The scan has not run yet.")}))
     else:
         sev = {}
@@ -373,12 +432,30 @@ def derive(work, model):
                  [f"The app makes {len(eps)} outside calls.", f"{len(mocked)} can be answered by a stand-in.",
                   f"{len(unk)} get their address from data or are not classified." if unk else "All are classified."], ["apimock-inventory.json"])
         p = cell("ok" if mocked else "none", f"{len(mocked)} stand-ins" if mocked else "No stand-ins", ["Build a stand-in per call.", "Check the real systems before go-live."])
+        t["d"] = f"{len(unk)} of {len(eps)} unclear" if unk else f"{len(eps)} calls"
+        p["d"] = f"{len(mocked)} answered by stand-ins" if mocked else ""
         rows.append(row("outside", "Outside systems", f"{len(eps)} calls", "setup",
-                        {"triage": t, "plan": p, "upgrade": nowork("Stand-ins are test side only; the app is unchanged."), "test": apis_cell(g, work)}))
+                        {"triage": t, "plan": p, "upgrade": nowork("Stand-ins are test side only; the app is unchanged."), "test": apis_cell(g, work)},
+                        story={"found": t["steps"],
+                               "means": ["The test must not call real outside systems. A call with no stand-in is not tested."],
+                               "plan": [f"Answer {len(mocked)} calls with a stand-in during the test.",
+                                        f"The other {len(eps) - len(mocked)} are checked on the real test systems by a person before go-live."]}))
 
     # Release notes
     ri = cp.rd(os.path.join(work, "release-impact.md"))
-    if ri is None:
+    rq = next((i for i in model.get("items", []) if i.get("title", "").startswith("Release notes") and i["kind"] == "plan-choice"), None)
+    if ri is None and rq:
+        why = "the company brain's version tables are not on this machine" if "version tables" in (rq.get("problem") or "") else "see the technical details"
+        t = cell("bad", "Did not run", [f"The release-note check did not run: {why}.", "So nobody has checked what the new Mendix versions change for this app."],
+                 [rq.get("problem") or "", "release-impact.out"], d="version tables missing")
+        p = (cell("wait", "You decided, waiting for the pipeline", ["Your answer is recorded; the next step applies it."], dec=rq["id"]) if rq.get("decided")
+             else cell("you", "Needs your decision", [rq.get("problem") or ""], dec=rq["id"], d="run it first, or go on without it"))
+        rows.append(row("release", "Release notes", "check did not run", "app", {"triage": t, "plan": p},
+                        story={"found": t["steps"][:1],
+                               "means": ["A change in Mendix 10 or 11 that hits this app is found only at the build or the test, or after go-live."],
+                               "plan": ["Recommended: give the run the company brain and rerun triage, so the plan covers the release notes.",
+                                        "Or a named person reads the release notes for every version before go-live."]}))
+    elif ri is None:
         rows.append(row("release", "Release notes", "", "app", {"triage": notyet("The release-note check has not run yet.")}))
     else:
         n = len([r for r in ri.splitlines() if re.match(r"^\| \d+ \|", r)])
@@ -779,6 +856,8 @@ def step_cells(rec):
     lines = [x for x in (pr.get("say"), who if state == "assumed" else None) if x]   # why, options and approval are in the action below
     plan = {"approved": lambda: cell("ok", "Approved", lines), "assumed": lambda: cell("you", "Needs your OK", lines),
             "rejected": lambda: cell("bad", "Rejected", lines)}.get(state, lambda: cell("wait" if pr.get("say") else "none", "Not approved yet" if pr.get("say") else "Not proposed", lines or [gaps.get("proposed") or "Nothing was proposed for this step."]))()
+    if (rec.get("topic") or "").startswith("person:"):   # cold test WM1: these showed as open approvals after the plan was approved
+        plan = cell("none", "For a person", [pr.get("say") or "A person does this; the toolkit lists it so it is not forgotten."])
     # upgrade: the commits that did it
     n = len(commits)
     if n:
@@ -789,6 +868,8 @@ def step_cells(rec):
         upgrade = cell("wait", "Not done yet", ["The step is approved, and no change in the app names it yet."])
     elif state == "rejected":
         upgrade = cell("none", "Not needed", ["The step was rejected, so nothing was changed."])
+    elif (rec.get("topic") or "").startswith("person:"):
+        upgrade = cell("none", "Not needed", ["The toolkit changes nothing in the app for this."])
     else:
         upgrade = cell("none", "Not started", ["Nothing changes in the app before the step is approved."])
     # test: one line per rung the step closes by; a rung with no passing result is a gap, never a pass
@@ -819,6 +900,8 @@ def step_cells(rec):
         test = cell("none", "Not tied to a check", lines_t)
     elif any(x[1] == "fail" for x in rows):
         test = cell("bad", "Failed", lines_t)
+    elif gapn and (rec.get("topic") or "").startswith("person:"):
+        test = cell("none", "Later, by a person", lines_t)
     elif gapn:
         test = cell("wait", "Test gap", lines_t)
     elif rows:
@@ -845,11 +928,13 @@ def step_row(rec):
     r = row(rec["id"], rec["title"] or rec["id"], f"{rec['id']} · {rec['topic']}", STEP_GROUP[0], cells, rec["found"].get("evidence") or [])
     r["trail"] = [act]
     r["fromSteps"] = True
+    r["story"] = {"found": [x for x in [rec["found"].get("say")] if x], "means": [],
+                  "plan": [x for x in [rec["proposed"].get("say"), rec["proposed"].get("why")] if x]}
     if rec.get("phase"):   # a two-version upgrade: the version this step belongs to (steps.py UPG_PHASE)
         r["phase"] = rec["phase"]
     ap = rec.get("approval") or {}
     # slice 8: only a step that is still assumed (or has no approval) gets the buttons; an answered step shows who answered
-    r["ask"] = ap.get("state") in (None, "assumed")
+    r["ask"] = ap.get("state") in (None, "assumed") and not (rec.get("topic") or "").startswith("person:")
     if ap.get("state") in ("approved", "rejected"):
         r["ans"] = {"state": ap["state"], "by": ap.get("by") or "", "day": _answered(ap), "reason": ap.get("reason") or ""}
     states = [c["s"] for c in cells.values() if c["s"] not in ("ok", "none")]
@@ -1167,6 +1252,8 @@ button.tile{cursor:pointer} button.tile:hover{border-color:var(--you)}
 .item small{display:block;font-weight:400;color:var(--muted);font-size:12px;font-family:var(--mono)}
 .cell{padding:8px 10px;min-width:0}
 .cell.on{background:var(--accentbg)}
+.chip small.cd{display:block;font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
+.story{display:grid;gap:10px}.story section{border-left:3px solid var(--line);padding:2px 0 2px 12px}.story p{margin:0 0 4px}
 .chip{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:8px;align-items:flex-start;width:100%;font-size:13px;padding:6px 8px;border-radius:6px;line-height:1.35;overflow-wrap:anywhere}
 .chip+.chip{margin-top:6px}
 .chip:hover{filter:brightness(.97)}
@@ -1187,6 +1274,7 @@ span.chip{cursor:default}
 .shade{position:fixed;inset:0;background:var(--shade);z-index:20}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:21;overflow-y:auto;
   padding:calc(20px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) 22px;display:grid;gap:16px;align-content:start}
+.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
 .drawer .x{all:unset;cursor:pointer;position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));font-size:22px;color:var(--muted);padding:4px 8px;border-radius:6px}
 .drawer .x:focus-visible{outline:2px solid var(--accent)}
 .drawer h3{margin:0;font-size:21px;padding-right:36px;text-wrap:balance}
@@ -1393,7 +1481,7 @@ function render(){
     if(pf&&it.phase&&it.phase!==pf)return;   // a two-version upgrade: rows of the other version are hidden, rows of the whole run stay
     if(it.group!==g){g=it.group;h+=`<div class="grp">${esc(GROUPS[g])}</div>`;}
     h+=`<div class="row${hlRow===i?" hl":""}${kf?(it.kind===kf?" kin":" dim"):""}" id="r${i}"><div class="item">${esc(it.name)}<small>${esc(it.sub)}${it.phase&&!pf?` · Mendix ${esc(it.phase)}`:""}</small></div>`+
-      STAGES.map(s=>{const c=it.cells[s.key];return `<div class="cell${active===s.key?" on":""}"><button class="chip ${c.s}" type="button" data-i="${i}" data-s="${s.key}">${esc(c.l)}</button></div>`}).join("")+`</div>`;
+      STAGES.map(s=>{const c=it.cells[s.key];return `<div class="cell${active===s.key?" on":""}"><button class="chip ${c.s}" type="button" data-i="${i}" data-s="${s.key}"><span>${esc(c.l)}${c.d?`<small class="cd">${esc(c.d)}</small>`:""}</span></button></div>`}).join("")+`</div>`;
   });
   $("#matrix").innerHTML=h;
   const pb=$("#phases"); if(pb&&M.phases&&M.phases.length>1){const n=v=>ROWS.filter(r=>r.phase===v).length;
@@ -1453,6 +1541,9 @@ function trailBox(it,k){
     return `<details class="act"${it.fromSteps&&it.trail.length===1?" open":""}><summary><i style="background:${TCOL[a.status]||"var(--none)"}"></i><span><b>${esc(a.name)}</b><small>${esc(a.sub)}</small><span class="say">${esc(t.say||"")}${t.gap?' <span class="nl">not linked</span>':""}</span></span><em>${TLBL[a.status]||""}</em></summary><div class="actb">${b}${pf}</div></details>`;}).join("");
   return `<div class="trail"><h4>${TSAY[k]}, per action (${it.trail.length})</h4><p>Open an action for the reasons and the result. The proof is the record from the run itself.</p>${acts}</div>`;
 }
+const STORY=[["found","What we found"],["means","What it means for this app"],["plan","What the plan does, and why"]];
+const storyBox=it=>{const s=it.story||{};const b=STORY.filter(([k])=>(s[k]||[]).length);
+  return b.length?`<div class="story">${b.map(([k,h])=>`<section><h4>${h}</h4>${s[k].map(t=>`<p>${esc(t)}</p>`).join("")}</section>`).join("")}</div>`:"";};
 const planBtn=i=>(M.plan||[]).length?`<button class="planbtn" type="button" data-plan="${i}"><span>The proposed plan for ${esc(ROWS[i].name)}<br><span style="color:var(--muted);font-size:13px">Each step that was proposed, why, who decided and the other options</span></span><b>Read →</b></button>`:"";
 function topicPlan(it){
   const acts=(it.trail||[]).map(a=>{const t=a.stages.plan||{};
@@ -1489,7 +1580,8 @@ function planFor(it){
 function propBox(it){
   const sign=(M.plan||[]).find(s=>/sign-off/i.test(s.h)), st=sign?sign.intro.filter(t=>/^(Status:|Signed-off:)/.test(t)&&!t.includes("<")).pop()||"":"";
   const signed=/^Signed-off:/.test(st);
-  const hits=it.id==="runtime"?(M.plan||[]).filter(s=>/summary/i.test(s.h)).flatMap(s=>s.items.map(x=>[s.h,x])):planFor(it);
+  const hits=it.id==="runtime"?(M.plan||[]).filter(s=>/summary/i.test(s.h)).flatMap(s=>s.items.map(x=>[s.h,x]))
+    :it.id==="modules"?(M.plan||[]).flatMap(s=>s.items.filter(x=>/^module update /.test(x.text||"")).map(x=>[s.h,x])):planFor(it);
   const rows=hits.map(([h,x])=>{const g=Object.fromEntries(x.subs.filter(y=>y[0]));const asm=/ASSUMED/.test(g.answer||"");
     return `<li><span class="tag" style="font-size:12px;color:var(--muted)">${esc(h)}${x.id?" · "+esc(x.id):""}</span><br>${esc(x.name||x.text)}${g.recommendation?`<small style="display:block"><b>Recommended:</b> ${esc(g.recommendation)}</small>`:""}${g.answer?`<small style="display:block"><b>Answer:</b> ${esc(g.answer.replace(/\s*\(ASSUMED[^)]*\)\)?$/,""))}${asm?' <span class="asm" style="color:var(--wait);font-weight:600">· assumed by the agent</span>':""}</small>`:""}</li>`;}).join("");
   const who=signed?`Approved: ${esc(st.replace(/^Signed-off:\s*/,""))}`:`<span style="color:var(--wait);font-weight:600">Not approved yet.</span> The plan's sign-off line says "${esc(st||"no status")}".`;
@@ -1503,13 +1595,14 @@ function cellPanel(i,k){
   open(`${navBar(esc(it.name)+" › "+esc(s.name))}
    <div class="tabs" aria-label="Stages of this item">${tabs}</div>
    <h3>${esc(c.l)}</h3>
+   ${storyBox(it)}
    ${k==="plan"&&!it.fromSteps?propBox(it)+planBtn(i):""}
    ${k==="plan"&&it.fromSteps&&it.ask?`<div class="box youbox"><b>Needs your OK.</b> The agent chose this on its own while it worked. Nothing is final until a person approves it.<div class="stepask" id="sc-${esc(it.id)}"></div></div>`:""}
    ${k==="plan"&&it.fromSteps&&it.ans?`<div class="done-note">${it.ans.state==="approved"?"Approved":"Rejected"} by ${esc(who(it.ans.by))}${it.ans.day?" on "+esc(it.ans.day):""}.${it.ans.reason?" Reason: "+esc(it.ans.reason):""}</div>`:""}
-   <div><h4>What happens, step by step</h4>${ol(c.steps.length?c.steps:["Nothing recorded for this cell."])}</div>
+   <div><h4>This stage, step by step</h4>${ol(c.steps.length?c.steps:["Nothing recorded for this cell."])}</div>
    ${trailBox(it,k)}
    ${decBox(di)}
-   ${it.trail&&it.trail.length?"":fixBox(it.fix,NONGREEN.includes(c.s)&&!di)}
+   ${it.trail&&it.trail.length||(it.story&&(it.story.plan||[]).length&&!it.fix)?"":fixBox(it.fix,NONGREEN.includes(c.s)&&!di)}
    ${c.late?`<div class="box">For the toolkit: triage did not flag this item. The new triage checks it from the start.</div>`:""}
    <div class="pager"><button class="step" type="button" data-i="${i-1}" data-s="${k}" data-swap ${p?"":"disabled"}>← ${p?esc(p.name):""}</button><button class="step" type="button" data-i="${i+1}" data-s="${k}" data-swap ${n?"":"disabled"}>${n?esc(n.name):""} →</button></div>
    ${techBox((it.tech||[]).concat(c.tech||[]))}`);
@@ -1754,7 +1847,7 @@ def h_stopped(s):
         return ""
     if str(s["code"]) in ("14", "15"):   # the plan waits for sign-off: the Decide now cards are the questions, no paths or commands
         return ('<div class="stopbar" role="alert"><b>The run stopped before changing anything: the plan waits for your answers and '
-                'your sign-off.</b><small>Open <b>Blocked on you</b> on the right to answer. The run goes on after you approve.</small></div>')
+                'your approval.</b><small>Open <b>Blocked on you</b> on the right to answer. The run goes on after you approve.</small></div>')
     li = "".join(f"<li>{E(t)}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
     return (f'<div class="stopbar" role="alert"><b>The run stopped at {E(s["step"])} (exit {s["code"]}) and waits for you.</b>'
@@ -1768,6 +1861,8 @@ def open_questions(model):
 
 
 def question_of(i):
+    if i["title"].endswith("(check)"):   # a triage check that did not run (proposal.py, release notes)
+        return f"The {i['title'][:-8].strip().lower()} check did not run. How do we go on?"
     t = re.sub(r"\s*\((module|widget|jar|java)\)$", "", i["title"])
     return {"plan-choice": f"What should the upgrade do with {t}?", "signoff": "Approve the plan and start the upgrade?",
             "confirm": f"Accept this change: {t}?"}.get(i["kind"], t)
@@ -1792,7 +1887,13 @@ def context_of(i):
     """Two or three plain sentences: what the item is and why it is asked."""
     if i["kind"] == "signoff":
         return ["The run has prepared the upgrade and changed nothing in the app yet.",
-                "Approving starts the upgrade with the choices above. Every change it makes is a Git commit, so you can review or revert each one."]
+                "Approving starts the upgrade with your answers to the other questions, and with what the toolkit does on its own: the "
+                "Marketplace module updates, the conversion to the new version and the stand-ins for outside systems (all listed in the matrix).",
+                "Every change is a Git commit, so you can review or revert each one."]
+    if i["kind"] == "plan-choice" and (i.get("problem") or "").startswith("the release-note check did not run"):
+        return ["Before the plan, the toolkit reads what each Mendix version on the route changes (the release notes) and checks this app against it.",
+                "That check did not run" + (": the company brain's version tables are not on this machine" if "version tables" in i["problem"] else "")
+                + ". So nobody has checked yet what the new Mendix versions change for this app."]
     if i["kind"] == "plan-choice":
         ent = [x.split(".")[-1] for x in re.findall(r"ADDED entity ([\w.]+)", i.get("problem") or "")]
         more = re.search(r"\(\+(\d+)\)", i.get("problem") or "")
@@ -1804,20 +1905,28 @@ def context_of(i):
     return [plain(i.get("problem") or "")] if i.get("problem") else []
 
 
-def h_questions(model):
+def h_questions(model, matrix=None):
     """The open questions: a "Blocked on you" list in the sidebar, each with a Resolve button that opens one question in a dialog
     with its context, one button per option and what each option does. The buttons post to the local server (cockpitserve.py
     /decide, live page only); on a static copy they stay off and the answer goes through chat."""
     qs = open_questions(model)
-    if not qs:
+    # a choice the agent made on its own (a step with an assumed approval) blocks too; Resolve opens its plan cell, where its buttons are
+    asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
+    if not qs and not asks:
         return "", ""
     rows, dlgs = [], []
+    for n, r in asks:
+        rows.append(f'<li><span>The agent chose this on its own: {E(r["name"])}. OK?</span>'
+                    f'<button type="button" class="resolve" data-i="{n}" data-s="plan">Resolve →</button></li>')
     for n, i in enumerate(qs, 1):
         rows.append(f'<li><span>{E(question_of(i))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
         btns = []
         for o in i["options"]:
             lab = plain(o["label"]) or o["label"]
             say = o.get("causes") or next((t for k, t in OPTION_SAYS if k in lab.lower()), "") if i["kind"] == "plan-choice" else ""
+            if not say and ": " in lab:
+                lab, say = lab.split(": ", 1)
+                say = say[:1].upper() + say[1:] + "."
             if i["kind"] == "signoff":
                 lab = "Approve and continue"
             rec = o["key"] == i.get("rec") and len(i["options"]) > 1
@@ -1825,12 +1934,16 @@ def h_questions(model):
                         f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:220]) + "</small>" if say else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
         why = plain(i.get("rec_text") or "")
+        rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
+        if rl and why.startswith(rl) and why[len(rl):].startswith(";"):   # the option itself is the button; keep effort and risk
+            why = why[len(rl) + 1:].strip()
+            why = why[:1].upper() + why[1:]
         rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 else ""
         dlgs.append(f'<dialog class="qdlg" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
                     f'blocks step {E(i.get("step") or "")}</div><h3>{E(question_of(i))}</h3>{ctx}{rec}<div class="qopts">{btns and "".join(btns)}</div>'
                     '<div class="qmsg" data-qmsg aria-live="polite"></div><p class="qhint">The buttons work in the live cockpit. On a copy, answer in chat.</p>'
                     '<button type="button" class="qclose">Close</button></div></dialog>')
-    side = (f'<section class="blocked" aria-label="Blocked on you"><h2>Blocked on you: {len(qs)}</h2>'
+    side = (f'<section class="blocked" aria-label="Blocked on you"><h2>Blocked on you: {len(qs) + len(asks)}</h2>'
             '<p>The run waits for these answers. Click Resolve for the full question.</p><ol>' + "".join(rows) + "</ol></section>")
     return side, "".join(dlgs)
 
@@ -1840,7 +1953,7 @@ def render(model, matrix):
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
     e = html.escape
     head_, tiles_ = h_tiles(matrix)
-    qside, qdlgs = h_questions(model)
+    qside, qdlgs = h_questions(model, matrix)
     return (f"<title>{e(model['title'])}</title>\n"
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'

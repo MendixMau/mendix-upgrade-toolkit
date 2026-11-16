@@ -252,6 +252,14 @@ class Facts:
     def release(self):
         t = self.need("release-impact.md", "steps/triage.md item 10")
         if t is None:
+            # cold test WM1: the release-note check could not run (no brain version tables) and the plan still went to sign-off,
+            # so nobody had read what Mendix 10 and 11 change. A check that did not run is a question, never a silent pass.
+            why = (read(self.p("release-impact.out")) or "release-impact.md was not written").strip().splitlines()[0]
+            self.add3("check", "Release notes", f"the release-note check did not run: {why}",
+                      "run the check first: give the run the company brain (its version tables), then rerun triage | "
+                      "go on without it: a named person reads the Mendix release notes for every version on the route before go-live | "
+                      "pause the upgrade",
+                      "run the check first: give the run the company brain (its version tables), then rerun triage", "S", "a change in the new Mendix versions is only found at the build or the test, or after go-live")
             return
         tot = opn = 0
         for head, rows in tables(t):

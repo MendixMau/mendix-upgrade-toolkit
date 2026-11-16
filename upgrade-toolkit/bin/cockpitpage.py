@@ -562,7 +562,7 @@ def build_model(work):
         if is_assumed and not last.get(pid):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
-                      "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 200),
+                      "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
                       "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt)})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
@@ -570,8 +570,8 @@ def build_model(work):
         # in PROPOSAL.md / DECISIONS.md that nobody answered (len(assumed)).
         n = len(AD) + len(assumed) if recs is None else sum(1 for r in recs if (r.get("approval") or {}).get("state") == "assumed")
         add({"id": "signoff", "kind": "signoff", "dot": "warn", "title": "Sign the plan",
-             "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing goes live without your name",
-             "step": "propose", "problem": "Nothing goes live without your name on the plan. Review it under Plan. To change one choice first, say so in chat (decisions.py pending lists them).",
+             "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing changes in the app before you approve",
+             "step": "propose", "problem": "Nothing changes in the app before you approve the plan. Review it under Plan. To change one choice first, answer its question or say so in chat (decisions.py pending lists them).",
              "rec": "sign", "rec_text": "", "options": [{"key": "sign", "label": "Approve and continue"}], "plan_hash": P["hash"]})
     visible = [i for i in items if not i.get("hidden")]
     open_visible = [i for i in visible if not (i.get("decided") and i["kind"] != "signoff") and i.get("open", 1)]
