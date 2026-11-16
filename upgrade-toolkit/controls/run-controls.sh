@@ -6192,8 +6192,8 @@ echo big > $BT9Z/src/shop/deployment/model/model.mdp; echo j > $BT9Z/src/shop/ja
 (cd $BT9Z/src && zip -qr ../shop.mpk shop)
 mkdir -p $BT9Z/run1 $BT9Z/run2; cp -r $BTR/tools $BT9Z/run1/tools; cp -r $BTR/tools $BT9Z/run2/tools
 bt9fetch() { env PATH=$BTR/bin:$PATH MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-zip $BT9Z/shop.mpk --source 10.24.26.1 --target 11.15.0.1 --work $1/work --only fetch; }
-ctl bt9-fetch-skips-deployment-catch 2 '^theme/a.css$' '^javasource/deployment/Keep.java$' '!deployment/model' -- sh -c "$(declare -f bt9fetch); BTR=$BTR B=$B BT9Z=$BT9Z; bt9fetch $BT9Z/run1 >/dev/null 2>&1; cd $BT9Z/run1/app/shop && find . -type f ! -path './.git/*' | sed 's#^\./##' | sort; cd $BT9Z/run1/app/shop; bash -c 'exit 2'"
-ctl bt9-fetch-note-pass 0 'fetch: the package ships a deployment/ folder' -- cat $BT9Z/run1/work/state/notes.txt
+ctl bt9-fetch-skips-deployment-catch 2 '^theme/a.css$' '^javasource/deployment/Keep.java$' '!deployment/model' -- sh -c "$(declare -f bt9fetch); BTR=$BTR B=$B BT9Z=$BT9Z; bt9fetch $BT9Z/run1 > $BT9Z/run1.log 2>&1; cd $BT9Z/run1/app/shop && find . -type f ! -path './.git/*' | sed 's#^\./##' | sort; cd $BT9Z/run1/app/shop; bash -c 'exit 2'"
+ctl bt9-fetch-note-pass 0 'fetch: the package ships a deployment/ folder' -- sh -c "cat $BT9Z/run1/work/state/notes.txt || tail -25 $BT9Z/run1.log"
 
 # BT-11: a module in both plan-pre.txt and plan.txt: the post-convert line starts from the pre-convert target. Golden: the real
 # DOCGEN plan-pre.txt and plan.txt (Atlas_Core 3.21.1 then 4.5.1, DataWidgets once); installed versions from its PROPOSAL.md.

@@ -503,10 +503,13 @@ step_fetch() {
       must mkdir -p "$APP"
       # BT-9: a package may ship the build output deployment/ next to the .mpr (DOCGEN: 858 MB). mxbuild writes it again and
       # ensure_gitignore ignores it, so it is not unpacked; the zip itself is untouched. Only the folder beside the .mpr.
-      local mprpath dpre=""
-      mprpath=$(unzip -Z1 "$APP_ZIP" 2> /dev/null | grep -E '\.mpr$' | awk -F/ '{print NF, $0}' | sort -n | head -n 1 | cut -d' ' -f2- || true)
+      local mprpath dpre="" listing
+      # the listing is read once: `unzip -Z1 | grep -q` under pipefail failed whenever grep quit first (SIGPIPE), and then
+      # deployment/ was unpacked after all (bt9-fetch-* controls, 1 run in 3)
+      listing=$(unzip -Z1 "$APP_ZIP" 2> /dev/null || true)
+      mprpath=$(printf '%s\n' "$listing" | grep -E '\.mpr$' | awk -F/ '{print NF, $0}' | sort -n | head -n 1 | cut -d' ' -f2- || true)
       case "$mprpath" in */*) dpre="${mprpath%/*}/" ;; esac
-      if [ "$DRY" != 1 ] && unzip -Z1 "$APP_ZIP" 2> /dev/null | grep -q "^${dpre}deployment/."; then
+      if [ "$DRY" != 1 ] && grep -q "^${dpre}deployment/." <<< "$listing"; then
         must unzip -q -o "$APP_ZIP" -d "$APP" -x "${dpre}deployment/*"
         note "fetch: the package ships a deployment/ folder (build output); not unpacked, mxbuild writes it again (BT-9)"
       else
