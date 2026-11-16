@@ -6578,6 +6578,9 @@ ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone 
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
 ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'stopped in triage: opened 1' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
+# doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
+ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh
+ctl doctor-toolset-missing-catch 1 'FAIL  toolset     9\.24\.99\.1: no .*/mxbuild-9\.24\.99\.1' -- env DOCKER_HOST=unix://$T/no.sock UPG_TOOLS=$T bash $B/doctor.sh 9.24.99.1
 ctl cockpit-flag-regenerates-only-pass 0 'COCKPIT\.html written' -- $CK cockpit-flag
 ctl decisions-add-last-wins-pass 0 'P-1 = o2 by Ana via chat' 'P-1 = rec by Ben via chat' '"by": "Ana"' '"by": "Ben"' -- $CK add
 ctl decisions-add-unknown-item-catch 2 'unknown item' -- $CK add-bad
