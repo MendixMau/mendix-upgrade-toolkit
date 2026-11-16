@@ -61,7 +61,7 @@ printf '5 element(s) could not be read, so it cannot be shown that the module is
 touch "$S/step5-Filesmod.log" "$S/step6-Vendmod.log" "$S/step7-Usedmod.log" "$S/step8-Target.log" "$S/step9-Javamod.log"
 printf 'RED  REMOVED      attribute   Vendmod.E.Gone  (column/table dropped; intended?)\n' > "$S/step6-Vendmod.idcheck"
 printf 'RED  REMOVED      attribute   Usedmod.E.Used  (column/table dropped; intended?)\n' > "$S/step7-Usedmod.idcheck"
-printf 'RED  REMOVED      association Other.A_B  (column/table dropped; intended?)\n' > "$S/step8-Target.idcheck"
+printf 'RED  REMOVED      association Other.A_B  (column/table dropped; intended?)\ninfo REMOVED      association Other.Np_B  (no data)\n' > "$S/step8-Target.idcheck"
 printf 'refusing to update: 1 element(s) have been changed locally\n' > "$S/step12-Target.log"   # a later step, no idcheck (WM1)
 cat > "$S/kept.txt" <<'K'
 Cosmo local edits refuse the update

@@ -81,8 +81,8 @@ def refusal(log):
     return [(k, n.strip()) for k, n in rows], int(u[-1]) if u else 0
 
 
-def red_rows(idc):
-    return [m.groups() for m in re.finditer(r"^RED\s+(\w+)\s+(\w+)\s+([\w.]+)", rd(idc), re.M)]
+def red_rows(idc, sev="RED"):
+    return [m.groups() for m in re.finditer(rf"^(?:{sev})\s+(\w+)\s+(\w+)\s+([\w.]+)", rd(idc), re.M)]
 
 
 def unused(original, kind, qn):
@@ -112,6 +112,10 @@ def route_module(mod, why, S, ledit, original, cache, mpr):
                 bad.append(f"{finding} {kind} {qn}")
         if bad or not rows:
             return "HOLD", "idcheck finding still used or not a removal: " + ", ".join(bad or ["no RED rows read"]), {}
+        # an association with no data (a non-persistent owner) is an info row, yet the app still uses it: WM1's
+        # Email.EmailNP_EmailTemplate, dropped silently, broke a data view and a create activity (CE1613)
+        xassoc += [qn for f, k, qn in red_rows(idc, "info") if f == "REMOVED" and k == "association"
+                   and qn.split(".")[0] != mod and qn not in xassoc]
         if xassoc:
             return "XASSOC", f"the update drops {len(xassoc)} association(s) other modules own into {mod}; replayed with their original ids", \
                 {"assocs": xassoc, "vendor": own}
