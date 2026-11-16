@@ -1669,14 +1669,19 @@ function stepCtl(it){
   const el=document.getElementById("sc-"+it.id);if(!el)return;
   const d=decided[it.id];
   if(d&&(d.choice==="approve"||d.choice==="reject")){el.innerHTML=`<div class="done-note">${d.choice==="reject"?"Rejected":"Approved"} by ${esc(who(d.by))}${d.at?" on "+esc(d.at.slice(0,10)):""}${d.reason?". Reason: "+esc(d.reason):""}. Waiting for the pipeline.</div>`;return}
-  const can=!!(db&&user&&me);
+  const can=!!(window.UPG_LIVE||(db&&user&&me));   // the live cockpit saves through its own server (cockpitserve.py /decide)
   el.innerHTML=`<label class="why">Reason (optional)<input type="text" class="reason" maxlength="200" placeholder="Why you decided this"${can?"":" disabled"}></label><div class="acts"><button class="btn sm" type="button" data-sid="${esc(it.id)}" data-choice="approve"${can?"":" disabled"}>Approve</button><button class="btn sm alt" type="button" data-sid="${esc(it.id)}" data-choice="reject"${can?"":" disabled"}>Reject</button><span class="m" data-msg>${can?"":"Sign in to this page to answer."}</span></div>`;
 }
 async function decideStep(btn){
   const box=btn.closest(".stepask");const msg=box.querySelector("[data-msg]");box.querySelectorAll("button").forEach(b=>b.disabled=true);
   try{
+    const why=box.querySelector(".reason").value.trim();
+    if(window.UPG_LIVE){   // cold test WM1: the step buttons only knew the hosted page's database and stayed grey in the live cockpit
+      const r=await fetch("decide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({item:btn.dataset.sid,choice:btn.dataset.choice},why?{reason:why}:{}))});
+      const t=await r.text();if(!r.ok)throw new Error(t||r.status);
+      msg.textContent=t+" The agent picks it up within 15 seconds.";return;}
     const row={item:btn.dataset.sid,choice:btn.dataset.choice,by:await user.id(),at:new Date().toISOString(),source:"page"};
-    const why=box.querySelector(".reason").value.trim();if(why)row.reason=why;
+    if(why)row.reason=why;
     await db.collection("decisions").doc(row.item).set(row);
     msg.textContent="Saved.";
   }catch(e){box.querySelectorAll("button").forEach(b=>b.disabled=false);msg.textContent="Could not save: "+(e&&e.message?e.message:e)}

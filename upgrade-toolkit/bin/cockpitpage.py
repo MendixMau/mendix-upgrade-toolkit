@@ -771,7 +771,7 @@ def build_model(work):
 
 
 # --live: poll the server's status (the "Running now" bar, in place) and stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes
-LIVE_JS = """<script>
+LIVE_JS = """<script>window.UPG_LIVE=true;</script><script>
 (function(){var k="cockpit-scroll",s=null,due=false;
 try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
 function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
