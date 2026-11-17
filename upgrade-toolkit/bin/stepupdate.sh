@@ -154,6 +154,12 @@ fi
 mpr=$(cd "$app" && ls *.mpr 2>/dev/null)
 [ "$(echo "$mpr" | grep -c .)" = 1 ] || { echo "stepupdate: $app: expected one .mpr" >&2; exit 2; }
 git -C "$app" rev-parse --git-dir >/dev/null 2>&1 || { echo "stepupdate: $app is not a git work tree" >&2; exit 2; }
+# run by hand (repair row 32) under a HOME with no git identity, every commit failed ("Author identity unknown", cold CMM
+# DataWidgets step): the same fallback identity as upgrade-pipeline.sh git_identity
+if [ -z "$(git -C "$app" config user.email 2> /dev/null || true)" ]; then
+  export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-upgrade-pipeline}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-upgrade-pipeline@localhost}"
+  export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-upgrade-pipeline}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-upgrade-pipeline@localhost}"
+fi
 if [ -n "$(git -C "$app" status --porcelain --untracked-files=no)" ]; then
   echo "stepupdate: $app has uncommitted changes; commit or stash first" >&2; exit 2
 fi

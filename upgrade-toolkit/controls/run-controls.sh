@@ -1597,6 +1597,10 @@ SP="$T/my app"
 printf '120743 1.6.0 step1-adds\n' > $S/plan-sp.txt
 ctl stepupdate-space-split-catch 0 'committed' '!No such file' -- bash $B/stepupdate.sh "$SP" $S/plan-sp.txt
 ctl stepupdate-space-quoted-pass 0 'committed' '!No such file' -- env UPG_UPDATE_CMD="cp $S/{module}/App.mpr '{mpr}'" bash $B/stepupdate.sh "$T/my app2" $S/plan-sp.txt
+# cold CMM: run by hand under a HOME with no git identity, the step commit failed ("Author identity unknown", STOP exit 2)
+S4=$T/step-noid; mkdir -p $S4/app $S4/home; cp $M/base/App.mpr $S4/app/App.mpr
+(cd $S4/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-no-identity-pass 0 'committed' '!Author identity unknown' '!git commit failed' -- env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL HOME=$S4/home XDG_CONFIG_HOME=$S4/home GIT_CONFIG_NOSYSTEM=1 bash $B/stepupdate.sh $S4/app $S/plan-sp.txt
 unset UPG_UPDATE_CMD
 
 # --- stepupdate: recognised refusals, --no-baseline fallback, resume and keep (E4 13, E4 16, E4 7, E5b 26, E5b 27, E5b 17) -
