@@ -313,6 +313,74 @@ def layout_route(qn, ours, orig):
     return None, "mxcli never writes a layout into a Marketplace module: copy it to the app's own module, repoint its pages"
 
 
+def table(out):
+    """mxcli's | a | b | tables -> list of dicts (header row first)."""
+    rows = [[c.strip() for c in ln.strip().strip("|").split("|")] for ln in out.splitlines()
+            if ln.lstrip().startswith("|") and not re.match(r"^\s*\|[-| ]+\|\s*$", ln)]
+    return [dict(zip(rows[0], r)) for r in rows[1:]] if rows else []
+
+
+def nav_copies(qn, company, orig, app_mpr):
+    """-> [(label, mdl)] for the Marketplace pages on the redirected layout qn that the navigation opens. ALTER PAGES skips
+    them, so they keep the vendor layout: WM1's Accounts menu opened Administration.Account_Overview on plain Atlas 4,
+    sidebar and header gone, the mx logo over the title (screens REVIEW, 2026-11-17). Copy each into the module where
+    the app already keeps its copies of that vendor module's pages (a page with the same title: WM1's
+    DISW_DesignSystem_Extention.MyAccount_Edit), on the company layout, grants mapped by role name, the menu pointed at
+    the copy. No such module: not copied, named in the label for a person."""
+    rc, out = mx(["-p", orig, "-c", "SHOW MODULES"])
+    mods = table(out) if rc == 0 else []
+    market = {m["Module"] for m in mods if m.get("Source", "").startswith("Marketplace")}
+    rc, out = mx(["refs", "-p", orig, qn])
+    pages = [r["SourceName"] for r in table(out) if r.get("SourceType") == "PAGE" and r.get("RefKind") == "layout"
+             and r["SourceName"].split(".")[0] in market] if rc == 0 else []
+    if not pages:
+        return []
+    rc, out = mx(["-p", orig, "-c", "SHOW PAGES"])
+    allp = table(out) if rc == 0 else []
+    res = []
+    for page in pages:
+        rc, out = mx(["refs", "-p", orig, page])
+        navs = sorted({r["SourceName"].split(".", 1)[1] for r in table(out) if r.get("SourceType") == "NAVIGATION"})
+        if not navs:
+            continue
+        vmod, name = page.split(".", 1)
+        titles = {p["Title"] for p in allp if p["Module"] == vmod and p.get("Title")}
+        homes = [p for p in allp if p["Module"] not in market | {vmod, "System"} and p.get("Title") in titles]
+        if not homes:
+            res.append((f"page {page}: opened from the navigation, keeps the vendor layout; no app module holds copies of "
+                        f"{vmod} pages, copy it by hand", ""))
+            continue
+        tmod, folder = homes[0]["Module"], homes[0]["Folder"]
+        src = describe(app_mpr, "page", page) or describe(orig, "page", page)
+        if not src:
+            continue
+        copy = f"{tmod}.{name}"
+        rc, out = mx(["-p", app_mpr, "-c", f"SHOW MODULE ROLES IN {tmod}"])
+        troles = {r["Role"] for r in table(out)} if rc == 0 else set()
+        body, lost = [], []
+        for ln in src.splitlines():
+            g = re.match(rf"^grant view on page {re.escape(page)} to (.+);$", ln.strip())
+            if g:
+                keep = [r.strip() for r in g.group(1).split(",") if r.strip().split(".")[-1] in troles]
+                lost += [r.strip() for r in g.group(1).split(",") if r.strip().split(".")[-1] not in troles]
+                if keep:
+                    body.append(f"grant view on page {copy} to " + ", ".join(f"{tmod}.{r.split('.')[-1]}" for r in keep) + ";")
+                continue
+            ln = re.sub(rf"\bpage {re.escape(page)}\b", f"page {copy}", ln)
+            ln = re.sub(r"folder '[^']*'", f"folder '{folder}'", ln, count=1) if ln.startswith("create ") else ln
+            body.append(re.sub(rf"^(\s*Layout:\s*){re.escape(qn)}\b", rf"\g<1>{company}", ln))
+        parts = ["\n".join(body)]
+        for nav in navs:
+            n = describe(app_mpr, "navigation", nav) or ""
+            n2 = re.sub(rf"\bshow page {re.escape(page)}\b", f"show page {copy}", n)
+            if n2 != n:
+                parts.append(n2)
+        res.append((f"page {page}: opened from the navigation, copied to {copy} on {company}, menu pointed at the copy"
+                    + (f"; no {tmod} role for {', '.join(lost)}: not granted" if lost else ""),
+                    "mdl 1;\n" + "\n".join(re.sub(r"^mdl 1;\s*", "", p.strip(), flags=re.M) for p in parts) + "\n"))
+    return res
+
+
 def checked(mdl, app_mpr, tmp, qn):
     p = os.path.join(tmp, f"{qn}.check.mdl")
     with open(p, "w") as f:
@@ -363,6 +431,14 @@ def cmd_collect(a):
                     if mdl is not None and not mdl.strip():
                         print(f"SKIP {mod} {kind} {name}: {how}")
                         continue
+                    m = LAYOUT_OF.search(ours or "") if mdl else None
+                    for label, cmdl in nav_copies(qn, m.group(1), x["original"], x.get("app_mpr") or x["original"]) if m else []:
+                        if not cmdl:
+                            held.append(label)
+                        elif not (ok_why := checked(cmdl, x["app_mpr"], tmp, label.split()[1]) if x.get("app_mpr") else (True, ""))[0]:
+                            held.append(f"{label}: mxcli check refuses the result: {ok_why[1]}")
+                        else:
+                            parts.append((label, cmdl))
                 elif kind in ("layout", "snippet", "page", "constant") and x.get("original") and x.get("app_mpr"):
                     mdl, how = merge_element(kind, qn, x.get("pkg"), x["original"], x["app_mpr"], tmp)
                 else:

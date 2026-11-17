@@ -17,7 +17,29 @@ touch "$A/App.mpr" "$T/orig/App.mpr" "$C/7-1.0.0.mpk" "$C/7-1.0.0/project.mpr"
 cat > "$T/mxcli" <<'PY'
 #!/usr/bin/env python3
 import sys
+import os
 a = sys.argv[1:]
+nav = os.environ.get("NAVCOPY")   # navcopy cases: a Marketplace page on the redirected layout, opened from the menu
+if nav and a[0] == "-p":
+    q = a[3]
+    if q == "SHOW MODULES":
+        print("| Module | Source |\n|---|---|\n| Uimod | Marketplace v1.0.0 |\n| Brand |  |")
+    elif q == "SHOW PAGES":
+        print("| Qualified Name | Module | Name | Folder | Title |\n|---|---|---|---|---|\n| Uimod.Acct | Uimod | Acct | Admin | Accounts |\n"
+              "| Uimod.Edit | Uimod | Edit | Admin | Edit Account |\n"
+              f"| Brand.MyEdit | Brand | MyEdit | Pages | {'Edit Account' if nav == 'home' else 'Something else'} |")
+    elif q == "SHOW MODULE ROLES IN Brand":
+        print("| Qualified Name | Module | Role |\n|---|---|---|\n| Brand.Administrator | Brand | Administrator |")
+    sys.exit(0)
+if nav and a[0] == "refs" and a[3] in ("Uimod.Redir", "Uimod.Acct"):
+    print("| SourceType | SourceName | RefKind |\n|---|---|---|\n" + ("| PAGE | Uimod.Acct | layout |" if a[3] == "Uimod.Redir"
+          else "| NAVIGATION | Navigation.Responsive | menu_item |"))
+    sys.exit(0)
+if nav and a[0] == "describe" and a[3] in ("page", "navigation"):
+    print("mdl 1;\ncreate or modify page Uimod.Acct folder 'Admin' (\n  Title: 'Accounts',\n  Layout: Uimod.Redir\n) {\n};\n"
+          "grant view on page Uimod.Acct to Uimod.Administrator, Uimod.Auditor;" if a[3] == "page" else
+          "mdl 1;\ncreate or modify navigation Responsive\n{\n  menu item 'Accounts' ( OnClick: show page Uimod.Acct with (DisabledDuringExecution: false) )\n}")
+    sys.exit(0)
 if a[0] == "describe":
     mpr, kind, qn = a[2], a[3], a[4]
     pkg = mpr.endswith("project.mpr")
