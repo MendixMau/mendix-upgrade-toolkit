@@ -3783,6 +3783,13 @@ printf '[{"module": "Email_Connector", "route": "REPLAY", "held": []}]\n' > $HR/
 ctl pipeline-held-routes-catch 0 '^rc=0$' "^Atlas_Core held: layout Atlas_Default: copy it to the app's own module \(edit-routes\.json\)$" '^Atlas_Core held: layout Atlas_TopBar' '^Old exit 4: ' '!stale line' '2 element\(s\) held for a person are not in the app' -- bash -c "WORK=$HR/w STEP=update DRY=0 bash $HR/fn.sh; cat $HR/w/replay-held.txt $HR/w/state/notes.txt"
 ctl pipeline-held-routes-none-pass 0 '^rc=0$' '^no-file$' -- bash -c "WORK=$HR/w2 STEP=update DRY=0 bash $HR/fn.sh; test -e $HR/w2/replay-held.txt || echo no-file"
 ctl pipeline-held-routes-wired-catch 0 '^wired$' -- bash -c "awk '/^step_update\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -A1 '^  replay_edits\$' | grep -q '^  held_routes\$' && echo wired"
+# cold WM1: kept.txt in $WORK was copied only when the update kept something and never cleared, so the gate parked
+# Email_Connector "kept" two passes after it was updated
+KS=$T/keptstale; mkdir -p $KS/app/.stepupdate $KS/w1 $KS/w2; echo "Email_Connector 6.0.0" > $KS/w1/kept.txt; : > $KS/app/.stepupdate/kept.txt
+echo "Email_Connector 6.0.0" > $KS/w2/kept.txt; echo "DataWidgets 2.2.1 kept" > $KS/app/.stepupdate/kept.txt.new
+grep -E '\.stepupdate/kept\.txt.*"\$WORK/kept\.txt"' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $KS/line.sh
+ctl pipeline-kept-stale-cleared-catch 0 '^gone$' -- bash -c "APP=$KS/app WORK=$KS/w1; . $KS/line.sh; [ -e $KS/w1/kept.txt ] && echo stale || echo gone"
+ctl pipeline-kept-copied-pass 0 '^DataWidgets 2\.2\.1 kept$' -- bash -c "cp $KS/app/.stepupdate/kept.txt.new $KS/app/.stepupdate/kept.txt; APP=$KS/app WORK=$KS/w2; . $KS/line.sh; cat $KS/w2/kept.txt; : > $KS/app/.stepupdate/kept.txt"
 # cold WM1 gap 6: --from update with another mxcli cleared the .done of update..gate, then the pin refused (exit 3) and the
 # run's markers were gone; main checks the pin before it clears anything
 FP=$T/frompin; mkdir -p $FP/w/state; for st in triage update build gate; do echo t > $FP/w/state/$st.done; done

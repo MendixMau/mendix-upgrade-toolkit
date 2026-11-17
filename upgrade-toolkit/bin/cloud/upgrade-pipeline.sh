@@ -1248,7 +1248,8 @@ step_update() {
   fi
   assoc_unreplayed
   if [ "$DRY" != 1 ]; then
-    [ ! -s "$APP/.stepupdate/kept.txt" ] || cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"
+    # a stale kept.txt from an earlier pass parked a module updated since (cold WM1: Email_Connector, on 6.4.4 by then)
+    if [ -s "$APP/.stepupdate/kept.txt" ]; then cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"; else rm -f "$WORK/kept.txt"; fi
     local rc=0
     xo "$WORK/jarclash.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md" || rc=$?
     [ "$rc" = 0 ] || note "jarclash after the updates exit $rc: classes in two jars, see $WORK/jarclash.md (clashes listed in jarclash-before.md are older than the upgrade)"
