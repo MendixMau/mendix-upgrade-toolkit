@@ -326,7 +326,7 @@ def nav_copies(qn, company, orig, app_mpr):
     sidebar and header gone, the mx logo over the title (screens REVIEW, 2026-11-17). Copy each into the module where
     the app already keeps its copies of that vendor module's pages (a page with the same title: WM1's
     DISW_DesignSystem_Extention.MyAccount_Edit), on the company layout, grants mapped by role name, the menu pointed at
-    the copy. No such module: not copied, named in the label for a person."""
+    the copy. No such module, or a copy would drop a widget: the page's own layout set in place (ALTER PAGE), menu unchanged."""
     rc, out = mx(["-p", orig, "-c", "SHOW MODULES"])
     mods = table(out) if rc == 0 else []
     market = {m["Module"] for m in mods if m.get("Source", "").startswith("Marketplace")}
@@ -346,9 +346,12 @@ def nav_copies(qn, company, orig, app_mpr):
         vmod, name = page.split(".", 1)
         titles = {p["Title"] for p in allp if p["Module"] == vmod and p.get("Title")}
         homes = [p for p in allp if p["Module"] not in market | {vmod, "System"} and p.get("Title") in titles]
+        # WM1 2026-11-17: ALTER PAGE sets one Marketplace page's layout in place (ALTER PAGES skips them); only that line
+        # changes, every widget stays, the menu keeps the page. The way when a copy has no home or would lose a widget
+        inplace = (f"mdl 1;\nALTER PAGE {page} {{ SET Layout = {company}; }};\n")
         if not homes:
-            res.append((f"page {page}: opened from the navigation, keeps the vendor layout; no app module holds copies of "
-                        f"{vmod} pages, copy it by hand", ""))
+            res.append((f"page {page}: opened from the navigation, no app module holds copies of {vmod} pages: its layout "
+                        f"set to {company} in place, the menu keeps it", inplace))
             continue
         tmod, folder = homes[0]["Module"], homes[0]["Folder"]
         src = describe(app_mpr, "page", page) or describe(orig, "page", page)
@@ -358,9 +361,8 @@ def nav_copies(qn, company, orig, app_mpr):
         # and the copy came out without its user list (menu back, page empty). A copy that would drop a widget is no copy
         if "NOT re-executable" in src:
             w = re.search(r"--\s*(\S+ \(\w+\))\s*-- NOT re-executable", src)
-            res.append((f"page {page}: opened from the navigation, keeps the vendor layout; a copy would drop "
-                        f"{w.group(1) if w else 'a widget'} (mxcli cannot write it): copy it by hand in Studio Pro onto "
-                        f"{company} and point the menu at the copy", ""))
+            res.append((f"page {page}: opened from the navigation, a copy would drop {w.group(1) if w else 'a widget'} "
+                        f"(mxcli cannot write it): its layout set to {company} in place, the menu keeps it", inplace))
             continue
         copy = f"{tmod}.{name}"
         rc, out = mx(["-p", app_mpr, "-c", f"SHOW MODULE ROLES IN {tmod}"])

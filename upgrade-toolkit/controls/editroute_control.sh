@@ -36,7 +36,7 @@ if nav and a[0] == "refs" and a[3] in ("Uimod.Redir", "Uimod.Acct"):
           else "| NAVIGATION | Navigation.Responsive | menu_item |"))
     sys.exit(0)
 if nav and a[0] == "describe" and a[3] in ("page", "navigation"):
-    grid = "  -- Forms$DataGrid (grid12)  -- NOT re-executable: mxcli cannot author this widget\n" if nav == "grid" else ""
+    grid = "  -- Forms$DataGrid (grid12)  -- NOT re-executable: mxcli cannot author this widget\n" if nav in ("grid", "refuse") else ""
     print("mdl 1;\ncreate or modify page Uimod.Acct folder 'Admin' (\n  Title: 'Accounts',\n  Layout: Uimod.Redir\n) {\n" + grid + "};\n"
           "grant view on page Uimod.Acct to Uimod.Administrator, Uimod.Auditor;" if a[3] == "page" else
           "mdl 1;\ncreate or modify navigation Responsive\n  app title 'Uimod App'\n  app icon Brand.Icons.Logo\n{\n  menu item 'Accounts' ( OnClick: show page Uimod.Acct with (DisabledDuringExecution: false) )\n}")
@@ -67,7 +67,8 @@ if a[0] == "describe":
     body = "logic A" if pkg or "Cosmetic" in qn else "logic B"
     print(("@position(1, 1)\n" if pkg else "@position(9, 9)\n@anchor(from: right, to: left)\n") + body)
 elif a[0] == "check":
-    bad = "BROKEN" in open(a[1]).read()
+    t = open(a[1]).read()
+    bad = "BROKEN" in t or (nav == "refuse" and "ALTER PAGE" in t)   # refuse: mxcli check says no to the in-place layout
     print("  ✗ class BROKEN is not a class [MDL000]" if bad else "ok")
     sys.exit(1 if bad else 0)
 elif a[0] == "refs":
