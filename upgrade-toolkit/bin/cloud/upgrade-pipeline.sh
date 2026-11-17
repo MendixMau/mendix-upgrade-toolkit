@@ -143,6 +143,15 @@ mkdir -p "$WORK/state" "$WORK/logs"
   printf '{"route": ["%s", "%s"%s]}\n' "$SOURCE" "$TARGET" "${TARGET2:+, \"$TARGET2\"}" > "$WORK/ladder.json"
 
 # ---- env.sh from bin/cloud/setup.sh: TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
+# A RUN from the caller's environment counts only when --work lies inside it (setup.sh exports it so). Cold WM1: a
+# wrapper's own RUN=13 became the run folder, "missing source mxbuild toolset: 13/tools/..." and exit 3.
+if [ -n "${RUN:-}" ]; then
+  _rd=$(cd "$RUN" 2>/dev/null && pwd) || _rd=""
+  case "$(cd "$WORK" && pwd)/" in
+    "${_rd:-/nonexistent}"/*) ;;
+    *) echo "upgrade-pipeline.sh: ignoring RUN=$RUN from the environment: --work $WORK is not inside it"; RUN="" ;;
+  esac
+fi
 : "${RUN:=$(dirname "$WORK")}"
 set +u
 if [ -f "$WORK/env.sh" ]; then . "$WORK/env.sh"; elif [ -f "$RUN/env.sh" ]; then . "$RUN/env.sh"; fi
@@ -423,11 +432,24 @@ rung2_cids() { # rung2_cids PLAN ARGSFILE
     grep -Eq -- "(^|[= ])$mod=" "$2" 2> /dev/null || printf -- '--cid=%s=%s\n' "$mod" "$cid" >> "$2"
   done < "$1"
 }
+# App code name: UPG_APP_CODE (UPG_APP_NAME is the older spelling), else the line in state/app-code of the rung 1 work
+# folder (rung 2 shares it), else a neutral code from the .mpr file name, written there: app-<6 hex>, no name in it,
+# so runlog and harvest never carry a customer name. Cold CMM: no code at all, harvest and the run log skipped.
+app_code() {
+  local c="${UPG_APP_CODE:-${UPG_APP_NAME:-}}" fw=$WORK m
+  [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
+  [ -n "$c" ] || c=$(cat "$WORK/state/app-code" "$fw/state/app-code" 2> /dev/null | head -n 1 || true)
+  if [ -z "$c" ] && m=$(ls "${APP:-/nonexistent}"/*.mpr 2> /dev/null | head -n 1) && [ -n "$m" ]; then
+    c="app-$(basename "$m" | shasum | cut -c1-6)"
+    [ "${DRY:-0}" = 1 ] || { mkdir -p "$fw/state" && printf '%s\n' "$c" > "$fw/state/app-code"; }
+  fi
+  printf '%s' "$c"
+}
 feedback_finish() { # feedback_finish EXITCODE STEP
   [ "${DRY:-0}" != 1 ] && [ -d "${WORK:-}" ] || return 0
-  local fw=$WORK app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}"
+  local fw=$WORK app
   [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
-  [ -n "$app" ] || app=$(head -n 1 "$fw/state/app-code" 2> /dev/null || true)
+  app=$(app_code)
   python3 -I "$B/feedback_report.py" --work "$fw" --exit "$1" --step "$2" --code "$app" \
     --source "${SOURCE:-}" --target "${TARGET:-}" 2>&1 | sed 's/^/  /' || true
 }
@@ -735,6 +757,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   fi
   [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
   dojo_report
+  replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
@@ -925,10 +948,27 @@ dojo_report() {
   [ "$rc" = 0 ] || note "dojo_report.py exit $rc, see $WORK/dojo-react.out"
 }
 
+# Replacements (B6) on every run, against the last rung, like dojo_report. Cold CMM: rung 2 built and walked 11.12.7 with
+# MicroflowTimer 4.0.3 on the mix wizard pages; R38 (mx.logger, removed in 11.0) names it from the .mpk, but only the
+# agent's triage item 10 ran replacement_check.py, so the unattended proposal said "not measured: replacements.md" and
+# the wizard steps never rendered (TypeError reading 'debug').
+replacement_report() {
+  [ "$DRY" != 1 ] || { say "+ replacement_check.py $APP --to ${TARGET2:-$TARGET} --out $WORK/replacements.md"; return 0; }
+  [ -d "${APP:-/nonexistent}" ] || return 0
+  local rc=0
+  xo "$WORK/replacements.out" python3 "$B/replacement_check.py" "$APP" --to "${TARGET2:-$TARGET}" --out "$WORK/replacements.md" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "replacement_check.py: $(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) for ${TARGET2:-$TARGET} (open in the proposal), see $WORK/replacements.md" ;;
+    *) note "replacement_check.py exit $rc, see $WORK/replacements.out" ;;
+  esac
+}
+
 step_propose() {
   local rc=0
   # a run whose triage predates the report
   [ -s "$WORK/dojo-react.md" ] || dojo_report
+  [ -s "$WORK/replacements.md" ] || replacement_report
   if [ "$DRY" = 1 ]; then
     say "+ action_inventory.py $WORK/original.mpr --out $WORK/actions.json; apimock.py inventory $WORK/original.mpr --json $WORK/apimock-inventory.json"
     say "+ proposal.py --work $WORK --source $SOURCE --target $TARGET (exit 14 unsigned, 15 PAUSED, 0 signed or unattended)"
@@ -1151,6 +1191,19 @@ route_kept() {
 # update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
+  # an update rerun cannot redo this rung's replays: the module steps read as applied ("0 committed"), replay skips what the
+  # log holds, and the replayed copies and menu pointers stay. Cold WM1: an older replay's empty Account_Overview copy
+  # stayed in the menu after the rerun, the Local Users tab showed nothing. Rewind to the convert commit first.
+  if [ "$DRY" != 1 ] && [ ! -f "$WORK/replay-keep.txt" ]; then
+    local conv reps
+    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s { print $1; exit }')
+    reps=$([ -z "$conv" ] || git_app log --format='%h %s' "$conv..HEAD" 2> /dev/null | grep -E '^[0-9a-f]+ replay: ' | head -5 | tr '\n' ';' || true)
+    if [ -n "$reps" ]; then
+      nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
+      nj_add 12 "Decision" "Tag a backup, then rewind the app to $conv (git -C $APP tag backup/<name>; git -C $APP reset --hard $conv) and rerun --from update; to keep the replays, create $WORK/replay-keep.txt."
+      nj_flush
+    fi
+  fi
   # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
   [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
@@ -1853,13 +1906,13 @@ record_grade() {
 # bin/runlog.py. Never fails the run: the exit code and the gate verdict stay as they are. When runlog.py refuses (a run id
 # already in the log, exit 3; a customer name, exit 4; no app code name, exit 2) the reason goes to the console, to the gate
 # output (a `Run log:` line in gate-summary.md) and to NEEDS-JUDGMENT.md as an information section, and the run continues.
-# App code name: UPG_APP_CODE (UPG_APP_NAME is the older spelling), else the one line in $WORK/state/app-code; type: UPG_APP_TYPE,
+# App code name: app_code (UPG_APP_CODE, state/app-code, else a neutral app-<hex> from the .mpr name); type: UPG_APP_TYPE,
 # else $WORK/state/app-type. UPG_RUN_ID sets the run id. The Time: line (step timing) is stamped into gate-summary.md first.
 record_runlog() {
   RUNLOG_DONE=1
   [ -f "$WORK/gate-summary.md" ] || return 0
-  local log="${UPG_FIELD_RUNS:-$TK/FIELD-RUNS.md}" out rc=0 app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}" typ="${UPG_APP_TYPE:-}" why
-  [ -n "$app" ] || app=$(head -n 1 "$WORK/state/app-code" 2> /dev/null || true)
+  local log="${UPG_FIELD_RUNS:-$TK/FIELD-RUNS.md}" out rc=0 app typ="${UPG_APP_TYPE:-}" why
+  app=$(app_code)
   [ -n "$typ" ] || typ=$(head -n 1 "$WORK/state/app-type" 2> /dev/null || true)
   python3 -I "$B/runlog.py" --stamp-time --work "$WORK" > /dev/null 2>&1 || true
   out=$(python3 -I "$B/runlog.py" --work "$WORK" --log "$log" --require-app ${UPG_RUN_ID:+--run-id "$UPG_RUN_ID"} \

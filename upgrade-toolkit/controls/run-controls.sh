@@ -354,6 +354,59 @@ awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/u
 mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
 ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+# widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
+# mode gets the widget back from an earlier commit: settings restored, fresh ids, the rest of the page untouched
+WR=$T/wr; mkdir -p $WR/cur $WR/old $WR/other
+cat > $WR/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid
+from bson.binary import Binary
+d, base, wname, ver = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+def I(s): return Binary(uuid.uuid5(uuid.NAMESPACE_DNS, s).bytes, 3)  # ids as the MPR holds them
+wid = "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter"
+def pt(i, k): return {"$ID": I(i), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": k, "ValueType": {"DefaultValue": ""}}
+def pv(i, val): return {"$ID": I(i + "v"), "$Type": "CustomWidgets$WidgetProperty", "TypePointer": I(i), "Value": val}
+w = {"$ID": I("w1"), "$Type": "CustomWidgets$CustomWidget", "Name": wname,
+     "Type": {"$ID": "t1", "WidgetId": wid, "ObjectType": {"$ID": "o1", "PropertyTypes": [3, pt("pa", "baseType"), pt("pb", "refEntity")]}},
+     "Object": {"$ID": "ob1", "Properties": [2, pv("pa", {"PrimitiveValue": base}),
+                pv("pb", {"EntityRef": {"Steps": [2, {"Association": "System.UserRoles"}]}} if base == "ref" else {})]}}
+other = {"$ID": "x1", "$Type": "Forms$DynamicText", "Name": "keepme", "Caption": base}
+page = {"$ID": "pg", "$Type": "Forms$Page", "Name": "Account_Overview", "Excluded": False, "Content": [3, other, w]}
+mod = {"$ID": "md", "$Type": "Projects$ModuleImpl", "Name": "Administration"}
+con = sqlite3.connect(f"{d}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+con.execute("create table _MetaData (_ProductVersion text)"); con.execute("insert into _MetaData values (?)", (ver,))
+m, p = uuid.uuid4().bytes_le, uuid.uuid4().bytes_le
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (m, None, bson.encode(mod)))
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (p, m, bson.encode(page))); con.commit()
+EOF
+cat > $WR/show.py <<'EOF'
+import bson, sqlite3, sys, uuid
+c = sqlite3.connect(sys.argv[1])
+d = [bson.decode(r[0]) for r in c.execute("select Contents from Unit")][1]
+print("keep=" + d["Content"][1]["Caption"])
+w = d["Content"][2]
+print("ids-renewed" if bytes(w["$ID"]) != uuid.uuid5(uuid.NAMESPACE_DNS, "w1").bytes and w["Name"] == "drop_downFilter1" else "ids-kept")
+EOF
+python3 $WR/mk.py $WR/cur attr drop_downFilter1 11.12.7; python3 $WR/mk.py $WR/old ref drop_downFilter1 10.24.28; python3 $WR/mk.py $WR/other ref otherFilter 10.24.28
+WRT="python3 $B/repair/widgetrestore.py $WR/cur --from $WR/old/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1"
+ctl widgetrestore-dry-catch 0 '^  RESTORE baseType: attr -> ref$' '^  RESTORE refEntity: \(unset\) -> System\.UserRoles$' 'dry run, rerun with --apply' -- $WRT
+ctl widgetrestore-apply-pass 0 'written, 2 setting\(s\) back' '^again: +nothing differs' '^keep=attr$' '^ids-renewed$' -- bash -c "$WRT --apply; echo again: \$($WRT | tail -1); python3 $WR/show.py $WR/cur/App.mpr"
+ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets named drop_downFilter1' -- python3 $B/repair/widgetrestore.py $WR/cur --from $WR/other/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1
+# cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
+# step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
+RP=$T/rp; mkdir -p $RP
+for r in rep none old ack; do git init -q $RP/$r; done
+gc() { git -C $RP/$1 -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"; }
+gc rep 'convert 11.12.7'; gc rep 'step: DataWidgets 3.11.8 (stepupdate)'; gc rep 'replay: Atlas_Core'
+gc none 'convert 11.12.7'; gc none 'step: DataWidgets 3.11.8 (stepupdate)'
+gc old 'convert 10.24.28'; gc old 'replay: Atlas_Core'; gc old 'convert 11.12.7'
+gc ack 'convert 11.12.7'; gc ack 'replay: Atlas_Core'; mkdir -p $RP/wack; : > $RP/wack/replay-keep.txt
+awk '/replay-keep\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $RP/nj.sh
+printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
+ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that holds replay commits: Since convert [0-9a-f]+: [0-9a-f]+ replay: Atlas_Core;' '^NJ 12 Decision: Tag a backup, then rewind the app to [0-9a-f]+ ' '^FLUSH$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/rep; f; echo done"
+ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
+ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
+ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
@@ -1157,6 +1210,10 @@ ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok
   '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
 # cold CMM: a page full of widget error boxes ("The Text filter widget must be placed inside the header ...") PASSed 23/23
 ctl smokewalk-landedok-widget-error-catch 0 '^ok +landedOk fake widget error box: got true' '^ok +landedOk fake validation message: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
+# cold CMM 10.24 and 11: the Data Widgets 3.x filter's own errors do not say "widget" ("The attribute is not filterable.
+# Please choose a different attribute.") and the MaterialHandler dashboard PASSed; an app's own red alert still passes
+ctl smokewalk-landedok-filter-error-catch 0 '^ok +landedOk filter attribute error .*FAIL wanted' '^ok +landedOk fake filter attribute error: got true' \
+  '^ok +landedOk fake no filter store: got true' '^ok +landedOk app alert text .*PASS wanted' '!^FAIL' -- node $here/smokewalk_predicates.js
 # T6R-9: the compare pools repeated walks (fixtures/smoke/, --rejudge = no browser). A new error the old walks never showed
 # is a REGRESSION, also when intermittent; the old app's own intermittent error on the new side is FLAKY on both (exit 2)
 SW="node $B/smokewalk.js"; SF=$FX/smoke
@@ -1804,6 +1861,13 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
 ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
 ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
+# cold WM1: a wrapper's RUN=13 in the environment became the run folder (13/tools/..., exit 3); an inherited RUN counts
+# only when --work lies inside it, the RUN setup.sh exports still does
+mkdir -p $V/runenv/run/work $V/runenv/13
+awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $V/runenv/block.sh
+ctl pipeline-run-inherited-ignored-catch 0 "^tools=$V/runenv/run/tools\$" -- bash -c "cd $V/runenv && WORK=$V/runenv/run/work RUN=13 bash -c '. ./block.sh; echo tools=\$UPG_TOOLS'"
+ctl pipeline-run-inherited-missing-ignored-catch 0 "^tools=$V/runenv/run/tools\$" -- bash -c "cd / && WORK=$V/runenv/run/work RUN=$V/nope bash -c '. $V/runenv/block.sh; echo tools=\$UPG_TOOLS'"
+ctl pipeline-run-setup-kept-pass 0 "^tools=$V/runenv/run/tools\$" '!ignoring' -- bash -c "cd / && WORK=$V/runenv/run/work/rung2 RUN=$V/runenv/run bash -c 'mkdir -p \$WORK; . $V/runenv/block.sh; echo tools=\$UPG_TOOLS' 2>&1"
 # an explicit --db is kept for the next resume: the prefix block is evaluated with an older name already kept
 awk '/^RUNP=/{f=1} /^frozen_stamp\(\)/{exit} f' "${PIPE:-$B/cloud/upgrade-pipeline.sh}" > $V/dbblock.sh
 ctl pipeline-db-arg-persisted-catch 0 '^upg_new$' -- bash -c "mkdir -p $V/dba/run/work/state; echo upg_old > $V/dba/run/work/state/db-prefix; RUN=$V/dba/run WORK=$V/dba/run/work DB_ARG=upg_new DRY=0; usage_die() { echo \"\$*\"; exit 2; }; . $V/dbblock.sh; cat $V/dba/run/work/state/db-prefix"
@@ -3622,7 +3686,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -3631,6 +3695,9 @@ ctl replace-java-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Old\.java \(1
 # PV-5: IMendixIdentifier.getEntityId() (removed in 11) is a hit of R18; getType() and a longer method name are not
 ctl replace-java-entityid-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Ids\.java \(1\)' -- $RC $M/replace-java-id --to 11.12.5
 ctl replace-java-entityid-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-id-ok --to 11.12.5
+# cold WM1: DeepLink 10.0.10 (no 11 release) imports com.mendix.core.conf.RuntimeVersion, gone in 11; Core.getRuntimeVersion() is clear
+ctl replace-java-rtver-catch 1 '^HIT +R18 ' 'in javasource/deeplink/implementation/handler/SessionHandler\.java \(2\)' -- $RC $M/replace-java-rtver --to 11.12.5
+ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-rtver-ok --to 11.12.5
 # NS-1: the Mx10 metrics API (Core.metrics().counters()/timers()/gauges()) is gone in 11; DatadogConnector before 076dca76
 ctl replace-metrics-catch 1 '^HIT +R18 ' 'in javasource/datadogconnector/connector/DatadogConnector\.java \(3\)' -- $RC $M/replace-metrics --to 11.12.5
 ctl replace-metrics-new-pass 0 '^clear +R18 ' '!^HIT' -- $RC $M/replace-metrics-new --to 11.12.5
@@ -3687,6 +3754,14 @@ ctl replace-mxlogger-catch 1 '^HIT +R38 ' 'evidence: widgets/Logger\.mpk 1\.3\.1
 ctl replace-mxlogger-blocker-catch 1 '^HIT +R38 ' 'evidence: BLOCKER \(no newer version: logger\): widgets/Logger\.mpk' '^blockers: R38: no update can fix these' -- $RC $M/replace-mxlogger --to 11.12.6 --no-newer Logger
 ctl replace-mxlogger-unused-pass 1 '^clear +R38 ' 'package\(s\) with /.*mx.*logger.* in their JavaScript, but no page uses them: widgets/Spare\.mpk' '!^HIT +R38' -- $RC $M/replace-mxlogger-quiet --to 11.12.6
 ctl replace-mxlogger-jump-na-pass 0 '^NOT APPLICABLE R38 ' '!^HIT +R38' -- $RC $M/replace-mxlogger --to 10.24.16
+# cold CMM: the pipeline never ran replacement_check.py (agent-only triage item 10), so R38 never named MicroflowTimer's
+# mx.logger before the 11.12.7 build. replacement_report runs it against the last rung; propose fills a missing report
+RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
+{ awk '/^replacement_report\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; printf '%s\n' 'say() { echo "$*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' \
+  'note() { echo "$STEP: $*" >> "$WORK/state/notes.txt"; }' 'replacement_report; echo rc=$?'; } > $RR/fn.sh
+ctl pipeline-replacements-run-catch 0 '^rc=0$' '^r38-hit$' '[0-9]+ HIT row\(s\) for 11\.12\.6 \(open in the proposal\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 bash $RR/fn.sh; grep -qE '^HIT +R38 ' $RR/w/replacements.out && echo r38-hit; cat $RR/w/state/notes.txt"
+ctl pipeline-replacements-unused-pass 0 '^rc=0$' '^written$' '!^r38-hit$' -- bash -c "B=$B APP=$M/replace-mxlogger-quiet WORK=$RR/w2 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; test -s $RR/w2/replacements.md && echo written; grep -qE '^HIT +R38 ' $RR/w2/replacements.out && echo r38-hit; true"
+ctl pipeline-replacements-wired-catch 0 '^triage$' '^propose$' -- bash -c "awk '/^step_triage\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q '^  replacement_report\$' && echo triage; awk '/^step_propose\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q 'replacement_report\$' && echo propose"
 ctl replace-out-md-pass 1 '^\| R3 \| HIT \| MendixSSO module' '^\| R8 \| NOT APPLICABLE \|' '\| handled \|$' -- sh -c "$RC $M/replace-sso --to 10.24.16 --out $T/replace-sso.md >/dev/null; rc=\$?; cat $T/replace-sso.md; exit \$rc"
 # --- B6-2: brain_mine.py, replacement candidates from the brain's release-note tables (no LLM) ---
 BM="python3 $B/brain_mine.py"
@@ -6318,7 +6393,7 @@ ctl runlog-summary-latest-per-app-idempotent-pass 0 '^- \*\*CODE-A\*\* \(templat
   -- sh -c "L=$RL/log13.md; python3 -I $B/runlog.py --backfill $RL/sroot --log \$L --app CODE-A --type 'template app' --write >/dev/null; python3 -I $B/runlog.py --summary --log \$L >/dev/null; a=\$(md5sum < \$L); python3 -I $B/runlog.py --summary --log \$L >/dev/null; [ \"\$a\" = \"\$(md5sum < \$L)\" ] && echo same=yes; grep '^- \*\*' \$L; echo apps=\$(grep -c '^- \*\*' \$L)"
 # the pipeline hook: record_runlog and cleanup, extracted and run under the pipeline's own set -Eeu / ERR trap
 RP=$T/rl-pipe; mkdir -p $RP/bin-fail $RP/bin-ok $RP/work; cp $RLF/gate-summary.md $RP/work/
-{ sed -n '/^record_runlog() {/,/^}/p;/^timing_open() {/,/^}/p;/^timing_close() {/,/^}/p;/^cleanup() {/,/^}/p' $B/cloud/upgrade-pipeline.sh; sed -n '/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh; } > $RP/fn.sh
+{ sed -n '/^app_code() {/,/^}/p;/^record_runlog() {/,/^}/p;/^timing_open() {/,/^}/p;/^timing_close() {/,/^}/p;/^cleanup() {/,/^}/p' $B/cloud/upgrade-pipeline.sh; sed -n '/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh; } > $RP/fn.sh
 printf 'import sys\nprint("boom: runlog is broken on purpose", file=sys.stderr)\nsys.exit(5)\n' > $RP/bin-fail/runlog.py
 cp $B/runlog.py $B/customer_names_check.sh $RP/bin-ok/
 rpcase() { # rpcase BINDIR EXITCODE: run the extracted hook the way the pipeline's EXIT trap does, a gate step that exits $2
@@ -7500,9 +7575,16 @@ ctl feedback-report-nocode-pass 0 '^feedback: .*\(0 draft' -- fbr --work $FB/noc
 ctl feedback-report-nocode-says-pass 0 'skipped: no app code name' '^Exit 13 at the end of the run' -- cat $FB/nocode/FEEDBACK-REPORT.md
 fbr --work $FB/deny --exit 13 --code HV1 > /dev/null 2>&1 || true
 ctl feedback-report-deny-catch 0 'left out: it matches the private denylist' '!Acmecorp' -- cat $FB/deny/FEEDBACK-REPORT.md
-{ awk '/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
+{ awk '/^app_code\(\) \{/,/^}$/;/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
   printf '%s\n' 'timing_close() { :; }' "B=$B; WORK=$FB/trap; DRY=0; STEP=build; UPG_APP_CODE=HV1; APPS_UP=()" 'trap cleanup EXIT' 'exit 4'; } > $FB/trap.sh
 ctl pipeline-feedback-on-exit-pass 0 '^rc=4$' '^Exit 4 at build' -- sh -c "env -u UPG_BRAIN bash $FB/trap.sh > /dev/null 2>&1; echo rc=\$?; cat $FB/trap/FEEDBACK-REPORT.md"
+# backlog 153 (cold CMM): no app code anywhere, harvest and the run log skipped. app_code derives a neutral app-<6 hex>
+# from the .mpr file name (no name in it), writes it to the rung 1 state/app-code, and rung 2 reads the same one
+AC=$T/appcode; mkdir -p $AC/app $AC/run/work/rung2 $AC/kept/work/state; : > "$AC/app/Acmecorp Orders.mpr"; echo KEEP1 > $AC/kept/work/state/app-code
+awk '/^app_code\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $AC/fn.sh
+ctl pipeline-app-code-derived-catch 0 '^code=app-[0-9a-f]{6}$' '^state=app-[0-9a-f]{6}$' '^rung2=app-[0-9a-f]{6}$' '!rung2-own' '!Acmecorp' -- bash -c "env -u UPG_APP_CODE -u UPG_APP_NAME bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/run/work DRY=0; echo code=\$(app_code); echo state=\$(cat $AC/run/work/state/app-code); WORK=$AC/run/work/rung2; echo rung2=\$(app_code); [ ! -e $AC/run/work/rung2/state/app-code ] || echo rung2-own'"
+ctl pipeline-app-code-kept-pass 0 '^code=KEEP1$' -- bash -c "env -u UPG_APP_CODE -u UPG_APP_NAME bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/kept/work DRY=0; echo code=\$(app_code)'"
+ctl pipeline-app-code-env-pass 0 '^code=ENV1$' -- bash -c "UPG_APP_CODE=ENV1 bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/kept/work DRY=0; echo code=\$(app_code)'"
 # rung2_cids (cold CMM): rung 1 updated 7 modules, which then carry content id 0, and rung 2's localedits stopped for a
 # hand-written localedits.args. rung 2 now gets --cid lines from rung 1's plan.txt; a module the args already name stays.
 R2C=$T/rung2cids; mkdir -p $R2C

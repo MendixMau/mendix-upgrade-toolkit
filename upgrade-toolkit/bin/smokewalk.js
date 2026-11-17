@@ -157,8 +157,11 @@ function landedOk() {
     // cold CMM: Data grid 2.30 with the DataWidgets 2.x filters rendered "The Text filter widget must be placed inside the
     // header of the Data grid 2.0 or Gallery widget" in red boxes in place of every filter, and the step PASSed (23/23).
     // A widget's own error box is not an app message; a validation message (.mx-validation-message) is left alone.
+    // cold CMM 10.24: the Data Widgets 3.x filters' own errors do not say "widget" ("The attribute is not filterable. Please
+    // choose a different attribute.", "No filter store available") and the dashboard PASSed.
     const werr = all('.alert-danger').filter(shown)
-      .find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || '') && /widget/i.test(e.textContent || ''));
+      .find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || '')
+        && /widget|filter store|choose a different attribute/i.test(e.textContent || ''));
     if (werr) return 'widget error is showing: ' + String(werr.textContent).replace(/\s+/g, ' ').trim().slice(0, 160);
     return null;
   } catch (e) { return 'page could not be inspected: ' + String(e && e.message || e).slice(0, 100); }
