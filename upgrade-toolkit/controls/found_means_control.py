@@ -31,3 +31,19 @@ for r in recs:
         print(f"means {r['topic']}: {m}")
     for i in d.get("items", []):
         print(f"item {r['topic']}: " + " | ".join(i))
+
+# a case file per decision: loaded by id, screenshots embedded, a broken file ignored
+if len(sys.argv) > 2 and sys.argv[2] == "cases":
+    import base64
+    os.makedirs(os.path.join(w, "cases"), exist_ok=True)
+    open(os.path.join(w, "old.png"), "wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))
+    json.dump({"headline": "Seven break", "tiles": [[7, "fail on the new", "bad"]], "shots": [{"old": "old.png", "new": "gone.png", "cap": "look"}],
+               "why": ["one", "two"], "options": {"fix": {"does": "We fix it.", "catch": "One rerun."}}},
+              open(os.path.join(w, "cases", cm.case_id("regression:module-X")), "w"))
+    open(os.path.join(w, "cases", "broken.json"), "w").write("{not json")
+    cs = cm.cases(w)
+    print("case files:", sorted(cs))
+    c = cs[cm.case_id("regression:module-X")]
+    print("old shot:", c["shots"][0]["old"][:22], "| new shot:", repr(c["shots"][0]["new"]))
+    h = cm.h_case(c)
+    print("html:", "tiles" if 'class="ct bad"' in h else "-", "why=" + str(h.count("<li>")), "no-shot" if "no screenshot" in h else "-")

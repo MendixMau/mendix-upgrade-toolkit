@@ -75,6 +75,25 @@ The rules closed this way on a 9.24 -> 10.24 -> 11.12 app (2026-11-17), each pri
 | journeys: failures on the old app too | nothing that passed on the old app fails on the new one, and at least 20% pass on both (otherwise the run is not measuring) | `gate.sh journeys_noted` |
 | journeys: a heal that leaves a journey failing on both apps | listed for the owner, `test-setup`, and a toolkit gap; not likely-real | `heal.py finalize` |
 
+## A decision for a person comes with its case (`work/cases/<id>.json`)
+
+Ask a person only when there is a deviation: an edit of the app, a check that worked on the old app and fails on the new
+one, or no clear path. Routine work goes ahead (auto mode) or under the one plan sign-off. When the loop raises a decision,
+the agent writes its case next to it, so the person decides on one screen (the cockpit's Resolve opens it):
+
+```json
+{"headline": "what is wrong, in one sentence",
+ "tiles": [[30, "pass on both apps", "ok"], [7, "pass on the old app, fail on the new", "bad"], [1, "cause", "wait"]],
+ "shots": [{"old": "path/in/work/old.png", "new": "path/in/work/new.png", "cap": "what to look at"}],
+ "why": ["step 1 of the cause", "step 2", "step 3"],
+ "options": {"<option key>": {"does": "what happens when you pick it", "catch": "what it costs or breaks"}},
+ "details": ["the evidence: tests, files, what was checked with which tool"]}
+```
+
+The file name is the decision id with every character outside `[A-Za-z0-9._-]` as `_` (`regression:module-Administration`
+-> `regression_module-Administration.json`). Every sentence comes from evidence on both apps; the screenshots are embedded,
+so the cockpit stays one file. Without a case file the dialog shows the plain question.
+
 ## What the gate reads from it
 
 `gate.sh` keys `HEAL_JSON` (prints the one-line `heal:` summary), `GATE_NOTES` (L56: every non-empty line that is not a

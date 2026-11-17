@@ -6804,6 +6804,8 @@ ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 j
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
 # what a finding MEANS, per item, from the run's own files (the owner, 2026-11-17: "not just what, but what it means")
 ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
+# a decision's case file (work/cases/<id>.json): found by id, screenshots embedded, a missing shot shown as such, a broken file ignored
+ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^old shot: data:image/png;base64, \| new shot: .{2}$' '^html: tiles why=2 no-shot$' -- python3 $here/found_means_control.py $T/fmc cases
 ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' -- $CK render
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard

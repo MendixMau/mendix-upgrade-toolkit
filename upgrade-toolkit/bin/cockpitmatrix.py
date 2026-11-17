@@ -1212,7 +1212,7 @@ def build(work, model):
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
             "band": band(model, rows, chips, g, tl, kpi),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "phases": phases(rows), "ladder": ladder(work), "health": health(work),
+            "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
             "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work)}
 
@@ -1636,6 +1636,15 @@ details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bot
 .qk{font:12px var(--mono);color:var(--muted)}.qcard h3{margin:4px 0 10px;font-size:19px}.qcard p{margin:6px 0;font-size:14px;line-height:1.45}
 .qev{margin:10px 0;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px}.qev ul{margin:6px 0 4px 18px;padding:0}.qev li{margin:2px 0}.qev small{opacity:.7}
 .qrec{padding:8px 10px;border-radius:10px;background:var(--accentbg)}
+.qdlg.wide{max-width:1100px;width:92vw}.chead{font-size:17px!important;font-weight:600}
+.ctiles{display:flex;gap:10px;margin:10px 0}.ct{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 12px;text-align:center}.ct b{display:block;font-size:28px}.ct span{font-size:13px;color:var(--muted)}
+.ct.ok b{color:var(--ok)}.ct.bad b{color:var(--bad)}.ct.wait b{color:var(--wait)}
+.cshot{margin:10px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px}.cshot div{border:1px solid var(--line);border-radius:10px;overflow:hidden}.cshot span{display:block;font:12px var(--mono);padding:4px 8px;color:var(--muted);border-bottom:1px solid var(--line)}
+.cshot img{display:block;width:100%}.cshot i{display:block;padding:30px;color:var(--muted);text-align:center}.cshot figcaption{grid-column:1/-1;font-size:13px;color:var(--muted)}
+.cwh{margin:12px 0 6px}.cwhy{counter-reset:w;list-style:none;padding:0;margin:0;display:flex;gap:8px;flex-wrap:wrap}.cwhy li{counter-increment:w;flex:1 1 200px;border:1px solid var(--line);border-radius:10px;padding:8px 10px 8px 34px;position:relative;font-size:14px}
+.cwhy li::before{content:counter(w);position:absolute;left:8px;top:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;text-align:center;line-height:20px}
+.cdet{margin-top:8px;font-size:13px}.qopts small.catch{color:var(--wait)}
+@media (max-width:700px){.cshot{grid-template-columns:1fr}.ctiles{flex-wrap:wrap}}
 .qopts{display:grid;gap:8px;margin-top:12px}
 .qopts button{font:inherit;font-size:14px;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 .qopts button.rec{border:2px solid var(--accent);background:var(--accentbg)}.qopts button em{margin-left:8px;font-size:12px;font-style:normal;color:var(--accent);font-weight:600}
@@ -2195,7 +2204,55 @@ def context_of(i):
     return [plain(i.get("problem") or "")] if i.get("problem") else []
 
 
-def h_questions(model, matrix=None):
+CASE_DIR = "cases"
+
+
+def case_id(item_id):
+    """The file name of the case of one decision: work/cases/<id>.json, with every character outside [A-Za-z0-9._-] as _."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", item_id) + ".json"
+
+
+def cases(work):
+    """The case files of the open decisions (the owner, 2026-11-17: "such a report per issue that needs a decision"). A case is what the
+    agent that raised the decision found: {"headline", "tiles": [[number, label, tone]], "shots": [{"old", "new", "cap"}], "why": [steps],
+    "options": {option key: {"does", "catch"}}, "details": [lines]}. Screenshots are paths in the work folder, embedded as data URIs,
+    so the cockpit stays one file. A missing or broken case file leaves the plain question."""
+    import base64
+    out, d = {}, os.path.join(work, CASE_DIR)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        c = cp.rj(os.path.join(d, f)) if f.endswith(".json") else None
+        if not isinstance(c, dict):
+            continue
+        for sh in c.get("shots") or []:
+            for k in ("old", "new"):
+                pth = os.path.join(work, sh.get(k) or "")
+                if sh.get(k) and os.path.isfile(pth) and pth.lower().endswith((".png", ".jpg", ".jpeg")):
+                    with open(pth, "rb") as fh:
+                        sh[k] = ("data:image/png;base64," if pth.lower().endswith(".png") else "data:image/jpeg;base64,") + base64.b64encode(fh.read()).decode()
+                else:
+                    sh[k] = ""
+        out[f] = c
+    return out
+
+
+def h_case(c):
+    """The case block inside a question dialog: tiles, old and new screenshot, why in steps."""
+    if not c:
+        return ""
+    tl = "".join(f'<div class="ct {E(str(t[2]) if len(t) > 2 else "")}"><b>{E(str(t[0]))}</b><span>{E(str(t[1]))}</span></div>' for t in c.get("tiles") or [] if len(t) > 1)
+    def pane(src, lab):
+        img = f'<img src="{src}" alt="{lab}">' if src else "<i>no screenshot</i>"
+        return f"<div><span>{lab}</span>{img}</div>"
+    sh = "".join(f'<figure class="cshot">{pane(x.get("old"), "Old app")}{pane(x.get("new"), "New app")}<figcaption>{E(x.get("cap") or "")}</figcaption></figure>'
+                 for x in c.get("shots") or [])
+    wy = "".join(f"<li>{E(w)}</li>" for w in c.get("why") or [])
+    dt = "".join(f"<li>{E(x)}</li>" for x in c.get("details") or [])
+    return ((f'<p class="chead">{E(c["headline"])}</p>' if c.get("headline") else "") + (f'<div class="ctiles">{tl}</div>' if tl else "") + sh
+            + (f'<h4 class="cwh">Why it happened</h4><ol class="cwhy">{wy}</ol>' if wy else "")
+            + (f'<details class="cdet"><summary>The evidence</summary><ul>{dt}</ul></details>' if dt else ""))
+
+
+def h_questions(model, matrix=None, cases_=None):
     """The open questions: a "Blocked on you" list in the sidebar, each with a Resolve button that opens one question in a dialog
     with its context, one button per option and what each option does. The buttons post to the local server (cockpitserve.py
     /decide, live page only); on a static copy they stay off and the answer goes through chat."""
@@ -2211,9 +2268,11 @@ def h_questions(model, matrix=None):
     for n, i in enumerate(qs, 1):
         rows.append(f'<li><span>{E(question_of(i))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
         btns = []
+        cs = (cases_ or {}).get(case_id(i["id"])) or {}
         for o in i["options"]:
             lab = plain(o["label"]) or o["label"]
-            say = o.get("causes") or next((t for k, t in OPTION_SAYS if k in lab.lower()), "") if i["kind"] == "plan-choice" else ""
+            co = (cs.get("options") or {}).get(o["key"]) or {}
+            say = co.get("does") or (o.get("causes") or next((t for k, t in OPTION_SAYS if k in lab.lower()), "") if i["kind"] == "plan-choice" else "")
             if not say and ": " in lab:
                 lab, say = lab.split(": ", 1)
                 say = say[:1].upper() + say[1:] + "."
@@ -2221,7 +2280,8 @@ def h_questions(model, matrix=None):
                 lab = "Approve and continue"
             rec = o["key"] == i.get("rec") and len(i["options"]) > 1
             btns.append(f'<button type="button" disabled data-choice="{E(o["key"])}" class="{"rec" if rec else ""}"><b>{E(lab)}</b>'
-                        f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:220]) + "</small>" if say else ""}</button>')
+                        f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:320]) + "</small>" if say else ""}'
+                        f'{"<small class=" + chr(34) + "catch" + chr(34) + ">The catch: " + E(co["catch"]) + "</small>" if co.get("catch") else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
         # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
         ev = i.get("evidence") or {}
@@ -2234,8 +2294,10 @@ def h_questions(model, matrix=None):
         if rl and why.startswith(rl) and why[len(rl):].startswith(";"):   # the option itself is the button; keep effort and risk
             why = why[len(rl) + 1:].strip()
             why = why[:1].upper() + why[1:]
-        rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 else ""
-        dlgs.append(f'<dialog class="qdlg" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
+        rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 and not cs.get("options") else ""
+        if cs:   # a case written by the agent replaces the generic context: the case says what is wrong, shows it, and why
+            ctx = h_case(cs)
+        dlgs.append(f'<dialog class="qdlg{" wide" if cs else ""}" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
                     f'blocks step {E(i.get("step") or "")}</div><h3>{E(question_of(i))}</h3>{ctx}{rec}<div class="qopts">{btns and "".join(btns)}</div>'
                     '<div class="qmsg" data-qmsg aria-live="polite"></div><p class="qhint">The buttons work in the live cockpit. On a copy, answer in chat.</p>'
                     '<button type="button" class="qclose">Close</button></div></dialog>')
@@ -2249,7 +2311,8 @@ def render(model, matrix):
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
     e = html.escape
     head_, tiles_ = h_tiles(matrix)
-    qside, qdlgs = h_questions(model, matrix)
+    cases_ = matrix.pop("cases", None) or {}   # kept out of the page data: the screenshots are embedded once, in the dialog
+    qside, qdlgs = h_questions(model, matrix, cases_)
     return (f"<title>{e(model['title'])}</title>\n"
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
