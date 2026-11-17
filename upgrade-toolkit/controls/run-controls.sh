@@ -1612,6 +1612,10 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
 ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
 ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
+# an explicit --db is kept for the next resume: the prefix block is evaluated with an older name already kept
+awk '/^RUNP=/{f=1} /^frozen_stamp\(\)/{exit} f' "${PIPE:-$B/cloud/upgrade-pipeline.sh}" > $V/dbblock.sh
+ctl pipeline-db-arg-persisted-catch 0 '^upg_new$' -- bash -c "mkdir -p $V/dba/run/work/state; echo upg_old > $V/dba/run/work/state/db-prefix; RUN=$V/dba/run WORK=$V/dba/run/work DB_ARG=upg_new DRY=0; usage_die() { echo \"\$*\"; exit 2; }; . $V/dbblock.sh; cat $V/dba/run/work/state/db-prefix"
+ctl pipeline-db-kept-no-arg-pass 0 '^upg_old$' -- bash -c "mkdir -p $V/dbb/run/work/state; echo upg_old > $V/dbb/run/work/state/db-prefix; RUN=$V/dbb/run WORK=$V/dbb/run/work DB_ARG= DRY=0; usage_die() { echo \"\$*\"; exit 2; }; . $V/dbblock.sh; cat $V/dbb/run/work/state/db-prefix"
 mkdir -p $V/fdk; cat > $V/fdk/docker <<'FAKE'
 #!/bin/bash
 case "$*" in *shobj_description*) cat "$FAKE_OWNER" 2>/dev/null;; *COMMENT*) echo "stamped: $*" >> "$FAKE_LOG";; esac

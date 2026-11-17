@@ -519,7 +519,10 @@ else
 fi
 X_FROZEN="${X}_frozen"
 [[ "$X" =~ ^[a-z0-9_]+$ ]] || usage_die "database name '$X' must be lower case letters, digits, underscore (use --db)"
-[ "$DRY" = 1 ] || [ -s "$WORK/state/db-prefix" ] || { mkdir -p "$WORK/state" && echo "$X" > "$WORK/state/db-prefix"; }
+# An explicit --db replaces the kept name: a later --from without --db must not drop back to the old database (cold
+# CMM: rerun --from baseline --db upg_cmm_demo, then a resume without --db would have run update on upg_run_*).
+[ "$DRY" = 1 ] || { [ -s "$WORK/state/db-prefix" ] && [ "$(head -n1 "$WORK/state/db-prefix")" = "$X" ]; } ||
+  { mkdir -p "$WORK/state" && echo "$X" > "$WORK/state/db-prefix"; }
 frozen_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $X_FROZEN IS 'upgrade-toolkit run $RUNP'"; }
 frozen_owner() { # refuse a frozen database that another run made: its comment names another run folder, or it has none and
   # this run's ledger never used a copy of it (a run from before the stamp adopts its own one here)
