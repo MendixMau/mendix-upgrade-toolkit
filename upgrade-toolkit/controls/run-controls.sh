@@ -1770,6 +1770,23 @@ newapp nbu '1 1.0 NoBaseUi\n'
 ctl stepupdate-unsaved-ui-edits-listed-pass 1 'KEPT: NoBaseUi .*UNSAVED' '!nothing to save' -- bash $B/stepupdate.sh $S/nbu $S/nbu.plan --force-ui NoBaseUi --unattended --localedits $V/le-ui.json
 mkdir -p $V/pwle; echo '[]' > $V/pwle/localedits.json
 ctl pipeline-dry-stepupdate-localedits-catch 0 'stepupdate\.sh .* --unattended.* --localedits .*/pwle/localedits\.json' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only update --dry-run
+# cold CMM 2026-11-17: the mx check text names only the element ("at Action button 'actionButton1'", on many pages); the
+# build check passes -j (mx 10 and later) and checkwhere.py appends the module and document of each error as [where] lines
+mkdir -p $V/cw
+printf '%s\n' '{"serialization_version": 1, "errors": [{"code": "CE0117", "message": "Error(s) in expression.", "locations": [{"module-name": "Shop", "document-name": "Page '"'"'Order_Step1'"'"'", "element-name": "Property '"'"'Dynamic classes expression'"'"' of action button '"'"'actionButton1'"'"'"}]}]}' > $V/cw/check.json
+printf '%s\n' '[error] [CE0117] "Error(s) in expression." at Action button '"'"'actionButton1'"'"'' 'The app contains: 1 errors.' > $V/cw/check0.log
+cp $V/cw/check0.log $V/cw/check.log
+ctl checkwhere-document-catch 0 '^\[where\] CE0117 Shop / Page .Order_Step1.: Property .Dynamic classes expression. of action button .actionButton1.$' '^\[error\] \[CE0117\]' -- bash -c "python3 $B/checkwhere.py $V/cw/check.json $V/cw/check.log && cat $V/cw/check.log"
+ctl checkwhere-checkdiff-count-pass 0 '^OK: errors 1 -> 1' -- python3 $B/checkdiff.py $V/cw/check0.log $V/cw/check.log
+awk '/^CHECK_N=0/{p=1} /^has_code\(\)/{p=0} p' $B/cloud/upgrade-pipeline.sh > $V/cw/mxcheck.sh
+cat > $V/cw/stub.sh <<STUB
+major() { echo "\${1%%.*}"; }
+heavy() { while [ \$# -gt 0 ]; do if [ "\$1" = -j ]; then if [ "\$2" = x.mpr ]; then echo "usage: -j before the mpr"; else cp $V/cw/check.json "\$2"; fi; fi; shift; done; cat $V/cw/check0.log; }
+STUB
+mkdir -p $V/cw/w10 $V/cw/w9
+ctl pipeline-mxcheck-where-catch 0 '^\[where\] CE0117 Shop / Page .Order_Step1.' '^The app contains: 1 errors' '!usage' -- bash -c "B=$B WORK=$V/cw/w10 TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; . $V/cw/mxcheck.sh; mxcheck; cat \$CHECK_LOG"
+ctl pipeline-mxcheck-9-no-json-pass 0 '^\[error\] \[CE0117\]' '!\[where\]' -- bash -c "B=$B WORK=$V/cw/w9 TARGET=9.24.2 MPR=x.mpr DRY=0; . $V/cw/stub.sh; . $V/cw/mxcheck.sh; mxcheck; cat \$CHECK_LOG; ls $V/cw/w9"
+ctl pipeline-dry-check-json-catch 0 'mx10\.sh 11\.15\.0\.1 mx check .*/papp/App\.mpr -j .*/pwle/check-1\.json > ' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only build --dry-run
 # v3.1 E6-7: a removal (idcheck verdict REVIEW) is named REVIEW in the KEPT line, a GUID change stays a plain finding
 mkdir -p $S/base; cp $M/base/App.mpr $S/base/
 newapp rv '1 1.0 Removes\n'; cp $M/step1-adds/App.mpr $S/rv/App.mpr; git -C $S/rv commit -qam 'start at step1-adds'

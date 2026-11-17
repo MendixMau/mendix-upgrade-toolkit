@@ -1152,8 +1152,15 @@ step_update() {
 CHECK_N=0
 mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   CHECK_N=$((CHECK_N + 1)); CHECK_LOG="$WORK/check-$CHECK_N.log"
-  if [ "$DRY" = 1 ]; then printf '+ %s check %s > %s\n' "$B/heavy-lock.sh check $(mxw "$TARGET") $TARGET mx" "$MPR" "$CHECK_LOG"; return 0; fi
-  heavy check "$TARGET" mx check "$MPR" > "$CHECK_LOG" 2>&1 || true
+  # -j (mx 10 and later): the JSON names the document of each error, which the text output leaves out (cold CMM: four
+  # CE0117 "at Action button 'actionButton1'" with no page); checkwhere.py appends those as [where] lines
+  local cj="$WORK/check-$CHECK_N.json" j=()
+  [ "$(major "$TARGET")" -le 9 ] || j=(-j "$cj")
+  # -j goes AFTER the mpr: before it, mx prints its usage (steps/repair.md row 15, T8R2 R-6)
+  if [ "$DRY" = 1 ]; then printf '+ %s check %s%s > %s\n' "$B/heavy-lock.sh check $(mxw "$TARGET") $TARGET mx" "$MPR" "${j[@]+" ${j[*]}"}" "$CHECK_LOG"; return 0; fi
+  rm -f "$cj"
+  heavy check "$TARGET" mx check "$MPR" ${j[@]+"${j[@]}"} > "$CHECK_LOG" 2>&1 || true
+  [ ! -s "$cj" ] || python3 "$B/checkwhere.py" "$cj" "$CHECK_LOG" || true
 }
 has_code() { grep -q "\[$1\]" "$CHECK_LOG" 2> /dev/null; }
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
@@ -1239,6 +1246,7 @@ step_build() {
 Codes: $(grep -oE '^\[error\] *\[C[EW][0-9]+\]' "$CHECK_LOG" | grep -oE 'C[EW][0-9]+' | sort | uniq -c | sort -rn | head -n 15 | tr '\n' ';')
 Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one commit per fix; checkdiff.py after each)."
     nj_file 10 "First 20 error lines" "$CHECK_LOG" 20 '^\[error\]'
+    grep -q '^\[where\]' "$CHECK_LOG" 2> /dev/null && nj_file 10 "Where they are (first 20)" "$CHECK_LOG" 20 '^\[where\]'
     nj_flush
   fi
   # mxbuild
