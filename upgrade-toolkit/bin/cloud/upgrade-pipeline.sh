@@ -1189,9 +1189,19 @@ step_update() {
       nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
       nj_park
     fi
+    # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
+    # drop the settings the old package lacks (cold CMM: Administration 4.5.0's Roles filter lost its association mode)
+    rc=0
+    xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" || rc=$?
+    if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetdrop-ack.txt" ]; then
+      nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+      nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
+      nj_park
+    fi
   else
     x python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md"
     x python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt"
+    x python3 "$B/widgetdrop.py" "$APP"
   fi
   local rc=0 ap=()
   [ ! -f "$WORK/approved.txt" ] || ap=(--approved "$WORK/approved.txt")

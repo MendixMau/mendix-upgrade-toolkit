@@ -322,6 +322,38 @@ printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2";
 mkdir -p $WS/w1 $WS/w2; cp $WS/plan.txt $WS/w1/; cp $WS/plan.txt $WS/w2/; : > $WS/w2/widgetskew-ack.txt
 ctl pipeline-update-widgetskew-catch 0 '^NJ 13 A module update replaced a widget whose styles stay with a kept module \(steps/repair\.md row 32\)$' '^WIDGET-SKEW Datagrid' '^NJ 13 Decision: Update the kept module' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WS/w1 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
 ctl pipeline-update-widgetskew-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WS/w2 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
+# widgetdrop.py (cold CMM 10.24.28): Administration 4.5.0's Roles filter was saved with Data Widgets 3.x (association
+# mode); update-widgets under the kept DataWidgets 2.2.1 rewrote it to the old definition and the ref settings were lost.
+# A set, non-default property the installed package does not declare stops; a default value or a declared key does not
+WD=$T/wd; mkdir -p $WD/old/widgets $WD/new/widgets $WD/dflt/widgets
+cat > $WD/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid, zipfile
+d, base, keys = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
+wid = "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter"
+def pt(i, k, dv): return {"$ID": i, "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": k, "ValueType": {"DefaultValue": dv}}
+def pv(i, val): return {"$Type": "CustomWidgets$WidgetProperty", "TypePointer": i, "Value": val}
+w = {"$Type": "CustomWidgets$CustomWidget", "Name": "drop_downFilter1",
+     "Type": {"WidgetId": wid, "ObjectType": {"PropertyTypes": [3, pt("a", "multiSelect", "false"), pt("b", "baseType", "attr"), pt("c", "refEntity", "")]}},
+     "Object": {"Properties": [2, pv("a", {"PrimitiveValue": "true"}), pv("b", {"PrimitiveValue": base}),
+                pv("c", {"EntityRef": {"Steps": [2, {"Association": "System.UserRoles"}]} if base == "ref" else None})]}}
+page = {"$Type": "Forms$Page", "Name": "Account_Overview", "Excluded": False, "Content": [w]}
+con = sqlite3.connect(f"{d}/app.mpr"); con.execute("create table Unit (UnitID blob, Contents blob)")
+con.execute("insert into Unit values (?, ?)", (uuid.uuid4().bytes_le, bson.encode(page))); con.commit()
+props = "".join(f'<property key="{k}" type="string"/>' for k in keys)
+with zipfile.ZipFile(f"{d}/widgets/com.mendix.widget.web.DatagridDropdownFilter.mpk", "w") as z:
+    z.writestr("package.xml", "<package/>")
+    z.writestr("DatagridDropdownFilter.xml", f'<widget id="{wid}"><properties>{props}</properties></widget>')
+EOF
+python3 $WD/mk.py $WD/old ref multiSelect; python3 $WD/mk.py $WD/new ref multiSelect,baseType,refEntity; python3 $WD/mk.py $WD/dflt attr multiSelect
+ctl widgetdrop-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.mendix\.widget\.web\.datagriddropdownfilter\.DatagridDropdownFilter, installed package lacks it\): baseType=ref, refEntity=System\.UserRoles$' '!multiSelect=' '^widgetdrop: FAIL, 1 of 1 widget' -- python3 $B/widgetdrop.py $WD/old
+ctl widgetdrop-declared-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS, 0 of 1 widget' -- python3 $B/widgetdrop.py $WD/new
+ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/widgetdrop.py $WD/dflt
+ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
+# step_update parks on it, unless widgetdrop-ack.txt accepts it
+awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WD/nj.sh
+mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
+ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
