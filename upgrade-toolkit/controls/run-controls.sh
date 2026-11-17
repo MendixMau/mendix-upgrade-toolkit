@@ -236,6 +236,51 @@ ctl crosscalls-own-gone-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) 
 ctl crosscalls-own-present-pass 0 '^crosscalls: 0 target\(s\) used by own modules are gone' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-here
 ctl crosscalls-own-unchecked-pass 0 '^NOTE AuthMod 3\.2\.0 -> 4\.1\.0: used by own Shop; targets NOT checked' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none
 ctl crosscalls-own-off-pass 0 '!OWN|GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+# repair row 28 as a tool: copydoc.py copies the dropped document from the pre-update model into an own module, with
+# fresh ids (pointers follow) and its roles mapped, and repoints the OWN users only (a Marketplace caller is left alone)
+model copydoc-base > /dev/null; model copydoc-new > /dev/null; model copydoc-v11 > /dev/null
+rm -rf $T/cd; mkdir -p $T/cd; cp $M/copydoc-new/App.mpr $T/cd/App.mpr
+python3 - $M/copydoc-base/App.mpr <<'PY'
+import sqlite3, sys, bson
+con = sqlite3.connect(sys.argv[1])
+for uid, blob in con.execute("select UnitID, Contents from Unit").fetchall():
+    d = bson.decode(blob)
+    if d.get("Name") == "Pick_Page":   # a default button and the pointer to it, as a real popup page has
+        d["Widgets"].append({"$ID": b"\x01" * 16, "$Type": "Forms$ActionButton", "Name": "okButton"})
+        d["ControlBar"] = {"$ID": b"\x02" * 16, "$Type": "Forms$ControlBar", "DefaultButtonPointer": b"\x01" * 16}
+        con.execute("update Unit set Contents=? where UnitID=?", (bson.encode(d), uid))
+con.commit()
+PY
+cat > $T/cd/look.py <<'PY'
+import sqlite3, sys, bson
+con = sqlite3.connect(sys.argv[1])
+units = {bytes(u): (bytes(c) if c else None, bson.decode(bytes(b))) for u, c, b in con.execute("select UnitID, ContainerID, Contents from Unit") if b}
+mod = {u: d["Name"] for u, (c, d) in units.items() if d["$Type"] == "Projects$ModuleImpl"}
+for u, (c, d) in units.items():
+    if d.get("Name") == "Pick_Page" and c in mod:
+        ids = set()
+        def walk(o):
+            if isinstance(o, dict):
+                ids.add(bytes(o.get("$ID", b""))); [walk(v) for v in o.values()]
+            elif isinstance(o, list):
+                [walk(v) for v in o]
+        walk(d)
+        p = d["ControlBar"]["DefaultButtonPointer"]
+        print(f"page {mod[c]}.Pick_Page roles {d.get('AllowedModuleRoles')[1:]} pointer {'inside' if bytes(p) in ids else 'DANGLING'} "
+              f"fresh {bytes(p) != b'\x01' * 16}")
+for u, (c, d) in units.items():
+    s = bson.encode(d)
+    for q in (b"Src.Pick_Page", b"Shop.Pick_Page"):
+        if q in s and d.get("Name") != "Pick_Page":
+            print(f"ref {d['Name']} -> {q.decode()}")
+PY
+ctl copydoc-dry-catch 0 '^copydoc: Src\.Pick_Page \(Forms\$Page\) -> Shop\.Pick_Page, roles Src\.User -> Shop\.User$' '^  RETARGET Shop\.Order_Edit: 1 reference' '^  RETARGET Shop\.ACT_Open: 1 reference' '!RETARGET KeptConn' '^dry run' -- python3 $B/repair/copydoc.py $T/cd --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop --roles Shop.User --retarget
+ctl copydoc-apply-catch 0 '^page Shop\.Pick_Page roles \[.Shop\.User.\] pointer inside fresh True$' '^ref Order_Edit -> Shop\.Pick_Page$' '^ref ACT_Open -> Shop\.Pick_Page$' '^ref ACT_Pick -> Src\.Pick_Page$' '!ref (Order_Edit|ACT_Open) -> Src' -- bash -c "python3 $B/repair/copydoc.py $T/cd --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop --roles Shop.User --retarget --apply | grep -q 're-read OK' && python3 $T/cd/look.py $T/cd/App.mpr"
+ctl copydoc-again-invalid 2 'Shop\.Pick_Page already exists' -- python3 $B/repair/copydoc.py $T/cd --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop --roles Shop.User
+ctl copydoc-roles-needed-invalid 2 'allows Src\.User: name the Shop roles' -- python3 $B/repair/copydoc.py $M/copydoc-new --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop
+ctl copydoc-missing-dep-invalid 2 'uses Src\.Pick_Snippet, which the app does not have' -- python3 $B/repair/copydoc.py $M/copydoc-new --from $M/copydoc-base/App.mpr --doc Src.Pick_Deep --to Shop
+ctl copydoc-into-marketplace-invalid 2 'KeptConn is a Marketplace module' -- python3 $B/repair/copydoc.py $M/copydoc-new --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to KeptConn --roles KeptConn.User
+ctl copydoc-version-invalid 2 'Mendix versions differ: app 11\.12\.7\.1' -- python3 $B/repair/copydoc.py $M/copydoc-v11 --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop --roles Shop.User
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
