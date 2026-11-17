@@ -4,6 +4,19 @@ This repo is private. Contributions from outside the team aren't open yet, but t
 applies to anyone with access: every change should be backed by a field run or a control, not
 a guess.
 
+## Three ways in
+
+1. **Drop a note.** Copy `upgrade-toolkit/contrib/inbox/TEMPLATE.md` to
+   `contrib/inbox/<YYYY-MM-DD>-<code>-<topic>.md`. No quality bar: triage promotes it and deletes the draft.
+2. **Harvest a run.** `upgrade-toolkit/bin/harvest.py --work <run folder> --code <APP>` drafts the fixes the agent
+   made by hand, unknown error codes, scripts and toolkit items into the inbox. Then
+   `upgrade-toolkit/bin/submit-learnings.sh toolkit` runs the leak checks and opens one PR from a `learnings/` branch.
+3. **A direct PR** for a finished change, with the checks below.
+
+Toolkit or brain: the toolkit takes generic lessons under code names. Anything internal (customer context, notes from
+the company brain, `confidentiality: internal`) goes to the brain with `submit-learnings.sh brain`, never here;
+`submit-learnings.sh toolkit` refuses a file marked internal.
+
 ## Before you open a PR
 
 1. **Run the controls.** `bash upgrade-toolkit/controls/run-controls.sh --fast` for a quick

@@ -27,6 +27,11 @@ coverage and the human handoff. Keep the machine verdict as evidence; explain th
    `Run log:` line in `gate-summary.md` and as an information section in `NEEDS-JUDGMENT.md`. The row has two timing columns,
    "run time (machine)" and "person wait", from `$WORK/state/timing.tsv`; the same numbers are the `Time:` line of
    `gate-summary.md`. Quote them in the report; `not recorded` means the run has no timing file.
+3c. **Harvest.** Before the work folder goes, run `bin/harvest.py --work $WORK --code <APP>`: it drafts what the run
+   taught (fixes the agent made by hand, error codes no step names, scripts it wrote, toolkit items of the gate) into
+   `contrib/inbox/` for the toolkit and, for each lesson the brain has no note for, a brain-format draft into
+   `$UPG_BRAIN/inbox/`. No LLM; review the drafts, then `bin/submit-learnings.sh toolkit` and `bin/submit-learnings.sh brain`
+   (leak checks, one branch, one PR each). Internal brain text never goes to the toolkit; the submit refuses it.
 4. **Metadata only.** The history holds no app content, screenshots or logs.
 5. **Open and pending work.** `grade.py` lists every rung that is not done with an owner: `person` (a decision or a look),
    `customer` (their systems, keys, licence) or `toolkit` (an open regression, or an instrument that did not measure).
