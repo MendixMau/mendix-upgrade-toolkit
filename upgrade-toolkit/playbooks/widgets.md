@@ -133,7 +133,11 @@ error 4 to 6 steps later. The "Cumulative" checkbox caption lost on the Ticket t
 3. Replace, do not patch: Microflow Timer -> **Events** widget (component 224259, min Mendix 9.24, pluggable);
    HTMLSnippet -> HTML/JavaScript Snippet 4.x (its 4.0.0 notes: the content property must be re-entered) or HTML
    element; classic containers holding a pluggable widget that loads data: keep, but update the pluggable widget to
-   its newest version for the target.
+   its newest version for the target. An Events widget + a bridging nanoflow is another real migration shape for
+   HTMLSnippet, seen on a React-client app: 140 of 146 Events-widget instances wired to one bridge nanoflow, the rest
+   converted to native HTML element. Either way, judge "is HTMLSnippet still on an old version" from the shipped
+   `.mpk` or a live `mxcli` catalog query on it (RX1-2), not from an archived run's decision log: a decision log can
+   predate the fix, or the fix can land in a later rerun the log never mentions.
 4. Accept as PASS* only what is proved harmless: the page content equal (shotdiff and text), no failed request, the
    error only on leaving the page. A teardown error is still a FAIL if the walk shows a missing value or a stuck
    progress bar.
