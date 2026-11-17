@@ -408,6 +408,20 @@ def checked(mdl, app_mpr, tmp, qn):
     return rc == 0, " ".join(ln.strip() for ln in out.splitlines() if "✗" in ln or "error" in ln.lower())[:300]
 
 
+def member_grant(line, names):
+    """The grant line cut down to the given members: 'grant read (A_B), write (A_B) on entity E to R [where ...];', or None
+    when the line gives none of them."""
+    m = re.match(r"\s*grant\s+(.*?)\s+on entity\s+(\S+\s+to\s+.*;)\s*$", line)
+    if not m:
+        return None
+    rights = []
+    for kind, members in re.findall(r"\b(read|write)\s*\(([^)]*)\)", m.group(1)):
+        keep = [y.strip() for y in members.split(",") if y.strip().strip('"') in names]
+        if keep:
+            rights.append(f"{kind} ({', '.join(keep)})")
+    return f"grant {', '.join(rights)} on entity {m.group(2)}" if rights else None
+
+
 def cmd_collect(a):
     W = os.path.abspath(a.work)
     try:
@@ -468,7 +482,7 @@ def cmd_collect(a):
         if "XASSOC" in routes:
             # from the ORIGINAL model, not save-edits: on WM1 the forced update wrote no association-*.mdl for the 4
             # associations the app's Email module owns into Email_Connector (data test 2026-11-16), so nothing was replayed
-            owners = {}
+            owners, others = {}, {}
             for q in x.get("assocs", []):
                 f = os.path.join(d, f"association-{q.replace('.', '_')}.mdl")
                 mdl = describe(x["original"], "association", q) if x.get("original") else None
@@ -477,9 +491,11 @@ def cmd_collect(a):
                     held.append(f"association {q}: not in the original model or the saved edits")
                     continue
                 parts.append((f"association {q}: from the original model, original id restored after", mdl))
-                m = re.search(r"\bfrom\s+([\w.]+)\s+to\b", mdl)
+                m = re.search(r"\bfrom\s+([\w.]+)\s+to\s+([\w.]+)", mdl)
                 if m:
                     owners.setdefault(m.group(1), []).append(q.split(".", 1)[1])
+                    if m.group(2) != m.group(1):
+                        others.setdefault(m.group(2), []).append(q.split(".", 1)[1])
             # a re-created association has no member access (ReadWrite became None; a build error on a non-persistent
             # owner, data test 2026-11-16): the owner's grant lines that name it go in again
             for ent, names in owners.items():
@@ -487,6 +503,13 @@ def cmd_collect(a):
                      if ln.strip().startswith("grant ") and any(re.search(rf"\b{re.escape(n)}\b", ln) for n in names)]
                 if g:
                     parts.append((f"member access on {ent} for {len(names)} association(s)", "\n".join(g)))
+            # the other entity lost it too (cold CMM run 8: Employee_Account to Administration.Account, 5 CE2729 on the
+            # Employee pages); that one is often a vendor entity, so only the association member goes back, merged into
+            # each rule (mxcli's grant adds members to the role's rule, it keeps the rest)
+            for ent, names in others.items():
+                g = [y for ln in (describe(x["original"], "entity", ent) or "").splitlines() if (y := member_grant(ln, names))]
+                if g:
+                    parts.append((f"member access on {ent} for {len(names)} association(s), the other side", "\n".join(g)))
             with open(os.path.join(W, "replay", f"{mod}.guids"), "w") as g:
                 g.write("".join(q + "\n" for q in x.get("assocs", [])))
         for h in held:

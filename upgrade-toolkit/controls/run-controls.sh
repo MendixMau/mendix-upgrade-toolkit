@@ -6985,6 +6985,9 @@ ctl editroute-collect-app-added-pass 0 "snippet Added: added by the app" "^Uimod
 # data test 2026-11-16: save-edits wrote no association file; a re-created association lost its member access; a saved
 # whole entity put widened vendor attributes back
 ctl editroute-collect-assoc-from-original-pass 0 'association Other.A_B: from the original model' '^Target.mdl: grant read \(A_B, Name\), write \(A_B\) on entity Other.X to Other.User;$' '!Other.Guest' -- $ER collect
+# cold CMM run 8: the re-created Employee_Account (Employee -> Administration.Account) had member access only on the owner
+# side; Account's rules said None, 5 CE2729 on the Employee pages. The other entity gets just the association member back
+ctl editroute-collect-assoc-other-side-catch 0 "^Target.mdl: grant read \\(A_B\\) on entity Target.Y to Target.User where \\[Code='x'\\];$" '!Target.mdl: .*Target.Guest' '!Target.mdl: grant create' -- $ER collect
 ctl editroute-collect-no-whole-entity-catch 0 '!entity-Whole' '!saved whole element entity' -- $ER collect
 # WM1 rerun: mxcli never writes a layout into a Marketplace module; the app's redirect to its design module becomes a page repoint
 ctl editroute-collect-layout-repoint-pass 0 '^Uimod.mdl: ALTER PAGES SET LAYOUT = Brand.Main WHERE LAYOUT = Uimod.Redir;$' '^SKIP Uimod layout Spare: used by nothing' '^HELD Uimod layout UsedOwn: mxcli never writes a layout' '!create or modify layout' -- $ER collect

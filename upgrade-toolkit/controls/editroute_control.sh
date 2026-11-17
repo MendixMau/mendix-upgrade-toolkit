@@ -64,6 +64,9 @@ if a[0] == "describe":
     if kind == "entity" and qn == "Other.X":
         print("create or modify entity Other.X (\n);\ngrant read (A_B, Name), write (A_B) on entity Other.X to Other.User;\ngrant read (Name) on entity Other.X to Other.Guest;")
         sys.exit(0)
+    if kind == "entity" and qn == "Target.Y":
+        print("create or modify entity Target.Y (\n);\ngrant create, read (Code, A_B), write (Code) on entity Target.Y to Target.User where [Code='x'];\ngrant read (Code) on entity Target.Y to Target.Guest;")
+        sys.exit(0)
     body = "logic A" if pkg or "Cosmetic" in qn else "logic B"
     print(("@position(1, 1)\n" if pkg else "@position(9, 9)\n@anchor(from: right, to: left)\n") + body)
 elif a[0] == "check":
