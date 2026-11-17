@@ -113,8 +113,15 @@ def compare(o, ost, n, nst, allow=(), old_all=()):
             add("REVIEW", "NEW", x["sig"], "after-startup line not in the old log")
     for x in gone:
         add("REVIEW", "GONE", x["sig"], "after-startup line of the old log is missing")
+    # WM1 2026-11-17: 9.24 logs "started using a trial license" as Core, 10.x as LicenseService: the same line under a
+    # renamed logger is noted, not a new warning
+    omsg = {x["sig"].split(": ", 1)[-1]: x["node"] for x in o if x["level"] == "WARNING"}
     for s in sorted({x["sig"] for x in n if x["level"] == "WARNING" and x["phase"] != "after"} - osig):
-        add("REVIEW", "NEW_WARNING", s)
+        was = omsg.get(s.split(": ", 1)[-1])
+        if was:
+            rows.append(("PASS*", "NEW_WARNING", s, f"(noted: the old app logs the same line as {was}; only the logger name changed)"))
+        else:
+            add("REVIEW", "NEW_WARNING", s)
     info_new = len({x["sig"] for x in n if x["level"] == "INFO" and x["phase"] != "after"} - osig)
     return rows, info_new
 

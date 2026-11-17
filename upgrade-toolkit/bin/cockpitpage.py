@@ -237,6 +237,20 @@ def gate_sentence(r, causes, heal_repairs, nreal):
     return {"FAIL": "Failed.", "REVIEW": "Needs a look.", "INVALID": "Could not be measured yet."}.get(v, "Not measured yet.") + cause
 
 
+def accepted_reasons(work, rung, detail=""):
+    # WM1 2026-11-17: the card said "All pass, 1 with accepted differences" or "Failed" and nobody could tell what was
+    # accepted. Each PASS* row carries its reason "(accepted: ...)" / "(noted: ...)" in the rung's output: group them by reason
+    if detail.startswith("noted, not a failure"):
+        return [detail.split(";")[0]]
+    got = {}
+    for ln in rd(os.path.join(work, f"{rung}.out")).splitlines():
+        m = re.match(r"^\|\s*PASS\*\s*\|[^|]*\|.*\((accepted|noted): (.+)\)\s*\|?\s*$", ln)
+        if m:
+            why = re.split(r"[:(]", m.group(2))[0].strip()[:90]
+            got[why] = got.get(why, 0) + 1
+    return [f"{why} ({n})" if n > 1 else why for why, n in sorted(got.items(), key=lambda kv: -kv[1])]
+
+
 def status_of(v):
     return {"PASS": "ok", "PASS*": "ok", "EXCEPT": "ok", "FAIL": "bad", "REVIEW": "warn", "INVALID": "warn", "NOT RUN": "idle"}.get(v, "idle")
 
@@ -703,6 +717,11 @@ def build_model(work):
     if okr:
         acc = sum(1 for r in okr if r["verdict"] == "PASS*")
         rows.append([", ".join(RUNG_NAMES.get(r["rung"], r["rung"]) for r in okr)[:70], f"All pass{f', {acc} with accepted differences' if acc else ''}.", "N", "ok"])
+        for r in okr:
+            why = accepted_reasons(work, r["rung"], r["detail"]) if r["verdict"] == "PASS*" else []
+            if why:
+                rows.append([RUNG_NAMES.get(r["rung"], r["rung"]), "Accepted, no loss: " + "; ".join(why[:3])
+                             + (f"; {len(why) - 3} more in {r['rung']}.out" if len(why) > 3 else "") + ".", "N", "ok"])
     for r in gate["rungs"]:
         v = r["verdict"]
         if status_of(v) == "ok" or v == "NOT RUN":

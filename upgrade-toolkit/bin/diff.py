@@ -217,6 +217,12 @@ def main():
         ok_a = ra.get("status") and 200 <= ra["status"] < 300
         if not ok_b:
             if rb.get("status") == 404 and ok_a:
+                # WM1 2026-11-17: 3 NEW_ENDPOINT rows were the same services' docs in the 10.x format (9.24 serves
+                # swagger.json, 10.x openapi.json too); the playbook had people allow-list them by hand every run
+                sw = hb.get(p[:-len("openapi.json")] + "swagger.json") or {} if p.endswith("/openapi.json") else {}
+                if sw.get("status") and 200 <= sw["status"] < 300:
+                    add(cid, "PASS*", f"status 404 -> {ra['status']} (noted: the same service's docs in the OpenAPI 3 format "
+                                      "10.x serves next to swagger.json, not a new endpoint)"); continue
                 add(cid, "NEW_ENDPOINT", f"status 404 -> {ra['status']}: endpoint did not exist before"); continue
             add(cid, "INFO" if ra.get("status") == rb.get("status") else "INVALID", f"baseline status {rb.get('status')}, after {ra.get('status')}"); continue
         if not ok_a: add(cid, "FAIL", f"status {rb['status']} -> {ra.get('status')} {ra.get('error', '')}"); continue

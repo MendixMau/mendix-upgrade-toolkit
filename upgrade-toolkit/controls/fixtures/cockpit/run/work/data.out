@@ -1,0 +1,6 @@
+| verdict | check | detail |
+|---|---|---|
+| PASS* | db.attr.Shop.Order.Total | values changed (non-null 4 -> 4) (accepted: start noise: also differs between two starts of the SAME old app) |
+| PASS* | db.attr.Vendmod.Ent.Field | column gone (noted: the Vendmod update 1.0.0 -> 2.0.0 changed its own attribute, not the app's data) |
+| PASS | db.entity.Shop.Order | rows 4 -> 4 |
+INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 2 | PASS 40

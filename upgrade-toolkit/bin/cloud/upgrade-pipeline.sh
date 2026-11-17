@@ -1376,6 +1376,8 @@ step_journeys() {
   local sa=() ev=()
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
   [ ! -f "$WORK/baseline-evidence.txt" ] || ev=(--baseline-evidence "$WORK/baseline-evidence.txt")   # BT-4: same file the gate reads
+  # WM1 2026-11-17: a journey that failed on the old app and feeds no later one is listed SKIPPED, not walked again (UPG_JOURNEYS_ALL=1 walks all)
+  [ "${UPG_JOURNEYS_ALL:-0}" = 1 ] || ev+=(--skip-baseline-fail)
   local ja=(python3 "$B/run_journeys.py" "$WORK/journeys" --label after --port "$APP_PORT" --psql "$(psql_str "$db")"
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-after" --pause 50 ${act[@]+"${act[@]}"}
     --compare "$WORK/e2e-before-picked" ${sa[@]+"${sa[@]}"} ${ev[@]+"${ev[@]}"})

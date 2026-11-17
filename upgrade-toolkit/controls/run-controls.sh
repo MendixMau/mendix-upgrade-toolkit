@@ -265,6 +265,11 @@ ctl constcheck-restore-config-file-pass 0 "^ALTER SETTINGS CONSTANT 'MFAmodule\.
 # --- gate: start log beyond ERROR lines (E1 18, E1 24) -------------------------------------------------------------
 ctl logdiff-mfa-off-catch 1 'REVIEW +CHANGED.*MFA module login NOT active' 'was: .*MFA module login active' -- python3 $B/logdiff.py $FX/logs/old.log $FX/logs/new-mfa-off.log
 ctl logdiff-same-pass 0 'FAIL 0 \| REVIEW 0' -- python3 $B/logdiff.py $FX/logs/old.log $FX/logs/new-same.log
+# WM1 2026-11-17: 9.24 logs the trial-license line as Core, 10.x as LicenseService: same line, renamed logger, noted
+sed 's/WARNING - Core: Cache size/WARNING - CacheService: Cache size/' $FX/logs/old.log > $T/new-logger.log
+sed 's/WARNING - Core: Cache size for entity/WARNING - CacheService: Cache limit for entity/' $FX/logs/old.log > $T/new-logger-text.log
+ctl logdiff-renamed-logger-noted-pass 0 'PASS\* +NEW_WARNING +WARNING CacheService: Cache size' 'noted: the old app logs the same line as Core; only the logger name changed' 'FAIL 0 \| REVIEW 0' -- python3 $B/logdiff.py $FX/logs/old.log $T/new-logger.log
+ctl logdiff-renamed-logger-other-text-catch 1 'REVIEW +NEW_WARNING +WARNING CacheService: Cache limit' -- python3 $B/logdiff.py $FX/logs/old.log $T/new-logger-text.log
 ctl logdiff-start-failed-catch 1 'FAIL +START_FAILED' 'deprecated' -- python3 $B/logdiff.py $FX/logs/old.log $FX/logs/new-start-failed.log
 # an ERROR logged after the start window before and inside it now is MOVED (REVIEW), not NEW_ERROR (E4 24)
 ctl logdiff-moved-pass 1 'REVIEW +MOVED +ERROR SAML_SSO' '!NEW_ERROR' -- python3 $B/logdiff.py $FX/logs/old-lazy-error.log $FX/logs/new-early-error.log
@@ -345,14 +350,18 @@ ctl diff-admin-row-noted-pass 0 'PASS\* \| db\.attr\.System\.User\.changedDate \
 ctl diff-admin-other-user-catch 1 'FAIL \| db\.attr\.System\.User\.changedDate \| values changed' '!local admin' -- python3 $B/diff.py $T/admin-other-b.json $T/admin-other-a.json --allow $FX/allow/narrow.txt
 ctl diff-owner-catch 1 'FAIL \| db\.identity\.assoc:System\.owner' -- python3 $B/diff.py $T/sb.json $T/s-owner-lost.json --allow $FX/allow/narrow.txt
 ctl diff-owner-pass 0 '!System\.owner' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/s-owner-order.json --allow $FX/allow/narrow.txt
-ctl diff-new-endpoint-catch 2 'NEW_ENDPOINT \| http\./rest-doc/notify/openapi\.json' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/email-only.txt
+# WM1 2026-11-17: openapi.json of a service whose swagger.json the old app served is the same docs in the 10.x format: noted.
+# A service the old app had no docs for at all stays NEW_ENDPOINT
+ctl diff-openapi-next-to-swagger-noted-pass 0 'PASS\* \| http\./rest-doc/notify/openapi\.json \| .*noted: the same service.s docs in the OpenAPI 3 format' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/email-only.txt
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['http'].pop('/rest-doc/notify/swagger.json'); json.dump(d, open(sys.argv[2], 'w'))" $T/sb.json $T/sb-nosw.json
+ctl diff-new-endpoint-catch 2 'NEW_ENDPOINT \| http\./rest-doc/notify/openapi\.json' -- python3 $B/diff.py $T/sb-nosw.json $T/sa.json --allow $FX/allow/email-only.txt
 ctl diff-allowlist-pass 0 'PASS\* \| http\./rest-doc/notify/openapi\.json' 'PASS\* \| db\.attr\.Administration\.Account\.Email' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt
 ctl diff-allow-detail-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/wrong-detail.txt
 # PV-7: the restart control. diff --emit-allow turns the FAIL rows between two starts of the SAME old app into allow lines
 # (start noise); fed back as --allow they leave 0 FAIL, and a clean pair writes an empty file.
 ctl diff-emit-allow-catch 1 '^--emit-allow: [1-9][0-9]* check\(s\) written' -- python3 $B/diff.py $T/sb.json $T/sa.json --emit-allow $T/noise.txt
 ctl diff-emit-allow-lines-pass 0 'db\.attr\.Administration\.Account\.Email values changed[^#]* # start noise: differs between two starts of the same old app \(' -- cat $T/noise.txt
-ctl diff-emit-allow-roundtrip-pass 2 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $T/noise.txt
+ctl diff-emit-allow-roundtrip-pass 0 'FAIL 0 \| REVIEW 0 \| NEW_ENDPOINT 0' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $T/noise.txt
 ctl diff-emit-allow-clean-pass 0 '^--emit-allow: 0 check\(s\)' -- python3 $B/diff.py $T/sb.json $T/sb.json --db-only --emit-allow $T/noise-clean.txt
 # NMR-1: the emitted line carries the noise row's own detail, so one noise error accepts that error only, never every new error
 { cat $FX/logs/old.log; echo "2026-09-14 10:16:02.296 ERROR - Cache: NoiseError: cache warmup"; } > $T/old-noise.log
@@ -2258,6 +2267,15 @@ cp -R $SH/old/shots-Administrator $J3/old/before/; cp -R $SH/empty/shots-Adminis
 for d in old/before new/after; do echo '{"journeys": {"login-Administrator": {"role": "Administrator", "verdict": "PASS"}}, "roles": {}}' > $J3/$d/summary.json; done
 ctl journeys-compare-screens-orphan-catch 1 '^screens: 1 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID' -- python3 $B/run_journeys.py x --label after --work $J3/new --compare $J3/old --rejudge
 ctl journeys-screen-accept-pass 0 '!SCREEN REVIEW' -- python3 $B/run_journeys.py x --label after --work $J/new --compare $J/old/before/summary.json --rejudge --shot-accept $T/shot-accept.txt "${NOACT[@]}"
+# --skip-baseline-fail (WM1 2026-11-17): the new app does not walk a journey that failed on the old app and feeds no later one
+ctl journeys-skip-baseline-fail-pick-pass 0 '^waves skip: use-User=FAIL/User$' '^waves walked: make-User ok-User$' '^no-waves skip: make-User$' -- python3 $here/skip_baseline_control.py $(mkdir -p $T/skc && echo $T/skc)
+# a SKIPPED journey is counted and named in the headline, is no REGRESSION, and its old-app failure stays the baseline rule's
+# (exit 3, which gate.sh journeys_noted turns into a note)
+J4=$T/rj4s; mkdir -p $J4; cp -R $J2/old $J2/new $J4/
+python3 -I -c "import json,sys
+for f,v in ((sys.argv[1],{'role':'Administrator','verdict':'FAIL'}),(sys.argv[2],{'role':'Administrator','verdict':'SKIPPED','compare':'BASELINE DEFECT (before FAIL)','why':'not run on the new app'})):
+    d=json.load(open(f)); d['journeys']['report-Administrator']=v; json.dump(d,open(f,'w'))" $J4/old/before/summary.json $J4/new/after/summary.json
+ctl journeys-skipped-counted-pass 3 '^journeys: 2 PASS, 0 FAIL, 0 INVALID, 1 SKIPPED \(failed on the old app too, not run on the new one\)' ' 0 regression ' '!^  *REGRESSION' -- python3 $B/run_journeys.py x --label after --work $J4/new --compare $J4/old --rejudge "${NOACT[@]}"
 ctl journeys-compare-path-catch 2 'no summary.json there.*nothing was run' -- python3 $B/run_journeys.py x --label after --work $J/new --compare $J/nothere --rejudge
 # N1R2-8 / T2R3-11: INVALID only (SCREEN INVALID, a BASELINE DEFECT) exits 3 with its own verdict line, never 1 (FAIL)
 J4=$T/rj4; mkdir -p $J4/old/before $J4/new/after; cp -R $SH/old/shots-Administrator $J4/old/before/
@@ -3773,7 +3791,13 @@ ctl gate-journey-coverage-rc3-catch 2 '\| 9 \| journeys \| INVALID \| 3 \| INVAL
 # a decision, not a fix; one untagged FAIL line keeps it a regression
 JOUTB=$'journeys: 4 PASS, 1 FAIL, 0 INVALID\n  FAIL    j3-User  x [BASELINE DEFECT (before FAIL): no evidence]'
 JOUTU=$'journeys: 3 PASS, 2 FAIL, 0 INVALID\n  FAIL    j3-User  x [BASELINE DEFECT (before FAIL): no evidence]\n  FAIL    j4-User  y'
-ctl gate-journey-baseline-only-decision-pass 1 'journeys: needs a decision' '!journeys: REGRESSION to fix' -- gcase jbd GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys="$JOUTB"
+# 2026-11-17 (owner: "if it fails on the new one and the old one, it's not a fail; mention it"): FSM rung 2 read FAIL with
+# 277 PASS, 0 FAIL, 243 failing on the old app too. Failing on both is PASS* with a note; it still needs >= 20% passing on both
+ctl gate-journey-baseline-only-noted-pass 0 '\| journeys \| PASS\* \| 1 \| noted, not a failure: nothing that passed on the old app fails' '!journeys: REGRESSION to fix' '!journeys: needs a decision' -- gcase jbd GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys="$JOUTB"
+JOUTF=$'journeys: 277 PASS, 0 FAIL, 2 INVALID, 243 PASS* (baseline defect), 1 CONTAMINATED (x)\n  coverage INVALID: instrument not measuring: 233 of 457 actions fail on the baseline (50% > 30%)\n  coverage INVALID: 3 baseline defects without evidence (FIXTURE / OLD-APP / FLAKY, --baseline-evidence): a, b, c\nverdict: INVALID only (exit 3)'
+ctl gate-journey-fsm-shape-noted-pass 0 '\| journeys \| PASS\* \| 3 \| noted, not a failure' -- gcase jfsm GATE_STUB_RC_run_journeys=3 GATE_STUB_OUT_run_journeys="$JOUTF"
+JOUTN=$'journeys: 5 PASS, 0 FAIL, 0 INVALID, 95 PASS* (baseline defect)\n  coverage INVALID: instrument not measuring: 95 of 100 actions fail on the baseline (95% > 30%)\nverdict: INVALID only (exit 3)'
+ctl gate-journey-not-measuring-stays-invalid-catch 2 '\| journeys \| INVALID \| 3 \|' '!noted, not a failure' -- gcase jnm GATE_STUB_RC_run_journeys=3 GATE_STUB_OUT_run_journeys="$JOUTN"
 ctl gate-journey-untagged-fail-regression-catch 1 'journeys: REGRESSION to fix' -- gcase jbu GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys="$JOUTU"
 # the config file: relative paths resolve against the config's own folder, so a worker's cwd cannot break them
 printf 'WORK=w\nLABEL=cf\nBEFORE_JSON=before.json\nAFTER_JSON=after.json\n' > "$GI/gate.conf"
@@ -5756,8 +5780,8 @@ ctl proposal-steps-rerun-no-duplicates-catch 0 '^same events: yes$' '^same steps
   printf '88 2.0.0 Newmod\n' >> $PR/rerun/plan.txt; bash $PR/prop.sh $PR/rerun > /dev/null
   [ \"\$b\" = \"\$(bash $PR/ssum.sh $PR/rerun | cut -d' ' -f1,2 | tr '\\n' ' ')\" ] && echo 'plan change keeps ids: yes'"
 ctl proposal-steps-plan-change-updates-found-pass 0 'plan holds 2 module updates' -- sh -c "grep -Eo 'plan holds [0-9]+ module updates?' $PR/rerun/steps.jsonl | tail -1"
-# unattended: every step has an approval, assumed, by agent, source unattended; none is approved
-ctl proposal-steps-unattended-assumed-catch 0 '^S-[0-9]+ modules .* approval=assumed by=agent source=unattended ' '^S-[0-9]+ module:DataWidgets .* approval=assumed by=agent source=unattended ' '!approval=none' '!approval=approved' -- bash $PR/ssum.sh $PR/unatt
+# unattended (auto mode): routine work goes ahead (approved, source routine); a real decision stays assumed until a person answers (the owner, 2026-11-17)
+ctl proposal-steps-unattended-assumed-catch 0 '^S-[0-9]+ modules .* approval=approved by=agent source=routine ' '^S-[0-9]+ module:DataWidgets .* approval=assumed by=agent source=unattended ' '!approval=none' '!module:DataWidgets .*approval=approved' -- bash $PR/ssum.sh $PR/unatt
 # signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
 ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
   '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '!approval=assumed' '!by=agent' -- bash $PR/ssum.sh $PR/signed
@@ -6595,6 +6619,10 @@ ctl heal-harness-log-accepted-catch 0 'test-setup / logallow / known harness lin
 ctl heal-log-allow-line-pass 0 '^WARNING Configuration: Using derived value for SessionKeepAliveUpdatesInterval\* # test harness: ' '!Something else' -- cat $HL/h1/heal-log-allow.txt
 ctl heal-new-error-never-accepted-catch 0 'log:log\.start\.NEW_ERROR:.* => real-regression / None' -- hcls 'log:log.start.NEW_ERROR:ERROR_Shop_failed_to_start_the_queue'
 ctl heal-unknown-log-line-stays-open-catch 0 'Something_else_changed => likely-real' 'not a known harness line' -- hcls 'log:log.start.NEW_WARNING:WARNING_Something_else_changed'
+# WM1 2026-11-17: 10.24 also derives ClusterManagerActionInterval from the harness's short SessionTimeout (a REVIEW every run)
+python3 $here/lib/mkheal.py $HL/h3 && sed -i.bak 's/^- PASS Shop.Other: same$/- REVIEW log.start.NEW_WARNING: WARNING Configuration: Using derived value for ClusterManagerActionInterval (# ms) based on SessionTimeout\n&/' $HL/h3/diff.md \
+  && python3 $B/heal.py plan --work $HL/h3 --round 1 > $HL/plan3.out 2>&1
+ctl heal-cluster-interval-harness-line-pass 0 '^WARNING Configuration: Using derived value for ClusterManagerActionInterval\* # test harness: .*SessionTimeout' -- cat $HL/h3/heal-log-allow.txt
 ctl heal-effective-allow-has-both-pass 0 '^# written by heal.py' 'Shop\.Item\.changedDate' -- cat $HL/h1/allow-effective.txt
 ctl heal-no-test-data-seed-catch 0 'journey:j-empty => no-test-data / seed / the page Shop\.Empty shows an empty list' -- hcls journey:j-empty
 ctl heal-seed-entity-in-plan-pass 0 '"Shop\.Thing"' '!Shop\.Item"' -- sh -c "sed -n '/\"seed\"/,/\]/p' $HL/h1/heal-plan.json"
@@ -6637,13 +6665,15 @@ ctl heal-round2-changes-nothing-catch 0 'CHANGED 0' -- cat $HL/plan2.out
 ctl heal-finalize-pass-result-pass 0 'passes on the old and the new app' -- sh -c "python3 -I -c \"import json;print([r['result'] for r in json.load(open('$HL/h1/heal.json'))['rows'] if r['id']=='journey:j-flake'])\""
 ctl heal-open-rows-nj-text-catch 0 'real-regression: 3 row\(s\)' 'Options: fix the app' 'Recommendation: ' 'likely-real: ' -- python3 $B/heal.py nj --work $HL/h1
 ctl heal-summary-line-pass 0 '^heal: [0-9]+ failing row\(s\) classified, [0-9]+ accepted with a written reason' 'stay open \(3 real-regression' -- python3 $B/heal.py summary --work $HL/h1
-# a rerun that still fails turns the row into likely-real (the heal did not work), never into a pass
+# a rerun that still fails on both apps is a note for the owner and a toolkit gap (2026-11-17), never a pass and never likely-real
 python3 $here/lib/mkheal.py $HL/h3 && python3 $B/heal.py plan --work $HL/h3 --round 1 > /dev/null 2>&1
 mkdir -p $HL/ro3/before-picked $HL/rn3/after
 echo '{"journeys": {"j-flake": {"verdict": "FAIL"}}}' > $HL/ro3/before-picked/summary.json
 echo '{"journeys": {"j-flake": {"verdict": "FAIL", "not_pass": ["x"]}}}' > $HL/rn3/after/summary.json
 python3 $B/heal.py merge --work $HL/h3 --old $HL/ro3 --new $HL/rn3 > /dev/null 2>&1; python3 $B/heal.py finalize --work $HL/h3 > /dev/null 2>&1
-ctl heal-rerun-still-fails-likely-real-catch 0 "\['still FAIL on the new app, old app FAIL'\]" 'likely-real' -- sh -c "python3 -I -c \"import json;r=[r for r in json.load(open('$HL/h3/heal.json'))['rows'] if r['id']=='journey:j-flake'][0];print([r['result']], r['class'])\""
+ctl heal-rerun-fails-both-noted-pass 0 "\['fails on both apps after the heal \(new FAIL, old FAIL\): listed for the owner, not an issue'\] test-setup" -- sh -c "python3 -I -c \"import json;r=[r for r in json.load(open('$HL/h3/heal.json'))['rows'] if r['id']=='journey:j-flake'][0];print([r['result']], r['class'])\""
+# the learning loop's input (steps/heal.md): rows no rule explains, and tests that run on neither app; a real regression is not a gap
+ctl heal-toolkit-gaps-pass 0 '^# Toolkit gaps: ' '`data:Shop\.Customer\.name` \(unexplained difference\).*rule goes in: bin/diff\.py' '`journey:j-flake` \(test does not run on either app\)' '!Shop\.Order\.total' -- cat $HL/h3/toolkit-gaps.md
 # a rerun that now FAILs on the new app while the old app passes is a regression
 echo '{"journeys": {"j-flake": {"verdict": "PASS"}}}' > $HL/ro3/before-picked/summary.json
 python3 $B/heal.py merge --work $HL/h3 --old $HL/ro3 --new $HL/rn3 > /dev/null 2>&1; python3 $B/heal.py finalize --work $HL/h3 > /dev/null 2>&1
@@ -6767,6 +6797,13 @@ ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id"
 ctl cockpit-render-effort-from-proposal-catch 0 '"Gridmod", "kept at its version|"Gridmod", "local edits refuse the update[^"]*", "M"' '"Themepack styles", "[^"]*", "S"' -- $CK render
 ctl cockpit-render-upgrade-from-git-log-catch 0 '"Widgetpack 2\.0\.0", "Automatic module update' '"Repair D2"' '"Rebuilds"' -- $CK render
 ctl cockpit-render-gate-and-heal-catch 0 'Click through pages|"Smoke"' '[0-9] real problem' '"1 check not run"' '1 of 2 page checks fails\. Cause: Gridmod\.' 'Replace Gridmod' 'Overlay blocks 2 clicks' -- $CK render
+# WM1 2026-11-17: "All pass, 1 with accepted differences" said nothing about what was accepted; each reason is on the card
+ctl cockpit-render-accepted-reasons-pass 0 'Accepted, no loss: start noise; the Vendmod update 1\.0\.0 -> 2\.0\.0 changed its own attribute' -- $CK render
+# the Test stage shows what ran on the old and the new app; a new-app file older than the old one is not this run's
+ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
+ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
+# what a finding MEANS, per item, from the run's own files (the owner, 2026-11-17: "not just what, but what it means")
+ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
 ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' -- $CK render
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard

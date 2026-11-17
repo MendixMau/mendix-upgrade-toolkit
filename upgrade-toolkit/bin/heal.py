@@ -42,6 +42,11 @@ HARNESS_LOG = [
      "pattern": "WARNING Configuration: Using derived value for SessionKeepAliveUpdatesInterval*",
      "needs": "the harness starts every app with SessionTimeout {timeout} ms (runapp.py UPG_SESSION_TIMEOUT) and the line itself names SessionTimeout",
      "reason": "test harness: runapp.py starts every app with SessionTimeout {timeout} ms, so the runtime derives the keep-alive interval; production sets its own"},
+    # WM1 2026-11-17: 10.24 derives ClusterManagerActionInterval from the same short SessionTimeout (the line names it)
+    {"match": re.compile(r"ClusterManagerActionInterval"), "must_name": "SessionTimeout",
+     "pattern": "WARNING Configuration: Using derived value for ClusterManagerActionInterval*",
+     "needs": "the harness starts every app with SessionTimeout {timeout} ms (runapp.py UPG_SESSION_TIMEOUT) and the line itself names SessionTimeout",
+     "reason": "test harness: runapp.py starts every app with SessionTimeout {timeout} ms, so the runtime derives the cluster action interval; production sets its own"},
 ]
 SELECT_GATED = re.compile(r"\$currentObject/[\w.]+\s*!=\s*empty")
 EMPTY_LIST = re.compile(r"(no (items|data|results|rows|records)( found)?|showing 0|0 of 0|nothing to show)", re.I)
@@ -524,10 +529,12 @@ def finalize(W):
             x["result"] = f"passes on the new app (old app {bv})"
         elif bv == "PASS":
             x["result"], x["class"] = "REGRESSION: passes on the old app, fails on the new one", "real-regression"
-        else:
+        elif bv == "absent":
             x["result"] = f"still {av} on the new app, old app {bv}"
             if x.get("heal_kind") in JOURNEY_HEALS:
                 x["class"] = "likely-real"
+        else:   # 2026-11-17: failing on both apps is a note for the owner, never an issue; the test that does not run is a toolkit gap
+            x["result"], x["class"] = f"fails on both apps after the heal (new {av}, old {bv}): listed for the owner, not an issue", "test-setup"
     for x in res["rows"]:   # a rerun on the healed base that passes closes an earlier open class (a probe on a plain base had put it there)
         if x["id"].startswith("journey:") and x["class"] in OPEN_CLASSES and x.get("heal_kind") in JOURNEY_HEALS \
                 and x["result"].startswith("passes"):
@@ -536,7 +543,35 @@ def finalize(W):
     res["gate_rungs"] = {m.group(1): m.group(2).strip() for m in re.finditer(r"^\| \d+ \| (\w+) \| ([A-Z* ]+?) \|", gs, re.M)}
     write_text(W / "heal.json", json.dumps(res, indent=1) + "\n")
     write_md(W, res)
+    write_gaps(W, res)
     return 0
+
+
+# where a rule that closes a row belongs (steps/heal.md, "The learning loop")
+GAP_OWNER = (("data:http.", "bin/diff.py (http rows)"), ("data:", "bin/diff.py, bin/snapshot.py (data rows)"),
+             ("log:", "bin/logdiff.py, or HARNESS_LOG in bin/heal.py for a line the harness causes"),
+             ("journey:", "the heals in bin/heal.py, bin/run_journeys.py, bin/gen_journeys.py"), ("", "bin/gate.sh"))
+
+
+def gaps_of(res):
+    """The rows no rule of the toolkit explains: likely-real (an unknown difference) and tests that run on neither app."""
+    return [x for x in res["rows"] if x["class"] == "likely-real" or x["result"].startswith("fails on both apps")]
+
+
+def write_gaps(W, res):
+    """toolkit-gaps.md: the learning loop's input. Every row here is either a real defect of the app (it goes to
+    NEEDS-JUDGMENT and stays there) or a rule the toolkit lacks. A rule is closed in the toolkit, not in this run."""
+    gs = gaps_of(res)
+    out = [f"# Toolkit gaps: {len(gs)} row(s) no rule of the toolkit explains", "",
+           "Close each with the learning loop (steps/heal.md): 1. prove it on both apps (twin-old.md, the old run, the screenshots); "
+           "2. a real defect of the app stays in NEEDS-JUDGMENT; 3. otherwise write the rule in the owner script, with its evidence condition, "
+           "never a bare allow line; 4. a control that fails on the old toolkit and passes on the new one, plus a guard that still catches the "
+           "real case; 5. rejudge the stored run (`--from heal`), no new walk; 6. write the Mendix fact to the brain, the rule to the step doc.", ""]
+    for x in gs:
+        own = next(o for p, o in GAP_OWNER if x["id"].startswith(p))
+        kind = "test does not run on either app" if x["result"].startswith("fails on both apps") else "unexplained difference"
+        out.append(f"- `{x['id']}` ({kind}): {x['evidence'][:200]} | result: {x['result'][:120]} | rule goes in: {own}")
+    write_text(W / "toolkit-gaps.md", "\n".join(out) + "\n")
 
 
 def summary(W):
@@ -549,7 +584,8 @@ def summary(W):
     op = [x for x in res["rows"] if x["class"] in OPEN_CLASSES]
     print(f"heal: {len(res['rows'])} failing row(s) classified, {acc} accepted with a written reason, {ok} journey(s) pass after the heal, "
           f"{len(op)} stay open ({sum(1 for x in op if x['class'] == 'real-regression')} real-regression, "
-          f"{sum(1 for x in op if x['class'] == 'likely-real')} likely-real); {class_line(res)}")
+          f"{sum(1 for x in op if x['class'] == 'likely-real')} likely-real); {class_line(res)}; "
+          f"toolkit gaps: {len(gaps_of(res))} (toolkit-gaps.md)")
 
 
 OPTIONS = {

@@ -810,7 +810,10 @@ def main():
         rows = [("P-0", "proposal", "proposal", "continue without a sign-off", "Interview mode: unattended signs nothing; the run goes on at the recommendations")]
         rows += [(it["id"], it["name"], it["kind"], it["rec"], "unattended: recommendation taken, nobody asked") for it in F.items3]
         write_decisions(F, rows, "-", "ASSUMED (unattended)", "a person signs PROPOSAL.md section 6")
-        approve_steps(a.work, sids, "assumed", "agent", "unattended")
+        # routine work with a known result (section 2) goes ahead in auto mode; only a real decision waits for a person (the owner, 2026-11-17)
+        routine = {s: k for s, k in sids.items() if k.startswith("2:")}
+        approve_steps(a.work, routine, "approved", "agent", steps.ROUTINE)
+        approve_steps(a.work, {s: k for s, k in sids.items() if s not in routine}, "assumed", "agent", "unattended")
         print("proposal: not signed (unattended): ASSUMED (unattended) lines in DECISIONS.md; every report says 'proposal not signed'")
         return 0
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")
