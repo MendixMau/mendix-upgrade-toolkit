@@ -757,6 +757,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   fi
   [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
   dojo_report
+  replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
@@ -947,10 +948,27 @@ dojo_report() {
   [ "$rc" = 0 ] || note "dojo_report.py exit $rc, see $WORK/dojo-react.out"
 }
 
+# Replacements (B6) on every run, against the last rung, like dojo_report. Cold CMM: rung 2 built and walked 11.12.7 with
+# MicroflowTimer 4.0.3 on the mix wizard pages; R38 (mx.logger, removed in 11.0) names it from the .mpk, but only the
+# agent's triage item 10 ran replacement_check.py, so the unattended proposal said "not measured: replacements.md" and
+# the wizard steps never rendered (TypeError reading 'debug').
+replacement_report() {
+  [ "$DRY" != 1 ] || { say "+ replacement_check.py $APP --to ${TARGET2:-$TARGET} --out $WORK/replacements.md"; return 0; }
+  [ -d "${APP:-/nonexistent}" ] || return 0
+  local rc=0
+  xo "$WORK/replacements.out" python3 "$B/replacement_check.py" "$APP" --to "${TARGET2:-$TARGET}" --out "$WORK/replacements.md" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "replacement_check.py: $(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) for ${TARGET2:-$TARGET} (open in the proposal), see $WORK/replacements.md" ;;
+    *) note "replacement_check.py exit $rc, see $WORK/replacements.out" ;;
+  esac
+}
+
 step_propose() {
   local rc=0
   # a run whose triage predates the report
   [ -s "$WORK/dojo-react.md" ] || dojo_report
+  [ -s "$WORK/replacements.md" ] || replacement_report
   if [ "$DRY" = 1 ]; then
     say "+ action_inventory.py $WORK/original.mpr --out $WORK/actions.json; apimock.py inventory $WORK/original.mpr --json $WORK/apimock-inventory.json"
     say "+ proposal.py --work $WORK --source $SOURCE --target $TARGET (exit 14 unsigned, 15 PAUSED, 0 signed or unattended)"

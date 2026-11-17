@@ -168,9 +168,9 @@ with version tables; the scripts find it the same way).
    (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). Without `project_dir` (a hand facts
    file) both stay open: run `--facts-from-mpr` on the real project, or add `"project_dir": "app"` by hand.
    Replacements (B6): release impact keys on version windows, so a deprecated module kept at its version (DeepLink,
-   MendixSSO) or a deprecated feature in use (Document Templates, legacy scheduled events, mx.logger) gives no row. Run
-   `python3 $B/replacement_check.py app/ --to <full ver> --out $W/replacements.md` (the table is
-   `playbooks/replacements.tsv`). Every row is listed: HIT and UNKNOWN are open (exit 1), clear and NOT APPLICABLE carry
+   MendixSSO) or a deprecated feature in use (Document Templates, legacy scheduled events, mx.logger) gives no row. The
+   pipeline runs `python3 $B/replacement_check.py app/ --to <last rung's full ver> --out $W/replacements.md` at triage
+   (and at propose when the file is missing); by hand, run the same (the table is `playbooks/replacements.tsv`). Every row is listed: HIT and UNKNOWN are open (exit 1), clear and NOT APPLICABLE carry
    their reason; exit 2 = the app could not be read. Each open row gets `handled: <evidence or commit>` or
    `not relevant: <reason>` in its handled column, and its unchecked column (database rows, a forked native template)
    is checked by hand or by a journey.

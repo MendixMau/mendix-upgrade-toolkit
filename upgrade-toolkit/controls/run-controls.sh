@@ -3754,6 +3754,14 @@ ctl replace-mxlogger-catch 1 '^HIT +R38 ' 'evidence: widgets/Logger\.mpk 1\.3\.1
 ctl replace-mxlogger-blocker-catch 1 '^HIT +R38 ' 'evidence: BLOCKER \(no newer version: logger\): widgets/Logger\.mpk' '^blockers: R38: no update can fix these' -- $RC $M/replace-mxlogger --to 11.12.6 --no-newer Logger
 ctl replace-mxlogger-unused-pass 1 '^clear +R38 ' 'package\(s\) with /.*mx.*logger.* in their JavaScript, but no page uses them: widgets/Spare\.mpk' '!^HIT +R38' -- $RC $M/replace-mxlogger-quiet --to 11.12.6
 ctl replace-mxlogger-jump-na-pass 0 '^NOT APPLICABLE R38 ' '!^HIT +R38' -- $RC $M/replace-mxlogger --to 10.24.16
+# cold CMM: the pipeline never ran replacement_check.py (agent-only triage item 10), so R38 never named MicroflowTimer's
+# mx.logger before the 11.12.7 build. replacement_report runs it against the last rung; propose fills a missing report
+RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
+{ awk '/^replacement_report\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; printf '%s\n' 'say() { echo "$*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' \
+  'note() { echo "$STEP: $*" >> "$WORK/state/notes.txt"; }' 'replacement_report; echo rc=$?'; } > $RR/fn.sh
+ctl pipeline-replacements-run-catch 0 '^rc=0$' '^r38-hit$' '[0-9]+ HIT row\(s\) for 11\.12\.6 \(open in the proposal\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 bash $RR/fn.sh; grep -qE '^HIT +R38 ' $RR/w/replacements.out && echo r38-hit; cat $RR/w/state/notes.txt"
+ctl pipeline-replacements-unused-pass 0 '^rc=0$' '^written$' '!^r38-hit$' -- bash -c "B=$B APP=$M/replace-mxlogger-quiet WORK=$RR/w2 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; test -s $RR/w2/replacements.md && echo written; grep -qE '^HIT +R38 ' $RR/w2/replacements.out && echo r38-hit; true"
+ctl pipeline-replacements-wired-catch 0 '^triage$' '^propose$' -- bash -c "awk '/^step_triage\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q '^  replacement_report\$' && echo triage; awk '/^step_propose\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q 'replacement_report\$' && echo propose"
 ctl replace-out-md-pass 1 '^\| R3 \| HIT \| MendixSSO module' '^\| R8 \| NOT APPLICABLE \|' '\| handled \|$' -- sh -c "$RC $M/replace-sso --to 10.24.16 --out $T/replace-sso.md >/dev/null; rc=\$?; cat $T/replace-sso.md; exit \$rc"
 # --- B6-2: brain_mine.py, replacement candidates from the brain's release-note tables (no LLM) ---
 BM="python3 $B/brain_mine.py"
