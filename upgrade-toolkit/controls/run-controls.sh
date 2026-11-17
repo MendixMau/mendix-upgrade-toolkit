@@ -505,6 +505,12 @@ ctl replay-hold-dirty-tree-stops-catch 13 '^STOP 13: replay of Mod failed \(exit
 ctl replay-hold-cleared-on-success-pass 0 '^commit: replay: Mod$' '^held: Other exit 1' '!^held: Mod' '^mpr: replayed$' -- $RH ok
 ctl replay-hold-gate-stops-catch 13 '^STOP 13: upgrade complete except held replays' '!gate went through' -- $RH gate
 ctl replay-hold-gate-ack-pass 0 '^gate went through$' '!^STOP' -- $RH gate-ack
+# scenario D: a run-once data move is proven by count (target after >= source on the baseline)
+DM="bash $B/../controls/datamove_control.sh"
+ctl datamove-moved-pass 0 '^MOVED MendixSSO.AuthRequest.Nonce -> MendixSSO_Ext.AuthRequestExt.Nonce: 5 before, 5 after$' '^datamove: 1 of 1 moves proven$' -- $DM moved
+ctl datamove-lost-catch 1 '^LOST .*: 5 before, 3 after$' -- $DM lost
+ctl datamove-count-fail-catch 1 '^UNCOUNTED .*count failed after$' -- $DM fail
+ctl datamove-bad-plan-catch 2 "not 'Src.Entity.Attr -> Dst.Entity.Attr'" -- $DM bad
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"
