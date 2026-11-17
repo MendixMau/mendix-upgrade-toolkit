@@ -354,6 +354,44 @@ awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/u
 mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
 ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+# widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
+# mode gets the widget back from an earlier commit: settings restored, fresh ids, the rest of the page untouched
+WR=$T/wr; mkdir -p $WR/cur $WR/old $WR/other
+cat > $WR/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid
+from bson.binary import Binary
+d, base, wname, ver = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+def I(s): return Binary(uuid.uuid5(uuid.NAMESPACE_DNS, s).bytes, 3)  # ids as the MPR holds them
+wid = "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter"
+def pt(i, k): return {"$ID": I(i), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": k, "ValueType": {"DefaultValue": ""}}
+def pv(i, val): return {"$ID": I(i + "v"), "$Type": "CustomWidgets$WidgetProperty", "TypePointer": I(i), "Value": val}
+w = {"$ID": I("w1"), "$Type": "CustomWidgets$CustomWidget", "Name": wname,
+     "Type": {"$ID": "t1", "WidgetId": wid, "ObjectType": {"$ID": "o1", "PropertyTypes": [3, pt("pa", "baseType"), pt("pb", "refEntity")]}},
+     "Object": {"$ID": "ob1", "Properties": [2, pv("pa", {"PrimitiveValue": base}),
+                pv("pb", {"EntityRef": {"Steps": [2, {"Association": "System.UserRoles"}]}} if base == "ref" else {})]}}
+other = {"$ID": "x1", "$Type": "Forms$DynamicText", "Name": "keepme", "Caption": base}
+page = {"$ID": "pg", "$Type": "Forms$Page", "Name": "Account_Overview", "Excluded": False, "Content": [3, other, w]}
+mod = {"$ID": "md", "$Type": "Projects$ModuleImpl", "Name": "Administration"}
+con = sqlite3.connect(f"{d}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+con.execute("create table _MetaData (_ProductVersion text)"); con.execute("insert into _MetaData values (?)", (ver,))
+m, p = uuid.uuid4().bytes_le, uuid.uuid4().bytes_le
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (m, None, bson.encode(mod)))
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (p, m, bson.encode(page))); con.commit()
+EOF
+cat > $WR/show.py <<'EOF'
+import bson, sqlite3, sys, uuid
+c = sqlite3.connect(sys.argv[1])
+d = [bson.decode(r[0]) for r in c.execute("select Contents from Unit")][1]
+print("keep=" + d["Content"][1]["Caption"])
+w = d["Content"][2]
+print("ids-renewed" if bytes(w["$ID"]) != uuid.uuid5(uuid.NAMESPACE_DNS, "w1").bytes and w["Name"] == "drop_downFilter1" else "ids-kept")
+EOF
+python3 $WR/mk.py $WR/cur attr drop_downFilter1 11.12.7; python3 $WR/mk.py $WR/old ref drop_downFilter1 10.24.28; python3 $WR/mk.py $WR/other ref otherFilter 10.24.28
+WRT="python3 $B/repair/widgetrestore.py $WR/cur --from $WR/old/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1"
+ctl widgetrestore-dry-catch 0 '^  RESTORE baseType: attr -> ref$' '^  RESTORE refEntity: \(unset\) -> System\.UserRoles$' 'dry run, rerun with --apply' -- $WRT
+ctl widgetrestore-apply-pass 0 'written, 2 setting\(s\) back' '^again: +nothing differs' '^keep=attr$' '^ids-renewed$' -- bash -c "$WRT --apply; echo again: \$($WRT | tail -1); python3 $WR/show.py $WR/cur/App.mpr"
+ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets named drop_downFilter1' -- python3 $B/repair/widgetrestore.py $WR/cur --from $WR/other/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP
