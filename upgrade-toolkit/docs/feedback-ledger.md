@@ -7,6 +7,7 @@ that closes a row.
 
 | date | feedback (owner's words, short) | conclusion | status | where |
 |---|---|---|---|---|
+| 11-17 | CI on GitHub was red since #10 (setup: no bson, no zsh) | CI installs pymongo and zsh: 2624 passed, 10 failed on Linux (smokewalk, stepupdate x6, remedy, smoke-users, decide-cards; all pass on macOS); make those 10 run on Linux | open | #11 |
 | 11-17 | "Make the sidebar 50% of screen ... show what was found per action, and what it MEANS" | drawer is 50% wide; per action a "What it means" box and an item-by-item table, worst first | branch | ba76a0e |
 | 11-17 | "If we could write such a thing per issue which needs a decision ... embed this" | a decision opens its case in the cockpit: headline, tiles, old vs new screenshot, why, options with the catch | branch | 775ddae |
 | 11-17 | the step writes its case on its own, not by hand | a regression without a case file gets one built from the run's own files | PR | this PR |
