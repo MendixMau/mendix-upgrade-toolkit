@@ -167,6 +167,8 @@ An item is done only when its "done when" check holds on a real app, not when th
 | 150 | `mxcli widget init` writes `.claude/skills/widgets` into the app folder, which then needs a manual exclude from every app commit | the app's `.gitignore` (or the toolkit's own commit step) excludes it without a manual step | S | FSM |
 | 151 | Rung 2 stops at triage (exit 13) for a missing `plan.txt` although rung 1's plan already names most modules: write the rung 2 plan by hand every time (cold CMM run 10; the content ids now carry over, `rung2_cids`) | rung 2 triage pre-fills `plan.txt` from rung 1's plan and the 11.x versions of `playbooks/11-to-11.md`, and stops only for modules it cannot place | M | CMM |
 | 152 | Journeys take 3 h or more on a mid-size app, and a stopped journeys step restarts from the first journey (cold CMM, cold WM1) | journeys resume from the last finished journey; the cockpit shows journeys done/total | M | CMM, WM1 |
+| 153 | No app code name at run start: runlog warns, and harvest and the feedback report skip until a person writes `state/app-code` (cold CMM) | the pipeline derives the code from the app name (or asks once at triage) and writes `state/app-code` for rung 1 and rung 2 | S | CMM |
+| 154 | Rung 2 convert stops (exit 13) for a missing `plan-pre.txt` although no update in the plan is pre-10.21 (cold CMM run 12) | triage writes an empty `plan-pre.txt` with a comment when there is nothing to update before the convert | S | CMM |
 
 ## Done (14 Oct, remedy trial round)
 
