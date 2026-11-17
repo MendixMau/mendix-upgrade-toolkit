@@ -51,6 +51,16 @@ TERM = re.compile(r"\bCE\d{4}\b|\b[A-Za-z_]\w*\.[A-Za-z_]\w*(?:\(\))?|\b[A-Za-z_
 FILE_LIKE = re.compile(r"\.(html|js|java|md|jar|mpk|mpr|css|scss|json|log|txt|py|sh|xml|tsv)$", re.I)
 SHA = re.compile(r"\s*\(`[0-9a-f]{7,40}`\)")
 SCRIPT_EXT = {".py", ".sh", ".js", ".mdl"}
+# folders the pipeline writes itself, never the agent: the patched journey engine copy (<work>/e2e-*/engine, run_journeys.py),
+# editroute's replay MDL and localedits' saved edits. Their files differ from any toolkit file by design (cold CMM: 37 of
+# them were listed as scripts the agent wrote).
+TOOLKIT_WRITTEN = {"replay", "saved-edits"}
+
+
+def toolkit_written(rel):
+    parts = Path(rel).parts
+    return any(p in TOOLKIT_WRITTEN for p in parts[:-1]) or any(
+        p == "engine" and i > 0 and parts[i - 1].startswith("e2e-") for i, p in enumerate(parts[:-1]))
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "e2e", "playwright-report", "test-results", "vendor"}
 TEXT_EXT = {".log", ".md", ".txt", ".out", ".tsv"}
 MAX_TEXT = 5_000_000
@@ -215,7 +225,7 @@ def harvest(work, brain):
                     if "agent" in r.get("#", ""):
                         found["items"].append({"src": rel, "text": f"agent decision: {r.get('decision', '')}: "
                                                                    f"{r.get('choice', '')} ({r.get('why', '')})"})
-        if f.suffix in SCRIPT_EXT:
+        if f.suffix in SCRIPT_EXT and not toolkit_written(rel):
             try:
                 h = hashlib.sha256(f.read_bytes()).hexdigest()
             except OSError:

@@ -7436,6 +7436,9 @@ hv_changes() {  # $1 file, $2 extra why text of the new fix
 hv_changes $HV/run/CHANGES.md ''
 printf 'mx check: CE9987 frob widget has no successor\n' > $HV/run/check.log
 printf '#!/usr/bin/env python3\n# Rewrite the frob widgets on every page of the app\nprint(1)\n' > $HV/run/frob_fix.py
+# files the pipeline writes itself are no agent script (cold CMM: 37 listed): a patched engine copy, replay MDL, saved edits
+mkdir -p $HV/run/e2e-base/engine $HV/run/replay $HV/run/saved-edits/Mod; printf '// patched engine copy\n' > $HV/run/e2e-base/engine/helpers.js
+printf '/* replay of Mod */\n' > $HV/run/replay/Mod.mdl; printf -- '-- CONSTANT Key, as it stands\n' > $HV/run/saved-edits/Mod/constant-Key.mdl
 printf '| 1 | WARNING: trail: 2 gap(s) in 2 steps |\n' > $HV/run/gate-summary.md
 printf -- '---\ntitle: mx.logger is gone in 11\nconfidentiality: internal\n---\nmx.logger calls crash on 11, CE9987 too.\n' > $HV/brain/internal/upgrade/mx-logger.md
 hv_changes $HV/run-deny/CHANGES.md ' for the Acmecorp portal'
@@ -7445,6 +7448,7 @@ ctl harvest-run-pass 0 '^harvest: 3 agent fixes \(2 known to the toolkit, 1 new\
 ctl harvest-new-fix-catch 0 'decision-frob.*Widget_Fake\.FrobAction\(\)' '!decision-mxlogger.*\[CHANGES' -- sed -n '/^## Fixes the agent made/,/^## Known/p' $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-known-fix-pass 0 'repair-row-13.*\[known: steps/repair\.md row 13\]' 'decision-mxlogger.*\[known: BACKLOG\.md #102' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-code-script-item-pass 0 '^- CE9987 ' 'frob_fix\.py \(3 lines\): Rewrite the frob widgets' 'trail: 2 gap' '!CE1613' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-toolkit-written-pass 0 'frob_fix\.py' '!e2e-base/engine' '!replay/Mod' '!saved-edits/' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md
 ctl harvest-scrub-pass 0 '!'"$HV" -- cat $HV/tk/2026-01-02-HV1-harvest.md $HV/bi/2026-01-02-HV1-upgrade.md
