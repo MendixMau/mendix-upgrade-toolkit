@@ -111,7 +111,7 @@ function compare(oldF, newF) {
   if (o.compare) return compare(o.compare[0], o.compare[1]);
   if (!o.url || !o.user || !o.password || !o.entity) { console.error('need --url --user --password --entity'); process.exit(2); }
   const { chromium } = loadPlaywright();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
   let res = { ok: false, entity: o.entity, user: o.user, steps: [] };
   try {
     // desktop size: a field app sends screen.width <= 1280 to the Tablet profile and reloads the page

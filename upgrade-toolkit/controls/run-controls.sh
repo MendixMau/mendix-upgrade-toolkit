@@ -653,6 +653,10 @@ ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK
 # trap printed "unexpected failure (exit 1) at line 624 in step 'triage'" on every machine but the author's; the run went on
 ctl pipeline-scanner-lookup-no-local-env-pass 0 '^EA=\[\]$' '!unexpected failure' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
 ctl pipeline-scanner-lookup-local-env-pass 0 '^EA=\[/opt/scan\]$' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); mkdir -p \$HOME/.config/upgrade-toolkit; echo UPG_SCANNER=/opt/scan > \$HOME/.config/upgrade-toolkit/local.env; unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
+# cold CMM: with no scanner configured the note said "scanner not available at :" (an empty path); name what is missing
+awk '/if \[ -f "\$EA\/scripts\/scan\.py" \]/{p=1} p{print} p&&/^  (fi$|else note "scanner not available)/{exit}' $B/cloud/upgrade-pipeline.sh > $T/scanner-rung.sh
+ctl pipeline-scanner-not-configured-catch 0 '^NOTE scanner not configured \(EA, UPG_SCANNER' '!available at :' -- bash -c "note() { echo \"NOTE \$*\"; }; EA=; . $T/scanner-rung.sh"
+ctl pipeline-scanner-not-found-catch 0 '^NOTE scanner not found at /nonexistent/scan \(no scripts/scan\.py\)' -- bash -c "note() { echo \"NOTE \$*\"; }; EA=/nonexistent/scan; . $T/scanner-rung.sh"
 # WM1 2026-11-17: Atlas_Core 4's new module roles unmapped; every Atlas page failed for security reasons (smoke walk only)
 MR="bash $B/../controls/modroles_control.sh"
 ctl modroles-grant-by-name-pass 0 '^mdl: ALTER USER ROLE Administrator ADD MODULE ROLES \(Atlas_Core.Administrator\);' '^mdl: ALTER USER ROLE User ADD MODULE ROLES \(Atlas_Core.User\);' '^modroles: 3 grant' -- $MR
@@ -1126,6 +1130,14 @@ ctl smoke-judge-flaky-baseline-pass 0 '^  FLAKY-BASELINE Clerk \| menu \| Orders
   -- $SW --rejudge $SF/new-pass.json --rejudge $SF/new-pass.json --compare $SF/old-flaky-a.json --compare $SF/old-flaky-b.json
 ctl smoke-judge-partial-walk-pass 0 '^  PASS +menu +Orders -> Shop.Orders_Overview$' '^steps: PASS 4, FAIL 0, INVALID 0' 'regressions: 0$' \
   -- $SW --rejudge $SF/new-pass.json --rejudge $SF/new-desk-only.json --compare $SF/old-pass.json
+# the menu entry now opens the app's own copy of the page (editroute's menu copy, another module, same document name; cold test WM1
+# Accounts): the same step, judged old vs new, never "step gone" plus "new step"; a page with another name is still gone (exit 2)
+sed 's/"Shop\.Orders_Overview"/"Shop_Ext.Orders_Overview"/' $SF/new-pass.json > $T/smoke-moved.json
+sed 's/"Shop\.Orders_Overview"/"Shop_Ext.Orders_List"/' $SF/new-pass.json > $T/smoke-other.json
+ctl smoke-judge-menu-copy-same-step-pass 0 '^  moved Clerk \| menu \| Orders \| Shop\.Orders_Overview -> Shop_Ext\.Orders_Overview: the same menu entry' 'coverage lost\): 0$' 'regressions: 0$' '!step gone' -- $SW --rejudge $T/smoke-moved.json --compare $SF/old-pass.json
+ctl smoke-judge-other-page-gone-catch 2 '^  step gone Clerk \| menu \| Orders \| Shop\.Orders_Overview \(was PASS\)' '!moved' -- $SW --rejudge $T/smoke-other.json --compare $SF/old-pass.json
+# every browser the toolkit launches carries the mock keychain (the owner's rule: no macOS keychain dialog from an unattended run)
+ctl browser-launch-mock-keychain-pass 0 '^launch files without the mock keychain: 0 of [1-9][0-9]*$' -- sh -c "n=0; t=0; for f in \$(grep -rlE 'chromium\.launch *\(|launchPersistentContext *\(' $B $here $B/../vendor $B/../research | grep -v node_modules); do t=\$((t+1)); grep -q use-mock-keychain \$f || { n=\$((n+1)); echo \"missing: \$f\"; }; done; echo launch files without the mock keychain: \$n of \$t"
 # T5: --login-path (default /login.html), also through the gate (SMOKE_LOGIN_PATH)
 lp() { node -e "process.argv=['node','x','--plan','p','--url','http://h:1','--rejudge','r','--compare','c'$1]; const m=require('$B/smokewalk.js'); const o=m.args(); console.log('loginPath', o.loginPath, 'url', m.loginUrl(o.url, o.loginPath))"; }
 ctl smokewalk-login-path-catch 0 '^loginPath /login-without-sso.html url http://h:1/login-without-sso.html$' -- lp ",'--login-path','/login-without-sso.html'"
@@ -1133,7 +1145,7 @@ ctl smokewalk-login-path-default-pass 0 '^loginPath /login.html url http://h:1/l
 ctl smokewalk-login-path-bad-catch 2 'needs a path starting with /' -- lp ",'--login-path','login.html'"
 ctl smoke-rejudge-needs-compare-catch 2 'rejudge needs --compare' -- $SW --rejudge $SF/new-pass.json
 ctl smokewalk-api-only-pass 0 '^ok +apiOnlyHome login page home: got true' '^ok +apiOnlyHome ordinary home: got null' '^ok +apiOnlyHome menu step to the login page: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
-else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; fi
+else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass menu-copy-same-step-pass other-page-gone-catch; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; fi
 
 # --- safety guards: frozen DB, DB prefix, heavy lock (E1 1, E1 3, E5 F10, E5 F11) ----------------------------------------
 ctl smoke-users-refuse-catch 2 'REFUSED' -- python3 $B/smoke_users.py appdb
@@ -1838,6 +1850,16 @@ ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
+# a step log keeps earlier runs: the stop quotes only the lines this run wrote (cold test WM1: an afterwalk stop quoted yesterday's
+# failed walk under today's 9 of 9 PASS); any other file is quoted whole
+printf 'FAIL old walk\nINVALID old role\n' > $T/nj-step.log; printf 'FAIL in another file\n' > $T/nj-other.log
+cat > $T/nj-quote.sh <<SH
+eval "\$(sed -n '/^nj_file() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)"
+nj_add() { echo "\$3"; }
+LOG=$T/nj-step.log; LOG_START=\$(wc -l < \$LOG); echo 'FAIL new walk' >> \$LOG
+nj_file 12 t "\$LOG" 40 'FAIL|INVALID'; nj_file 12 t $T/nj-other.log 40 FAIL
+SH
+ctl pipeline-nj-quotes-this-run-pass 0 '^FAIL new walk$' '!old walk' '!old role' '^FAIL in another file$' -- bash $T/nj-quote.sh
 # F13: a 10.x to 11 run with a plan.txt and no plan-pre.txt stops before the convert (Mendix 11 refuses packages made before 10.21)
 mkdir -p $NJ/w13; printf '1 1.0 Administration\n' > $NJ/w13/plan.txt
 ctl pipeline-no-plan-pre-catch 0 'needs judgment \(exit 13\)' 'plan-pre.txt missing on a 10.x to 11 run' '!mx convert exit' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13 --from convert --only convert; cat $NJ/w13/NEEDS-JUDGMENT.md"

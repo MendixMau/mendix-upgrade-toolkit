@@ -179,7 +179,7 @@ if [ -n "$APP_DIR_ARG" ]; then
 fi
 
 APP=""; MPR=""
-STEP=""; LOG="$WORK/logs/pipeline.log"
+STEP=""; LOG="$WORK/logs/pipeline.log"; LOG_START=0
 NJ_CODE=0; NJ_TMP="$WORK/state/nj.tmp"
 APPS_UP=()
 
@@ -220,7 +220,8 @@ nj_add() { # nj_add CODE "title" "text"
 nj_file() { # nj_file CODE "title" FILE [lines] [grep-pattern]: first lines of a file (optionally only lines matching)
   local body="(file not found: $3)"
   if [ -f "$3" ]; then
-    if [ -n "${5:-}" ]; then body=$(grep -E "$5" "$3" | head -n "${4:-20}" || true); else body=$(head -n "${4:-20}" "$3" || true); fi
+    local from=1; [ "$3" != "$LOG" ] || from=$((LOG_START + 1))   # the step's own log: only the lines of this run (WM1: a stop quoted a walk of yesterday)
+    if [ -n "${5:-}" ]; then body=$(tail -n "+$from" "$3" | grep -E "$5" | head -n "${4:-20}" || true); else body=$(tail -n "+$from" "$3" | head -n "${4:-20}" || true); fi
     body=$(printf 'file: %s\n\n```\n%s\n```' "$3" "$body")
   fi
   nj_add "$1" "$2" "$body"
@@ -682,7 +683,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
       rc=0; xo "$WORK/scancover.out" python3 "$B/scancover.py" "$WORK/findings.json" || rc=$?
       [ "$rc" = 0 ] || note "scancover exit $rc: NO COVERAGE, scanner checked nothing for this rung: scanner rung INVALID, do the manual checks in $WORK/scancover.out"
     else note "scan.py failed (exit $rc): scanner rung INVALID"; fi
-  else note "scanner not available at $EA: scanner rung INVALID"; fi
+  elif [ -z "$EA" ]; then note "scanner not configured (EA, UPG_SCANNER, or UPG_SCANNER= in ~/.config/upgrade-toolkit/local.env): scanner rung INVALID"
+  else note "scanner not found at $EA (no scripts/scan.py): scanner rung INVALID"
+  fi
   if [ "$(major "$SOURCE")" -le 9 ]; then
     rc=0; xo "$WORK/javafinal.out" python3 "$B/javafinal.py" "$APP" --md "$WORK/javafinal.md" || rc=$?
     [ "$rc" != 1 ] || note "javafinal.py found assignments to Java action parameters: javac will fail at the build (by-hand fix, steps/repair.md row 10), see $WORK/javafinal.md"
@@ -1879,6 +1882,7 @@ run_step() { # run_step NAME
     *" $STEP "*) if [ "$DRY" != 1 ] && [ -f "$WORK/PROPOSAL.md" ]; then proposal_recheck; fi ;;
   esac
   printf '%-10s %s\n' "$STEP" "running (log: $LOG)"
+  LOG_START=0; [ ! -f "$LOG" ] || LOG_START=$(wc -l < "$LOG" | tr -d ' ')   # a step log keeps earlier runs: nj_file quotes only this run
   timing_open "$STEP"
   cockpit_regen   # the page shows the step as running from its start, not only after it
   "step_$STEP"

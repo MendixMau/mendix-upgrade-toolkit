@@ -41,7 +41,7 @@ const check = (name, ok, detail) => { if (!ok) fail++; console.log(`${ok ? 'ok  
   let pw = null;
   for (const d of [process.env.PLAYWRIGHT_DIR, '/opt/node-tools/node_modules/playwright', 'playwright'].filter(Boolean)) { try { pw = require(d); break; } catch (e) { /* next */ } }
   let browser = null;
-  try { if (pw) browser = await pw.chromium.launch(); } catch (e) { browser = null; }
+  try { if (pw) browser = await pw.chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] }); } catch (e) { browser = null; }
   if (browser) {
     const page = await browser.newPage();
     const BAR = '<div class="mx-progress-line" style="position:fixed;top:0;left:0;width:100%;height:4px;background:#ddd"><div style="margin-left:40%;width:10%;height:4px;background:#3a9"></div></div>';
