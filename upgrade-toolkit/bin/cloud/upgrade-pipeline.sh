@@ -995,8 +995,11 @@ run_stepupdate() { # run_stepupdate PLAN label
     apf="$WORK/.approved-with-step.txt"
     [ "$DRY" = 1 ] || cat "$WORK/approved.txt" "$WORK/approved-step.txt" > "$apf"
   fi
+  # the pre-convert localedits report tells stepupdate which modules have UI edits at all (UNSAVED, convert-made rows)
+  local le=()
+  [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
   xo "$WORK/stepupdate-$2.out" env "${envs[@]}" bash "$B/stepupdate.sh" "$APP" "$plan" --approved "$apf" \
-    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} || rc=$?
+    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} ${le[@]+"${le[@]}"} || rc=$?
   [ "$DRY" = 1 ] || cat "$WORK/stepupdate-$2.out" >> "$LOG"
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0

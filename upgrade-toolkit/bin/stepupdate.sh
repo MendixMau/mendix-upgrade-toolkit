@@ -444,7 +444,19 @@ PY
   fi
   case "$forceui" in *",$mod,"*)
     nsaved=$(find "$saved/$mod" -type f 2>/dev/null | wc -l | tr -d ' ')
-    if [ $nobase = 1 ] && [ "$nsaved" = 0 ]; then
+    if [ $nobase = 1 ] && [ "$nsaved" = 0 ] && [ -n "$ledits" ] && python3 - "$ledits" "$mod" <<'PY'
+import json, sys
+try:
+    e = next((x for x in json.load(open(sys.argv[1])) if isinstance(x, dict) and x.get("name") == sys.argv[2]), None)
+except Exception:
+    e = None
+sys.exit(0 if e and e.get("ui") == [] else 1)
+PY
+    then
+      # cold CMM 2026-11-17: Administration was forced for the XASSOC route only; localedits listed no UI edit in it, so
+      # saving 0 files lost nothing. It was KEPT as UNSAVED, MendixSSO moved on without it and mx check had 2 CE0117
+      echo "   $mod: the --no-baseline route saved 0 files, and localedits ($ledits) lists no UI edits in $mod: nothing to save"
+    elif [ $nobase = 1 ] && [ "$nsaved" = 0 ]; then
       # E7-1: the --no-baseline route has no baseline to tell an edit from the package: it saved nothing
       [ $fstate = edited ] && echo "   (its theme/JavaScript FILE edits ARE saved: $st/saved/$mod)"
       echo "   UNSAVED: $mod updated through --no-baseline and saved 0 files; its UI edits (localedits, --force-ui) are NOT saved"

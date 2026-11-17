@@ -1760,6 +1760,16 @@ newapp nbu '1 1.0 NoBaseUi\n'
 ctl stepupdate-unsaved-unattended-catch 1 'KEPT: NoBaseUi .*UNSAVED' 'kept: NoBaseUi UNSAVED' -- bash $B/stepupdate.sh $S/nbu $S/nbu.plan --force-ui NoBaseUi --unattended
 newapp nbu '1 1.0 NoBaseUi\n'
 ctl stepupdate-unsaved-accept-pass 0 'accepted \(--accept-unsaved NoBaseUi\)' 'committed' 'UNSAVED \(replay by hand\): NoBaseUi 1.0' -- bash $B/stepupdate.sh $S/nbu $S/nbu.plan --force-ui NoBaseUi --accept-unsaved NoBaseUi
+# cold CMM 2026-11-17: a module forced for another route (XASSOC) whose localedits list no UI edit loses nothing when the
+# --no-baseline route saves 0 files: committed, not KEPT as UNSAVED; one whose localedits list UI edits is still kept
+printf '[{"name": "NoBaseUi", "domain": [], "ui": [], "logic": [], "files": []}]' > $V/le-noui.json
+printf '[{"name": "NoBaseUi", "domain": [], "ui": [{"change": "CHANGED", "kind": "page", "name": "NoBaseUi.P"}], "logic": [], "files": []}]' > $V/le-ui.json
+newapp nbu '1 1.0 NoBaseUi\n'
+ctl stepupdate-unsaved-no-ui-edits-catch 0 'lists no UI edits in NoBaseUi: nothing to save' 'committed' '!KEPT' '!UNSAVED' -- bash $B/stepupdate.sh $S/nbu $S/nbu.plan --force-ui NoBaseUi --unattended --localedits $V/le-noui.json
+newapp nbu '1 1.0 NoBaseUi\n'
+ctl stepupdate-unsaved-ui-edits-listed-pass 1 'KEPT: NoBaseUi .*UNSAVED' '!nothing to save' -- bash $B/stepupdate.sh $S/nbu $S/nbu.plan --force-ui NoBaseUi --unattended --localedits $V/le-ui.json
+mkdir -p $V/pwle; echo '[]' > $V/pwle/localedits.json
+ctl pipeline-dry-stepupdate-localedits-catch 0 'stepupdate\.sh .* --unattended.* --localedits .*/pwle/localedits\.json' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only update --dry-run
 # v3.1 E6-7: a removal (idcheck verdict REVIEW) is named REVIEW in the KEPT line, a GUID change stays a plain finding
 mkdir -p $S/base; cp $M/base/App.mpr $S/base/
 newapp rv '1 1.0 Removes\n'; cp $M/step1-adds/App.mpr $S/rv/App.mpr; git -C $S/rv commit -qam 'start at step1-adds'
