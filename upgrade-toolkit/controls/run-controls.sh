@@ -1624,6 +1624,17 @@ mkdir -p $NJ/w13; printf '1 1.0 Administration\n' > $NJ/w13/plan.txt
 ctl pipeline-no-plan-pre-catch 0 'needs judgment \(exit 13\)' 'plan-pre.txt missing on a 10.x to 11 run' '!mx convert exit' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13 --from convert --only convert; cat $NJ/w13/NEEDS-JUDGMENT.md"
 mkdir -p $NJ/w13b; printf '1 1.0 Administration\n' > $NJ/w13b/plan.txt; printf '# nothing before the convert\n' > $NJ/w13b/plan-pre.txt
 ctl pipeline-plan-pre-stated-pass 0 '!plan-pre.txt missing' 'convert' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13b --from convert --only convert; cat $NJ/w13b/NEEDS-JUDGMENT.md 2>/dev/null; true"
+# WM1 cold test 2026-11-17: 16 judgment stops, one question each. Interview mode auto parks a stop nothing later depends on
+# (here the gate's release-impact and kept-modules stops), goes on, and asks every parked item in one grouped list at the end
+for d in ga gm; do mkdir -p $NJ/$d; printf 'Admin 1.0\n' > $NJ/$d/kept.txt; printf '# release impact\n' > $NJ/$d/release-impact.md; done
+printf 'Interview mode: auto\n' > $NJ/ga/interview-mode.txt
+ctl pipeline-auto-parks-all-pass 12 '^PARKED  gate: exit 12 parked' '^PARKED  gate: exit 13 parked' '2 parked item\(s\) to answer in one round \(exit 12\)' '^# Modules and data: 1$' '^# Screens, comparisons and the gate: 1$' '--from gate$' '!PASS    gate' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/ga --only gate; rc=\$?; cat $NJ/ga/NEEDS-JUDGMENT.md; exit \$rc"
+ctl pipeline-auto-off-stops-first-catch 12 'needs judgment \(exit 12\)' '!PARKED' '!kept modules' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/gm --only gate; rc=\$?; cat $NJ/gm/NEEDS-JUDGMENT.md; exit \$rc"
+# a stop that later steps depend on is never parked: the plan-pre stop of F13 still ends the run in auto mode
+mkdir -p $NJ/w13a; printf '1 1.0 Administration\n' > $NJ/w13a/plan.txt
+ctl pipeline-auto-hard-stop-still-stops-catch 0 'needs judgment \(exit 13\)' '!PARKED' '!mx convert exit' -- bash -c "UPG_INTERVIEW_MODE=auto MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13a --from convert --only convert; true"
+# a step that runs again parks afresh: the gate rerun after the acks leaves nothing parked and reaches the PASS summary
+ctl pipeline-auto-rerun-clears-pass 0 'PASS    gate' '!PARKED' '!parked item' -- bash -c "cp $NJ/ga/kept.txt $NJ/ga/kept-ack.txt; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > $NJ/ga/release-impact.md; MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/ga --only gate"
 newapp o11b '1 1.0 Old11Base\n'
 ctl stepupdate-pre1021-baseline-pass 0 'installed Old11Base cannot serve as the local-edit baseline \(range from 10.21.0 to 10.24.99\)' 'committed' '!SKIP' -- bash $B/stepupdate.sh $S/o11b $S/o11b.plan --unattended
 newapp o11 '1 1.0 Old11Pkg\n'

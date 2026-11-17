@@ -21,6 +21,8 @@ Q=""
 nj_file() { echo "STOP $1: $2"; Q=$1; }
 nj_add() { echo "STOP $1: $2"; Q=$1; }
 nj_flush() { [ -z "$Q" ] || { echo "EXIT $Q"; exit "$Q"; }; }
+nj_park() { nj_flush; }   # Interview mode is not auto here: a parkable stop stops
+parked_any() { false; }
 commit_app() { git_app add -A; git_app commit -qm "$1"; echo "commit: $1"; }
 write_summary() { :; }
 record_runlog() { :; }

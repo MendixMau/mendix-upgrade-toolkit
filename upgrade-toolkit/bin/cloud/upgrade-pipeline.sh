@@ -36,6 +36,10 @@
 #   15 the owner paused the run on purpose (`Status: PAUSED <reason>` in PROPOSAL.md); NEEDS-JUDGMENT.md has the resume command
 # Interview mode unattended (env UPG_INTERVIEW_MODE=unattended, or a line `Interview mode: unattended` in $WORK/interview-mode.txt):
 # the propose step signs nothing, records ASSUMED (unattended) in DECISIONS.md, goes on, and every report says 'proposal not signed'.
+# Interview mode auto (UPG_INTERVIEW_MODE=auto, or `Interview mode: auto`): the same at propose, and a judgment stop that nothing
+# after it depends on (journeys, idcheck, smoke walk, diff, gate: nj_park) is parked in $WORK/parked/<step>.md and the run goes on;
+# at the end NEEDS-JUDGMENT.md lists every parked item grouped by kind (bin/parked.py) and the run exits with the first code.
+# A build or start failure, a missing plan or a replay that cannot be undone still stops at once (nj_flush).
 # Decisions (bin/decisions.py): at the start of the run and of every step the pipeline applies $WORK/decisions.json (the page buttons
 # and the chat share it); after every step, and when a step stops, it regenerates $WORK/COCKPIT.html (bin/cockpitpage.py).
 # Hidden options for rung 2 (set by this script): --db NAME --old-mda PATH --seed-from DB
@@ -240,6 +244,31 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
   exit "$NJ_CODE"
+}
+# WM1 cold test 2026-11-17: 16 stops, one question each, most answered with the recommendation. Auto mode parks the stops
+# nothing later depends on and asks them all at the end (park_finish).
+nj_park() { # like nj_flush, but in Interview mode auto the items go to $WORK/parked/$STEP.md and the step goes on
+  [ "$NJ_CODE" != 0 ] || return 0
+  if [ "$DRY" = 1 ] || ! interview_auto; then nj_flush; return 0; fi
+  mkdir -p "$WORK/parked"
+  { printf '<!-- park exit %s step %s -->\n' "$NJ_CODE" "$STEP"; cat "$NJ_TMP"; } >> "$WORK/parked/$STEP.md"
+  say "PARKED  $STEP: exit $NJ_CODE parked (Interview mode: auto), the run goes on; $WORK/parked/$STEP.md"
+  : > "$NJ_TMP"; NJ_CODE=0
+}
+parked_any() { [ -n "$(ls "$WORK/parked" 2> /dev/null)" ] || { [ "$(basename "$WORK")" = rung2 ] && [ -n "$(ls "$WORK/../parked" 2> /dev/null)" ]; }; }
+park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, exit with the first parked code
+  [ "$DRY" != 1 ] && parked_any || return 0
+  local also=() out first code step
+  [ "$(basename "$WORK")" != rung2 ] || [ ! -d "$WORK/../parked" ] || also=(--also "$(cd "$WORK/.." && pwd)/parked")
+  out=$(python3 "$B/parked.py" report --work "$WORK" --steps "${STEPS[*]}" ${also[@]+"${also[@]}"}) || return 0
+  first=$(printf '%s\n' "$out" | tail -n 1); code=$(echo "$first" | cut -d' ' -f2); step=$(echo "$first" | cut -d' ' -f3)
+  STEP=$step
+  { printf '%s\n' "$out" | sed '$d'
+    printf '\nRerun once, after the answers, from the first parked step (%s; a rung-1 step: the rung-1 command with --from %s):\n\n    %s\n' "$step" "$step" "$(rerun_cmd)"
+  } > "$WORK/NEEDS-JUDGMENT.md"
+  cockpit_regen
+  say "STOP    auto: $(grep -c '^<!-- parked at' "$WORK/NEEDS-JUDGMENT.md") parked item(s) to answer in one round (exit $code), see $WORK/NEEDS-JUDGMENT.md"
+  exit "$code"
 }
 
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
@@ -748,14 +777,18 @@ step_basewalk() {
   if [ "$rc" != 0 ]; then
     nj_file 11 "Always-on journeys are not all PASS on the OLD app (exit $rc): fix the journey, drop it, or write the todo" "$WORK/journeys-base.out" 40 'FAIL|INVALID|todo|skipped|INFO'
     nj_add 11 "Plan items" "plan: $WORK/journeys-base/plan.json (skipped, todo, not_browser). An MFA journey needs a user with an MFA type (users.json \`_mfa\`); this script cannot create one."
-    nj_flush
+    nj_park
   fi
 }
 
 # propose (trust spec section 2): nothing in the app model changes before a person signs $WORK/PROPOSAL.md.
 # Scripts: action_inventory.py + apimock.py inventory on the original model (their output is a proposal input), proposal.py.
-interview_unattended() {
-  [ "${UPG_INTERVIEW_MODE:-}" = unattended ] || grep -qiE '^Interview mode:[[:space:]]*unattended' "$WORK/interview-mode.txt" 2> /dev/null
+interview_unattended() { # auto takes the recommendations at propose the same way
+  case "${UPG_INTERVIEW_MODE:-}" in unattended|auto) return 0 ;; esac
+  grep -qiE '^Interview mode:[[:space:]]*(unattended|auto)' "$WORK/interview-mode.txt" 2> /dev/null
+}
+interview_auto() {
+  [ "${UPG_INTERVIEW_MODE:-}" = auto ] || grep -qiE '^Interview mode:[[:space:]]*auto' "$WORK/interview-mode.txt" 2> /dev/null
 }
 scope_run() { # journey_scope.py on the OLD model: sets SC=(--scope FILE) for gen_journeys.py, or SC=() when it cannot run
   SC=()
@@ -1051,7 +1084,7 @@ step_update() {
   xo "$WORK/idcheck-total.out" python3 "$B/idcheck.py" "$WORK/original.mpr" "$MPR" --md "$WORK/idcheck-total.md" "${ap[@]}" || rc=$?
   if [ "$rc" != 0 ]; then
     nj_file 13 "Total idcheck (original vs now) has open data-bearing findings (exit $rc)" "$WORK/idcheck-total.md" 30
-    nj_flush
+    nj_park
   fi
 }
 
@@ -1205,7 +1238,7 @@ step_afterwalk() {
   mark_used "$db" walk
   if [ "$rc" != 0 ]; then
     nj_file 12 "Smoke walk vs baseline (exit $rc: 1 = a PASS step regressed or broke, 2 = INVALID): a gate FAIL/INVALID, not a pass" "$LOG" 40 'REGRESS|FAIL|INVALID'
-    nj_flush
+    nj_park
   fi
 }
 
@@ -1264,7 +1297,7 @@ step_journeys() {
     # (pipe-29). Stop before the apps start: the fix is a line in processes.md
     if grep -q '^INVALID' "$WORK/processes.out"; then
       nj_file 11 "A confirmed process is INVALID: fix processes.md (or set the process to status: dropped), then rerun --from journeys" "$WORK/processes.out" 20 '^INVALID'
-      nj_flush
+      nj_park
     fi
   fi
   fixtures_start
@@ -1308,7 +1341,7 @@ step_journeys() {
     # that into "only SCREEN REVIEW lines" (stop 12) for a run that had FAIL lines
     nj_file "$code" "Journeys on the NEW app (exit $rc): REGRESSION/FAIL is a gate FAIL, INVALID blocks DONE, SCREEN REVIEW needs both images opened and a reason in shot-accept.txt" "$WORK/journeys-after.out" 60 'REGRESSION|NOT IN BASELINE|INVALID|FAIL|SCREEN|todo|skipped|journeys:'
     nj_add "$code" "Evidence" "summary: $WORK/e2e-after/after/summary.json ; plan: $WORK/journeys/plan.json ; screens: $WORK/e2e-after"
-    nj_flush
+    nj_park
   fi
 }
 
@@ -1601,7 +1634,7 @@ step_diff() {
     local hn; hn=$(python3 "$B/heal.py" nj --work "$WORK" 2> /dev/null || true)
     [ -z "$hn" ] || nj_add 12 "Heal: rows that may be real defects of the upgrade (no automatic fix)" "$hn"
   fi
-  nj_flush
+  nj_park
 }
 
 # gate: release impact, kept modules, written verdict. Scripts: release_impact.py --check
@@ -1617,20 +1650,20 @@ step_gate() {
     nj_file 12 "Gate items NOT RUN by the pipeline (steps/baseline.md item 4: the mutant control must FAIL)" "$WORK/state/notes.txt" 20 'NOT RUN|NOT replayed'
     nj_add 12 "Decision" "Run each item by hand and record the result, or write the reason it does not apply, in $WORK/notrun-ack.txt; then rerun --from gate."
   fi
-  nj_flush
+  nj_park
   # kept modules: complete except kept, unless a person acknowledged the list
   if [ "$DRY" != 1 ] && [ -s "$WORK/kept.txt" ] && [ ! -f "$WORK/kept-ack.txt" ]; then
     nj_file 13 "upgrade complete except kept modules (never reported as upgraded)" "$WORK/kept.txt" 40
     nj_add 13 "Decision" "Update them by hand (steps/upgrade.md, playbooks/edited-modules.md), or acknowledge the list: copy $WORK/kept.txt to $WORK/kept-ack.txt (then the verdict says 'complete except kept modules')."
-    nj_flush
+    nj_park
   fi
   # held replays: the module is updated but its local edits are not back (replay_edits)
   if [ "$DRY" != 1 ] && [ -s "$WORK/replay-held.txt" ] && [ ! -f "$WORK/replay-held-ack.txt" ]; then
     nj_file 13 "upgrade complete except held replays (the local edits of these modules are NOT in the app)" "$WORK/replay-held.txt" 40
     nj_add 13 "Decision" "Fix the replay (its log is named per line) and rerun --from upgrade, or acknowledge the loss in writing: copy $WORK/replay-held.txt to $WORK/replay-held-ack.txt with a reason per line."
-    nj_flush
+    nj_park
   fi
-  write_summary
+  parked_any || write_summary   # auto: a parked item is never a PASS; park_finish asks them at the end
   record_runlog || true
 }
 
@@ -1731,7 +1764,7 @@ run_step() { # run_step NAME
     printf '%-10s %s\n' "$STEP" "skipped (done $(cat "$WORK/state/$STEP.done"))"; return 0
   fi
   mxcli_pin "$STEP"
-  [ "$DRY" = 1 ] || : > "$NJ_TMP"
+  [ "$DRY" = 1 ] || { : > "$NJ_TMP"; rm -f "$WORK/parked/$STEP.md"; }   # a step that runs again parks afresh
   NJ_CODE=0
   case " convert update build after afterwalk journeys heal apidirect diff gate " in
     *" $STEP "*) if [ "$DRY" != 1 ] && [ -f "$WORK/PROPOSAL.md" ]; then proposal_recheck; fi ;;
@@ -1762,7 +1795,7 @@ main() {
     if [ "$s" != fetch ]; then resolve_app; fi
     run_step "$s"
   done
-  [ -z "$ONLY" ] || exit 0
+  [ -z "$ONLY" ] || { park_finish; exit 0; }
   # rung 2 (steps/upgrade.md rule: 10.24 first, then 11): the same pipeline, new app of rung 1 is the old app of rung 2
   if [ -n "$TARGET2" ]; then
     say "rung 2   $TARGET -> $TARGET2 in $WORK/rung2"
@@ -1775,12 +1808,13 @@ main() {
       [ ! -s "$WORK/state/mxcli-version" ] || [ -s "$WORK/rung2/state/mxcli-version" ] || cp "$WORK/state/mxcli-version" "$WORK/rung2/state/mxcli-version"
       # one step file for both versions: rung 2 appends to the steps.jsonl of rung 1
       touch "$WORK/steps.jsonl"; [ -e "$WORK/rung2/steps.jsonl" ] || ln -s ../steps.jsonl "$WORK/rung2/steps.jsonl"
-      for s in env-values.json create-spec.json localedits.args; do
+      for s in env-values.json create-spec.json localedits.args interview-mode.txt; do
         [ ! -f "$WORK/$s" ] || [ -f "$WORK/rung2/$s" ] || cp "$WORK/$s" "$WORK/rung2/$s"
       done
     fi
     exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi
+  park_finish
   exit 0
 }
 main
