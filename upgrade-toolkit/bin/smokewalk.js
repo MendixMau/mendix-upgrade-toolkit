@@ -3,7 +3,8 @@
 // Per role: log in, then for each step go home, click the menu item (or home button), wait until the
 // expected page is the content form (or a popup opened), and record client errors.
 // PASS    = landed on the expected page, no page error, no console error, no Mendix error dialog, and the document does
-//           not show the login form or an "An error occurred" dialog (landedOk, T3-6; also checked after the home step).
+//           not show the login form, an "An error occurred" dialog or a widget's own error box (landedOk, T3-6; also checked
+//           after the home step).
 // FAIL    = an error, or it landed somewhere else / nothing opened.
 // INVALID = could not judge (no credentials for the role, login failed, menu link not rendered).
 //
@@ -153,6 +154,12 @@ function landedOk() {
     const dlg = all('.mx-dialog, .modal-dialog, .mx-dialog-error').filter(shown)
       .find(e => /An error occurred/i.test(e.textContent || ''));
     if (dlg) return 'error dialog is showing: ' + String(dlg.textContent).replace(/\s+/g, ' ').trim().slice(0, 160);
+    // cold CMM: Data grid 2.30 with the DataWidgets 2.x filters rendered "The Text filter widget must be placed inside the
+    // header of the Data grid 2.0 or Gallery widget" in red boxes in place of every filter, and the step PASSed (23/23).
+    // A widget's own error box is not an app message; a validation message (.mx-validation-message) is left alone.
+    const werr = all('.alert-danger').filter(shown)
+      .find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || '') && /widget/i.test(e.textContent || ''));
+    if (werr) return 'widget error is showing: ' + String(werr.textContent).replace(/\s+/g, ' ').trim().slice(0, 160);
     return null;
   } catch (e) { return 'page could not be inspected: ' + String(e && e.message || e).slice(0, 100); }
 }

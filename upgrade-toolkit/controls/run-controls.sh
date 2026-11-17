@@ -1123,6 +1123,8 @@ ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +la
 # T3-6: a step is judged by what the browser shows: the login form and the "An error occurred" dialog FAIL, a clean page passes
 ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok +landedOk error dialog .*FAIL wanted' '^ok +landedOk clean page .*PASS wanted' \
   '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
+# cold CMM: a page full of widget error boxes ("The Text filter widget must be placed inside the header ...") PASSed 23/23
+ctl smokewalk-landedok-widget-error-catch 0 '^ok +landedOk fake widget error box: got true' '^ok +landedOk fake validation message: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 # T6R-9: the compare pools repeated walks (fixtures/smoke/, --rejudge = no browser). A new error the old walks never showed
 # is a REGRESSION, also when intermittent; the old app's own intermittent error on the new side is FLAKY on both (exit 2)
 SW="node $B/smokewalk.js"; SF=$FX/smoke

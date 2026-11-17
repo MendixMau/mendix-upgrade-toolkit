@@ -67,6 +67,9 @@ const PAGES = {
   'mx error dialog class': ['<div class="mx-dialog mx-dialog-error"><div>An error occurred while ...</div></div>', /error dialog is showing/],
   'clean page': ['<div class="mx-name-page1"><h1>Home</h1><div class="mx-dialog" style="display:none">An error occurred (hidden template)</div><button class="mx-name-loginButtonLookalike2">Not login</button></div>', null],
   'other dialog': ['<div class="modal-dialog"><div class="modal-content">Are you sure you want to delete?</div></div>', null],
+  'widget error box (dg2.30 with 2.x filters)': ['<div class="mx-name-dataGrid21"><div class="alert alert-danger">The Text filter widget must be placed inside the header of the Data grid 2.0 or Gallery widget.</div></div>', /widget error is showing: The Text filter widget must be placed/],
+  'validation message': ['<div class="mx-name-textBox1"><input><div class="alert alert-danger mx-validation-message">The widget value is required</div></div>', null],
+  'app alert text': ['<div class="alert alert-danger">3 lots expire this week</div>', null],
   'hidden login form': ['<form style="display:none"><input type="password"><button id="loginButton"></button></form><h1>Home</h1>', null],
 };
 function pwLoad() {
@@ -99,6 +102,10 @@ function pwLoad() {
   check('landedOk fake error dialog', /error dialog/.test(landedOk() || ''), true);
   global.document = fake([hidden('#loginButton'), hidden('input[type=password]'), hidden('.mx-dialog', 'An error occurred'), shown('.mx-dialog', 'Saved')]);
   check('landedOk fake clean page', landedOk(), null);
+  global.document = fake([shown('.alert-danger', 'The Date filter widget must be placed inside the header')]);
+  check('landedOk fake widget error box', /widget error is showing/.test(landedOk() || ''), true);
+  global.document = fake([Object.assign(shown('.alert-danger', 'widget value required'), { className: 'alert alert-danger mx-validation-message' }), hidden('.alert-danger', 'widget broken')]);
+  check('landedOk fake validation message', landedOk(), null);
   global.document = { querySelectorAll() { throw new Error('boom'); } };
   check('landedOk when inspection throws is not a pass', /could not be inspected/.test(landedOk() || ''), true);
   // T8R B2-3: a home step on the plan's login page is SKIPPED as an API-only role, other home pages are walked
