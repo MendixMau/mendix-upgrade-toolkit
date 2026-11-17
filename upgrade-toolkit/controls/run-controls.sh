@@ -535,8 +535,8 @@ ctl datamove-lost-catch 1 '^LOST .*: 5 before, 3 after$' -- $DM lost
 ctl datamove-count-fail-catch 1 '^UNCOUNTED .*count failed after$' -- $DM fail
 ctl datamove-bad-plan-catch 2 "not 'Src.Entity.Attr -> Dst.Entity.Attr'" -- $DM bad
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
-ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
-ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"
+ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf"
+ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf; echo done"
 # cold WM1 #12 and cold CMM: without ~/.config/upgrade-toolkit/local.env the scanner lookup's sed failed inside $(...) and the ERR
 # trap printed "unexpected failure (exit 1) at line 624 in step 'triage'" on every machine but the author's; the run went on
 ctl pipeline-scanner-lookup-no-local-env-pass 0 '^EA=\[\]$' '!unexpected failure' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
@@ -976,6 +976,8 @@ if command -v node > /dev/null; then ctl smokewalk-predicates 0 '^ok +loggedIn w
 # R1: the React client has no mx.session.getUserName / mx.ui.getContentForm; an anonymous session is not logged in, a content page maps to its Dojo path
 ctl smokewalk-react-catch 0 '^ok +react loggedIn when anonymous' '^ok +react contentPath without page' '^ok +react landedWhere on a popup state' -- node $here/smokewalk_predicates.js
 ctl smokewalk-react-pass 0 '^ok +react loggedIn when ready' '^ok +react homeReady when ready' '^ok +react contentPath maps to the page path' '^ok +react landedWhere on the wanted page' '^ok +react landedWhere on another page' -- node $here/smokewalk_predicates.js
+# cold CMM 2026-11-17: Atlas styles .mx-window position:fixed (offsetParent null): every "Switch user" popup menu item FAILed
+ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +landedWhere hidden popup window' -- node $here/smokewalk_predicates.js
 # T3-6: a step is judged by what the browser shows: the login form and the "An error occurred" dialog FAIL, a clean page passes
 ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok +landedOk error dialog .*FAIL wanted' '^ok +landedOk clean page .*PASS wanted' \
   '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
@@ -1657,9 +1659,12 @@ ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-u
 mkdir -p $V/ltools/mxbuild-10.24.9.1 $V/ltools/mxbuild-10.24.27.1
 ctl pipeline-ladder-9-goes-through-10-24-pass 0 'version ladder 9\.24\.2\.1 -> 10\.24\.27\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-10-24-goes-straight-pass 0 'version ladder 10\.24\.3\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.3.1 --to 11.12.7 --work $V/lw --dry-run
+# cold CMM 2026-11-17: 13 of 23 walk steps were microflows, SKIPPED without a word (the notice fired only on an INVALID walk)
+ctl pipeline-smoke-mf-plan-microflow-catch 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"kind\": \"microflow\"}' > \$WORK/plan.json; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf"
+ctl pipeline-smoke-mf-opt-out-pass 0 '!microflows' '^done$' -- bash -c "WORK=\$(mktemp -d); echo '{\"kind\": \"microflow\"}' > \$WORK/plan.json; echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; UPG_SMOKE_MICROFLOWS=0; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf; echo done"
 ctl pipeline-ladder-no-10-24-toolset-catch 2 'goes to 11\.12\.7 through 10\.24: no mxbuild-10\.24\.\* toolset found, give --via' '!unexpected failure' -- env UPG_TOOLS=$V/none bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --target 10.24.1 --work $V/lw --dry-run
-# UPG_SMOKE_MICROFLOWS=1 passes --microflows to the smoke walk (WM1: a role whose home and menu are all microflows); off by default
+# UPG_SMOKE_MICROFLOWS=1 passes --microflows to the smoke walk (WM1: a role whose home and menu are all microflows); off when the plan has no microflow step
 ctl pipeline-dry-smoke-microflows-pass 0 'smokewalk\.js .* --microflows --login-path' -- env UPG_SMOKE_MICROFLOWS=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf1 --only basewalk --dry-run
 ctl pipeline-dry-smoke-microflows-off-catch 0 'smokewalk\.js .* --login-path' '!--microflows' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf0 --only basewalk --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run

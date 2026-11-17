@@ -93,7 +93,8 @@ copy's converted model.
    the baseline commit; in a parallel run `app/` is owned by triage and is converted later, NR1-6):
    `python3 $B/smokewalk_gen.py <old model folder> -o $W/plan.json`
    `node $B/smokewalk.js --plan $W/plan.json --url http://localhost:<port> --user <Role>=smoke_<role>:<pw> ... --out $W/smoke-before.json`
-   The runner skips microflow steps unless it gets `--microflows`. When smokewalk_gen prints `WARN <role>: ...` (the
+   The runner skips microflow steps unless it gets `--microflows`; upgrade-pipeline.sh passes it whenever the plan has
+   microflow steps (UPG_SMOKE_MICROFLOWS=0 turns it off, with a note). When smokewalk_gen prints `WARN <role>: ...` (the
    home is a microflow, or over half the menu items are; PV-6: every page of Product View 360 was one), add
    `--microflows` to the baseline AND the gate walk, on the X_smoke copy only: they run for real.
    Add `--shots $W/smoke-before-shots` (and `--shots $W/smoke-after-shots` after the upgrade) so the gate can compare

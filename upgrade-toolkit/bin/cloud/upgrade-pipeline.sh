@@ -18,9 +18,10 @@
 # heal (steps/heal.md): classifies every failing row, heals what belongs to the test (start noise, selection-gated buttons, a runner
 # that did not run, outside calls via apimock, known harness log lines) and reruns only the affected journeys, at most 2 rounds.
 # UPG_HEAL=0 turns it off (journeys then stops on a failure as before). Resume it with --from heal.
-# UPG_SMOKE_MICROFLOWS=1: the smoke walks (basewalk, afterwalk) also follow microflow homes and menu items (smokewalk.js
-# --microflows). Safe: each walk runs on its own copy of the frozen DB. Needed when a role reaches every page through a
-# microflow (WM1: the User home and both menu items), else that role's walk is all SKIPPED and INVALID.
+# UPG_SMOKE_MICROFLOWS: the smoke walks (basewalk, afterwalk) follow microflow homes and menu items (smokewalk.js
+# --microflows) whenever the plan has them; UPG_SMOKE_MICROFLOWS=0 turns that off. Safe: each walk runs on its own copy of
+# the frozen DB. Needed when a role reaches its pages through microflows (WM1: the User home and both menu items; cold
+# CMM: 13 of 23 steps, two roles judged on no page at all, and the skip was reported only when the walk was INVALID).
 # Each finished step writes $WORK/state/<step>.done and is skipped on the next run. Logs: $WORK/logs/<step>.log.
 # Judgment stops write $WORK/NEEDS-JUDGMENT.md. Exit codes:
 #    0 gate PASS, nothing left for a person
@@ -484,7 +485,11 @@ json.dump({r: {"user": "smoke_" + r.lower(), "pass": pw} for r in roles.split(",
 }
 # UPG_SMOKE_MICROFLOWS (header); the after walk also follows the baseline: a baseline that ran microflow steps compared
 # with a walk that skipped them gave 4 false REGRESSIONs on WM1 (rerun 7, env not set on the rerun)
-smoke_mf() { if [ "${UPG_SMOKE_MICROFLOWS:-0}" = 1 ] || grep -q '"landed": *"microflow ran"' "$WORK/smoke-before.json" 2> /dev/null; then echo --microflows; fi; }
+smoke_mf() {
+  [ "${UPG_SMOKE_MICROFLOWS:-}" != 0 ] || return 0
+  if [ "${UPG_SMOKE_MICROFLOWS:-}" = 1 ] || grep -q '"landed": *"microflow ran"' "$WORK/smoke-before.json" 2> /dev/null ||
+    grep -q '"kind": *"microflow"' "$WORK/plan.json" 2> /dev/null; then echo --microflows; fi
+}
 user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
   UARGS=(); local r
   IFS=',' read -ra _rl <<< "$1"
@@ -788,8 +793,8 @@ step_basewalk() {
   app_down oldwalk
   mark_used "$db" walk
   [ "$rc" -le 1 ] || { nj_file 11 "Smoke walk on the OLD app is INVALID (exit $rc)" "$LOG" 30 'INVALID|FAIL|credential'; }
-  [ "$rc" -le 1 ] || [ "${UPG_SMOKE_MICROFLOWS:-0}" = 1 ] || ! grep -q 'microflow (use --microflows)' "$LOG" 2> /dev/null ||
-    nj_add 11 "The smoke walk SKIPPED microflow steps" "A role that reaches its pages only through microflows (home, menu items) proves nothing without them. Rerun with UPG_SMOKE_MICROFLOWS=1: the walk runs on its own copy of the frozen DB, so their side effects stay there."
+  ! grep -q 'microflow (use --microflows)' "$LOG" 2> /dev/null ||
+    note "the smoke walk SKIPPED microflow steps (UPG_SMOKE_MICROFLOWS=0): roles that reach pages only through them are judged on less; unset it to walk them on the walk's own DB copy"
   [ "$rc" != 1 ] || note "smoke walk on the old app has FAIL steps (baseline defects, listed apart): $WORK/smoke-before.json"
   # always-on journeys
   # BT-4: baseline-evidence.txt (a NO-SIGNOUT line for an app with no sign-out UI) is read here as well as at the gate
