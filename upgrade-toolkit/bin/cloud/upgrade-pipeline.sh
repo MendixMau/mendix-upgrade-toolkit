@@ -1147,8 +1147,18 @@ step_update() {
     local rc=0
     xo "$WORK/jarclash.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md" || rc=$?
     [ "$rc" = 0 ] || note "jarclash after the updates exit $rc: classes in two jars, see $WORK/jarclash.md (clashes listed in jarclash-before.md are older than the upgrade)"
+    # a widget another module's update replaced, styled by a kept module (cold CMM: Datagrid 2.30.6 under DataWidgets' old
+    # styles; afterwalk passed every grid page, the rows rendered unstyled)
+    rc=0
+    xo "$WORK/widgetskew.out" python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt" || rc=$?
+    if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetskew-ack.txt" ]; then
+      nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
+      nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
+      nj_park
+    fi
   else
     x python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md"
+    x python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt"
   fi
   local rc=0 ap=()
   [ ! -f "$WORK/approved.txt" ] || ap=(--approved "$WORK/approved.txt")

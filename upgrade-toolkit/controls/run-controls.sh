@@ -306,6 +306,22 @@ printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2";
 cp $JC/build.log $JC/build-10.24.1.log
 ctl pipeline-build-javacjar-catch 0 '^NJ 10 An older copy of a class inside another jar hides what the code needs \(steps/repair\.md row 31\)' '^  HIDDEN BY  userlib/fat' -- bash -c ". $JC/stub.sh; WORK=$JC APP=$JC/app TARGET=10.24.1 B=$B; . $JC/nj.sh; echo done"
 ctl pipeline-build-javacjar-not-hidden-pass 0 '!^NJ' '^done$' -- bash -c ". $JC/stub.sh; WORK=$JC APP=$JC/solo TARGET=10.24.1 B=$B; . $JC/nj.sh; echo done"
+# widgetskew.py (cold CMM 10.24.28): Atlas_Web_Content 3.9.0 replaced Datagrid 2.2.2 with 2.30.6 while DataWidgets (its styles)
+# was kept; every grid page lost its layout and afterwalk passed. A widget replaced under a kept module's target package stops
+WS=$T/ws; mkdir -p $WS/app/.stepupdate $WS/cache $WS/solo/.stepupdate
+printf '%s\n' 'Atlas_Web_Content 3.9.0: Badge.mpk Badge 3.1.0 -> 3.2.2; com.mendix.widget.web.Datagrid.mpk Datagrid 2.2.2 -> 2.30.6' 'DataWidgets 3.11.8: com.mendix.widget.web.Gallery.mpk Gallery 1.0.0 -> 1.4.0' > $WS/app/.stepupdate/widgets.txt
+printf '%s\n' 'DataWidgets local theme/javascript file edits refuse the update (FILES-EDITED)' 'NoCache diagram-only edits (UNKNOWN)' > $WS/app/.stepupdate/kept.txt
+cp $WS/app/.stepupdate/widgets.txt $WS/solo/.stepupdate/
+printf '%s\n' '# plan' '117183 3.9.0 Atlas_Web_Content' '116540 3.11.8 DataWidgets' '999 1.0.0 NoCache' > $WS/plan.txt
+python3 -c 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],"w"); [z.writestr(n,b"x") for n in ("widgets/com.mendix.widget.web.Datagrid.mpk","widgets/com.mendix.widget.web.Gallery.mpk","themesource/datawidgets/web/datagrid.scss")]' $WS/cache/116540-3.11.8.mpk
+ctl widgetskew-catch 1 '^WIDGET-SKEW Datagrid 2\.2\.2 -> 2\.30\.6 \(by Atlas_Web_Content 3\.9\.0\) ships with DataWidgets 3\.11\.8' '!Badge' '!Gallery' '^NOTE NoCache 1\.0\.0: no cached package' '1 widget\(s\) replaced under a kept module; repair: steps/repair\.md row 32' -- python3 $B/widgetskew.py $WS/app --plan $WS/plan.txt --cache $WS/cache
+ctl widgetskew-nothing-kept-pass 0 '!WIDGET-SKEW' '0 kept module\(s\), 0 widget' -- python3 $B/widgetskew.py $WS/solo --plan $WS/plan.txt --cache $WS/cache
+# step_update parks on it, unless widgetskew-ack.txt accepts it
+awk '/xo "\$WORK\/widgetskew.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WS/nj.sh
+printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_park() { echo PARK; }' 'export UPG_CACHE='"$WS"'/cache; rc=0' > $WS/stub.sh
+mkdir -p $WS/w1 $WS/w2; cp $WS/plan.txt $WS/w1/; cp $WS/plan.txt $WS/w2/; : > $WS/w2/widgetskew-ack.txt
+ctl pipeline-update-widgetskew-catch 0 '^NJ 13 A module update replaced a widget whose styles stay with a kept module \(steps/repair\.md row 32\)$' '^WIDGET-SKEW Datagrid' '^NJ 13 Decision: Update the kept module' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WS/w1 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
+ctl pipeline-update-widgetskew-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WS/w2 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
