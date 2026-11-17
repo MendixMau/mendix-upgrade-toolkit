@@ -354,6 +354,14 @@ def nav_copies(qn, company, orig, app_mpr):
         src = describe(app_mpr, "page", page) or describe(orig, "page", page)
         if not src:
             continue
+        # WM1 2026-11-17: Account_Overview holds a classic data grid mxcli cannot write; describe marks it NOT re-executable
+        # and the copy came out without its user list (menu back, page empty). A copy that would drop a widget is no copy
+        if "NOT re-executable" in src:
+            w = re.search(r"--\s*(\S+ \(\w+\))\s*-- NOT re-executable", src)
+            res.append((f"page {page}: opened from the navigation, keeps the vendor layout; a copy would drop "
+                        f"{w.group(1) if w else 'a widget'} (mxcli cannot write it): copy it by hand in Studio Pro onto "
+                        f"{company} and point the menu at the copy", ""))
+            continue
         copy = f"{tmod}.{name}"
         rc, out = mx(["-p", app_mpr, "-c", f"SHOW MODULE ROLES IN {tmod}"])
         troles = {r["Role"] for r in table(out)} if rc == 0 else set()

@@ -6714,6 +6714,8 @@ ctl editroute-collect-layout-repoint-pass 0 '^Uimod.mdl: ALTER PAGES SET LAYOUT 
 # Atlas 4 (screens REVIEW); the page is copied to the app's module for copies, on the company layout, the menu pointed at it
 ctl editroute-collect-nav-page-copied-pass 0 "^Uimod.mdl: create or modify page Brand.Acct folder 'Pages' \\($" '^Uimod.mdl:   Layout: Brand.Main$' '^Uimod.mdl: grant view on page Brand.Acct to Brand.Administrator;$' '^Uimod.mdl:   menu item .Accounts. \( OnClick: show page Brand.Acct ' 'no Brand role for Uimod.Auditor: not granted' '!^Uimod.mdl:   app (title|icon)' -- env NAVCOPY=home $ER collect
 ctl editroute-collect-nav-page-no-home-held-catch 0 '^HELD Uimod page Uimod.Acct: opened from the navigation, keeps the vendor layout; no app module holds copies' '!Brand.Acct' -- env NAVCOPY=nohome $ER collect
+# WM1 2026-11-17: the copy of a page with a widget mxcli cannot write came out without it (Account_Overview, no user list)
+ctl editroute-collect-nav-page-unwritable-widget-held-catch 0 '^HELD Uimod page Uimod.Acct: opened from the navigation, keeps the vendor layout; a copy would drop Forms\$DataGrid \(grid12\)' '!create or modify page Brand.Acct' '!show page Brand.Acct' -- env NAVCOPY=grid $ER collect
 # WM1 rerun 5: a dropped association with no data (non-persistent owner) is an info row, and the app still used it (CE1613)
 ctl editroute-xassoc-no-data-assoc-pass 0 '^ROUTE Target XASSOC: the update drops 2 association' '^approved-step.txt: Other.Np_B ' -- $ER plan
 ctl editroute-collect-check-held-catch 0 '^HELD Uimod snippet Bad: mxcli check refuses' '!BROKEN.*Uimod.mdl|Uimod.mdl:.*BROKEN' -- $ER collect
