@@ -169,6 +169,7 @@ An item is done only when its "done when" check holds on a real app, not when th
 | 152 | Journeys take 3 h or more on a mid-size app, and a stopped journeys step restarts from the first journey (cold CMM, cold WM1) | journeys resume from the last finished journey; the cockpit shows journeys done/total | M | CMM, WM1 |
 | 153 | No app code name at run start: runlog warns, and harvest and the feedback report skip until a person writes `state/app-code` (cold CMM) | the pipeline derives the code from the app name (or asks once at triage) and writes `state/app-code` for rung 1 and rung 2 (code: `app_code` writes a neutral `app-<hex>`; open until a real run harvests with it) | S | CMM |
 | 154 | Rung 2 convert stops (exit 13) for a missing `plan-pre.txt` although no update in the plan is pre-10.21 (cold CMM run 12) | triage writes an empty `plan-pre.txt` with a comment when there is nothing to update before the convert | S | CMM |
+| 155 | A grid column filter on an attribute Data Widgets 3.x cannot filter (over an association to an external entity, calculated) shows a red box only after the DataWidgets update (cold CMM) | widgetdrop-style model check before the build: a 3.x filter in a column whose attribute is not filterable, named per page | M | CMM |
 
 ## Done (14 Oct, remedy trial round)
 

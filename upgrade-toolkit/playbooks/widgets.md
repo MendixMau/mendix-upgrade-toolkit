@@ -167,6 +167,12 @@ resets properties that do not exist in the new version. Seen:
   rewrites the filter to the 2.x definition and drops the association settings; on 3.x later the filter is back in
   attribute mode and shows "Unable to get filter store". `bin/widgetdrop.py` names such losses before the build
   (steps/repair.md row 33).
+- Data Widgets 3.x refuses a filter on an attribute it cannot filter (cold CMM rung 1 and 2): the MaterialHandler
+  dashboard's Mixes grid has a "Material Nr." column over an association to an external (OData) entity
+  (`MasterData.Recipes.MaterialNumber`). The 2.x filter took it without a word; the 3.x filter checks the attribute's
+  `filterable` and draws "The attribute is not filterable. Please choose a different attribute." in the header. The
+  9.24 original shows no box, 10.24 and 11 do. Fix in the app: take the filter off that column (or filter on an
+  attribute of the grid's own entity); it is a person's call, the filter never filtered. Smokewalk fails the page.
 
 ## 4. React-client readiness is not upgrade work, but list it
 
