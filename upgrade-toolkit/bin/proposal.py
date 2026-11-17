@@ -499,6 +499,17 @@ def major(v):
     return int(m.group(1)) if m else None
 
 
+def edited_modules(work):
+    """Modules whose comparison with their Marketplace package found the app's own edits, or could not be made (localedits.json)."""
+    try:
+        with open(os.path.join(work, "localedits.json"), encoding="utf-8") as f:
+            le = json.load(f)
+    except (OSError, ValueError):
+        return set()
+    return {m["name"] for m in le if isinstance(m, dict) and m.get("name") and
+            (m.get("domain_error") or any(m.get(k) for k in ("domain", "ui", "logic", "files")))}
+
+
 def write_steps(F, work):
     """Open (or find) one step per triage item and set found and proposed (STEP-RECORDS-PLAN.md section 3). A rerun with the
     same input adds no event; the same topic and title is the same step. Returns {step id: key} in item order.
@@ -512,8 +523,24 @@ def write_steps(F, work):
                "Make these repairs during the upgrade, as the repair table describes."),
               ("react", "Dojo to React client", "react", ("move to the React client that the toolkit makes", "moves to the React client that the toolkit makes"),
                "Move the app to the React client on the last rung: every legacy widget to its React successor, then test (playbooks/dojo-to-react.md).")]
+    carry = edited_modules(work)
     for topic, title, key, what, prop in groups:
         its = [x for x in F.items2 if x["key"].startswith(key + ":")]
+        if topic == "modules":
+            # a module with the app's own edits is no routine swap (the owner, 2026-11-17): it goes ahead and the edits are carried
+            # over, but the screens that use them are checked on both apps after the build; only a difference asks a person
+            ed = [x for x in its if x["key"].split(":", 1)[1] in carry]
+            its = [x for x in its if x not in ed]
+            if ed:
+                names = [x["key"].split(":", 1)[1] for x in ed]
+                sid = steps.ensure(work, "module-edits", "Module updates that carry the app's edits", {
+                    "found_say": f"{len(ed)} module {'update holds' if len(ed) == 1 else 'updates hold'} the app's own edits ({', '.join(names)}).",
+                    "stage": "triage", "evidence": [x["text"] for x in ed],
+                    "proposed_say": "Update these modules and carry every edit over to the new version. After the build, compare the screens "
+                                    "that use them on the old and the new app. A difference becomes a decision with its case.",
+                    "why": "Not routine: the update replaces the whole module, so each edit has to come back. It goes ahead with the plan "
+                           "(in auto mode at once) and asks a person only when a screen differs.", "closes_by": ["build", "journeys"]})
+                out[sid] = "2:module-edits"
         if not its:
             continue
         sid = steps.ensure(work, topic, title, {
@@ -777,6 +804,14 @@ def main():
         print(f"proposal: PAUSED by the owner: {so[1]}. Resume: remove the Status line and sign, then rerun the pipeline.")
         return 15
     if so and so[0] == "signed" and prev_hash == hashval:
+        # same plan, newer wording (cold test WM1: the signed cards kept saying "keep old version" after the toolkit
+        # recommended the update): re-render the items, the person's sign-off section is copied over as written
+        i = old.find("\n## 6. Sign-off\n")
+        cur = render(F, hashval, None, old[i + len("\n## 6. Sign-off\n"):].strip("\n")) if i >= 0 else old
+        if cur != old and parse_signoff(cur) == so:
+            with open(out_path + ".tmp", "w", encoding="utf-8") as f:
+                f.write(cur)
+            os.replace(out_path + ".tmp", out_path)
         n = accept_answers(so[1])
         approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
@@ -802,7 +837,11 @@ def main():
         rows = [("P-0", "proposal", "proposal", "continue without a sign-off", "Interview mode: unattended signs nothing; the run goes on at the recommendations")]
         rows += [(it["id"], it["name"], it["kind"], it["rec"], "unattended: recommendation taken, nobody asked") for it in F.items3]
         write_decisions(F, rows, "-", "ASSUMED (unattended)", "a person signs PROPOSAL.md section 6")
-        approve_steps(a.work, sids, "assumed", "agent", "unattended")
+        # routine work with a known result (section 2) goes ahead in auto mode; only a real decision waits for a person (the owner, 2026-11-17)
+        routine = {s: k for s, k in sids.items() if k.startswith("2:")}
+        approve_steps(a.work, {s: k for s, k in routine.items() if k != "2:module-edits"}, "approved", "agent", steps.ROUTINE)
+        approve_steps(a.work, {s: k for s, k in routine.items() if k == "2:module-edits"}, "approved", "agent", steps.CARRY)
+        approve_steps(a.work, {s: k for s, k in sids.items() if s not in routine}, "assumed", "agent", "unattended")
         print("proposal: not signed (unattended): ASSUMED (unattended) lines in DECISIONS.md; every report says 'proposal not signed'")
         return 0
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")

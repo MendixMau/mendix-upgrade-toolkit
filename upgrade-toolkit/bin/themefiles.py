@@ -43,6 +43,9 @@ GEN = re.compile(r"generated", re.I)
 # nobody edited, and the module read as FILES-EDITED. A file whose first line says it is auto-generated and must not be
 # modified is the tool's output, not a person's edit: it is not compared.
 WHOLEGEN = re.compile(r"auto-?generated.*do not (modify|edit)", re.I)
+# files the OS writes into any folder it shows (Finder, Explorer): no edit when the app has one or lacks the package's
+# (cold CMM: DataWidgets got a plan card "themesource edits" for one .DS_Store that the package held and the app did not)
+OSJUNK = re.compile(r"(^|/)(\.DS_Store|\._[^/]*|Thumbs\.db|desktop\.ini)$", re.I)
 VAR = re.compile(r"^\s*(\$[\w-]+)\s*:\s*(.+?)\s*;\s*(?://.*)?$")
 
 
@@ -113,7 +116,8 @@ def app_files(app, mod):
             for base, _, files in os.walk(os.path.join(top, d)):
                 for f in files:
                     p = os.path.join(base, f)
-                    out[os.path.relpath(p, app).replace(os.sep, "/")] = open(p, "rb").read()
+                    if not OSJUNK.search(f):
+                        out[os.path.relpath(p, app).replace(os.sep, "/")] = open(p, "rb").read()
     return out
 
 
@@ -122,7 +126,7 @@ def pkg_files(mpk, mod):
     with zipfile.ZipFile(mpk) as z:
         for n in z.namelist():
             parts = n.split("/")
-            if len(parts) < 3 or parts[0] not in dict(ROOTS) or parts[1].lower() != mod.lower() or n.endswith("/"):
+            if len(parts) < 3 or parts[0] not in dict(ROOTS) or parts[1].lower() != mod.lower() or n.endswith("/") or OSJUNK.search(n):
                 continue
             out[n] = z.read(n)
     return out

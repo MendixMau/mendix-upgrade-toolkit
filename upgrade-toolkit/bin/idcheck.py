@@ -36,6 +36,8 @@ Findings:
   warn MODULE_RECREATED  (MPR on both sides) a module with 3 or more units shares no unit id with its old self: it was
                 deleted and re-imported, not updated (NS-7: DataWidgets 2.27.6 in notification-service cc318c0b, every
                 unit new and 12 own pages rewritten, reverted the next day). A warning: the exit code does not change.
+                info instead when every element identity of the module is kept (WM1: mxcli's update copies documents
+                with new unit ids, the data is safe); warn when one changed or the module has none to compare.
   RED = the element holds data: persistent entity, stored attribute of a persistent entity,
         association whose both ends are persistent.
 """
@@ -373,9 +375,19 @@ def main():
     if rec:
         lines.append("")
     for m, no, nn in rec:
-        lines.append(f"warn MODULE_RECREATED {m}: all {no} unit ids new ({nn} units now): the module was deleted and imported "
-                     f"again, not updated in place; documents that use it (pages, snippets) were rewritten too: review them, "
-                     f"or redo the update with Studio Pro's module update (NS-7)")
+        both = [(k, q) for k in ("entity", "attribute", "association") for q in old[k] if old[k][q]["module"] == m and q in new[k]]
+        kept = sum(old[k][q]["guid"] == new[k][q]["guid"] for k, q in both)
+        if both and kept == len(both):
+            # WM1 (mxcli marketplace update): every module "recreated", yet every element identity kept; the tables hang on
+            # those identities, so the data is safe. Only the documents have new unit ids.
+            lines.append(f"info MODULE_RECREATED {m}: all {no} unit ids new ({nn} units now), but all {kept} element identities "
+                         f"kept (entities, attributes, associations): an in-place copy update, the data is safe; the app's own "
+                         f"pages that use {m} may still be rewritten: diff them (git show --stat)")
+        else:
+            lines.append(f"warn MODULE_RECREATED {m}: all {no} unit ids new ({nn} units now)"
+                         + (f", {kept} of {len(both)} element identities kept" if both else ", no element identities to compare")
+                         + ": the module was deleted and imported again, not updated in place; documents that use it (pages, "
+                         "snippets) were rewritten too: review them, or redo the update with Studio Pro's module update (NS-7)")
     verdict = "FAIL" if any(x["finding"] == "GUID_CHANGED" for x in open_red) else ("REVIEW" if open_red else "PASS")
     lines += ["", f"verdict: {verdict}  (FAIL = open data-bearing GUID change; REVIEW = open data-bearing removals or"
               " persistence loss only: confirm each is intended, then add it to the approved list / allow-list)"]

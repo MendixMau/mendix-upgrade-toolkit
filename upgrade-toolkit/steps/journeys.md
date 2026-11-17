@@ -224,6 +224,16 @@ with the `defects:` line; a defect without evidence stays in FAIL, B4N1-13):
   arguments, or a journey file that is empty or not a journey: the file is named, nothing runs, B4T2-18). The gate
   shows 3 and 2 as INVALID.
 
+### Journeys that failed on the old app are not walked again (`--skip-baseline-fail`)
+
+A failure is only "worked on the old app, broken on the new one". On a 9.24 app 160 of 421 journeys failed on the old app;
+walking them on the new app took about half the journeys time and could only end in BASELINE DEFECT. The pipeline passes
+`--skip-baseline-fail` to the new-app run: a journey that FAILed on the old app and feeds no later one (a second-pass
+journey with `_path_needs`, or any journey of a set without data passes) is listed as `SKIPPED` ("failed on the old app
+too, not run on the new one"), counted in the headline, never a FAIL. A first-pass journey still runs, because it may
+create the rows a later one needs. `UPG_JOURNEYS_ALL=1` walks every journey. The cockpit's Test tab lists every journey
+with its old and its new verdict.
+
 ## Action inventory (E2E-8): the denominator, from the old model
 
 ```

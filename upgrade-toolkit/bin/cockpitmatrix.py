@@ -886,6 +886,130 @@ def _stage_ok(res):
     return res["verdict"] in ("PASS", "PASS*")
 
 
+# ---- what a finding MEANS, per item (the owner, 2026-11-17: "not just what, but what it means"); built from the run's own files ----
+def _json(work, name):
+    try:
+        with open(os.path.join(work or "", name), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _edit_means(x):
+    """What one localedits.json row means for the upgrade, in plain words."""
+    k, ch, det = x.get("kind", ""), x.get("change", ""), x.get("detail") or ""
+    if k == "layout" and ch == "CHANGED":
+        return "The app restyled this shared layout. Every page on it, Marketplace pages too, takes its look from it. The update puts the plain layout back, so those pages lose the app's look unless they move to the app's own layout."
+    if "removed by the update" in det:
+        return "The app's own document inside a Marketplace module. The update deletes it; whatever uses it breaks unless it moves to a module of the app first."
+    if k == "snippet":
+        return "The update puts the package version of this snippet back. Screens that show it look like the package again."
+    if k == "javascript":
+        return "This JavaScript action differs from the package. The update overwrites it, so a local fix in it is lost."
+    if k in ("entity", "attribute", "association") and ch == "ADDED" and x.get("data"):
+        return "The app stores its own data here. A Marketplace update removes it, and the data stored in it with it."
+    if "access rules" in det:
+        return "The app changed who may see or edit this. The update puts the package rules back, so the app's access changes."
+    if k in ("microflow", "nanoflow"):
+        return "The app changed this logic. The update overwrites it, so the app behaves like the package again."
+    return "The update overwrites this local change."
+
+
+def _edit_name(x):
+    return x.get("name") or x.get("path") or "?"
+
+
+def found_detail(rec, work):
+    """{"means": [sentences], "items": [[what, tag, tone, what it means]]} for the triage of one step, or {} when nothing is known.
+    tone: ok (nothing lost), wait (a person looks), bad (lost or broken unless someone acts)."""
+    t = rec.get("topic") or ""
+    ev = [str(e) for e in (rec["found"].get("evidence") or [])]
+    if t == "standins" or t.startswith("person:apis"):
+        inv = _json(work, "apimock-inventory.json") or {}
+        eps = inv.get("endpoints") or []
+        if not eps:
+            return {}
+        items = []
+        for e in eps:
+            why = e.get("why") or ""
+            if e.get("status") == "MOCKED":
+                items.append([e["doc"], "stand-in ready", "ok", "The tests answer this call with a stand-in, so the screens that use it can be checked."])
+            elif why.startswith("location from data"):
+                fld = why.split(":")[0].replace("location from data", "").strip()
+                items.append([e["doc"], "address from data", "wait", f"The address is read from the database ({fld}) while the app runs. The tests cannot know where it goes; a person names the real test system."])
+            elif "computed by Java action" in why:
+                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs. The toolkit cannot see it, so a person says which system this is."])
+            elif e.get("kind") == "const":
+                items.append([e["doc"], "unused address?", "wait", "A web address setting that nothing in the model reads. Either it is unused, or a Java action reads it. A person checks."])
+            else:
+                items.append([e["doc"], e.get("status", "").lower() or "open", "wait", why])
+        ok = sum(1 for i in items if i[2] == "ok")
+        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") != "MOCKED"})
+        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests.",
+                          f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
+                          f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."], "items": items}
+    if t in ("modules", "module-edits"):
+        edits = {m["name"]: m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)}
+        items, clean, touched, unknown = [], 0, [], 0
+        for e in ev:
+            m = re.match(r"module update (\S+) (\S+) -> (\S+)", e)
+            if not m:
+                continue
+            le = edits.get(m.group(1)) or {}
+            rows = [x for k in ("domain", "ui", "logic", "files") for x in (le.get(k) or [])]
+            if le.get("domain_error"):
+                unknown += 1
+                items.append([f"{m.group(1)} {m.group(2)} → {m.group(3)}", "not compared", "wait", "The toolkit could not compare this module with its Marketplace version, so local edits in it are not known."])
+            elif rows:
+                touched.append(m.group(1))
+                items.append([f"{m.group(1)} {m.group(2)} → {m.group(3)}", f"{len(rows)} local edit" + ("" if len(rows) == 1 else "s"), "wait",
+                              f"The app changed {', '.join(os.path.splitext(os.path.basename(x['path']))[0] if x.get('path') else _edit_name(x).split('.')[-1] for x in rows[:4])}{', ...' if len(rows) > 4 else ''}. "
+                              + _edit_means(rows[0]) + " The toolkit carries the edit over; the Test step compares its screens on both apps."])
+            else:
+                clean += 1
+                items.append([f"{m.group(1)} {m.group(2)} → {m.group(3)}", "no local edits", "ok", "The update swaps the whole module. Nothing of the app is lost."])
+        if not items:
+            return {}
+        means = [f"{clean} of {len(items)} modules {'has' if clean == 1 else 'have'} no local edits: a clean swap."] if clean else []
+        if touched:
+            means.append(f"{len(touched)} {'carries' if len(touched) == 1 else 'carry'} edits by the app ({', '.join(touched)}). Not routine: the update replaces the whole module and the toolkit carries each edit back.")
+            means.append("After the build, the screens that use these edits are compared on the old and the new app. The same: it goes ahead. A difference: a decision for you, with its case.")
+        if unknown:
+            means.append(f"{unknown} could not be compared, so nobody knows yet whether the app changed {'it' if unknown == 1 else 'them'}.")
+        return {"means": means, "items": items}
+    if t.startswith("module:"):
+        mod = t.split(":", 1)[1]
+        le = next((m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict) and m.get("name") == mod), {}) or {}
+        rows = [x for k in ("domain", "ui", "logic", "files") for x in (le.get(k) or [])]
+        items = [[_edit_name(x), x.get("change", "").lower(), "bad" if x.get("data") else "wait", _edit_means(x)] for x in rows]
+        if not items:
+            items = [[e[:120], "to review", "wait", "The update step stopped at this module because stored data could be dropped or changed. A person accepts that with a reason, or keeps the old version."] for e in ev]
+        data = sum(1 for x in rows if x.get("data"))
+        means = [f"The app changed this Marketplace module in {len(rows)} place" + ("" if len(rows) == 1 else "s") + "." if rows else "The update would touch data this module stores."]
+        if data:
+            means.append(f"{data} of them {'holds' if data == 1 else 'hold'} the app's own data. A plain update deletes that data, so this cannot be routine.")
+        means.append("A person picks the way: carry the edits over (recommended), move them out by hand, or keep the old version for now.")
+        return {"means": means, "items": items}
+    if t == "react":
+        items = []
+        for e in ev:
+            m = re.search(r"(\d+) x (.+?) -> (.+)$", e)
+            if m:
+                items.append([f"{m.group(1)} × {m.group(2)}", "→ " + re.sub(r"\s*\(.*$", "", m.group(3)), "ok",
+                              f"{m.group(2)} does not exist in the React client. The toolkit swaps each of the {m.group(1)} for {re.sub(r'\s*[(:].*$', '', m.group(3))}. The screen can look a bit different; the Test step checks it still works."])
+        n = sum(int(i[0].split(" ")[0]) for i in items)
+        return {"means": [f"{n} widgets in {len(items)} kind{'' if len(items) == 1 else 's'} move to their React successor.", "Nothing is lost: each swap keeps the data the widget showed. Screens can look a little different, which the screenshots in the Test step show."], "items": items} if items else {}
+    if t == "convert":
+        return {"means": ["Studio Pro's converter runs once. It moves the project to the new format and marks what it cannot convert.",
+                          "Each mark becomes a build error that the toolkit fixes, and every fix is a change you can see in the Upgrade step."],
+                "items": [[e, "convert", "ok", "A major version step; only the Mendix converter can make it."] for e in ev]}
+    if t == "person:release-rows":
+        return {"means": ["Mendix release notes between the two versions list changes that can affect an app.",
+                          "The toolkit matched them to this app. A person marks each row handled or not relevant; until then, nobody has judged them."],
+                "items": [[e, "open", "wait", "Each open row is a platform change nobody has checked against this app yet."] for e in ev]}
+    return {}
+
+
 def step_cells(rec):
     """The four cells and the drawer action of one step record. Every sentence is a template or the record's own plain text."""
     ap, pr, fd, gaps = rec.get("approval"), rec["proposed"], rec["found"], rec["gaps"]
@@ -972,13 +1096,15 @@ def step_cells(rec):
     return {"triage": triage, "plan": plan, "upgrade": upgrade, "test": test}, act
 
 
-def step_row(rec):
+def step_row(rec, work=None):
     """One overview row for one step record."""
     cells, act = step_cells(rec)
+    fd = found_detail(rec, work) if work else {}
+    act["stages"]["triage"].update(means=fd.get("means") or [], items=fd.get("items") or [])
     r = row(rec["id"], rec["title"] or rec["id"], f"{rec['id']} · {rec['topic']}", STEP_GROUP[0], cells, rec["found"].get("evidence") or [])
     r["trail"] = [act]
     r["fromSteps"] = True
-    r["story"] = {"found": [x for x in [rec["found"].get("say")] if x], "means": [],
+    r["story"] = {"found": [x for x in [rec["found"].get("say")] if x], "means": fd.get("means") or [],
                   "plan": [x for x in [rec["proposed"].get("say"), rec["proposed"].get("why")] if x]}
     if rec.get("phase"):   # a two-version upgrade: the version this step belongs to (steps.py UPG_PHASE)
         r["phase"] = rec["phase"]
@@ -1048,12 +1174,12 @@ def phases(rows):
     return sorted({r["phase"] for r in rows if r.get("phase")}, key=key)
 
 
-def merge_steps(rows, recs, item_keys=()):
+def merge_steps(rows, recs, item_keys=(), work=None):
     """Add one row per step after the derived rows of the group "app"; the rows keep step order. The same topic is the same step: a row
     that cockpit-items.json declared for a topic gives way to the step with that topic, so a topic never shows twice."""
     topics = {r["topic"] for r in recs}
     rows[:] = [r for r in rows if not (r["id"] in topics and r["id"] in item_keys and not r.get("fromSteps"))]
-    rows.extend(step_row(r) for r in recs)
+    rows.extend(step_row(r, work) for r in recs)
     order = {k: i for i, (k, _) in enumerate([GROUPS[0], STEP_GROUP] + GROUPS[1:])}
     rows.sort(key=lambda r: order[r["group"]])
 
@@ -1069,7 +1195,7 @@ def build(work, model):
     groups = list(GROUPS)
     if recs is not None:
         try:
-            merge_steps(rows, recs, set(items.get("items") or {}))
+            merge_steps(rows, recs, set(items.get("items") or {}), work)
             groups.insert(1, STEP_GROUP)
         except (KeyError, TypeError, AttributeError, ValueError):
             recs, err = None, "a step record is incomplete"
@@ -1087,10 +1213,76 @@ def build(work, model):
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
             "band": band(model, rows, chips, g, tl, kpi),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "phases": phases(rows), "ladder": ladder(work), "health": health(work),
+            "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work, model),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
-            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md")))}
+            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work)}
 
+
+def _count_line(txt):
+    """'FAIL 0 | REVIEW 2 | PASS* 1 | PASS 47' -> {'FAIL': 0, ...} from the first line that has it."""
+    for ln in (txt or "").splitlines():
+        m = re.findall(r"(PASS\*|[A-Z_]+) (\d+)(?: \||$)", ln)
+        if len(m) >= 2 and ("PASS" in dict(m) or "FAIL" in dict(m)):
+            return {k: int(v) for k, v in m}
+    return None
+
+
+# the page speaks plain words, never the gate's verdict names (control cockpit-words-no-plural-marker-pass)
+RUN_WORD = {"PASS": "passed", "PASS*": "accepted with a reason", "FAIL": "failed", "INVALID": "could not be judged",
+            "REVIEW": "to look at", "INFO": "listed only", "SKIPPED": "skipped, failed on the old app",
+            "NOT CHECKED": "not checked", "NEW_ENDPOINT": "new endpoint", "UNREACHABLE": "unreachable",
+            "CONTAMINATED": "could not be judged"}
+
+
+def _word(v):
+    return RUN_WORD.get(v, v.lower())
+
+
+def _vc(vs):
+    order = ("PASS", "PASS*", "FAIL", "INVALID", "SKIPPED", "INFO", "NOT CHECKED")
+    c = {}
+    for v in vs:
+        c[v] = c.get(v, 0) + 1
+    return ", ".join(f"{c[k]} {_word(k)}" for k in sorted(c, key=lambda k: (order.index(k) if k in order else 99, k)))
+
+
+def test_runs(work):
+    """What actually ran in the Test stage, on the old app and on the new one (the owner, 2026-11-17: "see which tests
+    actually ran, on old and new"). rows: [check, old app, new app, compared]; lists: per check every test with both
+    verdicts. Read from the stored results only; a side without a file says "not run"."""
+    rows, lists = [], {}
+    sm = {sd: cp.rj(os.path.join(work, f"smoke-{sd}.json")) for sd in ("before", "after")}
+    if any(sm.values()):
+        per = {}
+        for i, sd in enumerate(("before", "after")):
+            for r in (sm[sd] or {}).get("roles", []):
+                for st in r.get("steps", []):
+                    per.setdefault(f"{r['role']}: {st.get('caption')}", ["not run", "not run"])[i] = st.get("verdict", "?")
+        side = lambda i: (cp.pl(sum(1 for v in per.values() if v[i] != 'not run'), "page") + ": " + _vc(v[i] for v in per.values() if v[i] != "not run")) if sm[("before", "after")[i]] else "not run"
+        scr = _count_line(cp.rd(os.path.join(work, "screens.out")))
+        rows.append(["Page walk", side(0), side(1), (f"{sum(scr.values())} screenshot pairs: " + ", ".join(f"{v} {_word(k)}" for k, v in scr.items() if v)) if scr else "screenshots not compared"])
+        lists["Page walk"] = [[k] + [_word(x) if x != "not run" else x for x in v] for k, v in sorted(per.items())]
+    js = {sd: cp.rj(os.path.join(work, f)) for sd, f in (("old", "e2e-before-picked/before-picked/summary.json"), ("new", "e2e-after/after/summary.json"))}
+    if any(js.values()):
+        ids = sorted(set().union(*[set((d or {}).get("journeys", {})) for d in js.values()]))
+        vv = {sd: {j: x.get("verdict", "?") for j, x in ((d or {}).get("journeys") or {}).items()} for sd, d in js.items()}
+        jf = {sd: os.path.join(work, f) for sd, f in (("old", "e2e-before-picked/before-picked/summary.json"), ("new", "e2e-after/after/summary.json"))}
+        # WM1 2026-11-17: a rerun walks the old app first; the new app's file was still the one of the run before
+        stale = js["old"] and js["new"] and os.path.getmtime(jf["new"]) < os.path.getmtime(jf["old"])
+        if stale:
+            js["new"], vv["new"] = None, {}
+        side = lambda sd: (cp.pl(len(vv[sd]), "journey") + ": " + _vc(vv[sd].values())) if js[sd] else ("not run yet in this run" if sd == "new" and stale else "not run")
+        both = sum(1 for j in ids if vv["old"].get(j) == "PASS" and vv["new"].get(j) == "PASS")
+        lost = sum(1 for j in ids if vv["old"].get(j) == "PASS" and vv["new"].get(j) not in (None, "PASS"))
+        rows.append(["Journeys", side("old"), side("new"), f"{both} pass on both, {lost} passed on the old app and not on the new one"
+                     if js["old"] and js["new"] else "needs both apps"])
+        lists["Journeys"] = [[j, _word(vv["old"][j]) if j in vv["old"] else "not run", _word(vv["new"][j]) if j in vv["new"] else "not run"] for j in ids]
+    for f, nm in (("data.out", "Data compare"), ("logdiff.out", "Start log"), ("const.out", "Constants")):
+        c = _count_line(cp.rd(os.path.join(work, f)))
+        if c:
+            rows.append([nm, "snapshot taken" if nm != "Start log" else "start log read", "snapshot taken" if nm != "Start log" else "start log read",
+                         f"{sum(c.values())} checks: " + ", ".join(f"{v} {_word(k)}" for k, v in c.items() if v)])
+    return {"rows": rows, "lists": lists}
 
 # ---- the top band: what is closed, what is still to validate (generic, from rows and gate rungs) ----
 def _rung_detail(g, name):
@@ -1328,7 +1520,7 @@ span.chip{cursor:default}
 .feed .new{font-weight:700}
 .note{font-size:12px;color:var(--muted)}
 .shade{position:fixed;inset:0;background:var(--shade);z-index:20}
-.drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:21;overflow-y:auto;
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(max(520px,50vw),100%);background:var(--panel);border-left:1px solid var(--line);z-index:21;overflow-y:auto;
   padding:calc(20px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) 22px;display:grid;gap:16px;align-content:start}
 details.kpi summary{cursor:pointer;list-style:none}details.kpi summary b{display:block}details.kpi summary span{font-size:13px;color:var(--muted)}.agentnote{margin:14px 2px 0;font-size:13px;color:var(--muted)}.drawer>*,.drawer *{min-width:0;overflow-wrap:anywhere}.drawer pre,.drawer code{white-space:pre-wrap}
 .drawer .x{all:unset;cursor:pointer;position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));font-size:22px;color:var(--muted);padding:4px 8px;border-radius:6px}
@@ -1379,6 +1571,10 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .pcard .tag{font-size:12px;color:var(--muted)} .pcard .asm{color:var(--wait);font-weight:600}
 .trail>p{margin:0;color:var(--muted);font-size:13.5px}
 .act{border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.means{border-left:4px solid var(--accent);background:var(--bg);padding:8px 12px;margin:0 0 12px;border-radius:0 8px 8px 0}.means h5{margin:0 0 4px}.means p{margin:4px 0;font-size:15px}
+table.fnd{width:100%;border-collapse:collapse;margin-bottom:10px}table.fnd td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}table.fnd td:first-child{width:14px}
+table.fnd i{display:block;width:9px;height:9px;border-radius:50%;margin-top:6px;background:var(--ok)}table.fnd tr.wait i{background:var(--wait)}table.fnd tr.bad i{background:var(--bad)}
+table.fnd b{overflow-wrap:anywhere}table.fnd .tg{margin-left:8px;font-size:12px;padding:1px 7px;border-radius:9px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}table.fnd div{color:var(--ink,inherit);margin-top:3px;font-size:14px}
 .act>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px}
 .act>summary::-webkit-details-marker{display:none}
 .act>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -1394,6 +1590,8 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .actb dd{margin:0}
 .actb ul{margin:0;padding-left:18px}
 .res{width:100%;border-collapse:collapse;font-size:13.5px}
+.ran{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0 8px}.ran th{text-align:left;font-weight:600;color:var(--muted);padding:5px 8px}.ran td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:normal;word-break:normal;hyphens:none}.ran td:first-child,.ran th{white-space:nowrap}.ran tr.lost td{background:color-mix(in srgb,var(--bad) 10%,transparent)}
+details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bottom:6px}
 .res td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top}
 .res td:first-child{width:22px;padding-right:0}
 .res .v{font-weight:700;white-space:nowrap}
@@ -1439,6 +1637,15 @@ ol.chg{margin:0 0 8px;padding-left:20px;display:grid;gap:6px} ol.chg small{displ
 .qk{font:12px var(--mono);color:var(--muted)}.qcard h3{margin:4px 0 10px;font-size:19px}.qcard p{margin:6px 0;font-size:14px;line-height:1.45}
 .qev{margin:10px 0;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px}.qev ul{margin:6px 0 4px 18px;padding:0}.qev li{margin:2px 0}.qev small{opacity:.7}
 .qrec{padding:8px 10px;border-radius:10px;background:var(--accentbg)}
+.qdlg.wide{max-width:1100px;width:92vw}.chead{font-size:17px!important;font-weight:600}
+.ctiles{display:flex;gap:10px;margin:10px 0}.ct{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 12px;text-align:center}.ct b{display:block;font-size:28px}.ct span{font-size:13px;color:var(--muted)}
+.ct.ok b{color:var(--ok)}.ct.bad b{color:var(--bad)}.ct.wait b{color:var(--wait)}
+.cshot{margin:10px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px}.cshot div{border:1px solid var(--line);border-radius:10px;overflow:hidden}.cshot span{display:block;font:12px var(--mono);padding:4px 8px;color:var(--muted);border-bottom:1px solid var(--line)}
+.cshot img{display:block;width:100%}.cshot i{display:block;padding:30px;color:var(--muted);text-align:center}.cshot figcaption{grid-column:1/-1;font-size:13px;color:var(--muted)}
+.cwh{margin:12px 0 6px}.cwhy{counter-reset:w;list-style:none;padding:0;margin:0;display:flex;gap:8px;flex-wrap:wrap}.cwhy li{counter-increment:w;flex:1 1 200px;border:1px solid var(--line);border-radius:10px;padding:8px 10px 8px 34px;position:relative;font-size:14px}
+.cwhy li::before{content:counter(w);position:absolute;left:8px;top:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;text-align:center;line-height:20px}
+.cdet{margin-top:8px;font-size:13px}.qopts small.catch{color:var(--wait)}
+@media (max-width:700px){.cshot{grid-template-columns:1fr}.ctiles{flex-wrap:wrap}}
 .qopts{display:grid;gap:8px;margin-top:12px}
 .qopts button{font:inherit;font-size:14px;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 .qopts button.rec{border:2px solid var(--accent);background:var(--accentbg)}.qopts button em{margin-left:8px;font-size:12px;font-style:normal;color:var(--accent);font-weight:600}
@@ -1571,6 +1778,7 @@ function stagePanel(k){
    <div><h4>Step by step</h4>${ol(s.steps)}</div>
    <div><h4>How we run it</h4><div class="box">${esc(s.run)}</div></div>
    <div><h4>Your part</h4><div class="box youbox">${esc(s.you)}</div></div>
+   ${k==="test"?ranBox():""}
    <div><h4>Every item in this stage</h4><div class="mini">${ROWS.map((it,i)=>cellChip(it,i,k)).join("")}</div></div>`);
 }
 function decBox(di){
@@ -1593,14 +1801,26 @@ function trailBox(it,k){
     if(k==="plan"){b=`<dl>${t.why?`<dt>Why</dt><dd>${esc(t.why)}</dd>`:""}${t.who?`<dt>Who decided</dt><dd>${esc(t.who)}</dd>`:""}${(t.options||[]).length?`<dt>Other options</dt><dd><ul>${t.options.map(o=>`<li>${esc(o)}</li>`).join("")}</ul></dd>`:""}</dl>`;}
     if(k==="upgrade"){const cs=(t.proof||[]).filter(p=>p.kind==="commit");
       b=`${(t.facts||[]).length?`<div class="facts">${t.facts.map(f=>`<span>${esc(f)}</span>`).join("")}</div>`:""}${cs.length?`<h5 class="ch">Changes in the app (${cs.length})</h5><ol class="chg">${cs.map(c=>`<li><span>${esc(c.s.replace(/^[\w ./-]+?: /,""))}</span><small>${esc(c.h)}${c.d?" · "+esc(c.d):""}</small></li>`).join("")}</ol>`:""}`;}
+    if(k==="triage"&&((t.means||[]).length||(t.items||[]).length)){const ni=(t.items||[]).filter(x=>x[2]!=="ok").length;
+      b=`${(t.means||[]).length?`<div class="means"><h5>What it means</h5>${t.means.map(x=>`<p>${esc(x)}</p>`).join("")}</div>`:""}${(t.items||[]).length?`<h5 class="ch">What we found, item by item (${t.items.length}${ni?`, ${ni} to look at`:""})</h5><table class="fnd">${t.items.slice().sort((p,q)=>(p[2]==="ok")-(q[2]==="ok")).map(x=>`<tr class="${esc(x[2])}"><td><i></i></td><td><b>${esc(x[0])}</b><span class="tg">${esc(x[1])}</span><div>${esc(x[3])}</div></td></tr>`).join("")}</table>`:""}`;}
     if(k==="test"&&(t.results||[]).length)b=`<table class="res">${t.results.map(r=>`<tr><td><i style="display:block;width:8px;height:8px;margin-top:6px;border-radius:50%;background:${r[1]==="pass"?"var(--ok)":r[1]==="fail"?"var(--bad)":r[1]==="partly"?"var(--wait)":"var(--you)"}"></i></td><td>${esc(r[0])}<br><span style="color:var(--muted)">${esc(r[2])}</span></td><td class="v ${esc(r[1])}">${VW[r[1]]||esc(r[1])}</td></tr>`).join("")}</table>`;
     const pf=(t.proof||[]).length?`<details class="pf"><summary>Show the proof (${t.proof.length})</summary>${t.proof.map(pfItem).join("")}</details>`:`<p style="color:var(--muted);margin:0">No file in the run backs this up.</p>`;
     return `<details class="act"${it.fromSteps&&it.trail.length===1?" open":""}><summary><i style="background:${TCOL[a.status]||"var(--none)"}"></i><span><b>${esc(a.name)}</b><small>${esc(a.sub)}</small><span class="say">${esc(t.say||"")}${t.gap?' <span class="nl">not linked</span>':""}</span></span><em>${TLBL[a.status]||""}</em></summary><div class="actb">${b}${pf}</div></details>`;}).join("");
   return `<div class="trail"><h4>${TSAY[k]}, per action (${it.trail.length})</h4><p>Open an action for the reasons and the result. The proof is the record from the run itself.</p>${acts}</div>`;
 }
 const STORY=[["found","What we found"],["means","What it means for this app"],["plan","What the plan does, and why"]];
-const storyBox=it=>{const s=it.story||{};const b=STORY.filter(([k])=>(s[k]||[]).length);
-  return b.length?`<div class="story">${b.map(([k,h])=>`<section><h4>${h}</h4>${s[k].map(t=>`<p>${esc(t)}</p>`).join("")}</section>`).join("")}</div>`:"";};
+// the same context shows on every stage tab: one click hides it everywhere, and the page remembers it (the owner, 2026-11-17)
+let ctxOpen=null;try{const v=localStorage.getItem("cockpit-ctx");if(v!==null)ctxOpen=v==="1";}catch(e){}
+const storyBox=(it,k)=>{const s=it.story||{};const b=STORY.filter(([k])=>(s[k]||[]).length);
+  const op=ctxOpen===null?k==="triage":ctxOpen;
+  return b.length?`<details class="ctx"${op?" open":""}><summary>Context: ${b.map(([,h])=>h.toLowerCase()).join(", ")}</summary><div class="story">${b.map(([k,h])=>`<section><h4>${h}</h4>${s[k].map(t=>`<p>${esc(t)}</p>`).join("")}</section>`).join("")}</div></details>`:"";};
+document.addEventListener("toggle",e=>{if(e.target.matches&&e.target.matches("details.ctx")){ctxOpen=e.target.open;try{localStorage.setItem("cockpit-ctx",ctxOpen?"1":"0");}catch(x){}}},true);
+// what actually ran in the Test stage, on the old and on the new app (test_runs in cockpitmatrix.py)
+function ranBox(){const R=M.ran||{rows:[],lists:{}};if(!R.rows.length)return "";
+  const lost=r=>r[1]==="passed"&&r[2]!=="passed"&&r[2]!=="not run";
+  const lst=Object.entries(R.lists).map(([k,l])=>{const nl=l.filter(lost).length;
+    return `<details class="pf"><summary>Every ${esc(k.toLowerCase())} test, old and new (${l.length}${nl?`, ${nl} passed on the old app only`:""})</summary><table class="ran"><tr><th>Test</th><th>Old app</th><th>New app</th></tr>${l.slice().sort((a,b)=>lost(b)-lost(a)).map(r=>`<tr${lost(r)?' class="lost"':""}><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</table></details>`;}).join("");
+  return `<div><h4>What ran, on the old and the new app</h4><table class="ran"><tr><th>Check</th><th>Old app</th><th>New app</th><th>Compared</th></tr>${R.rows.map(r=>`<tr><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("")}</table>${lst}</div>`;}
 const planBtn=i=>(M.plan||[]).length?`<button class="planbtn" type="button" data-plan="${i}"><span>The proposed plan for ${esc(ROWS[i].name)}<br><span style="color:var(--muted);font-size:13px">Each step that was proposed, why, who decided and the other options</span></span><b>Read →</b></button>`:"";
 function topicPlan(it){
   const acts=(it.trail||[]).map(a=>{const t=a.stages.plan||{};
@@ -1652,11 +1872,12 @@ function cellPanel(i,k){
   open(`${navBar(esc(it.name)+" › "+esc(s.name))}
    <div class="tabs" aria-label="Stages of this item">${tabs}</div>
    <h3>${esc(c.l)}</h3>
-   ${storyBox(it)}
+   ${storyBox(it,k)}
    ${k==="plan"&&!it.fromSteps?propBox(it)+planBtn(i):""}
    ${k==="plan"&&it.fromSteps&&it.ask?`<div class="box youbox"><b>Needs your OK.</b> The agent chose this on its own while it worked. Nothing is final until a person approves it.<div class="stepask" id="sc-${esc(it.id)}"></div></div>`:""}
    ${k==="plan"&&it.fromSteps&&it.ans?`<div class="done-note">${it.ans.state==="approved"?"Approved":"Rejected"} by ${esc(who(it.ans.by))}${it.ans.day?" on "+esc(it.ans.day):""}.${it.ans.reason?" Reason: "+esc(it.ans.reason):""}</div>`:""}
    <div><h4>This stage, step by step</h4>${ol(c.steps.length?c.steps:["Nothing recorded for this cell."])}</div>
+   ${k==="test"?ranBox():""}
    ${trailBox(it,k)}
    ${decBox(di)}
    ${it.trail&&it.trail.length||(it.story&&(it.story.plan||[]).length&&!it.fix)?"":fixBox(it.fix,NONGREEN.includes(c.s)&&!di)}
@@ -1984,7 +2205,123 @@ def context_of(i):
     return [plain(i.get("problem") or "")] if i.get("problem") else []
 
 
-def h_questions(model, matrix=None):
+CASE_DIR = "cases"
+
+
+def case_id(item_id):
+    """The file name of the case of one decision: work/cases/<id>.json, with every character outside [A-Za-z0-9._-] as _."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", item_id) + ".json"
+
+
+def _embed(work, c):
+    """The case's screenshots (paths in the work folder) as data URIs, "" when missing."""
+    import base64
+    for sh in c.get("shots") or []:
+        for k in ("old", "new"):
+            pth = os.path.join(work, sh.get(k) or "")
+            if sh.get(k) and os.path.isfile(pth) and pth.lower().endswith((".png", ".jpg", ".jpeg")):
+                with open(pth, "rb") as fh:
+                    sh[k] = ("data:image/png;base64," if pth.lower().endswith(".png") else "data:image/jpeg;base64,") + base64.b64encode(fh.read()).decode()
+            else:
+                sh[k] = ""
+    return c
+
+
+def cases(work, model=None):
+    """The case files of the open decisions (the owner, 2026-11-17: "such a report per issue that needs a decision"). A case is what the
+    agent that raised the decision found: {"headline", "tiles": [[number, label, tone]], "shots": [{"old", "new", "cap"}], "why": [steps],
+    "options": {option key: {"does", "catch"}}, "details": [lines]}. Screenshots are paths in the work folder, embedded as data URIs,
+    so the cockpit stays one file. A regression without a case file gets one built from the run's own files (auto_case); a broken
+    case file is skipped."""
+    out, d = {}, os.path.join(work, CASE_DIR)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        c = cp.rj(os.path.join(d, f)) if f.endswith(".json") else None
+        if isinstance(c, dict):
+            out[f] = _embed(work, c)
+    for i in (model or {}).get("items") or []:
+        if i.get("kind") == "regression" and case_id(i["id"]) not in out:
+            c = auto_case(work, i)
+            if c:
+                out[case_id(i["id"])] = _embed(work, c)
+    return out
+
+
+def _shot_paths(work):
+    """{file name: [paths relative to work]} of the walk screenshots."""
+    got = {}
+    for root, dirs, files in os.walk(work):
+        dirs[:] = [x for x in dirs if x not in (CASE_DIR, "node_modules", ".git")]
+        for f in files:
+            if f.endswith(".png"):
+                got.setdefault(f, []).append(os.path.relpath(os.path.join(root, f), work))
+    return got
+
+
+def auto_case(work, item):
+    """The case of a regression nobody wrote one for, from the run's own files: how many actions broke, the first old and new
+    screenshot of the same step, the module edits the update carried over (the first place to look), and the evidence lines."""
+    heal = _json(work, "heal.json") or {}
+    ids = item.get("tech") or []
+    ev = {r.get("id"): r.get("evidence", "") for r in heal.get("rows", []) if r.get("class") == "real-regression"}
+    lines = [ev[x] for x in ids if ev.get(x)]
+    if not ids:
+        return None
+    pages = sorted({re.sub(r"^act-", "", x.split(":", 1)[-1]).rsplit(".", 1)[0] for x in ids})
+    n = len(ids)
+    shots, names = [], None
+    for ln in lines:
+        m = re.search(r"screenshot (\S+\.png)", ln)
+        if m:
+            names = names or _shot_paths(work)
+            new = (names.get(m.group(1)) or [""])[0]
+            oldn = re.sub(r"-[A-Z][A-Z-]*\.png$", ".png", m.group(1))
+            olds = names.get(oldn) or []
+            old = next((x for x in olds if "before" in x or "old" in x), olds[0] if olds else "")
+            if new or old:
+                step = re.search(r"-(step\d+)", m.group(1))
+                shots.append({"old": old, "new": new, "cap": f"{pages[0]}, {step.group(1) if step else 'the step'} that fails: "
+                              "the old app on the left, where the new app stopped on the right."})
+                break
+    # a vendor screen the app changed (not a page the app added to the module): the update carries it over
+    carried = sorted({m["name"] for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)
+                      and any(x.get("change") == "CHANGED" for x in m.get("ui") or [])})
+    reason = next((r.group(1) for ln in lines for r in [re.search(r"FAIL (.+?)(?: \u2014| \||$)", ln)] if r), "")
+    why = [f"{n} action{'s' if n != 1 else ''} on {len(pages)} page{'s' if len(pages) != 1 else ''} pass on the old app and fail on the new one"
+           + (f": {reason}." if reason else ".")]
+    if carried:
+        why.append(f"The update carried over the app's own screen edits in {', '.join(carried)}. A carried screen edit is the first place to look.")
+    tiles = [[n, "pass on the old app, fail on the new", "bad"], [len(pages), "page" + ("s" if len(pages) != 1 else ""), "wait"]]
+    if carried:
+        tiles.append([len(carried), "modules with screen edits carried over", "wait"])
+    return {"headline": f"{n} action{'s' if n != 1 else ''} that work on the old app fail on the new one ({', '.join(pages[:3])}{', ...' if len(pages) > 3 else ''}).",
+            "tiles": tiles, "shots": shots, "why": why,
+            "options": {"fix": {"does": "The agent finds the cause, fixes it in the toolkit or the app, and runs again from the step that broke. These actions must pass.",
+                                "catch": "One more run of the tests."},
+                        "accept": {"does": "Record these changes as intended, with your name and reason.",
+                                   "catch": "Users can no longer do on the new app what these actions did on the old one."},
+                        "old-wrong": {"does": "Record that the old app was wrong here.",
+                                      "catch": "Only true when the old behaviour was a bug; the screenshots show what it did."}},
+            "details": [cp.short(x, 300) for x in lines[:6]]}
+
+
+def h_case(c):
+    """The case block inside a question dialog: tiles, old and new screenshot, why in steps."""
+    if not c:
+        return ""
+    tl = "".join(f'<div class="ct {E(str(t[2]) if len(t) > 2 else "")}"><b>{E(str(t[0]))}</b><span>{E(str(t[1]))}</span></div>' for t in c.get("tiles") or [] if len(t) > 1)
+    def pane(src, lab):
+        img = f'<img src="{src}" alt="{lab}">' if src else "<i>no screenshot</i>"
+        return f"<div><span>{lab}</span>{img}</div>"
+    sh = "".join(f'<figure class="cshot">{pane(x.get("old"), "Old app")}{pane(x.get("new"), "New app")}<figcaption>{E(x.get("cap") or "")}</figcaption></figure>'
+                 for x in c.get("shots") or [])
+    wy = "".join(f"<li>{E(w)}</li>" for w in c.get("why") or [])
+    dt = "".join(f"<li>{E(x)}</li>" for x in c.get("details") or [])
+    return ((f'<p class="chead">{E(c["headline"])}</p>' if c.get("headline") else "") + (f'<div class="ctiles">{tl}</div>' if tl else "") + sh
+            + (f'<h4 class="cwh">Why it happened</h4><ol class="cwhy">{wy}</ol>' if wy else "")
+            + (f'<details class="cdet"><summary>The evidence</summary><ul>{dt}</ul></details>' if dt else ""))
+
+
+def h_questions(model, matrix=None, cases_=None):
     """The open questions: a "Blocked on you" list in the sidebar, each with a Resolve button that opens one question in a dialog
     with its context, one button per option and what each option does. The buttons post to the local server (cockpitserve.py
     /decide, live page only); on a static copy they stay off and the answer goes through chat."""
@@ -2000,9 +2337,11 @@ def h_questions(model, matrix=None):
     for n, i in enumerate(qs, 1):
         rows.append(f'<li><span>{E(question_of(i))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
         btns = []
+        cs = (cases_ or {}).get(case_id(i["id"])) or {}
         for o in i["options"]:
             lab = plain(o["label"]) or o["label"]
-            say = o.get("causes") or next((t for k, t in OPTION_SAYS if k in lab.lower()), "") if i["kind"] == "plan-choice" else ""
+            co = (cs.get("options") or {}).get(o["key"]) or {}
+            say = co.get("does") or (o.get("causes") or next((t for k, t in OPTION_SAYS if k in lab.lower()), "") if i["kind"] == "plan-choice" else "")
             if not say and ": " in lab:
                 lab, say = lab.split(": ", 1)
                 say = say[:1].upper() + say[1:] + "."
@@ -2010,7 +2349,8 @@ def h_questions(model, matrix=None):
                 lab = "Approve and continue"
             rec = o["key"] == i.get("rec") and len(i["options"]) > 1
             btns.append(f'<button type="button" disabled data-choice="{E(o["key"])}" class="{"rec" if rec else ""}"><b>{E(lab)}</b>'
-                        f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:220]) + "</small>" if say else ""}</button>')
+                        f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:320]) + "</small>" if say else ""}'
+                        f'{"<small class=" + chr(34) + "catch" + chr(34) + ">The catch: " + E(co["catch"]) + "</small>" if co.get("catch") else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
         # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
         ev = i.get("evidence") or {}
@@ -2023,8 +2363,10 @@ def h_questions(model, matrix=None):
         if rl and why.startswith(rl) and why[len(rl):].startswith(";"):   # the option itself is the button; keep effort and risk
             why = why[len(rl) + 1:].strip()
             why = why[:1].upper() + why[1:]
-        rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 else ""
-        dlgs.append(f'<dialog class="qdlg" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
+        rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 and not cs.get("options") else ""
+        if cs:   # a case written by the agent replaces the generic context: the case says what is wrong, shows it, and why
+            ctx = h_case(cs)
+        dlgs.append(f'<dialog class="qdlg{" wide" if cs else ""}" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
                     f'blocks step {E(i.get("step") or "")}</div><h3>{E(question_of(i))}</h3>{ctx}{rec}<div class="qopts">{btns and "".join(btns)}</div>'
                     '<div class="qmsg" data-qmsg aria-live="polite"></div><p class="qhint">The buttons work in the live cockpit. On a copy, answer in chat.</p>'
                     '<button type="button" class="qclose">Close</button></div></dialog>')
@@ -2038,7 +2380,8 @@ def render(model, matrix):
     data = data.replace("</", "<\\/").replace("<!--", "<\\!--")
     e = html.escape
     head_, tiles_ = h_tiles(matrix)
-    qside, qdlgs = h_questions(model, matrix)
+    cases_ = matrix.pop("cases", None) or {}   # kept out of the page data: the screenshots are embedded once, in the dialog
+    qside, qdlgs = h_questions(model, matrix, cases_)
     return (f"<title>{e(model['title'])}</title>\n"
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
@@ -2061,7 +2404,7 @@ def render(model, matrix):
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
             f'  <aside class="side">{qside}{h_band(matrix["band"])}'
-            # the page can lag the run; the session that drives it always knows (cold test WM1, Maurits)
+            # the page can lag the run; the session that drives it always knows (cold test WM1)
             '<p class="agentnote">Page not up to date, or stuck? Talk to your agent in the chat. It is easier.</p>'
             f'</aside>\n  </div>\n</div>\n{qdlgs}\n'
             '<div class="shade" id="shade" hidden></div>\n'

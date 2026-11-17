@@ -45,6 +45,70 @@ listed as "needs a decision": check production configurations with an empty or w
 - The merge keeps the stored summaries as `summary.pre-heal.json` and lists the healed ids under `healed`.
 - `heal-pre-diff.md` is the data diff the classifier reads (the heal step runs `diff.py` itself, before the gate).
 
+## The learning loop (toolkit-gaps.md)
+
+A FAIL is only "worked on the old app, broken on the new one". Everything else that turns a run red is a rule the toolkit
+lacks, and the rule is closed in the toolkit, so the next app gets it for free. `heal.py finalize` writes
+`work/toolkit-gaps.md`: every likely-real row (a difference no rule explains) and every test that runs on neither app,
+each with the script its rule belongs in. The `heal:` summary line counts them. Work the list, one row at a time:
+
+1. **Prove it on both apps.** The old run, `twin-old.md` (two starts of the old app), the screenshots, the log lines.
+   A guess is not evidence.
+2. **A real defect of the app stays open.** It is in NEEDS-JUDGMENT; nothing in the loop accepts it.
+3. **Otherwise write the rule in the owner script, with its evidence condition.** Never a bare allow line for one app:
+   the rule names what makes the row safe, so the same row without that evidence is still caught.
+4. **Two controls:** one that fails on the old toolkit and passes on the new one, and a guard that still catches the real
+   case. Run the group, then check the first control against the old code.
+5. **Rejudge the stored run** (`--from heal`, or the script's `--rejudge`); no new walk.
+6. **Write it down.** The rule and its why in this step doc or the playbook; a Mendix fact (not a toolkit fact) also as a
+   note in the company brain (`internal/upgrade/`).
+
+The rules closed this way on a 9.24 -> 10.24 -> 11.12 app (2026-11-17), each printed as PASS* with its reason:
+
+| row | rule | where |
+|---|---|---|
+| data: a Marketplace module's own attributes changed (MendixSSO, MxModelReflection) | that module was updated in this run (`--module-jumps`) and no rows of other entities are lost | `diff.py` |
+| data: the admin's password and `changedDate` | the toolkit signs in as `UPG_ADMIN_USER`; only that one row may differ (`noadmin` figures) | `snapshot.py`, `diff.py` |
+| http: `.../openapi.json` 404 -> 200 | the same service's `swagger.json` answered 2xx on the old app (10.x serves both formats) | `diff.py` |
+| log: a new WARNING whose text the old app logs under another logger | same text, only the logger name changed (trial license: `Core` -> `LicenseService`) | `logdiff.py` |
+| log: `Using derived value for ClusterManagerActionInterval` | `runapp.py` starts every app with a short `SessionTimeout` | `HARNESS_LOG` in `heal.py` |
+| journeys: failures on the old app too | nothing that passed on the old app fails on the new one, and at least 20% pass on both (otherwise the run is not measuring) | `gate.sh journeys_noted` |
+| journeys: a heal that leaves a journey failing on both apps | listed for the owner, `test-setup`, and a toolkit gap; not likely-real | `heal.py finalize` |
+
+## A decision for a person comes with its case (`work/cases/<id>.json`)
+
+Ask a person only when there is a deviation: an edit of the app, a check that worked on the old app and fails on the new
+one, or no clear path. Routine work goes ahead (auto mode) or under the one plan sign-off. When the loop raises a decision,
+the agent writes its case next to it, so the person decides on one screen (the cockpit's Resolve opens it):
+
+```json
+{"headline": "what is wrong, in one sentence",
+ "tiles": [[30, "pass on both apps", "ok"], [7, "pass on the old app, fail on the new", "bad"], [1, "cause", "wait"]],
+ "shots": [{"old": "path/in/work/old.png", "new": "path/in/work/new.png", "cap": "what to look at"}],
+ "why": ["step 1 of the cause", "step 2", "step 3"],
+ "options": {"<option key>": {"does": "what happens when you pick it", "catch": "what it costs or breaks"}},
+ "details": ["the evidence: tests, files, what was checked with which tool"]}
+```
+
+The file name is the decision id with every character outside `[A-Za-z0-9._-]` as `_` (`regression:module-Administration`
+-> `regression_module-Administration.json`). Every sentence comes from evidence on both apps; the screenshots are embedded,
+so the cockpit stays one file. A regression without a case file gets one built by the cockpit from the run's own files
+(`cockpitmatrix.auto_case`): how many actions pass on the old app and fail on the new one, the old and new screenshot of
+the first failing step, the modules whose own screen edits the update carried over (the first place to look), and the
+heal evidence lines. A written case file wins over the built one.
+
+## A module update that carries the app's own edits is not routine
+
+A Marketplace module the app edited (a changed layout, snippet, page, JavaScript action or entity in `localedits.json`)
+is never counted as a routine update: the update replaces the whole module, and the toolkit carries each edit back.
+`proposal.py` puts these modules in their own step, `module-edits` ("Module updates that carry the app's edits"),
+apart from the routine `modules` step. Three cases:
+
+1. No edits: routine, goes ahead under the plan sign-off (auto mode: approved with source `routine`).
+2. Edits carried over and the screens that use them look and work the same on both apps: goes ahead. In auto mode the
+   step is approved with source `carry-over`, so the cockpit says which edits were carried, with the found detail.
+3. An edit could not be carried, or a screen differs on the new app: a decision for a person, with its case (above).
+
 ## What the gate reads from it
 
 `gate.sh` keys `HEAL_JSON` (prints the one-line `heal:` summary), `GATE_NOTES` (L56: every non-empty line that is not a

@@ -237,6 +237,20 @@ def gate_sentence(r, causes, heal_repairs, nreal):
     return {"FAIL": "Failed.", "REVIEW": "Needs a look.", "INVALID": "Could not be measured yet."}.get(v, "Not measured yet.") + cause
 
 
+def accepted_reasons(work, rung, detail=""):
+    # WM1 2026-11-17: the card said "All pass, 1 with accepted differences" or "Failed" and nobody could tell what was
+    # accepted. Each PASS* row carries its reason "(accepted: ...)" / "(noted: ...)" in the rung's output: group them by reason
+    if detail.startswith("noted, not a failure"):
+        return [detail.split(";")[0]]
+    got = {}
+    for ln in rd(os.path.join(work, f"{rung}.out")).splitlines():
+        m = re.match(r"^\|\s*PASS\*\s*\|[^|]*\|.*\((accepted|noted): (.+)\)\s*\|?\s*$", ln)
+        if m:
+            why = re.split(r"[:(]", m.group(2))[0].strip()[:90]
+            got[why] = got.get(why, 0) + 1
+    return [f"{why} ({n})" if n > 1 else why for why, n in sorted(got.items(), key=lambda kv: -kv[1])]
+
+
 def status_of(v):
     return {"PASS": "ok", "PASS*": "ok", "EXCEPT": "ok", "FAIL": "bad", "REVIEW": "warn", "INVALID": "warn", "NOT RUN": "idle"}.get(v, "idle")
 
@@ -567,12 +581,16 @@ def build_model(work):
         for o in opts:
             o["writes"] = [{"decisions_md": {"id": pid, "name": it["name"], "kind": it["kind"], "option": o["label"]}}]
         is_assumed = bool(row and "ASSUMED" in (row[5] if len(row) > 5 else "")) or not row
+        # an item the sign-off accepted at its recommendation is answered (cold test WM1: seven module cards stayed in
+        # Blocked on you while DECISIONS.md held them CONFIRMED with the sign-off)
+        if not last.get(pid) and signed and row and len(row) > 5 and row[5] in ("CONFIRMED", "DECIDED"):
+            last[pid] = {"item": pid, "choice": row[2], "by": row[4], "via": "sign-off"}
         if is_assumed and not last.get(pid):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
                       "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
                       "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
-                      "evidence": evidence.for_item(work, it["name"])})
+                      "evidence": evidence.for_item(work, it["name"], it["kind"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
         # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices
@@ -699,6 +717,11 @@ def build_model(work):
     if okr:
         acc = sum(1 for r in okr if r["verdict"] == "PASS*")
         rows.append([", ".join(RUNG_NAMES.get(r["rung"], r["rung"]) for r in okr)[:70], f"All pass{f', {acc} with accepted differences' if acc else ''}.", "N", "ok"])
+        for r in okr:
+            why = accepted_reasons(work, r["rung"], r["detail"]) if r["verdict"] == "PASS*" else []
+            if why:
+                rows.append([RUNG_NAMES.get(r["rung"], r["rung"]), "Accepted, no loss: " + "; ".join(why[:3])
+                             + (f"; {len(why) - 3} more in {r['rung']}.out" if len(why) > 3 else "") + ".", "N", "ok"])
     for r in gate["rungs"]:
         v = r["verdict"]
         if status_of(v) == "ok" or v == "NOT RUN":

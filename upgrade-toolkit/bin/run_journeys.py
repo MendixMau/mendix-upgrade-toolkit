@@ -1239,7 +1239,24 @@ def destructive_scope(d):
     return d.get("_scope") if d.get("_scope") in DESTRUCTIVE_SCOPES else None
 
 
-def data_waves(jdir, gen_dir, only=None):
+def baseline_fail_skips(jdir, cmp_summary):
+    """--skip-baseline-fail (WM1 2026-11-17: 136 of 160 journeys that failed on the old app were walked on the new app
+    again, about half the journeys time, to land in "BASELINE DEFECT"): {id: (before verdict,
+    role folder)} of the journeys the new app need not walk. Only a FAIL on the old app, and only a journey that feeds no later one: one whose path needs data
+    (second and later passes) or any journey of a set without data passes. A first-pass journey may create the rows a
+    later one needs, so it still runs. heal.py's old-app recheck runs --only the failing ids, without these, the same way."""
+    before = json.load(open(cmp_summary)).get("journeys", {})
+    files = sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []
+    waves = any(read_journey(f).get("_path_needs") for f in files)
+    out = {}
+    for f in files:
+        j = read_journey(f)
+        if before.get(j["id"], {}).get("verdict") == "FAIL" and (j.get("_path_needs") or not waves):
+            out[j["id"]] = ("FAIL", f.parent.name)
+    return out
+
+
+def data_waves(jdir, gen_dir, only=None, skip=()):
     """[(key, role, role_dir, files)] in the order they run. First pass: every role (role_dirs order) with its journeys
     that need no data on the way. Second pass, same role order: the journeys whose path needs data ("_path_needs",
     gen_journeys.py: a row in a list, a workflow instance, an open user task), so the rows the first pass created
@@ -1258,6 +1275,7 @@ def data_waves(jdir, gen_dir, only=None):
         files = sorted(role_dir.glob("*.journey.json"))
         if only:
             files = [f for f in files if read_journey(f)["id"] in only]
+        files = [f for f in files if read_journey(f)["id"] not in skip]
         tier = [f for f in files if destructive_scope(read_journey(f))]
         files = [f for f in files if f not in tier]
         destr += [(f"{role_dir.name}{DESTR_WAVE}{k}", role_dir.name, role_dir, [f]) for k, f in enumerate(tier, 1)]
@@ -1389,6 +1407,9 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--positive-control", action="store_true")
     ap.add_argument("--only", help="comma list of journey ids")
+    ap.add_argument("--skip-baseline-fail", action="store_true",
+                    help="with --compare: do not walk a journey that FAILed on the old app and feeds no later journey; "
+                         "it is listed as SKIPPED (failed on the old app too), never a FAIL of the new app")
     ap.add_argument("--resume", action="store_true",
                     help="AD-1: run again only the journeys the last run of this label could not run because the app went "
                          "down (summary.json app_down), and merge them into that summary.json (exit 75 = still some left)")
@@ -1504,7 +1525,13 @@ def main():
         parked = None
         dirty = None   # PR-P4: the destructive journey that last ran on this database, "<id> (<scope>)"
         sfx = f".resume{summary['resumed']}" if prev else ""
-        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only)):
+        skip = baseline_fail_skips(jdir, cmp_summary) if a.skip_baseline_fail and cmp_summary and not prev else {}
+        for jid, (bv, rl) in skip.items():
+            summary["journeys"][jid] = {"role": rl, "verdict": "SKIPPED", "compare": f"BASELINE DEFECT (before {bv})",
+                                        "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
+        if skip:
+            print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
+        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)):
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
@@ -1811,7 +1838,7 @@ def main():
                    for s in summary["journeys"].values())   # SCREEN / EFFECT INVALID is INVALID, never FAIL (N1R2-8)
     else:
         fail = "FAIL" in vs
-    counts = {v: vs.count(v) for v in ("PASS", "FAIL", "INVALID", "INFO", "NOT CHECKED", "UNREACHABLE", "CONTAMINATED")}
+    counts = {v: vs.count(v) for v in ("PASS", "FAIL", "INVALID", "INFO", "NOT CHECKED", "UNREACHABLE", "CONTAMINATED", "SKIPPED")}
     # E2E-11: a baseline defect with checked evidence is PASS* (listed), not INVALID; without evidence it stays INVALID.
     # B4N1-13: the headline counts it as PASS* (baseline defect), not as FAIL next to "= N PASS*" two lines down;
     # an unevidenced FAIL stays FAIL
@@ -1823,6 +1850,7 @@ def main():
     print(f"journeys: {counts['PASS']} PASS, {counts['FAIL']} FAIL, {counts['INVALID']} INVALID"
           + (f", {len(evid)} PASS* (baseline defect)" if evid else "")
           + (f", {counts['UNREACHABLE']} PASS* (unreachable in the OLD UI, evidence checked)" if counts["UNREACHABLE"] else "")
+          + (f", {counts['SKIPPED']} SKIPPED (failed on the old app too, not run on the new one)" if counts["SKIPPED"] else "")
           + (f", {counts['NOT CHECKED']} NOT CHECKED (excluded: {a.exclude_systems})" if counts["NOT CHECKED"] else "")
           + (f", {counts['CONTAMINATED']} CONTAMINATED (login failed after a destructive journey on the same database)" if counts["CONTAMINATED"] else "")
           + (f", {counts['INFO']} INFO (covered, unreachable or out of scope, listed only)" if counts["INFO"] else ""))
@@ -1835,7 +1863,7 @@ def main():
     if anon:
         print(anon["line"])
     veff = ["PASS*" if j in evid or s["verdict"] == "UNREACHABLE" else s["verdict"] for j, s in summary["journeys"].items()]
-    ex = (1 if fail or ctl_bad else INVALID_ONLY if any(v not in ("PASS", "INFO", "PASS*", "NOT CHECKED") for v in veff)
+    ex = (1 if fail or ctl_bad else INVALID_ONLY if any(v not in ("PASS", "INFO", "PASS*", "NOT CHECKED", "SKIPPED") for v in veff)
           else EXCLUDED_ONLY if counts["NOT CHECKED"] else 0)
     if cov and a.compare:
         if a.no_actions:

@@ -1,0 +1,62 @@
+{
+ "version": "9.24.2.0",
+ "_why": "Cold CMM 2026-11-17: the MaterialHandler home (a data view holding a scroll container, the layout also has a dataView1) got the guard .mx-name-scrollContainer1, which never appeared on the healthy 9.24 page: the login journey FAILed on the OLD app. A scroll container is no guard; the layout grid inside it is.",
+ "modules": [
+  {
+   "name": "Shop",
+   "layouts": [
+    {
+     "name": "Layout_Plain",
+     "named": [
+      {
+       "type": "DataView",
+       "name": "dataView1"
+      }
+     ]
+    }
+   ],
+   "pages": [
+    {
+     "name": "Dash",
+     "layout": "Shop.Layout_Plain",
+     "named": [
+      {
+       "type": "DataView",
+       "name": "dataView1",
+       "children": [
+        {
+         "type": "ScrollContainer",
+         "name": "scrollContainer1",
+         "children": [
+          {
+           "type": "LayoutGrid",
+           "name": "layoutGrid5",
+           "children": [
+            {
+             "type": "Label",
+             "name": "label1",
+             "text": "Dashboard"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Scroll_Only",
+     "layout": "Shop.Layout_Plain",
+     "named": [
+      {
+       "type": "ScrollContainer",
+       "name": "scrollContainer2"
+      }
+     ]
+    }
+   ],
+   "docs": []
+  }
+ ]
+}

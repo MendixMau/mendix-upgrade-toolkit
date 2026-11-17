@@ -1,0 +1,3 @@
+{"from": "xcall-page.json", "ops": [["append", "modules", {"name": "Shop",
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Open", "data": {"Call": {"Page": "AuthMod.Login_Page"}}},
+            {"type": "Microflows$Microflow", "name": "ACT_Pay", "data": {"Call": {"Action": "AuthMod.ACT_Sign"}}}]}]]}

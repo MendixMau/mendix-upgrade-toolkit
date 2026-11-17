@@ -131,7 +131,8 @@ function landedWhere({ want }) {
     else { const h = history.state, i = h && h.pageName ? h.pageName.indexOf('.') : -1;
       if (i > 0 && h.params && h.params.location === 'content') p = h.pageName.slice(0, i) + '/' + h.pageName.slice(i + 1) + '.page.xml'; }
     if (p === want) return 'content';
-    const win = [...document.querySelectorAll('.mx-window')].find(w => w.offsetParent !== null);
+    // cold CMM: Atlas styles .mx-window position:fixed, whose offsetParent is always null: every popup menu item FAILed
+    const win = [...document.querySelectorAll('.mx-window')].find(w => w.offsetParent !== null || (w.getClientRects && w.getClientRects().length > 0));
     if (win) return 'popup';
     return false;
   } catch (e) { return false; }

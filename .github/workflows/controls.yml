@@ -17,6 +17,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Python packages the controls use
+        # controls/lib/mkmodel.py writes fixture models as BSON (the bson module ships with pymongo)
+        run: pip install pymongo
+
+      - name: Shell the toolkit scripts use
+        # bin/*.sh wrappers exec zsh (macOS default); the Ubuntu runner has none
+        run: sudo apt-get install -y zsh
+
       - name: Toolkit controls (fast)
         run: bash upgrade-toolkit/controls/run-controls.sh --fast
 

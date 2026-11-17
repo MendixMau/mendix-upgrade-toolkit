@@ -23,6 +23,12 @@ global.mx = { session: { getUserName: () => 'smoke_user' }, ui: { getContentForm
 check('loggedIn when ready', loggedIn(), true);
 check('homeReady when ready', homeReady(), true);
 check('landedWhere on the wanted page', landedWhere({ want: 'P/Home.page.xml' }), 'content');
+// cold CMM: a popup opened from the menu (Atlas: .mx-window position:fixed, offsetParent null, but it has client rects)
+global.document = { querySelectorAll: s => (s === '.mx-window' ? [{ offsetParent: null, getClientRects: () => [1] }] : []) };
+check('landedWhere fixed popup window', landedWhere({ want: 'P/Other.page.xml' }), 'popup');
+global.document = { querySelectorAll: s => (s === '.mx-window' ? [{ offsetParent: null, getClientRects: () => [] }] : []) };
+check('landedWhere hidden popup window', landedWhere({ want: 'P/Other.page.xml' }), false);
+global.document = { querySelectorAll: () => [] };
 // R1: React client (no getUserName / getContentForm). catch case: anonymous session on the login page
 global.mx = { session: { sessionData: { user: null } }, ui: {} };
 global.history = { state: null };

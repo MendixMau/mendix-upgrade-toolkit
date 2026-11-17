@@ -293,7 +293,7 @@ cmd_rung() {
     build) CMD=(bash -c 'grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG");;
     idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
-    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; CMD+=(--md "$G/diff.md");;
+    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); CMD+=(--md "$G/diff.md");;
     rest) CMD=("$PY" "$B/restcontract.py" "$V_REST_BEFORE" "$V_REST_AFTER");;
     logdiff) CMD=("$PY" "$B/logdiff.py" "$V_OLD_LOG" "$V_NEW_LOG"); opt --allow "$V_LOG_ALLOW"; CMD+=(--md "$G/logdiff.md");;
     smoke)
@@ -328,9 +328,29 @@ oneline() { # the rung's own summary line(s): its counts, else the last line
   [ -n "$l" ] || l=$(grep -v '^[[:space:]]*$' "$f" 2>/dev/null | tail -1)
   printf '%s' "${l:-no output}" | cut -c1-200
 }
+# journeys_noted FILE: the journeys rung judged a person's way (the owner, 2026-11-17: "if it fails on the new one and the
+# old one, it's not a fail; mention it, don't create issues which are not there"). FSM rung 2 read FAIL with 277 PASS,
+# 0 FAIL, 243 failing on the old app too. True when nothing regressed (no REGRESSION / REVIEW, 0 FAIL outside the
+# BASELINE DEFECT lines) and the instrument measures: at least JOURNEY_MEASURE_MIN% (default 20) of the judged journeys
+# pass on both. The counts stay on the row; the rung is PASS*, never PASS.
+journeys_noted() {
+  local f=$1
+  has_pos REGRESSION "$f" && return 1
+  has_pos REVIEW "$f" && return 1
+  if has_pos FAIL "$f"; then fail_all_baseline "$f" || return 1; fi
+  # only "fails on the old app" coverage lines are a note; a changed journey set, no hash, an unfinished run or an
+  # unknown denominator is an instrument fault and stays INVALID
+  grep '^  coverage INVALID: ' "$f" 2>/dev/null | grep -Evq 'fail on the baseline|baseline defects without evidence' && return 1
+  awk -v min="${JOURNEY_MEASURE_MIN:-20}" '/^journeys: / { l = $0
+       p = match(l, /[0-9]+ PASS,/) ? substr(l, RSTART, RLENGTH) + 0 : 0
+       t = p; s = l; while (match(s, /[0-9]+ (FAIL|INVALID|PASS\*|CONTAMINATED)/)) { t += substr(s, RSTART, RLENGTH) + 0; s = substr(s, RSTART + RLENGTH) }
+       found = 1 }
+       END { exit !(found && t > 0 && p * 100 >= min * t) }' "$f" 2>/dev/null
+}
 verdict_of() { # RUNG RC OUTFILE -> prints verdict word
   local r=$1 rc=$2 f=$3
   if [ "$rc" = 124 ]; then echo INVALID; return; fi
+  if [ "$r" = journeys ] && { [ "$rc" = 1 ] || [ "$rc" = 3 ]; } && journeys_noted "$f"; then echo 'PASS*'; return; fi
   case $rc in
     0) if grep -Eq "$PASSSTAR" "$f" 2>/dev/null; then echo 'PASS*'; else echo PASS; fi;;
     1) if [ "$r" = release ]; then echo INVALID; else echo FAIL; fi;;
@@ -461,6 +481,9 @@ run_pre() { # RUNG ; returns 0 when absent or ok
       ln="$(grep -m1 '^verdict: INVALID only' "$out" | sed 's/^verdict: //')$(grep -m1 '^  baseline: ' "$out" | sed 's/^ */; /')"
       ln="$ln$(grep '^  coverage INVALID: ' "$out" | sed 's/^ */; /' | tr -d '\n')$(grep -m1 '^actions [0-9?]' "$out" | sed 's/^/; /')"   # E2E-11
       [ -n "$ln" ] || ln=$(oneline "$out")
+    fi
+    if [ $r = journeys ] && [ "$v" = 'PASS*' ] && [ "$rc" != 0 ]; then
+      ln="noted, not a failure: nothing that passed on the old app fails on the new one; journeys that fail on the old app too are listed for the owner; $(oneline "$out")"
     fi
     [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); $ln"; echo "gate: rung $r timed out after ${t}s: raise GATE_TIMEOUT (smoke: steps x roles x repeat)" >&2; }
     if [ "$v" = EXCEPT ]; then

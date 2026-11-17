@@ -1,0 +1,10 @@
+{"modules": [
+  {"name": "Src", "appstore": [4444, "1.0.0"], "module_roles": ["User"],
+   "pages": [{"name": "Pick_Page", "allowed": ["Src.User"]}, {"name": "Pick_Deep", "refs": {"Form": "Src.Pick_Snippet"}}],
+   "docs": [{"type": "Forms$Snippet", "name": "Pick_Snippet"}, {"type": "Microflows$Microflow", "name": "Get_List"}]},
+  {"name": "KeptConn", "appstore": [1111, "3.0.0"],
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Pick", "data": {"Call": {"Page": "Src.Pick_Page"}}}]},
+  {"name": "Shop", "module_roles": ["User"],
+   "pages": [{"name": "Order_Edit", "refs": {"Page": "Src.Pick_Page"}}],
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Open", "data": {"Call": {"Page": "Src.Pick_Page"}}}]}
+ ]}

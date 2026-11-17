@@ -2,6 +2,8 @@
 # pgtmp.sh start | stop DIR: a throwaway Postgres (unix socket in a fresh /var/tmp/upg-pg.* folder the postgres user can
 # reach, no network) for the seed_snapshot controls. start prints the psql command line (it names DIR) on stdout; exit 3 when no postgres binaries are installed (the control SKIPs).
 bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+# cold CMM 2026-11-17: on a Mac (Homebrew) the binaries are on PATH, not under /usr/lib, and every Postgres control SKIPped
+[ -n "$bin" ] || { i=$(command -v initdb 2>/dev/null) && bin=${i%/*}; }
 [ -n "$bin" ] && [ -x "$bin/initdb" ] || { echo "no postgres binaries"; exit 3; }
 d=${2:-}; run() { if [ "$(id -u)" = 0 ]; then runuser -u postgres -- "$@"; else "$@"; fi; }
 case "$1" in

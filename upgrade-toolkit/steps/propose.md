@@ -31,6 +31,12 @@ Signing an item nobody answered accepts its recommendation (recorded as a P-n li
 records `ASSUMED (unattended)` P-lines, goes on, and the gate summary and SUMMARY.md say "proposal not signed". A person
 who later signs and answers the P-n lines closes them; the ASSUMED lines block the owner sign-off until then.
 
+`Interview mode: auto` does the same at propose and also parks the later judgment stops that nothing after them depends on
+(journeys, idcheck, smoke walk, diff, gate) in `$W/parked/<step>.md`; the run goes on. At the end NEEDS-JUDGMENT.md lists every
+parked item and every ASSUMED line, grouped (modules and data, journeys, screens and gate), for one round of answers and one
+rerun from the first parked step (bin/parked.py). A build or start failure, a missing plan or a replay that cannot be undone
+still stops at once. A run with a parked item never ends in PASS.
+
 Section-3 items that fit a pattern in playbooks/rearchitecture.md carry its options, effort and recommendation and cite `[RA-n, status]` (bin/proposal.py); the answer updates that entry (steps/decide.md).
 
 ## Step records

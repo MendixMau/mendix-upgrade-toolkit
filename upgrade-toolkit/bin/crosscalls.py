@@ -38,11 +38,19 @@ With a plan file, a planned module whose plan version has the SAME major as the 
 --newest names the newest version of the current major per capped module (`mxcli marketplace versions <cid>`); without
 it the line says "newest <major>.x" and the installed version, to be looked up.
 
+--own adds the app's own modules (not from the Marketplace, not on either list) as callers, judged on one thing only:
+a target the plan version package no longer has, whatever the major (own code is changed, not held back). Cold CMM:
+Administration 2.1.2 -> 4.5.0 dropped Administration.UserRole_Select and RetrieveTimeZones, used by two own employee
+pages; nothing said so before mx check showed 3 CE1613. Per planned module with own callers:
+  OWN <P> <installed> -> <plan>: <n> target(s) own modules use are gone from the <plan> package
+    GONE <kind> <target> (used by own <document>)
+or a NOTE when the package is not in the cache (targets not checked).
+
 Output: a header with the denominators (kept modules, planned modules, documents and Java files scanned), then per
 capped planned module
   CAP <P> at <newest version of current major>: called by kept <K> (<n> refs, e.g. ...)
 Exit: 0 = no cap, 1 = at least one planned module is called by a kept module (hold it at its current major, or
-update the kept module too), 2 = input error (a named module is not in the model, no model, no kept option).
+update the kept module too), or (--own) an own module uses a target that is gone, 2 = input error (a named module is not in the model, no model, no kept option).
 """
 import argparse, json, os, re, sys, zipfile
 
@@ -193,6 +201,7 @@ def main():
     ap.add_argument("--newest", default="")
     ap.add_argument("--javasource")
     ap.add_argument("--cache", default=os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk"))
+    ap.add_argument("--own", action="store_true", help="also check the app's own modules against the plan version packages")
     ap.add_argument("--json")
     a = ap.parse_args()
 
@@ -276,9 +285,35 @@ def main():
     print(f"crosscalls: {caps} planned module(s) capped, {len(notes)} noted, {len(planned) - caps - len(notes)} not called by a kept module")
     if caps:
         print("  hold each CAP module at its current major in the plan (or update the kept caller too), re-run after the plan changes")
+    gone_own, ores = 0, {}
+    if a.own:
+        own = sorted(n for n, v in model.modules.items() if not v.get("from_appstore") and n not in kept and n not in planned)
+        orefs, odocs = model_refs(model, set(own), set(planned))
+        print(f"crosscalls: own modules {len(own)}; scanned {odocs} of their documents")
+        for pm in planned:
+            callers = {k: orefs[(k, pm)] for k in own if (k, pm) in orefs}
+            pv = planv.get(pm, "")
+            if not callers or not pv:
+                continue
+            inst = model.modules[pm].get("version") or ""
+            pkg = package_model(a.cache, model.modules[pm].get("package_id"), pv)
+            if pkg is None:
+                print(f"NOTE {pm} {inst} -> {pv}: used by own {', '.join(callers)}; targets NOT checked, the {pv} package is not in the cache")
+                continue
+            gone = gone_targets(pkg, callers)
+            if gone:
+                print(f"OWN {pm} {inst} -> {pv}: {len(gone)} target(s) own modules use are gone from the {pv} package")
+                for kind, src, tgt in gone:
+                    print(f"  GONE {kind} {tgt} (used by own {src})")
+                ores[pm] = [list(x) for x in gone]
+                gone_own += len(gone)
+        print(f"crosscalls: {gone_own} target(s) used by own modules are gone in the plan versions")
+        if gone_own:
+            print("  each one is CE1613 after the update: copy the old document into an own module and point the users at it, "
+                  "or keep the module (steps/repair.md row 28)")
     if a.json:
-        json.dump({"kept": kept, "planned": planned, "caps": res}, open(a.json, "w"), indent=1)
-    return 1 if caps else 0
+        json.dump({"kept": kept, "planned": planned, "caps": res, "own_gone": ores}, open(a.json, "w"), indent=1)
+    return 1 if caps or gone_own else 0
 
 
 if __name__ == "__main__":

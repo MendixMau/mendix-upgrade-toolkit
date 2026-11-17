@@ -248,6 +248,11 @@ def main():
     s_ei = {r[0].v: (int(r[1].v), int(r[2].v)) for r in rows_of("mendixsystem$entityidentifier")}   # GUID -> (short, seq)
     ec = {c: col("mendixsystem$entity", c) for c in ("id", "entity_name", "table_name", "superentity_id")}
     s_ent = {r[ec["id"]].v: (r[ec["entity_name"]].v, r[ec["table_name"]].v, r[ec["superentity_id"]].v) for r in rows_of("mendixsystem$entity")}
+    # cold CMM 2026-11-17: an external (OData) entity keeps a <entity>$pk table whose "_id" is the REMOTE key, a Long that
+    # can look like an object id; remapping it made 5 such tables UNMAPPED and nothing loaded. Columns other than id of a
+    # table whose entity has remote_primary_key are kept as they are.
+    rk = col("mendixsystem$entity", "remote_primary_key") if "remote_primary_key" in [x[0] for x in tables["mendixsystem$entity"].cols] else None
+    remote_pk = {r[ec["table_name"]].v for r in rows_of("mendixsystem$entity") if rk is not None and r[rk].k == "t"}
 
     skip_re = [(re.compile(p), why) for p, why in SKIP_RULES]
     waived = set(a.skip)
@@ -321,6 +326,7 @@ def main():
     maxseq = collections.defaultdict(int)
     def remap(t, cname, ctype, v):
         if v.k != "n" or not ctype.upper().startswith("BIGINT") or f"{t}.{cname}" in a.keep_column: return v
+        if t in remote_pk and cname != "id": return v
         x = int(v.v)
         if x in idmap: return V("n", str(idmap[x]))
         if x <= (1 << 48): return v

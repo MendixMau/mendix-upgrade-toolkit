@@ -37,7 +37,9 @@ copy's converted model.
    the script and log in order, remaps ids by entity GUID, matches System.User / UserRole by name, and lists every table
    or column it cannot map under UNMAPPED with exit 1 (`--skip TABLE` waives one, reported). Start the app again, then
    freeze. File contents (`data/files/*` in the zip) are copied into the app's `data/files` after EVERY start (runapp.py
-   wipes `run/<name>/`, T5-5). Open: autonumber counters are not advanced.
+   wipes `run/<name>/`, T5-5). Open: autonumber counters are not advanced. `upgrade-pipeline.sh` baseline does all of
+   this itself (seed_demo, log in `logs/seed-snapshot.txt`; the file contents go to `$W/demo-files`, which runapp.py
+   copies in at every start through UPG_DATA_FILES); only when nothing loads does it fall back to seed_pg.py, with a note.
 2. Start the OLD app on X: `WORKDIR=$W UPG_TOOLS=<run>/tools python3 $B/runapp.py start old <old.mda> <full ver> X`
    (Java image by major: 9 to temurin 11, 10 and every 11.x to temurin 21, also for an 11.x to 11.y run, N1-14; `CONST_OVERRIDES` = the environment's values, the
    SAME for old and new: JSON text or the path of a JSON file, B4T2-12). Slow start (E5b-13): a start above a few minutes is usually a module calling home at
@@ -91,7 +93,8 @@ copy's converted model.
    the baseline commit; in a parallel run `app/` is owned by triage and is converted later, NR1-6):
    `python3 $B/smokewalk_gen.py <old model folder> -o $W/plan.json`
    `node $B/smokewalk.js --plan $W/plan.json --url http://localhost:<port> --user <Role>=smoke_<role>:<pw> ... --out $W/smoke-before.json`
-   The runner skips microflow steps unless it gets `--microflows`. When smokewalk_gen prints `WARN <role>: ...` (the
+   The runner skips microflow steps unless it gets `--microflows`; upgrade-pipeline.sh passes it whenever the plan has
+   microflow steps (UPG_SMOKE_MICROFLOWS=0 turns it off, with a note). When smokewalk_gen prints `WARN <role>: ...` (the
    home is a microflow, or over half the menu items are; PV-6: every page of Product View 360 was one), add
    `--microflows` to the baseline AND the gate walk, on the X_smoke copy only: they run for real.
    Add `--shots $W/smoke-before-shots` (and `--shots $W/smoke-after-shots` after the upgrade) so the gate can compare
