@@ -980,6 +980,21 @@ if PGC=$(bash $here/lib/pgtmp.sh start 2>/dev/null); then
   ctl seed-snapshot-column-missing-loaded-nothing-pass 0 '^0$' -- pgx -d t_colgone -c 'select count(*) from "demo$product"'
   ctl seed-snapshot-skip-waiver-pass 1 'waived \(--skip\)' 'column demo\$product.price' '!has no counterpart in the database \(' -- $SS $SNAP --psql "$(mypsql colgone)" --dry-run --skip demo\$order_product
   ctl seed-snapshot-entity-guid-catch 1 'GUID b2222222-0000-4000-8000-000000000001\) is not in the database' 'carry entity short id 3, which' -- $SS $SNAP --psql "$(mypsql noguid)" --dry-run
+  # cold CMM 2026-11-17: an external entity's <entity>$pk table holds the REMOTE key in "_id" (remote_primary_key in
+  # mendixsystem$entity); remapping it as an object id made 5 such tables UNMAPPED and nothing loaded. id is remapped, _id kept
+  rm -rf $T/snapremote; cp -R $SNAP $T/snapremote; RS=$T/snapremote/data/database/hsqldb/default.script
+  sed -i.bak -e 's/"superentity_id" VARCHAR(36))$/"superentity_id" VARCHAR(36),"remote" BOOLEAN,"remote_primary_key" BOOLEAN)/' \
+    -e '/^INSERT INTO "mendixsystem\$entity" VALUES/s/)$/,FALSE,FALSE)/' $RS && rm -f $RS.bak
+  printf '%s\n' "INSERT INTO \"mendixsystem\$entityidentifier\" VALUES('c3333333-0000-4000-8000-000000000001',6,2)" \
+    "INSERT INTO \"mendixsystem\$entity\" VALUES('c3333333-0000-4000-8000-000000000001','Demo.Ext','demo\$ext\$pk',NULL,TRUE,TRUE)" \
+    'CREATE MEMORY TABLE PUBLIC."demo$ext$pk"("id" BIGINT NOT NULL PRIMARY KEY,"_id" BIGINT)' \
+    'INSERT INTO "demo$ext$pk" VALUES(1688849860263937,27866022694354949)' >> $RS
+  pgx -d fx -c "create database t_remote template fx" > /dev/null
+  pgx -d t_remote -c 'create table "demo$ext$pk"(id bigint primary key, _id bigint)' \
+    -c "insert into \"mendixsystem\$entityidentifier\" values ('c3333333-0000-4000-8000-000000000001',16,0)" \
+    -c "insert into \"mendixsystem\$entity\" values ('c3333333-0000-4000-8000-000000000001','Demo.Ext','demo\$ext\$pk',NULL)" > /dev/null
+  ctl seed-snapshot-remote-key-catch 0 'applied: 15 rows' '!UNMAPPED' -- $SS $T/snapremote --psql "$(mypsql remote)"
+  ctl seed-snapshot-remote-key-kept-pass 0 '^16\|27866022694354949$' -- pgx -d t_remote -F'|' -c 'select id>>48, _id from "demo$ext$pk"'
   ctl seed-snapshot-psql-error-catch 2 'psql failed' -- $SS $SNAP --psql "psql -h $PGD -U mendix -d nope" --dry-run
   bash $here/lib/pgtmp.sh stop "$PGD"
 else skip seed-snapshot-postgres "no postgres binaries or the throwaway cluster did not start"; fi
