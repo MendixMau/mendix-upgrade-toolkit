@@ -378,6 +378,9 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     zipfile.ZipFile(mdap).extractall(base)
     for d in ("data/files", "data/tmp", "data/model-upload", "data/database"):
         (base / d).mkdir(parents=True, exist_ok=True)
+    df = os.environ.get("UPG_DATA_FILES")  # the package's demo file contents (data-snapshot.zip data/files), back after the wipe
+    if df and Path(df).is_dir():
+        shutil.copytree(df, base / "data/files", dirs_exist_ok=True)
     note = apply_login_override(base, login_override or os.environ.get("UPG_LOGIN_OVERRIDE", "auto"), name)
     if note:
         print("runapp: " + note)

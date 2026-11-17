@@ -349,6 +349,7 @@ psql_str() { echo "docker exec -i $PGC psql -U mendix -d $1"; }
 login_path() { local p="${UPG_LOGIN_PATH:-}"; [ -n "$p" ] || p=$(head -n1 "$WORK/login-path.txt" 2> /dev/null || true); echo "${p:-/login.html}"; }
 runenv() { # env words for runapp.py
   RUNENV=("WORKDIR=$WORK" "UPG_TOOLS=$UPG_TOOLS" "UPG_SESSION_TIMEOUT=30000" "PORT_OFF=$PORT_OFF")
+  [ ! -d "$WORK/demo-files" ] || RUNENV+=("UPG_DATA_FILES=$WORK/demo-files")
   if [ -s "$WORK/env-values.json" ]; then RUNENV+=("CONST_OVERRIDES=$(cat "$WORK/env-values.json")"); fi
   # heal reruns: the apimock stand-in's and the NATS broker's constant overrides, merged under the person's env-values.json (theirs win)
   local src=()
@@ -601,11 +602,29 @@ step_fetch() {
   fi
 }
 
-# TODO (no script exists): demo data inside the package (HSQLDB data-snapshot.zip) is NOT replayed into Postgres.
-# The journals (T1) seeded synthetic rows with seed_pg.py instead. A person decides whether real data is needed.
+# Demo data inside the package (HSQLDB data-snapshot.zip): baseline replays it into Postgres with seed_snapshot.py
+# (seed_demo). A package with only loose *.script files has no route yet: those runs get seed_pg.py rows.
 todo_hsql_replay() {
-  note "TODO todo_hsql_replay: the package carries HSQLDB demo data; it was NOT replayed into Postgres (no tool), the data baseline uses seed_pg.py rows"
+  if [ -n "$(demo_snapshot)" ]; then say "        hsql demo data present: baseline loads it (seed_snapshot.py)"; return 0; fi
+  note "TODO todo_hsql_replay: the package carries HSQLDB *.script data but no data-snapshot.zip; it was NOT replayed, the data baseline uses seed_pg.py rows"
   say "TODO    hsql data present, not replayed (see $WORK/state/notes.txt)"
+}
+demo_snapshot() { [ -n "${APP:-}" ] && find "$APP" -maxdepth 2 -name 'data-snapshot.zip' -print -quit 2> /dev/null || true; }
+# seed_demo: load the package's demo rows into $X (the old app made the schema). 1 = no snapshot or nothing loaded:
+# the caller seeds synthetic rows. The file contents go to $WORK/demo-files, which runapp.py copies into every start.
+seed_demo() {
+  local snap rc=0
+  snap=$(demo_snapshot); [ -n "$snap" ] || return 1
+  xo "$WORK/logs/seed-snapshot.txt" python3 "$B/seed_snapshot.py" "$snap" --psql "$(psql_str "$X")" || rc=$?
+  if [ "$rc" != 0 ] && ! grep -q 'the load was applied' "$WORK/logs/seed-snapshot.txt" 2> /dev/null; then
+    note "demo data NOT loaded (seed_snapshot.py exit $rc, UNMAPPED in logs/seed-snapshot.txt): synthetic seed_pg.py rows instead"
+    return 1
+  fi
+  [ "$rc" = 0 ] || note "demo data loaded, but some table counts differ (logs/seed-snapshot.txt)"
+  [ "$DRY" = 1 ] || { rm -rf "$WORK/demo-files"; mkdir -p "$WORK/demo-files"
+    unzip -qo "$snap" 'data/files/*' -d "$WORK/demo-files/x" 2> /dev/null && mv "$WORK/demo-files/x/data/files"/* "$WORK/demo-files/" 2> /dev/null; rm -rf "$WORK/demo-files/x"; }
+  note "demo data loaded from $(basename "$snap") ($(grep -o 'applied: [0-9]* rows in [0-9]* tables' "$WORK/logs/seed-snapshot.txt" 2> /dev/null || echo 'counts in logs/seed-snapshot.txt'))"
+  return 0
 }
 
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
@@ -701,7 +720,7 @@ step_baseline() {
     app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start on $X (log: $LOG, $WORK/logs/runtime-old.log)"
     app_down old
     if [ -z "$SEED_FROM" ]; then
-      must python3 "$B/seed_pg.py" --psql "$(psql_str "$X")" --per-entity 5
+      seed_demo || must python3 "$B/seed_pg.py" --psql "$(psql_str "$X")" --per-entity 5
       app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start after the seed (log: $LOG)"
       app_down old
     fi

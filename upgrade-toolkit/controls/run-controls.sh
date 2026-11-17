@@ -1629,6 +1629,27 @@ ctl pipeline-frozen-other-run-catch 4 '^DIE: frozen database upg_run_frozen exis
 ctl pipeline-frozen-no-stamp-no-ledger-catch 4 'no owner stamp' -- env PATH=$V/fdk:"$PATH" FAKE_OWNER=$V/fdk/none FAKE_LOG=$V/fdk/log $FO $V/fdk/w-new
 ctl pipeline-frozen-own-pass 0 '^owner-ok$' -- env PATH=$V/fdk:"$PATH" FAKE_OWNER=$V/fdk/own FAKE_LOG=$V/fdk/log $FO $V/fdk/w-new
 ctl pipeline-frozen-legacy-adopted-pass 0 '^owner-ok$' -- bash -c "rm -f $V/fdk/log2; env PATH=$V/fdk:\"\$PATH\" FAKE_OWNER=$V/fdk/none FAKE_LOG=$V/fdk/log2 $FO $V/fdk/w-legacy && grep -q 'COMMENT ON DATABASE upg_run_frozen IS .upgrade-toolkit run /r/cmm' $V/fdk/log2"
+# cold CMM 2026-11-17: the package carried 9,235 demo rows (data-snapshot.zip) and seed_snapshot.py existed, yet baseline
+# seeded 5 synthetic rows per entity ("hsql data present, not replayed (no tool)"): walks then judge near-empty pages.
+mkdir -p $V/demo/run/app $V/nodemo/run/app; touch $V/demo/run/app/App.mpr $V/nodemo/run/app/App.mpr
+( cd $V/demo && mkdir -p data/database/hsqldb/default && touch data/database/hsqldb/default/default.script && zip -qr run/app/data-snapshot.zip data && rm -rf data )
+ctl pipeline-demo-data-seeded-catch 0 'seed_snapshot\.py .*data-snapshot\.zip --psql' '!seed_pg\.py' -- bash -c "bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/demo/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/demo/run/work --only baseline --dry-run 2>&1"
+ctl pipeline-demo-data-none-seed-pg-pass 0 'seed_pg\.py' '!seed_snapshot' -- bash -c "bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/nodemo/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/nodemo/run/work --only baseline --dry-run 2>&1"
+# seed_demo: UNMAPPED with nothing loaded -> 1 (the caller seeds synthetic rows) and a note; a clean load -> 0 and the files
+mkdir -p $V/sdm/bin $V/sdm/w/logs $V/sdm/w/state
+printf '#!/bin/sh\necho "$SD_OUT"; exit $SD_RC\n' > $V/sdm/bin/seed_snapshot.py
+cat > $V/sdm/sd.sh <<'SDEOF'
+set -Eeuo pipefail
+eval "$(sed -n '/^demo_snapshot()/p; /^seed_demo()/,/^}/p; /^x()/,/^}/p; /^xo()/,/^}/p; /^note()/p; /^psql_str()/p' "$PIPE")"
+quoted() { printf ' %q' "$@"; }
+python3() { sh "$@"; }
+B=$SDB; WORK=$SDW; APP=$SDA; X=upg_t; PGC=pg; DRY=0; STEP=baseline; LOG=$SDW/logs/b.log
+rc=0; seed_demo || rc=$?; echo "rc=$rc"; cat "$WORK/state/notes.txt" 2> /dev/null; ls "$WORK/demo-files" 2> /dev/null || true
+SDEOF
+( cd $V/sdm && mkdir -p data/files/00 && echo img > data/files/00/u1 && zip -qr app.zip data && rm -rf data && mkdir app && mv app.zip app/data-snapshot.zip )
+SD="env PIPE=${PIPE:-$B/cloud/upgrade-pipeline.sh} SDB=$V/sdm/bin SDW=$V/sdm/w SDA=$V/sdm/app"
+ctl pipeline-seed-demo-unmapped-falls-back-catch 0 '^rc=1$' 'demo data NOT loaded' -- $SD SD_RC=1 SD_OUT='nothing was loaded' bash $V/sdm/sd.sh
+ctl pipeline-seed-demo-loaded-pass 0 '^rc=0$' 'demo data loaded from data-snapshot.zip \(applied: 9 rows in 2 tables\)' '^00$' -- bash -c "rm -f $V/sdm/w/state/notes.txt; $SD SD_RC=0 SD_OUT='applied: 9 rows in 2 tables; every table' bash $V/sdm/sd.sh"
 # F1: force-ui.txt reaches stepupdate as --force-ui (else --unattended keeps every edited module), replay/<Module>.mdl runs after the updates
 mkdir -p $V/pw3/replay; printf '# update anyway, replay\nMendixSSO\nAtlas_Core\n' > $V/pw3/force-ui.txt; echo 'alter entity X.Y drop validation rule;' > $V/pw3/replay/MendixSSO.mdl; : > $V/pw3/replay/Atlas_Core.patch
 ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-ui MendixSSO.?,Atlas_Core --saved-edits .*/pw3/saved-edits' 'exec .*/pw3/replay/MendixSSO\.mdl -p ' 'git -C .*/papp apply --check .*/pw3/replay/Atlas_Core\.patch' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw3 --only update --dry-run
