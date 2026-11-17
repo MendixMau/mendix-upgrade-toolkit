@@ -94,6 +94,9 @@ def db_snapshot(psql):
     return out
 
 
+ADMIN = re.sub(r"[^\w.@-]", "", os.environ.get("UPG_ADMIN_USER", "MxAdmin"))
+
+
 def anonymous_snapshot(psql, ents, attrs, cols):
     """{"users": n anonymous rows, "total": n, "attrs": {"System.User.X": {...}}, "assoc": {name: {...}}} for the rows of
     System.User that are not anonymous; {} when System.User or IsAnonymous cannot be found."""
@@ -107,12 +110,20 @@ def anonymous_snapshot(psql, ents, attrs, cols):
     named = f'coalesce("{acol}", false) = false'
     n_anon = int(q(psql, f'select count(*) from "{ut}" where not ({named})')[0][0])
     n_total = int(q(psql, f'select count(*) from "{ut}"')[0][0])
-    res = {"users": n_anon, "total": n_total, "attrs": {}, "assoc": {}}
+    res = {"users": n_anon, "total": n_total, "attrs": {}, "assoc": {}, "noadmin": {}}
+    # WM1 2026-11-17: runapp.py sets the local admin's password at every start (create_admin_user), which changes that
+    # one row's Password and changedDate; the same figures without that row let diff.py tell it from a real change
+    ncol = next((c for an, c in attrs.get(uid, []) if an == "Name"), None)
+    ncol = ncol if ncol in cols[ut] else None
     for an, c in attrs.get(uid, []):
         if c in cols[ut]:
             n, h = q(psql, f'select count("{c}"), md5(coalesce(string_agg(coalesce("{c}"::text,\'~\'), \'|\' order by id),\'\')) '
                            f'from "{ut}" where {named}')[0]
             res["attrs"][f"System.User.{an}"] = {"nonnull": int(n), "md5": h}
+            if ncol:
+                n, h = q(psql, f'select count("{c}"), md5(coalesce(string_agg(coalesce("{c}"::text,\'~\'), \'|\' order by id),\'\')) '
+                               f'from "{ut}" where {named} and coalesce("{ncol}", \'\') <> \'{ADMIN}\'')[0]
+                res["noadmin"][f"System.User.{an}"] = {"nonnull": int(n), "md5": h}
     for name, table, pcol, ccol, peid in q(psql, 'select association_name, table_name, parent_column_name, child_column_name, parent_entity_id '
                                                  'from "mendixsystem$association"'):
         if peid != uid or table not in cols or ccol not in cols[table]:

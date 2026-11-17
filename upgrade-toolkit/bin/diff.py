@@ -90,8 +90,16 @@ def main():
                     help="compare the db section only (the mutant control: a db-only snapshot of a copy; E6-11, E7-18)")
     ap.add_argument("--emit-allow", dest="emit_allow",
                     help="the restart control (PV-7): write one allow.txt line per FAIL or REVIEW row of this diff, as start noise")
+    ap.add_argument("--module-jumps", dest="module_jumps",
+                    help="module-jumps.txt (\"Mod a -> b\" per updated Marketplace module): a column gone or values changed in "
+                         "such a module is the vendor's update, PASS* with the jump named, not FAIL")
     a = ap.parse_args()
     B, A = json.load(open(a.before)), json.load(open(a.after))
+    jumps = {}
+    if a.module_jumps and os.path.isfile(a.module_jumps):
+        for l in open(a.module_jumps):
+            m, _, v = l.strip().partition(" ")
+            if m and v: jumps[m] = v.strip()
     allow = []
     if a.allow:
         for l in open(a.allow):
@@ -102,10 +110,16 @@ def main():
     rows = []
 
     def add(check, verdict, detail):
+        # WM1 2026-11-17: MendixSSO 4.2 -> 10.6 dropped AuthRequest.Nonce and MxModelReflection 7 -> 9 rewrote its own rows;
+        # both read FAIL on the gate card though nothing of the app's data was lost. Only a vendor module's own attribute,
+        # and only when the run updated that module; rows lost stay FAIL whatever the module
         if verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
             for cpat, dpat, why in allow:
                 if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
                     verdict, detail = "PASS*", f"{detail} (accepted: {why})"; break
+        mod = check.split(".")[2] if check.startswith("db.attr.") else ""
+        if verdict == "FAIL" and mod in jumps and detail.startswith(("column gone", "values changed")):
+            verdict, detail = "PASS*", f"{detail} (noted: the {mod} update {jumps[mod]} changed its own attribute, not the app's data)"
         rows.append((verdict, check, detail))
 
     for side, s in (("before", B), ("after", A)):
@@ -153,7 +167,13 @@ def main():
                 if rb["nonnull"] == 0: continue
             if ra is None: add(cid, "FAIL" if rb["nonnull"] else "INFO", f"column gone ({rb['nonnull']} non-null values before)")
             elif ra["nonnull"] < rb["nonnull"]: add(cid, "FAIL", f"non-null {rb['nonnull']} -> {ra['nonnull']}" + (" (named users)" if anon and at in anb["attrs"] else hint if at.startswith("System.User.") else ""))
-            elif ra["md5"] != rb["md5"]: add(cid, "FAIL", f"values changed (non-null {rb['nonnull']} -> {ra['nonnull']})")
+            elif ra["md5"] != rb["md5"]:
+                nb_, na_ = (anb.get("noadmin") or {}).get(at), (ana.get("noadmin") or {}).get(at)
+                if nb_ and na_ and nb_ == na_:  # snapshot.py: the same column without the local admin's row
+                    add(cid, "PASS*", f"values changed (non-null {rb['nonnull']} -> {ra['nonnull']}) on the local admin row alone "
+                                      "(noted: runapp.py sets that user's password at every start, the toolkit's own login)")
+                else:
+                    add(cid, "FAIL", f"values changed (non-null {rb['nonnull']} -> {ra['nonnull']})")
             else: add(cid, "PASS", f"{rb['nonnull']} values identical")
         for at in sorted(set(db_a["attributes"]) - set(db_b["attributes"])):
             add(f"db.attr.{at}", "INFO", f"new column, {db_a['attributes'][at]['nonnull']} non-null")

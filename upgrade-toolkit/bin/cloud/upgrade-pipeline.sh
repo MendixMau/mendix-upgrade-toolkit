@@ -492,11 +492,29 @@ user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
 mda_old() { if [ -n "$OLD_MDA" ]; then echo "$OLD_MDA"; else echo "$WORK/old-$SOURCE.mda"; fi; }
 mda_new() { echo "$WORK/new-$TARGET.mda"; }
 
-# DB names: <X> working, <X>_frozen never started.
+# DB names: <X> working, <X>_frozen never started. Cold CMM (2026-11-17): every run folder named "run" (the README's own
+# example) got upg_run_*, and a second app's baseline reused the first app's frozen database without a word. The default
+# name carries a hash of the run folder and is kept in $WORK/state/db-prefix; a run whose db-ledger.txt predates that keeps
+# its old name. The frozen database carries its run folder as a comment (frozen_owner), checked before every reuse.
+RUNP=$(cd "$RUN" 2> /dev/null && pwd -P || echo "$RUN")
 if [ -n "$DB_ARG" ]; then X=$DB_ARG
-else X="upg_$(basename "$RUN" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n' '_')"; fi
+elif [ -s "$WORK/state/db-prefix" ]; then X=$(head -n1 "$WORK/state/db-prefix")
+else
+  X="upg_$(basename "$RUN" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n' '_' | cut -c1-24)"
+  [ -f "$WORK/db-ledger.txt" ] || X="${X}_$(printf '%s' "$RUNP" | cksum | awk '{printf "%06x", $1 % 16777216}')"
+fi
 X_FROZEN="${X}_frozen"
 [[ "$X" =~ ^[a-z0-9_]+$ ]] || usage_die "database name '$X' must be lower case letters, digits, underscore (use --db)"
+[ "$DRY" = 1 ] || [ -s "$WORK/state/db-prefix" ] || { mkdir -p "$WORK/state" && echo "$X" > "$WORK/state/db-prefix"; }
+frozen_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $X_FROZEN IS 'upgrade-toolkit run $RUNP'"; }
+frozen_owner() { # refuse a frozen database that another run made: its comment names another run folder, or it has none and
+  # this run's ledger never used a copy of it (a run from before the stamp adopts its own one here)
+  local own
+  own=$(docker exec "$PGC" psql -U mendix -tAc "SELECT coalesce(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname='$X_FROZEN'" 2> /dev/null || true)
+  [ "$own" != "upgrade-toolkit run $RUNP" ] || return 0
+  if [ -z "$own" ] && grep -q "^${X}_" "$WORK/db-ledger.txt" 2> /dev/null; then frozen_stamp; return 0; fi
+  die4 "frozen database $X_FROZEN exists but this run did not make it (${own:-no owner stamp}; this run: $RUNP). Another app's data would be the baseline: give this run its own name with --db upg_<name>, or drop that database if it is yours."
+}
 
 preflight() {
   local t
@@ -620,8 +638,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   [ "$rc" != 1 ] || note "RENAMED modules in $WORK/renamed.md: not version updates, a decision item in the proposal"
   rc=0; xo "$WORK/xmod.txt" python3 "$B/idcheck.py" "$APP" --xmod || rc=$?
   # scanner (steps/triage.md item 6): optional, lives in the company brain checkout
-  # the optional scanner: $EA, $UPG_SCANNER, or UPG_SCANNER= in the private ~/.config/upgrade-toolkit/local.env
-  local EA="${EA:-${UPG_SCANNER:-$(sed -n 's/^UPG_SCANNER=//p' "$HOME/.config/upgrade-toolkit/local.env" 2>/dev/null)}}"
+  # the optional scanner: $EA, $UPG_SCANNER, or UPG_SCANNER= in the private ~/.config/upgrade-toolkit/local.env; `|| true`: without
+  # that file sed exits 2 and the ERR trap printed "unexpected failure at line 624" in every triage (cold WM1 #12, cold CMM)
+  local EA="${EA:-${UPG_SCANNER:-$(sed -n 's/^UPG_SCANNER=//p' "$HOME/.config/upgrade-toolkit/local.env" 2>/dev/null || true)}}"
   if [ -f "$EA/scripts/scan.py" ]; then
     rc=0; (cd "$APP" && x python3 "$EA/scripts/scan.py" --project . --target "$TARGET" --from-version auto --data "$EA/data" --out "$WORK/findings.json") || rc=$?
     if [ "$rc" = 0 ]; then
@@ -675,6 +694,7 @@ step_baseline() {
     commit_app "build: regenerated stubs" config build-stubs
   fi
   if db_exists "$X_FROZEN"; then
+    frozen_owner
     note "reusing existing frozen database $X_FROZEN"
   else
     if [ -n "$SEED_FROM" ]; then copy_db "$SEED_FROM" "$X"; fi
@@ -685,7 +705,7 @@ step_baseline() {
       app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start after the seed (log: $LOG)"
       app_down old
     fi
-    copy_db "$X" "$X_FROZEN"
+    copy_db "$X" "$X_FROZEN"; frozen_stamp
   fi
   # endpoint probe on its own copy (steps/triage.md item 8): drop listed paths that answer 404 on the old app
   if [ -s "$WORK/endpoints.txt" ] && [ ! -f "$WORK/endpoints.probed" ]; then
@@ -1485,7 +1505,8 @@ step_heal() {
   must python3 "$B/heal.py" grids --model "$WORK/original.mpr" --out "$WORK/heal-grids.json"
   [ ! -f "$WORK/allow.txt" ] || al=(--allow "$WORK/allow.txt")
   [ ! -f "$WORK/log-allow.txt" ] || la=(--log-allow "$WORK/log-allow.txt")
-  xo "$WORK/heal-pre-diff.out" python3 "$B/diff.py" "$WORK/before.json" "$WORK/after.json" --md "$WORK/heal-pre-diff.md" ${al[@]+"${al[@]}"} ${la[@]+"${la[@]}"} || true
+  local jm=(); [ -f "$WORK/module-jumps.txt" ] && jm=(--module-jumps "$WORK/module-jumps.txt")
+  xo "$WORK/heal-pre-diff.out" python3 "$B/diff.py" "$WORK/before.json" "$WORK/after.json" --md "$WORK/heal-pre-diff.md" ${al[@]+"${al[@]}"} ${la[@]+"${la[@]}"} ${jm[@]+"${jm[@]}"} || true
   heal_twin
   for rnd in 1 2; do
     xo "$WORK/heal-plan-$rnd.out" python3 "$B/heal.py" plan --work "$WORK" --round "$rnd" || die4 "heal.py plan failed (log: $WORK/heal-plan-$rnd.out)"

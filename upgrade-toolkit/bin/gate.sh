@@ -293,7 +293,7 @@ cmd_rung() {
     build) CMD=(bash -c 'grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG");;
     idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
-    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; CMD+=(--md "$G/diff.md");;
+    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); CMD+=(--md "$G/diff.md");;
     rest) CMD=("$PY" "$B/restcontract.py" "$V_REST_BEFORE" "$V_REST_AFTER");;
     logdiff) CMD=("$PY" "$B/logdiff.py" "$V_OLD_LOG" "$V_NEW_LOG"); opt --allow "$V_LOG_ALLOW"; CMD+=(--md "$G/logdiff.md");;
     smoke)

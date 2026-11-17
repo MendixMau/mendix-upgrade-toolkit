@@ -320,6 +320,29 @@ EOF
 ctl diff-anonymous-users-grouped-pass 0 'PASS\* \| db\.known\.anonymous_users \| 18 anonymous System\.User rows gone \(18 -> 0\)' '!FAIL \| db\.(attr|assoc|entity)\.System\.User' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/anon-ok-b.json $T/anon-ok-a.json --allow $FX/allow/narrow.txt
 ctl diff-anonymous-named-lost-catch 1 'FAIL \| db\.attr\.System\.User\.Name \| non-null 3 -> 2 \(named users\)' 'FAIL \| db\.entity\.System\.User \| named user rows 3 -> 2' -- python3 $B/diff.py $T/anon-named-lost-b.json $T/anon-named-lost-a.json --allow $FX/allow/narrow.txt
 ctl diff-anonymous-old-snapshot-catch 1 'FAIL \| db\.entity\.System\.User \| rows 21 -> 3 \(if these are Anonymous_\* users' '!known\.anonymous' -- python3 $B/diff.py $T/anon-ok-old-b.json $T/anon-ok-old-a.json --allow $FX/allow/narrow.txt
+# WM1 2026-11-17: the gate card said "Data compare: Failed" on 4 rows that were no loss: a vendor module's own attribute
+# changed by its update (MendixSSO, MxModelReflection) and the local admin's row (runapp.py sets its password at start).
+python3 - "$T" <<'EOF'
+import json, sys
+t = sys.argv[1]
+for nm in ("jump", "jump-rows", "admin", "admin-other"):
+    b = json.load(open(f"{t}/sb.json")); a = json.load(open(f"{t}/sa.json"))
+    for d, h in ((b, "v1"), (a, "v2")):
+        d["db"]["entities"]["Vend.Thing"] = 5 if d is b or nm != "jump-rows" else 3
+        d["db"]["attributes"]["Vend.Thing.Field"] = {"nonnull": 5, "md5": h if nm.startswith("jump") else "same"}
+        d["db"]["entities"]["System.User"] = 3
+        d["db"]["attributes"]["System.User.changedDate"] = {"nonnull": 3, "md5": "c" + h if nm.startswith("admin") else "same"}
+        rest = "same" if nm == "admin" or d is b else "other"
+        d["db"]["anonymous"] = {"users": 0, "total": 3, "attrs": {"System.User.changedDate": d["db"]["attributes"]["System.User.changedDate"]},
+                                "assoc": {}, "noadmin": {"System.User.changedDate": {"nonnull": 2, "md5": rest}}}
+    json.dump(b, open(f"{t}/{nm}-b.json", "w")); json.dump(a, open(f"{t}/{nm}-a.json", "w"))
+open(f"{t}/jumps.txt", "w").write("Vend 1.0.0 -> 2.0.0\n")
+EOF
+ctl diff-module-jump-attr-noted-pass 0 'PASS\* \| db\.attr\.Vend\.Thing\.Field \| values changed .*the Vend update 1\.0\.0 -> 2\.0\.0' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/jump-b.json $T/jump-a.json --allow $FX/allow/narrow.txt --module-jumps $T/jumps.txt
+ctl diff-module-jump-attr-unlisted-catch 1 'FAIL \| db\.attr\.Vend\.Thing\.Field \| values changed' -- python3 $B/diff.py $T/jump-b.json $T/jump-a.json --allow $FX/allow/narrow.txt
+ctl diff-module-jump-rows-lost-catch 1 'FAIL \| db\.entity\.Vend\.Thing \| rows 5 -> 3' -- python3 $B/diff.py $T/jump-rows-b.json $T/jump-rows-a.json --allow $FX/allow/narrow.txt --module-jumps $T/jumps.txt
+ctl diff-admin-row-noted-pass 0 'PASS\* \| db\.attr\.System\.User\.changedDate \| .*local admin row alone' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/admin-b.json $T/admin-a.json --allow $FX/allow/narrow.txt
+ctl diff-admin-other-user-catch 1 'FAIL \| db\.attr\.System\.User\.changedDate \| values changed' '!local admin' -- python3 $B/diff.py $T/admin-other-b.json $T/admin-other-a.json --allow $FX/allow/narrow.txt
 ctl diff-owner-catch 1 'FAIL \| db\.identity\.assoc:System\.owner' -- python3 $B/diff.py $T/sb.json $T/s-owner-lost.json --allow $FX/allow/narrow.txt
 ctl diff-owner-pass 0 '!System\.owner' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/s-owner-order.json --allow $FX/allow/narrow.txt
 ctl diff-new-endpoint-catch 2 'NEW_ENDPOINT \| http\./rest-doc/notify/openapi\.json' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/email-only.txt
@@ -514,6 +537,10 @@ ctl datamove-bad-plan-catch 2 "not 'Src.Entity.Attr -> Dst.Entity.Attr'" -- $DM 
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(grep '^smoke_mf()' $B/cloud/upgrade-pipeline.sh)\"; smoke_mf; echo done"
+# cold WM1 #12 and cold CMM: without ~/.config/upgrade-toolkit/local.env the scanner lookup's sed failed inside $(...) and the ERR
+# trap printed "unexpected failure (exit 1) at line 624 in step 'triage'" on every machine but the author's; the run went on
+ctl pipeline-scanner-lookup-no-local-env-pass 0 '^EA=\[\]$' '!unexpected failure' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
+ctl pipeline-scanner-lookup-local-env-pass 0 '^EA=\[/opt/scan\]$' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); mkdir -p \$HOME/.config/upgrade-toolkit; echo UPG_SCANNER=/opt/scan > \$HOME/.config/upgrade-toolkit/local.env; unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
 # WM1 2026-11-17: Atlas_Core 4's new module roles unmapped; every Atlas page failed for security reasons (smoke walk only)
 MR="bash $B/../controls/modroles_control.sh"
 ctl modroles-grant-by-name-pass 0 '^mdl: ALTER USER ROLE Administrator ADD MODULE ROLES \(Atlas_Core.Administrator\);' '^mdl: ALTER USER ROLE User ADD MODULE ROLES \(Atlas_Core.User\);' '^modroles: 3 grant' -- $MR
@@ -1577,6 +1604,31 @@ mkdir -p $V/papp; touch $V/papp/App.mpr
 # F2: an --app-dir outside the run folder is refused up front (exit 3), not left for mxbuild to fail on at baseline
 mkdir -p $V/outside/oapp; touch $V/outside/oapp/App.mpr
 ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/outside/oapp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw2/work
+# cold CMM 2026-11-17: two run folders both named "run" shared the database names upg_run_*; the second app's baseline said
+# "reusing existing frozen database upg_run_frozen" and started on the first app's data. Names now differ per run folder,
+# and a frozen database whose owner stamp names another run (or that has no stamp and no ledger line here) is refused
+mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
+ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
+ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
+mkdir -p $V/fdk; cat > $V/fdk/docker <<'FAKE'
+#!/bin/bash
+case "$*" in *shobj_description*) cat "$FAKE_OWNER" 2>/dev/null;; *COMMENT*) echo "stamped: $*" >> "$FAKE_LOG";; esac
+FAKE
+chmod +x $V/fdk/docker
+cat > $V/fdk/fo.sh <<'FO'
+# fo.sh WORK: frozen_owner from the pipeline (or $PIPE), run folder /r/cmm, database upg_run_frozen
+set -u; PGC=mig-pg; X=upg_run; X_FROZEN=upg_run_frozen; RUNP=/r/cmm; WORK=$1
+must() { "$@"; }; die4() { echo "DIE: $*"; exit 4; }
+eval "$(sed -n '/^frozen_stamp()/,/^}/p' "$PIPE")"
+frozen_owner && echo owner-ok
+FO
+FO="env PIPE=${PIPE:-$B/cloud/upgrade-pipeline.sh} bash $V/fdk/fo.sh"
+echo 'upgrade-toolkit run /r/wm1' > $V/fdk/other; echo 'upgrade-toolkit run /r/cmm' > $V/fdk/own; : > $V/fdk/none
+mkdir -p $V/fdk/w-legacy $V/fdk/w-new; echo 'upg_run_base snapshot before 2026-11-15T23:33:59' > $V/fdk/w-legacy/db-ledger.txt
+ctl pipeline-frozen-other-run-catch 4 '^DIE: frozen database upg_run_frozen exists but this run did not make it \(upgrade-toolkit run /r/wm1' '!owner-ok' -- env PATH=$V/fdk:"$PATH" FAKE_OWNER=$V/fdk/other FAKE_LOG=$V/fdk/log $FO $V/fdk/w-new
+ctl pipeline-frozen-no-stamp-no-ledger-catch 4 'no owner stamp' -- env PATH=$V/fdk:"$PATH" FAKE_OWNER=$V/fdk/none FAKE_LOG=$V/fdk/log $FO $V/fdk/w-new
+ctl pipeline-frozen-own-pass 0 '^owner-ok$' -- env PATH=$V/fdk:"$PATH" FAKE_OWNER=$V/fdk/own FAKE_LOG=$V/fdk/log $FO $V/fdk/w-new
+ctl pipeline-frozen-legacy-adopted-pass 0 '^owner-ok$' -- bash -c "rm -f $V/fdk/log2; env PATH=$V/fdk:\"\$PATH\" FAKE_OWNER=$V/fdk/none FAKE_LOG=$V/fdk/log2 $FO $V/fdk/w-legacy && grep -q 'COMMENT ON DATABASE upg_run_frozen IS .upgrade-toolkit run /r/cmm' $V/fdk/log2"
 # F1: force-ui.txt reaches stepupdate as --force-ui (else --unattended keeps every edited module), replay/<Module>.mdl runs after the updates
 mkdir -p $V/pw3/replay; printf '# update anyway, replay\nMendixSSO\nAtlas_Core\n' > $V/pw3/force-ui.txt; echo 'alter entity X.Y drop validation rule;' > $V/pw3/replay/MendixSSO.mdl; : > $V/pw3/replay/Atlas_Core.patch
 ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-ui MendixSSO.?,Atlas_Core --saved-edits .*/pw3/saved-edits' 'exec .*/pw3/replay/MendixSSO\.mdl -p ' 'git -C .*/papp apply --check .*/pw3/replay/Atlas_Core\.patch' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw3 --only update --dry-run
