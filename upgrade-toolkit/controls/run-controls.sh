@@ -2581,6 +2581,7 @@ if command -v node > /dev/null; then
     VB="env NODE_PATH=$VBNP node $here/verbs_browser_control.js"
     ctl journeys-verbs-browser-row-pass 0 '^ok +dg2 rows \(display: contents\): .*clicked row1' '^ok +dg2 rows load late' '^ok +dg2 cells with role="cell"' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-catch 0 '^ok +dg2 empty placeholder: threw .*the list is empty, a fixture gap' '^ok +rows render, unknown markup: threw .*an instrument gap' '!^FAIL' -- $VB
+    ctl journeys-verbs-browser-row-dg22-pass 0 '^ok +dg2\.2 cells without a role: returned .*clicked row1' '^ok +dg2\.2 row nth without a role: clicked row2nth' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-nth-pass 0 '^ok +dg2 row nth: row 3 clicked' '^ok +dg2 row nth with dblclick: row 2' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-nth-catch 0 '^ok +dg2 row nth: row 3 of 2 shown: threw: .*row 3 asked for, the list shows 2: .*a fixture gap' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-dblclick-pass 0 '^ok +dg2 double-click trigger: dblclick opens the row: clicked row1' '!^FAIL' -- $VB
@@ -2616,7 +2617,7 @@ if command -v node > /dev/null; then
     # PR-C1 (run 4): a journey that must open an unassigned task takes the list item that states no assignee
     ctl journeys-verbs-browser-unassigned-pass 0 '^ok +unassigned picks the item showing Assign to me, not the first: picked Appr F42B' '^ok +unassigned picks the item that states no assignee, also without the button' '^ok +unassigned absent takes the first \(the old pick\)' '^ok +unassigned with every item unassigned takes the first' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-unassigned-catch 0 '^ok +unassigned is not the assigned first item \(catch\): not Appr F42A' '^ok +unassigned with every item assigned keeps the first \(the step guard says it\)' '!^FAIL' -- $VB
-  else for c in row-pass row-catch tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
+  else for c in row-pass row-catch row-dg22-pass tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
 else for c in catch pass row-instrument-gap-catch row-hidden-first-pass tab-pass tab-catch date-pass date-catch browser-row-pass browser-row-catch browser-tab-pass browser-item-pass browser-item-catch browser-combo-pass browser-combo-catch browser-menu-pass browser-menu-catch browser-fill-pass browser-fill-catch browser-near-pass browser-near-catch browser-ack-pass browser-ack-catch; do
   skip journeys-verbs-$c "no node"; done; fi
 ctl journeys-fill-colon-pass 0 '^"https://idp.example.com:8443/sso\?run=0102"$' -- python3 -c "import sys,json; sys.path.insert(0,'$B'); import run_journeys as r; t=r.run_copy_text(json.dumps({'do':'fill','value':'https://idp.example.com:8443/sso?run=\${RUN_ID}'}), {}, '0102'); print(json.dumps(json.loads(t)['value']))"
