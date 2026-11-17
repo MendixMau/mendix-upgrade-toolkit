@@ -590,7 +590,7 @@ def build_model(work):
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
                       "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
                       "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
-                      "evidence": evidence.for_item(work, it["name"])})
+                      "evidence": evidence.for_item(work, it["name"], it["kind"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
         # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices

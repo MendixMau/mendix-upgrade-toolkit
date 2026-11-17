@@ -6,8 +6,13 @@ Why (cold test WM1, 2026-11-16): seven "What should the upgrade do with <module>
 the owner asked how anyone can decide that. The run had the answer in its logs: Atlas_Core had 7 layouts and snippets edited,
 Encryption only its EncryptionKey constant, Email_Connector one microflow, MendixSSO an attribute the new version drops.
 
-  for_item(work, name) -> {"what": [plain lines], "files": [paths relative to the run folder]}
-  evidence.py --work W NAME       prints the lines and the files (a check by hand)
+  for_item(work, name, kind=None) -> {"what": [plain lines], "files": [paths relative to the run folder]}
+  evidence.py --work W [--kind K] NAME       prints the lines and the files (a check by hand)
+
+A plan item that is no module has its own source (cold CMM, 2026-11-17: the "Release notes" and "DataWidgets themesource
+edits" cards were flagged ask-no-evidence on every run, because only module names were looked up):
+  kind check, Release notes   W/release-impact.out (why the release-note check did not run)
+  kind theme, "<M> themesource edits"   the theme and JavaScript file rows of <M> in W/localedits.json
 
 Sources, per module (app = state/app-dir, S = app/.stepupdate):
   S/step*-<M>.log        the elements mxcli refused to overwrite, or why it could not read the module
@@ -49,8 +54,28 @@ def _refused(text):
     return out
 
 
-def for_item(work, name):
+def _other(work, name, kind):
+    if kind == "check" and name == "Release notes":
+        p = os.path.join(work, "release-impact.out")
+        what = [ln.strip() for ln in (_rd(p) or "").splitlines() if ln.strip()][:5]
+        return {"what": what, "files": [_rel(work, p)] if what else []}
+    if kind == "theme" and name.endswith(" themesource edits"):
+        mod = name[:-len(" themesource edits")]
+        try:
+            rep = json.loads(_rd(os.path.join(work, "localedits.json")) or "[]")
+        except ValueError:
+            rep = []
+        what = [f"{f.get('path')}: {(f.get('change') or '').lower()} ({f.get('detail')})"
+                for e in rep if isinstance(e, dict) and e.get("name") == mod for f in e.get("files") or []]
+        return {"what": what, "files": [_rel(work, os.path.join(work, "localedits.json"))] if what else []}
+    return None
+
+
+def for_item(work, name, kind=None):
     work = os.path.abspath(work)
+    other = _other(work, name, kind)
+    if other is not None:
+        return other
     app = (_rd(os.path.join(work, "state", "app-dir")) or "").strip()
     S = os.path.join(app, ".stepupdate") if app else ""
     what, files = [], []
@@ -115,9 +140,10 @@ def for_item(work, name):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--work", required=True)
+    ap.add_argument("--kind")
     ap.add_argument("name")
     a = ap.parse_args()
-    ev = for_item(a.work, a.name)
+    ev = for_item(a.work, a.name, a.kind)
     print("\n".join("- " + w for w in ev["what"]) or "(no evidence found)")
     print("files: " + ", ".join(ev["files"]))
     return 0 if ev["what"] else 1

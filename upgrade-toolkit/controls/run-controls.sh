@@ -6885,6 +6885,14 @@ ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
 ctl cockpit-check-withdraw-pass 0 "withdrawn \['S-4'\]" '!ghost-step' 'rows Oldmod: 0' -- $CK check-withdraw
 ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-running
+# cold CMM: the "Release notes (check)" and "<M> themesource edits (theme)" cards were ask-no-evidence on every run, as only
+# module names were looked up; each kind has its own source now, and a name that has none still shows nothing
+mkdir -p $T/evw/work; printf 'release_impact: no brain version tables under /x/baseline/versions\n' > $T/evw/work/release-impact.out
+printf '[{"name": "Shopmod", "files": [{"change": "CHANGED", "kind": "theme", "path": "themesource/shopmod/web/main.scss", "detail": "1 variable(s) changed: $brand"}]}]' > $T/evw/work/localedits.json
+ctl evidence-check-release-notes-catch 0 '^- release_impact: no brain version tables' '^files: work/release-impact\.out$' -- python3 $B/evidence.py --work $T/evw/work --kind check "Release notes"
+ctl evidence-theme-files-catch 0 '^- themesource/shopmod/web/main\.scss: changed \(1 variable' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Shopmod themesource edits"
+ctl evidence-theme-other-module-pass 1 '\(no evidence found\)' '!main\.scss' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Othermod themesource edits"
+ctl cockpitpage-evidence-passes-kind-pass 0 'evidence\.for_item\(work, it\["name"\], it\["kind"\]\)' -- grep -F 'evidence.for_item(work, it["name"], it["kind"])' $B/cockpitpage.py
 # editroute.py (cold test WM1): a module the update refused is routed to an update; only a real logic edit, Java code, a removal
 # something still uses or a tool fault stays kept. A stub mxcli answers describe and refs.
 ER="bash $here/editroute_control.sh"
