@@ -1120,6 +1120,19 @@ step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
   # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
   [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
+  # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
+  # Administration 4.5.0 has no UserRole_Select or RetrieveTimeZones, two own employee pages used them)
+  if [ "$DRY" != 1 ]; then
+    local orc=0
+    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt" || orc=$?
+    if grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
+      note "own modules use $(grep -c '^  GONE' "$WORK/owngone.out") target(s) the plan versions drop: CE1613 after the update, see $WORK/owngone.out (steps/repair.md row 28)"
+    elif [ "$orc" = 2 ]; then
+      note "crosscalls --own exit 2: own modules not checked against the plan versions, see $WORK/owngone.out"
+    fi
+  else
+    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt"
+  fi
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
   replay_edits
@@ -1247,6 +1260,9 @@ Codes: $(grep -oE '^\[error\] *\[C[EW][0-9]+\]' "$CHECK_LOG" | grep -oE 'C[EW][0
 Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one commit per fix; checkdiff.py after each)."
     nj_file 10 "First 20 error lines" "$CHECK_LOG" 20 '^\[error\]'
     grep -q '^\[where\]' "$CHECK_LOG" 2> /dev/null && nj_file 10 "Where they are (first 20)" "$CHECK_LOG" 20 '^\[where\]'
+    if has_code CE1613 && grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
+      nj_file 10 "Own documents use targets the module update dropped (CE1613; steps/repair.md row 28)" "$WORK/owngone.out" 20 '^(OWN|  GONE)'
+    fi
     nj_flush
   fi
   # mxbuild

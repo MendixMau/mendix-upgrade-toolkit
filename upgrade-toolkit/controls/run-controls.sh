@@ -226,6 +226,23 @@ ctl crosscalls-page-listed-first-catch 1 'e\.g\. page KeptConn\.ACT_Show -> Auth
 ctl crosscalls-no-kept-invalid 2 'give --kept' -- python3 $B/crosscalls.py $M/xcall --planned AuthMod
 ctl crosscalls-unknown-module-invalid 2 'not a module of the model: Typo' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned Typo
 ctl crosscalls-empty-kept-pass 0 'kept 0' '!CAP ' -- python3 $B/crosscalls.py $M/xcall --kept '' --planned AuthMod
+# cold CMM: Administration 2.1.2 -> 4.5.0 dropped a page and a microflow two OWN employee pages used: 3 CE1613 at the build,
+# nothing said so before. --own judges the app's own modules against the plan version package, any major (own code is
+# changed, not held back); the target still in the package passes, no package in the cache is a NOTE
+model xcall-own > /dev/null
+mkdir -p $T/cache-xc-own-gone $T/cache-xc-own-here $T/cache-xc-own-none
+cp $T/cache-xc-gone/2222-3.9.0.mpk $T/cache-xc-own-gone/2222-4.1.0.mpk; cp $T/cache-xc-here/2222-3.9.0.mpk $T/cache-xc-own-here/2222-4.1.0.mpk
+ctl crosscalls-own-gone-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) own modules use are gone from the 4\.1\.0 package' '^  GONE page AuthMod\.Login_Page \(used by own Shop\.ACT_Open\)' '!GONE .*ACT_Sign' '!GONE .*KeptConn' 'repair\.md row 28' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+ctl crosscalls-own-present-pass 0 '^crosscalls: 0 target\(s\) used by own modules are gone' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-here
+ctl crosscalls-own-unchecked-pass 0 '^NOTE AuthMod 3\.2\.0 -> 4\.1\.0: used by own Shop; targets NOT checked' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none
+ctl crosscalls-own-off-pass 0 '!OWN|GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+# the build stop quotes owngone.out when mx check has CE1613 (and only then)
+mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
+printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
+awk '/if has_code CE1613 && grep/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $T/og/nj.sh
+printf '%s\n' 'has_code() { grep -q "\[$1\]" "$CHECK_LOG"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' > $T/og/stub.sh
+ctl pipeline-build-owngone-catch 0 '^NJ 10 Own documents use targets the module update dropped \(CE1613; steps/repair\.md row 28\)' '^  GONE page AuthMod\.Login_Page \(used by own Shop\.ACT_Open\)' '!crosscalls: own' -- bash -c ". $T/og/stub.sh; WORK=$T/og CHECK_LOG=$T/og/check-1613.log; . $T/og/nj.sh; echo done"
+ctl pipeline-build-owngone-other-code-pass 0 '^done$' '!NJ' -- bash -c ". $T/og/stub.sh; WORK=$T/og CHECK_LOG=$T/og/check-0117.log; . $T/og/nj.sh; echo done"
 
 # T6R-7: the other direction. An UPDATED module that needs what a KEPT module lacks (a name, a parameter of a flow, a Java
 # class) is FAIL with the pair named; all names present is REVIEW (signatures unproven), never PASS; a kept module calling
@@ -1704,6 +1721,8 @@ ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- en
 ctl pipeline-dry-smoke-microflows-pass 0 'smokewalk\.js .* --microflows --login-path' -- env UPG_SMOKE_MICROFLOWS=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf1 --only basewalk --dry-run
 ctl pipeline-dry-smoke-microflows-off-catch 0 'smokewalk\.js .* --login-path' '!--microflows' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf0 --only basewalk --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run
+# the update step runs crosscalls --own on the original model BEFORE the module updates (cold CMM: 3 CE1613 found only at the build)
+ctl pipeline-dry-update-owngone-catch 0 '^own-before-update$' -- bash -c "bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run | awk '/crosscalls\.py .*\/pw\/original\.mpr --kept .*--own --plan-file .*\/pw\/plan\.txt/{if(!c)c=NR} /stepupdate\.sh/{if(!s)s=NR} END{print (c && c<s) ? \"own-before-update\" : \"no c=\" c \" s=\" s}'"
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
 mkdir -p $V/pw4/replay; printf 'MendixSSO\n' > $V/pw4/force-ui.txt; echo 'create or modify association A.R_X from A.R to B.U;' > $V/pw4/replay/MendixSSO.mdl
 printf '# original GUIDs back\nA.R_X\nA.R_Y\n' > $V/pw4/replay/MendixSSO.guids; printf 'A.R_X # restored by replay/MendixSSO.guids\n' > $V/pw4/approved-step.txt; printf '# accepted\n' > $V/pw4/approved.txt
