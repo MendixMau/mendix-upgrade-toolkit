@@ -1210,6 +1210,10 @@ ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok
   '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
 # cold CMM: a page full of widget error boxes ("The Text filter widget must be placed inside the header ...") PASSed 23/23
 ctl smokewalk-landedok-widget-error-catch 0 '^ok +landedOk fake widget error box: got true' '^ok +landedOk fake validation message: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
+# cold CMM 10.24 and 11: the Data Widgets 3.x filter's own errors do not say "widget" ("The attribute is not filterable.
+# Please choose a different attribute.") and the MaterialHandler dashboard PASSed; an app's own red alert still passes
+ctl smokewalk-landedok-filter-error-catch 0 '^ok +landedOk filter attribute error .*FAIL wanted' '^ok +landedOk fake filter attribute error: got true' \
+  '^ok +landedOk fake no filter store: got true' '^ok +landedOk app alert text .*PASS wanted' '!^FAIL' -- node $here/smokewalk_predicates.js
 # T6R-9: the compare pools repeated walks (fixtures/smoke/, --rejudge = no browser). A new error the old walks never showed
 # is a REGRESSION, also when intermittent; the old app's own intermittent error on the new side is FLAKY on both (exit 2)
 SW="node $B/smokewalk.js"; SF=$FX/smoke
