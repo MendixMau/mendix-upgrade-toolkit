@@ -960,6 +960,10 @@ printf '%s\n' '/*C1*/INSERT INTO BLOCKS VALUES(0,2147483647,0)' > $T/snapblocks/
 ctl seed-snapshot-blocks-bookkeeping-catch 0 '!UNMAPPED' '!statement not understood' 'to load 18' -- $SS $T/snapblocks --dry-run
 printf '%s\n' '/*C1*/INSERT INTO BLOCKS VALUES(0,2147483647,0)' '/*C1*/INSERT INTO BLOCKSX VALUES(1)' > $T/snapblocks/d/default.log
 ctl seed-snapshot-blocks-not-blanket-pass 1 'UNMAPPED \(1\)' 'statement not understood: INSERT INTO BLOCKSX' -- $SS $T/snapblocks --dry-run
+# the throwaway cluster also starts from binaries on PATH (Homebrew), not only /usr/lib/postgresql (cold CMM: every Postgres control SKIPped on a Mac)
+if command -v initdb > /dev/null && ! ls -d /usr/lib/postgresql/*/bin > /dev/null 2>&1; then
+  ctl pgtmp-path-binaries-catch 0 '^psql -h /var/tmp/upg-pg\.' '^stopped$' -- bash -c "c=\$(bash $here/lib/pgtmp.sh start) && echo \"\$c\" && bash $here/lib/pgtmp.sh stop \$(echo \"\$c\" | awk '{print \$3}') && echo stopped"
+else skip pgtmp-path-binaries "no initdb on PATH, or the /usr/lib/postgresql layout is there"; fi
 if PGC=$(bash $here/lib/pgtmp.sh start 2>/dev/null); then
   PGD=$(echo "$PGC" | awk '{print $3}'); pgx() { psql -h "$PGD" -U mendix -qtA "$@"; }
   pgx -d fx -f $SNAP/pg-schema.sql > /dev/null && for n in ok colgone noguid skipt; do pgx -d fx -c "create database t_$n template fx" > /dev/null; done
