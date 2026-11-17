@@ -1403,7 +1403,7 @@ def main():
     ap.add_argument("--out", help="write the full JSON here")
     ap.add_argument("--md", help="write the markdown report here")
     ap.add_argument("--catalog-check", metavar="SCRATCH", help="cross-check with mxcli catalog on copies in SCRATCH")
-    ap.add_argument("--mxcli", default=os.environ.get("MXCLI", os.path.expanduser("~/.local/bin/mxcli")))
+    ap.add_argument("--mxcli", default=os.environ.get("MXCLI") or shutil.which("mxcli") or os.path.expanduser("~/.local/bin/mxcli"))
     a = ap.parse_args()
     old, new = Model.load(a.old), Model.load(a.new)
     declared = None

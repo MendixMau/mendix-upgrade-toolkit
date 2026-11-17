@@ -40,7 +40,7 @@ Usage:
                 [--mxcli-diff] [--mxcli-cmd "prefix"] [--mxcli-project PATH-as-seen-by-prefix]
 Exit: 0 no RED and every module judged, 1 RED edits found, 2 incomplete (a module UNKNOWN, no RED) or error.
 
-Env: UPG_MXCLI (default ~/.local/bin/mxcli), UPG_CACHE (default ~/.cache/upgrade-toolkit/mpk; packages are cached as
+Env: UPG_MXCLI (default the mxcli on PATH, else ~/.local/bin/mxcli), UPG_CACHE (default ~/.cache/upgrade-toolkit/mpk; packages are cached as
 <content id>-<version>.mpk, so a prepared cache works offline). A package that is not cached needs mxcli: without it
 localedits stops at once with one line (exit 2; T4-15, T7-1), instead of a traceback halfway.
 NETWORK (batch 1: T2-21, T3-2, T5-2, T6-9, T7-2, T8-5): a download or diff that fails with a TLS handshake timeout,
@@ -78,7 +78,10 @@ import idcheck  # noqa: E402
 import mprmodel  # noqa: E402
 import themefiles  # noqa: E402
 
-MXCLI = os.environ.get("UPG_MXCLI") or os.path.expanduser("~/.local/bin/mxcli")
+# UPG_MXCLI, else the mxcli on PATH (the one the shell steps call), else ~/.local/bin/mxcli. Cold WM1: with HOME set to a
+# run's own home, ~/.local/bin held an older mxcli than PATH; its DESCRIBE LAYOUT dropped the master layout, editroute
+# held both Atlas layouts and every page lost the app's shell, while the shell steps used the newer binary on PATH.
+MXCLI = os.environ.get("UPG_MXCLI") or shutil.which("mxcli") or os.path.expanduser("~/.local/bin/mxcli")
 CACHE = os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk")
 # HTTP 500 is not here: an installed version that answers 500 is not published any more (E1 5, E4 1), a retry cannot help
 TRANSIENT = re.compile(r"TLS handshake timeout|i/o timeout|connection reset|HTTP 50[234]|HTTP 429|Too Many Requests")

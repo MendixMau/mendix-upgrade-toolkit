@@ -1161,6 +1161,24 @@ assoc_unreplayed() {
   done
 }
 
+# Cold WM1: editroute held both Atlas layouts for a person (edit-routes.json held[]) inside a replay that itself ran fine,
+# so nothing stopped; every page lost the app's shell and only the screens caught it. A held element is a local edit that
+# is NOT in the app, like a failed replay: it goes in replay-held.txt (as "<module> held: ...") and the gate stops 13.
+held_routes() {
+  [ "$DRY" != 1 ] && [ -s "$WORK/edit-routes.json" ] || return 0
+  local f="$WORK/replay-held.txt" n
+  [ ! -f "$f" ] || { grep -v '^[^ ]* held: ' "$f" > "$f.n" || true; mv "$f.n" "$f"; }
+  python3 - "$WORK/edit-routes.json" >> "$f" <<'PY' || note "held_routes: edit-routes.json unreadable, held elements not listed"
+import json, sys
+for x in json.load(open(sys.argv[1])):
+    for h in x.get("held") or []:
+        print(f"{x.get('module')} held: {h} (edit-routes.json)")
+PY
+  n=$(grep -c '^[^ ]* held: ' "$f" 2> /dev/null || true)
+  [ "${n:-0}" = 0 ] || note "editroute: $n element(s) held for a person are not in the app; the gate stops on $f"
+  [ -s "$f" ] || rm -f "$f"
+}
+
 # route_kept (cold test WM1): a module the update refused is not kept at its old version by default. editroute.py routes each one
 # (diagram-only, UI and constants replayed, unreadable but unedited, files kept as copies, vendor drops nothing uses, associations
 # of other modules replayed with their ids) and a second stepupdate pass updates the routed modules; only HOLD rows stay kept.
@@ -1222,6 +1240,7 @@ step_update() {
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
   replay_edits
+  held_routes
   if [ "$DRY" != 1 ] && [ -s "$WORK/edit-routes.json" ]; then   # did each route work, here and across runs (route ledger)
     local sl="${UPG_ROUTE_LEDGER:-${UPG_CACHE:-$HOME/.cache/upgrade-toolkit}/route-ledger.tsv}"; mkdir -p "$(dirname "$sl")"
     python3 "$B/editroute.py" score --work "$WORK" --app "$APP" --plan "$WORK/plan.txt" --ledger "$sl" > "$WORK/editroute-score.out" 2>&1 || true
@@ -1986,12 +2005,37 @@ run_step() { # run_step NAME
   cockpit_regen
 }
 
+# Cold WM1: a rung-1 rerun (the app rewound to the convert commit, --from update) kept rung2/state/{triage,baseline}.done,
+# so rung 2 would compare 11 with a baseline of the rung-1 app the rerun had replaced. rung2/state/rung1-head is the app's
+# HEAD when rung 2 last started on the $TARGET app. That commit no longer in the app's history, or the app back on $TARGET
+# after rung 2 converted it, means rung 1 changed under rung 2: its markers (all but fetch) move to state/stale-<time>/.
+rung2_stale() {
+  local r2s="$WORK/rung2/state" mpr ver head old aside m n=0
+  mpr=$(ls "$APP"/*.mpr 2> /dev/null | head -1); [ -n "$mpr" ] || return 0
+  ver=$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select _ProductVersion from _MetaData").fetchone()[0])' "$mpr" 2> /dev/null) || ver=""
+  case "$ver" in "$TARGET2"|"$TARGET2".*) return 0 ;; esac   # rung 2 converted the app: its markers are its own
+  head=$(git -C "$APP" rev-parse HEAD 2> /dev/null) || return 0
+  old=$(cat "$r2s/rung1-head" 2> /dev/null || true)
+  if { [ -n "$old" ] && ! git -C "$APP" merge-base --is-ancestor "$old" HEAD 2> /dev/null; } || [ -f "$r2s/convert.done" ]; then
+    aside="$r2s/stale-$(date -u +%Y%m%dT%H%M%SZ)"
+    for m in "$r2s"/*.done; do
+      [ -f "$m" ] && [ "$(basename "$m")" != fetch.done ] || continue
+      mkdir -p "$aside"; mv "$m" "$aside/"; n=$((n + 1))
+    done
+    [ "$n" = 0 ] || say "rung 2   the $TARGET app changed under rung 2 (rung 1 reran on another history): $n step marker(s) moved to $aside, rung 2 redoes them"
+  fi
+  printf '%s\n' "$head" > "$r2s/rung1-head"
+}
+
 main() {
   preflight
   resolve_app
   [ "$DRY" = 1 ] || rm -f "$WORK/NEEDS-JUDGMENT.md"
   decisions_apply   # resume: what was decided on the page or in chat while the run was stopped
   if [ -n "$FROM" ] && [ "$DRY" != 1 ]; then
+    # cold WM1: --from update with another mxcli cleared the .done of update..gate, and only then the pin refused; check first
+    local ps=$FROM; case "$ps" in fetch) ps=triage ;; propose) ps=convert ;; esac
+    mxcli_pin "$ps"
     local s found=0
     for s in "${STEPS[@]}"; do [ "$s" != "$FROM" ] || found=1; [ "$found" = 0 ] || rm -f "$WORK/state/$s.done"; done
   fi
@@ -2010,6 +2054,7 @@ main() {
     [ "$DRY" != 1 ] || r2+=(--dry-run)
     if [ "$DRY" != 1 ]; then
       mkdir -p "$WORK/rung2/state"
+      rung2_stale
       # one version per run: rung 2 inherits the pin of rung 1 (its triage then checks, not re-records)
       [ ! -s "$WORK/state/mxcli-version" ] || [ -s "$WORK/rung2/state/mxcli-version" ] || cp "$WORK/state/mxcli-version" "$WORK/rung2/state/mxcli-version"
       # one step file for both versions: rung 2 appends to the steps.jsonl of rung 1
