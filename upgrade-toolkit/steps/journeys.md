@@ -108,6 +108,12 @@ What the generated journeys assert (content, not only "the page rendered"):
   entry point reaches through any chain of callers). The run prints them as INFO: listed, not blocking (E4-31,
   E5b-11, E5b-22). Real `todo` items stay INVALID; a `no-click-path` action you can prove dead in the OLD UI is
   `UNREACHABLE` (PASS*, its own count) with an evidence line, see "Coverage and honesty" (B4T2-14).
+  A pluggable widget is never a guard, and a guard only says the page opened. Whether the widget DREW is its own step:
+  `{"do": "rendered", "widget": "<name>", "data": true}` (E2E-R1, `bin/widgetrender.js`, per-widget parts in
+  `playbooks/widget-render.tsv`). It FAILs a widget at 0 px, one with no drawn content, the client's "Could not render
+  widget" text, a playbook part that collapsed or is missing, or a client error from the widget's own script. Seen on
+  FSM 11.12.7 with Ultimate Scheduler 1.4.0: the page opened, every guard held, and the scheduler was a header over a
+  0 px rows area. Pre-fix build FAIL 3/3, the 3.8.0 build PASS 3/3 (rows 8/8, events 4/4).
 
 Once per toolkit version: add `--positive-control`. Every ui-landing row must be PASS (mutant caught). A miss means
 the instrument cannot fail: stop. The run exits 0 when every ui-landing row is PASS and no row FAILs; it prints
