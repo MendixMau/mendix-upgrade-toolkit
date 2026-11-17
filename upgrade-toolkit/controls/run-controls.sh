@@ -3087,6 +3087,14 @@ ctl gen-journeys-guard-dataview-sources-catch 0 '^Home_Nf label4$' '^Home_Path l
 ctl gen-journeys-guard-dataview-page-param-pass 0 '^Order_Edit dataView7$' -- python3 -c "$G3PY; print('Order_Edit', w('Order_Edit'))"
 ctl gen-journeys-guard-dataview-around-last-pass 0 '^Grid_Only layoutGrid3$' -- python3 -c "$G3PY; print('Grid_Only', w('Grid_Only'))"
 ctl gen-journeys-guard-dataview-only-catch 0 '^Only_Dependent None$' -- python3 -c "$G3PY; print('Only_Dependent', w('Only_Dependent'))"
+# cold CMM 2026-11-17: a scroll container has no .mx-name-<name> in the DOM (the MaterialHandler home's scrollContainer1
+# never appeared on the healthy 9.24 page): no guard, not even as the last resort; the layout grid inside it is taken, and
+# a kept impact.json landing on one is re-picked (guard_names leaves it out)
+model guard6 > /dev/null
+G6PY="import sys; sys.path.insert(0,'$B'); import impact_map as I, mprmodel; m=mprmodel.Model.load('$M/guard6'); w=lambda p: (I.landing_widget(m, 'Shop.' + p) or {}).get('widget')"
+ctl gen-journeys-guard-scrollcontainer-catch 0 '^Dash layoutGrid5$' '!scrollContainer' -- python3 -c "$G6PY; print('Dash', w('Dash'))"
+ctl gen-journeys-guard-scrollcontainer-only-catch 0 '^Scroll_Only None$' -- python3 -c "$G6PY; print('Scroll_Only', w('Scroll_Only'))"
+ctl gen-journeys-guard-scrollcontainer-names-catch 0 '^kept False$' -- python3 -c "$G6PY; print('kept', 'scrollContainer1' in I.guard_names(m, 'Shop.Dash'))"
 cp $FX/journeys/impact-guard3.json $T/impact-guard3.json
 G3=$T/gen-guard3; (cd / && python3 $B/gen_journeys.py $T/impact-guard3.json --out-dir $G3 --roles-with-users Inspector,Planner > /dev/null 2>&1)
 ctl gen-journeys-guard-dataview-home-closes-pass 0 "^ready .mx-name-actionButton2 closes \['home:Shop.NAV_Inspector'\]$" -- python3 -c "import json; j=json.load(open('$G3/journeys/Inspector/login-Inspector.journey.json')); print('ready', j['steps'][0]['ui']['ready'], 'closes', j.get('closes'))"

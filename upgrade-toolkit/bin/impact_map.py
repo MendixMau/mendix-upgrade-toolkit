@@ -377,7 +377,9 @@ NOT_A_WIDGET = re.compile(r"Parameter|Variable|Argument|SnippetCall|\$(Page|Snip
 # T7: widgets that draw no element of their own (Set URL, timers, listen-to, trigger-only): the field's "setURL1" was
 # 0 x 0 and the engine's first match, so every login journey FAILed on a healthy app. Matched by type and, for
 # pluggable widgets whose type is generic, by the default name Studio Pro gives them.
-NON_RENDERING = re.compile(r"\$(SetURL|SetUrl|Timer|ListenTo|(Microflow|Nanoflow)Trigger)$")
+# ScrollContainer: no .mx-name-<name> in the client's DOM (cold CMM: the MaterialHandler home's scrollContainer1, inside a
+# data view, never appeared on the healthy 9.24 page and the login journey FAILed); the layout grid inside it is the guard
+NON_RENDERING = re.compile(r"\$(SetURL|SetUrl|Timer|ListenTo|(Microflow|Nanoflow)Trigger|ScrollContainer)$")
 NON_RENDERING_NAME = re.compile(r"^(setURL|setUrl|timer|listenTo|microflowTrigger|nanoflowTrigger|trigger)\d*$")
 REPEATING = re.compile(r"\$(ListView|DataGrid|TemplateGrid|Gallery|ReferenceSetSelector|TreeView)$")
 TITLE = re.compile(r"\$(Title|PageTitle)$")
