@@ -1174,6 +1174,13 @@ mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   rm -f "$cj"
   heavy check "$TARGET" mx check "$MPR" ${j[@]+"${j[@]}"} > "$CHECK_LOG" 2>&1 || true
   [ ! -s "$cj" ] || python3 "$B/checkwhere.py" "$cj" "$CHECK_LOG" || true
+  # no summary line = mx check died (it prints "The app contains: N errors." on every finished check, 0 included); a
+  # crash is never 0 errors (cold CMM: a copied page with a stale pointer, KeyNotFoundException on load, and the run went on
+  # to mxbuild with "0 errors")
+  if ! grep -q 'The app contains:' "$CHECK_LOG" 2> /dev/null; then
+    printf '[error] [MXCHECK] mx check ended without a result (it died loading or checking the model): %s\n' \
+      "$(grep -m1 -E '^ERROR' "$CHECK_LOG" 2> /dev/null | cut -c1-200 || true)" >> "$CHECK_LOG"
+  fi
 }
 has_code() { grep -q "\[$1\]" "$CHECK_LOG" 2> /dev/null; }
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo

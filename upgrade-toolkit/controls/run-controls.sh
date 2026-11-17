@@ -1805,6 +1805,14 @@ STUB
 mkdir -p $V/cw/w10 $V/cw/w9
 ctl pipeline-mxcheck-where-catch 0 '^\[where\] CE0117 Shop / Page .Order_Step1.' '^The app contains: 1 errors' '!usage' -- bash -c "B=$B WORK=$V/cw/w10 TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; . $V/cw/mxcheck.sh; mxcheck; cat \$CHECK_LOG"
 ctl pipeline-mxcheck-9-no-json-pass 0 '^\[error\] \[CE0117\]' '!\[where\]' -- bash -c "B=$B WORK=$V/cw/w9 TARGET=9.24.2 MPR=x.mpr DRY=0; . $V/cw/stub.sh; . $V/cw/mxcheck.sh; mxcheck; cat \$CHECK_LOG; ls $V/cw/w9"
+# cold CMM: mx check died loading the model (KeyNotFoundException, no summary line) and the run counted 0 errors and went
+# on to mxbuild. A check without "The app contains" is an error line; a finished clean check stays 0
+mkdir -p $V/cw/crash $V/cw/clean
+awk '/^open_errors\(\)/,/^}/' $B/cloud/upgrade-pipeline.sh > $V/cw/openerr.sh
+printf '%s\n' 'Loading the mpr file.' "ERROR: System.Collections.Generic.KeyNotFoundException: The given key 'cb8a' was not present in the dictionary." '   at Mendix.Modeler.Storage.Operations.UnitContentsLoader.ConvertFromStorage' > $V/cw/crash.log
+printf '%s\n' 'Checking app for errors...' 'The app contains: 0 errors.' > $V/cw/clean.log
+ctl pipeline-mxcheck-crash-catch 0 '^\[error\] \[MXCHECK\] mx check ended without a result .*KeyNotFoundException' '^errors 1$' -- bash -c "B=$B WORK=$V/cw/crash TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/crash.log; return 1; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
+ctl pipeline-mxcheck-clean-pass 0 '^errors 0$' '!MXCHECK' -- bash -c "B=$B WORK=$V/cw/clean TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/clean.log; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
 ctl pipeline-dry-check-json-catch 0 'mx10\.sh 11\.15\.0\.1 mx check .*/papp/App\.mpr -j .*/pwle/check-1\.json > ' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only build --dry-run
 # v3.1 E6-7: a removal (idcheck verdict REVIEW) is named REVIEW in the KEPT line, a GUID change stays a plain finding
 mkdir -p $S/base; cp $M/base/App.mpr $S/base/
