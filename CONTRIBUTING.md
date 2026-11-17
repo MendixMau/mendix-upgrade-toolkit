@@ -1,8 +1,8 @@
 # Contributing
 
-This repo is private. Contributions from outside the team aren't open yet, but the same bar
-applies to anyone with access: every change should be backed by a field run or a control, not
-a guess.
+Contributions are open. Ran the toolkit on your own app and hit a wall, a wrong verdict or a missing step? Send it:
+an issue, a learnings draft or a PR are all welcome. One bar for everyone: every change is backed by a field run or a
+control, not a guess.
 
 ## Three ways in
 
@@ -12,6 +12,9 @@ a guess.
    made by hand, unknown error codes, scripts and toolkit items into the inbox. Then
    `upgrade-toolkit/bin/submit-learnings.sh toolkit` runs the leak checks and opens one PR from a `learnings/` branch.
 3. **A direct PR** for a finished change, with the checks below.
+4. **An issue** for a bug you can't fix yourself. Every run ends with `FEEDBACK-REPORT.md` in its work folder: where it
+   stopped, the exit code and the drafts it harvested. Paste its summary into a GitHub issue after you have read it for
+   names, hosts and paths.
 
 Toolkit or brain: the toolkit takes generic lessons under code names. Anything internal (customer context, notes from
 the company brain, `confidentiality: internal`) goes to the brain with `submit-learnings.sh brain`, never here;
