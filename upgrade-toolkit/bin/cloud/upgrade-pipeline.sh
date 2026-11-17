@@ -411,6 +411,18 @@ timing_close() { # timing_close EXITCODE
 # $WORK/learnings/ and writes $WORK/FEEDBACK-REPORT.md: where it stopped, the drafts, and how to send them back (PR) or
 # file a toolkit bug (issue). Rung 2 reports on the whole run folder. Never changes the exit code. UPG_HARVEST=0 skips the
 # harvest; the report still comes. Before this, harvest.py ran only when someone remembered steps/report.md 3c (cold WM1).
+# rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
+# --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
+# ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+rung2_cids() { # rung2_cids PLAN ARGSFILE
+  [ -f "$1" ] || return 0
+  local cid ver mod
+  while read -r cid ver mod _; do
+    case "$cid" in ''|\#*) continue ;; esac
+    [[ "$cid" =~ ^[0-9]+$ ]] && [ "$cid" != 0 ] && [ -n "$mod" ] || continue
+    grep -Eq -- "(^|[= ])$mod=" "$2" 2> /dev/null || printf -- '--cid=%s=%s\n' "$mod" "$cid" >> "$2"
+  done < "$1"
+}
 feedback_finish() { # feedback_finish EXITCODE STEP
   [ "${DRY:-0}" != 1 ] && [ -d "${WORK:-}" ] || return 0
   local fw=$WORK app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}"
@@ -1942,6 +1954,7 @@ main() {
       for s in env-values.json create-spec.json localedits.args interview-mode.txt; do
         [ ! -f "$WORK/$s" ] || [ -f "$WORK/rung2/$s" ] || cp "$WORK/$s" "$WORK/rung2/$s"
       done
+      rung2_cids "$WORK/plan.txt" "$WORK/rung2/localedits.args"
     fi
     exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi

@@ -7467,6 +7467,14 @@ ctl feedback-report-deny-catch 0 'left out: it matches the private denylist' '!A
 { awk '/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
   printf '%s\n' 'timing_close() { :; }' "B=$B; WORK=$FB/trap; DRY=0; STEP=build; UPG_APP_CODE=HV1; APPS_UP=()" 'trap cleanup EXIT' 'exit 4'; } > $FB/trap.sh
 ctl pipeline-feedback-on-exit-pass 0 '^rc=4$' '^Exit 4 at build' -- sh -c "env -u UPG_BRAIN bash $FB/trap.sh > /dev/null 2>&1; echo rc=\$?; cat $FB/trap/FEEDBACK-REPORT.md"
+# rung2_cids (cold CMM): rung 1 updated 7 modules, which then carry content id 0, and rung 2's localedits stopped for a
+# hand-written localedits.args. rung 2 now gets --cid lines from rung 1's plan.txt; a module the args already name stays.
+R2C=$T/rung2cids; mkdir -p $R2C
+printf '%s\n' '# plan' '117187 3.22.0 Atlas_Core' '116540 3.11.8 DataWidgets' '# association targets last' '23513 4.5.0 Administration' > $R2C/plan.txt
+printf '%s\n' '--cid=DataWidgets=999' > $R2C/args
+awk '/^rung2_cids\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $R2C/fn.sh
+ctl pipeline-rung2-cids-pass 0 '^--cid=Atlas_Core=117187$' '^--cid=Administration=23513$' '^--cid=DataWidgets=999$' '!DataWidgets=116540' '!plan' -- bash -c ". $R2C/fn.sh; rung2_cids $R2C/plan.txt $R2C/args; cat $R2C/args"
+ctl pipeline-rung2-cids-wired-pass 0 'rung2_cids "\$WORK/plan.txt" "\$WORK/rung2/localedits.args"' -- grep -n 'rung2_cids "' $B/cloud/upgrade-pipeline.sh
 
 # submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
 # internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a
