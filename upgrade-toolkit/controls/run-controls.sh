@@ -646,6 +646,13 @@ ctl datamove-moved-pass 0 '^MOVED MendixSSO.AuthRequest.Nonce -> MendixSSO_Ext.A
 ctl datamove-lost-catch 1 '^LOST .*: 5 before, 3 after$' -- $DM lost
 ctl datamove-count-fail-catch 1 '^UNCOUNTED .*count failed after$' -- $DM fail
 ctl datamove-bad-plan-catch 2 "not 'Src.Entity.Attr -> Dst.Entity.Attr'" -- $DM bad
+# RX1: an audit on a real app read Atlas_Core's own "../../../theme/web/custom-variables" import as a hand-edited
+# vendor file at FILES-route risk; the identical line is Mendix's own module-template boilerplate (46 of the app's
+# own themesource modules carried it). Only an outward import of something OTHER than those two stock names is a
+# real app edit needing a FILES route.
+SB="bash $B/../controls/scss_boilerplate_control.sh"
+ctl scss-boilerplate-pass 0 '^BOILERPLATE mod .*exclusion-variables' '^BOILERPLATE mod .*custom-variables' '!^RISK' '^scss_boilerplate_check: 2 boilerplate, 0 risk across 1 module' -- $SB pass
+ctl scss-boilerplate-app-edit-risk-catch 1 '^RISK mod .*company-brand-overrides.*needs a FILES route' '^scss_boilerplate_check: 2 boilerplate, 1 risk across 1 module' -- $SB catch
 # WM1 rerun 7: baseline ran microflow steps, the after walk skipped them: 4 false REGRESSIONs
 ctl pipeline-smoke-mf-follows-baseline-pass 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"landed\": \"microflow ran\"}' > \$WORK/smoke-before.json; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf"
 ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK=\$(mktemp -d); eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf; echo done"

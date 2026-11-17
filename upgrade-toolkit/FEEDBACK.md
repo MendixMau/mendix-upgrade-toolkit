@@ -29,6 +29,8 @@ MET = run metrics (branch run-metrics): step timing in `state/timing.tsv` with m
 
 LAY = the layout rung (branch feat/layout-rung): why two layout regressions of the LineApp 10.24.13 to 11.12.6 React upgrade passed the gate with '0 regressions' (a vendor module's Dojo table rules halved the Task List gallery, the Static image to Image conversion mapped width unit Auto to percentage). Source: the root-cause note `~/upgrade-lab/lineapp/WHY-NOT-CAUGHT.md`; golden input `controls/fixtures/layout/` (trimmed geometry of the old app and the pre-fix new app). Rows LAY-1 to LAY-12.
 
+RX1 = a held-modules audit on a Mendix 10.24 to 11.12 run, re-checked against the app's own delivered `.mpk` rather than its archived run folder. Rows RX1-1 and RX1-2.
+
 PLM = the PLM ERP LAB Connect 9.24 to 10.24 run (`~/upgrade-lab/tc-apps/TOOLKIT-FEEDBACK.md`, 31 rows PLM-1 to PLM-31; PLM-RI-n in the text is the release-impact pass). Verdict: the lesson is PLM-29 and PLM-26, two silent losses (a local layout edit and unmapped new module roles) that only the screens and smoke rungs showed.
 
 RT = the remedy trial on the notification-service runs (`~/upgrade-lab/tc-apps/TOOLKIT-FEEDBACK.md` section "RT: remedy trial", 14 rows RT-1 to RT-14; evidence `notif/r1/work/REMEDY-TRIAL.md` and `notif/r2/work/REMEDY-TRIAL.md`, run ids "notif RT r1" and "notif RT r2"). The remedy cards were applied option by option; the lesson is RT-1 and RT-3 (letter order picked a pin that broke the app) and RT-8 (a prove-clean update ignored a kept dependent).
@@ -743,6 +745,8 @@ Add new items at the end with status open; the next triage round gives each one 
 | LAY-10 | Combo box widget 2.x (the replacement of the Reference, Reference set and Drop-down selectors): the input container has min-width 135px and the placeholder is in the flow, not position absolute, so theme left/top rules on `.widget-combobox-placeholder-text` misplace it and a narrow old control grows | doc | `playbooks/dojo-successors.tsv` notes of the four selector rows: placeholder position absolute, min-width 0 where the old control was narrower | playbook-combobox-placeholder-catch, playbook-lay-rows-9-columns-pass |
 | LAY-11 | Image widget (from Static image): the classes land on the wrapper `div.mx-image-viewer`, not on the img, so theme height and padding rules written for the img leave it overflowing | doc | Static Image row of the playbook: `.mx-image-viewer.mx-image-viewer-responsive > img, .mx-image-viewer > img {max-width:100%; max-height:100%}` (two classes, because the widget's own `.mx-image-viewer-responsive img` rule loads after the theme) | playbook-image-wrapper-catch, playbook-lay-rows-9-columns-pass |
 | LAY-12 | The React rule `.mx-scrollcontainer-center .mx-layoutgrid .mx-layoutgrid-fluid {padding:0}` zeroes the padding of grids that were not nested on Dojo, because React wraps the page in an extra scroll container region; HTMLSnippet 4.x also wraps in `.widget-events` with flex 1 1 auto, which takes row space | fixed | theme_clash.py kind `react-wrapper`: a padding 0 rule under `.mx-scrollcontainer-*` that targets `.mx-layoutgrid*`, in own or vendor SCSS (summary gains `, W react-wrapper` only when W > 0); the HTMLSnippet part is a playbook note (doc) | theme-clash-react-wrapper-catch, theme-clash-react-wrapper-mutant-blind, theme-clash-react-wrapper-mutant-differs, theme-clash-react-wrapper-clean-app-pass, playbook-htmlsnippet-events-catch |
+| RX1-1 | An audit of a real app's held Marketplace modules read Atlas_Core's own `web/main.scss` as a hand-edited vendor file at FILES-route risk, because two of its lines (`@import "../../../theme/web/exclusion-variables"`, `@import "../../../theme/web/custom-variables"`) reach outside the module into the project's top-level `theme/` folder. The same two lines, in the same position, are present in 46 of the app's 52 themesource modules, including modules the audit itself had confirmed carried no other edits (DataWidgets, ObjectHandling): Mendix's own module-template scaffolding ships them by default. An Atlas_Core update regenerates this exact boilerplate; it is not what an update wipes. The app's real custom styling (`theme/web/custom-variables.scss`, `exclusion-variables.scss`) lives outside every themesource module and no Marketplace update ever touches it | fixed | `bin/scss_boilerplate_check.py`: given a themesource module directory, classifies every outward `@import "<n x ../>theme/web/<name>"` line in its `web/main.scss` as BOILERPLATE (name is `custom-variables` or `exclusion-variables`: stock Mendix scaffolding, no FILES route) or RISK (any other name: an app edit, route it with editroute.py FILES same as before) | scss-boilerplate-pass (only the two stock imports: 0 risk), scss-boilerplate-app-edit-risk-catch (a third outward import of app content: 1 risk, FILES route named) |
+| RX1-2 | The same audit worked only from an archived run's logs and decisions (no app model survived in the archive), and concluded HTMLSnippet was still on 3.9.9, not migrated to 4.0.0. The real delivered app (pulled from its shipped `.mpk`) had already migrated every instance to the Events widget + a bridging nanoflow and to native HTMLElement; 0 classic HTMLSnippet widgets remained. An archive of decisions and logs is not proof of the shipped model: a module-version or widget-usage audit needs the delivered `.mpk` (or a model export), not the run folder, as its source of truth | doc (closed by guidance) | none (a process note, not a tool change); flagged in playbooks/widgets.md's React-client readiness checklist as a caution on HTMLSnippet-usage claims made from decision logs alone | none |
 
 Recounted from the table on 14 Oct after the QI and V3D rows (563 rows: the 542 of the night merge, which the earlier count had one closed row short, plus QI-1 to QI-10 and V3D-1 to V3D-10, plus HG-1 to HG-3 from the run history PR, 566 in all; counted by the first word of the status column).
 
@@ -872,3 +876,16 @@ Recounted from the table on 4 Nov after LAY-1 to LAY-12 (686 rows, counted by th
 | backlog | 166 |
 | open | 0 |
 | total | 686 |
+
+Recounted from the table on 17 Nov after RX1-1 and RX1-2 (688 rows: the 686 above plus two; counted by the first word of the status column: 398 fixed, 95 doc, 14 closed, 7 won't fix, 8 unproved, 166 backlog, 0 open; RX1-1 is fixed, RX1-2 is doc, no other row changed). RX1 = a held-modules audit re-checked against the app's delivered .mpk.
+
+| status | count |
+|---|---|
+| fixed | 398 |
+| doc (closed by guidance) | 95 |
+| closed | 14 |
+| won't fix | 7 |
+| unproved | 8 |
+| backlog | 166 |
+| open | 0 |
+| total | 688 |
