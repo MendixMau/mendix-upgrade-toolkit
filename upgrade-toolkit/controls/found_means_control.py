@@ -47,3 +47,19 @@ if len(sys.argv) > 2 and sys.argv[2] == "cases":
     print("old shot:", c["shots"][0]["old"][:22], "| new shot:", repr(c["shots"][0]["new"]))
     h = cm.h_case(c)
     print("html:", "tiles" if 'class="ct bad"' in h else "-", "why=" + str(h.count("<li>")), "no-shot" if "no screenshot" in h else "-")
+
+    # a regression nobody wrote a case for: built from heal.json, the walk screenshots and the carried screen edits
+    for sub in ("e2e-before/shots-A", "e2e-after/shots-A"):
+        os.makedirs(os.path.join(w, sub), exist_ok=True)
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+    open(os.path.join(w, "e2e-before/shots-A/act-M.P.b1-step2.png"), "wb").write(png)
+    open(os.path.join(w, "e2e-after/shots-A/act-M.P.b1-step2-NOT-REACHED.png"), "wb").write(png)
+    json.dump({"rows": [{"id": "act:act-M.P.b1", "class": "real-regression",
+                         "evidence": "passes on the old app, fails on the new one: FAIL open M.P: button never appeared, screenshot act-M.P.b1-step2-NOT-REACHED.png"},
+                        {"id": "act:act-M.Q.b2", "class": "real-regression", "evidence": "passes on the old app, fails on the new one: FAIL open M.Q"}]},
+              open(os.path.join(w, "heal.json"), "w"))
+    model = {"items": [{"id": "regression:module-M", "kind": "regression", "tech": ["act:act-M.P.b1", "act:act-M.Q.b2"]}]}
+    a = cm.cases(w, model)[cm.case_id("regression:module-M")]
+    print("auto:", a["headline"], "| tiles:", [t[0] for t in a["tiles"]], "| shots:", bool(a["shots"][0]["old"]), bool(a["shots"][0]["new"]),
+          "| carried:", a["why"][1] if len(a["why"]) > 1 else "-", "| options:", sorted(a["options"]))
+    print("written case kept:", cm.cases(w, {"items": [{"id": "regression:module-X", "kind": "regression", "tech": ["act:act-M.P.b1"]}]})[cm.case_id("regression:module-X")]["headline"])

@@ -92,7 +92,22 @@ the agent writes its case next to it, so the person decides on one screen (the c
 
 The file name is the decision id with every character outside `[A-Za-z0-9._-]` as `_` (`regression:module-Administration`
 -> `regression_module-Administration.json`). Every sentence comes from evidence on both apps; the screenshots are embedded,
-so the cockpit stays one file. Without a case file the dialog shows the plain question.
+so the cockpit stays one file. A regression without a case file gets one built by the cockpit from the run's own files
+(`cockpitmatrix.auto_case`): how many actions pass on the old app and fail on the new one, the old and new screenshot of
+the first failing step, the modules whose own screen edits the update carried over (the first place to look), and the
+heal evidence lines. A written case file wins over the built one.
+
+## A module update that carries the app's own edits is not routine
+
+A Marketplace module the app edited (a changed layout, snippet, page, JavaScript action or entity in `localedits.json`)
+is never counted as a routine update: the update replaces the whole module, and the toolkit carries each edit back.
+`proposal.py` puts these modules in their own step, `module-edits` ("Module updates that carry the app's edits"),
+apart from the routine `modules` step. Three cases:
+
+1. No edits: routine, goes ahead under the plan sign-off (auto mode: approved with source `routine`).
+2. Edits carried over and the screens that use them look and work the same on both apps: goes ahead. In auto mode the
+   step is approved with source `carry-over`, so the cockpit says which edits were carried, with the found detail.
+3. An edit could not be carried, or a screen differs on the new app: a decision for a person, with its case (above).
 
 ## What the gate reads from it
 

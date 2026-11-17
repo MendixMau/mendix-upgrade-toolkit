@@ -948,7 +948,7 @@ def found_detail(rec, work):
         return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests.",
                           f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
                           f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."], "items": items}
-    if t == "modules":
+    if t in ("modules", "module-edits"):
         edits = {m["name"]: m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)}
         items, clean, touched, unknown = [], 0, [], 0
         for e in ev:
@@ -964,15 +964,16 @@ def found_detail(rec, work):
                 touched.append(m.group(1))
                 items.append([f"{m.group(1)} {m.group(2)} → {m.group(3)}", f"{len(rows)} local edit" + ("" if len(rows) == 1 else "s"), "wait",
                               f"The app changed {', '.join(os.path.splitext(os.path.basename(x['path']))[0] if x.get('path') else _edit_name(x).split('.')[-1] for x in rows[:4])}{', ...' if len(rows) > 4 else ''}. "
-                              + _edit_means(rows[0]) + " The toolkit re-applies screen edits after the update; check these screens in the Test step."])
+                              + _edit_means(rows[0]) + " The toolkit carries the edit over; the Test step compares its screens on both apps."])
             else:
                 clean += 1
                 items.append([f"{m.group(1)} {m.group(2)} → {m.group(3)}", "no local edits", "ok", "The update swaps the whole module. Nothing of the app is lost."])
         if not items:
             return {}
-        means = [f"{clean} of {len(items)} modules {'has' if clean == 1 else 'have'} no local edits: a clean swap."]
+        means = [f"{clean} of {len(items)} modules {'has' if clean == 1 else 'have'} no local edits: a clean swap."] if clean else []
         if touched:
-            means.append(f"{len(touched)} {'carries' if len(touched) == 1 else 'carry'} edits by the app ({', '.join(touched)}). They count as routine because the toolkit re-applies them, but this is where a screen can change. Look at them first when a test fails.")
+            means.append(f"{len(touched)} {'carries' if len(touched) == 1 else 'carry'} edits by the app ({', '.join(touched)}). Not routine: the update replaces the whole module and the toolkit carries each edit back.")
+            means.append("After the build, the screens that use these edits are compared on the old and the new app. The same: it goes ahead. A difference: a decision for you, with its case.")
         if unknown:
             means.append(f"{unknown} could not be compared, so nobody knows yet whether the app changed {'it' if unknown == 1 else 'them'}.")
         return {"means": means, "items": items}
@@ -1212,7 +1213,7 @@ def build(work, model):
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
             "band": band(model, rows, chips, g, tl, kpi),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work),
+            "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work, model),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
             "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work)}
 
@@ -2212,27 +2213,95 @@ def case_id(item_id):
     return re.sub(r"[^A-Za-z0-9._-]", "_", item_id) + ".json"
 
 
-def cases(work):
+def _embed(work, c):
+    """The case's screenshots (paths in the work folder) as data URIs, "" when missing."""
+    import base64
+    for sh in c.get("shots") or []:
+        for k in ("old", "new"):
+            pth = os.path.join(work, sh.get(k) or "")
+            if sh.get(k) and os.path.isfile(pth) and pth.lower().endswith((".png", ".jpg", ".jpeg")):
+                with open(pth, "rb") as fh:
+                    sh[k] = ("data:image/png;base64," if pth.lower().endswith(".png") else "data:image/jpeg;base64,") + base64.b64encode(fh.read()).decode()
+            else:
+                sh[k] = ""
+    return c
+
+
+def cases(work, model=None):
     """The case files of the open decisions (the owner, 2026-11-17: "such a report per issue that needs a decision"). A case is what the
     agent that raised the decision found: {"headline", "tiles": [[number, label, tone]], "shots": [{"old", "new", "cap"}], "why": [steps],
     "options": {option key: {"does", "catch"}}, "details": [lines]}. Screenshots are paths in the work folder, embedded as data URIs,
-    so the cockpit stays one file. A missing or broken case file leaves the plain question."""
-    import base64
+    so the cockpit stays one file. A regression without a case file gets one built from the run's own files (auto_case); a broken
+    case file is skipped."""
     out, d = {}, os.path.join(work, CASE_DIR)
     for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         c = cp.rj(os.path.join(d, f)) if f.endswith(".json") else None
-        if not isinstance(c, dict):
-            continue
-        for sh in c.get("shots") or []:
-            for k in ("old", "new"):
-                pth = os.path.join(work, sh.get(k) or "")
-                if sh.get(k) and os.path.isfile(pth) and pth.lower().endswith((".png", ".jpg", ".jpeg")):
-                    with open(pth, "rb") as fh:
-                        sh[k] = ("data:image/png;base64," if pth.lower().endswith(".png") else "data:image/jpeg;base64,") + base64.b64encode(fh.read()).decode()
-                else:
-                    sh[k] = ""
-        out[f] = c
+        if isinstance(c, dict):
+            out[f] = _embed(work, c)
+    for i in (model or {}).get("items") or []:
+        if i.get("kind") == "regression" and case_id(i["id"]) not in out:
+            c = auto_case(work, i)
+            if c:
+                out[case_id(i["id"])] = _embed(work, c)
     return out
+
+
+def _shot_paths(work):
+    """{file name: [paths relative to work]} of the walk screenshots."""
+    got = {}
+    for root, dirs, files in os.walk(work):
+        dirs[:] = [x for x in dirs if x not in (CASE_DIR, "node_modules", ".git")]
+        for f in files:
+            if f.endswith(".png"):
+                got.setdefault(f, []).append(os.path.relpath(os.path.join(root, f), work))
+    return got
+
+
+def auto_case(work, item):
+    """The case of a regression nobody wrote one for, from the run's own files: how many actions broke, the first old and new
+    screenshot of the same step, the module edits the update carried over (the first place to look), and the evidence lines."""
+    heal = _json(work, "heal.json") or {}
+    ids = item.get("tech") or []
+    ev = {r.get("id"): r.get("evidence", "") for r in heal.get("rows", []) if r.get("class") == "real-regression"}
+    lines = [ev[x] for x in ids if ev.get(x)]
+    if not ids:
+        return None
+    pages = sorted({re.sub(r"^act-", "", x.split(":", 1)[-1]).rsplit(".", 1)[0] for x in ids})
+    n = len(ids)
+    shots, names = [], None
+    for ln in lines:
+        m = re.search(r"screenshot (\S+\.png)", ln)
+        if m:
+            names = names or _shot_paths(work)
+            new = (names.get(m.group(1)) or [""])[0]
+            oldn = re.sub(r"-[A-Z][A-Z-]*\.png$", ".png", m.group(1))
+            olds = names.get(oldn) or []
+            old = next((x for x in olds if "before" in x or "old" in x), olds[0] if olds else "")
+            if new or old:
+                step = re.search(r"-(step\d+)", m.group(1))
+                shots.append({"old": old, "new": new, "cap": f"{pages[0]}, {step.group(1) if step else 'the step'} that fails: "
+                              "the old app on the left, where the new app stopped on the right."})
+                break
+    # a vendor screen the app changed (not a page the app added to the module): the update carries it over
+    carried = sorted({m["name"] for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)
+                      and any(x.get("change") == "CHANGED" for x in m.get("ui") or [])})
+    reason = next((r.group(1) for ln in lines for r in [re.search(r"FAIL (.+?)(?: \u2014| \||$)", ln)] if r), "")
+    why = [f"{n} action{'s' if n != 1 else ''} on {len(pages)} page{'s' if len(pages) != 1 else ''} pass on the old app and fail on the new one"
+           + (f": {reason}." if reason else ".")]
+    if carried:
+        why.append(f"The update carried over the app's own screen edits in {', '.join(carried)}. A carried screen edit is the first place to look.")
+    tiles = [[n, "pass on the old app, fail on the new", "bad"], [len(pages), "page" + ("s" if len(pages) != 1 else ""), "wait"]]
+    if carried:
+        tiles.append([len(carried), "modules with screen edits carried over", "wait"])
+    return {"headline": f"{n} action{'s' if n != 1 else ''} that work on the old app fail on the new one ({', '.join(pages[:3])}{', ...' if len(pages) > 3 else ''}).",
+            "tiles": tiles, "shots": shots, "why": why,
+            "options": {"fix": {"does": "The agent finds the cause, fixes it in the toolkit or the app, and runs again from the step that broke. These actions must pass.",
+                                "catch": "One more run of the tests."},
+                        "accept": {"does": "Record these changes as intended, with your name and reason.",
+                                   "catch": "Users can no longer do on the new app what these actions did on the old one."},
+                        "old-wrong": {"does": "Record that the old app was wrong here.",
+                                      "catch": "Only true when the old behaviour was a bug; the screenshots show what it did."}},
+            "details": [cp.short(x, 300) for x in lines[:6]]}
 
 
 def h_case(c):

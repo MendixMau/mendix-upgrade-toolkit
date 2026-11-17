@@ -2,16 +2,16 @@
 
 Every piece of the owner's feedback on the toolkit, the conclusion we reached, and where it landed. One row per point.
 Status: **done** (merged to main), **branch** (committed on `fix/signed-cards`, no PR yet), **PR** (open pull request),
-**open** (agreed, not built), **owner** (waits for the owner's call). Newest first. Update this file in the same commit
+**open** (agreed, not built), **owner** (waits for the owner's call). "this PR" rows close with the PR that adds them. Newest first. Update this file in the same commit
 that closes a row.
 
 | date | feedback (owner's words, short) | conclusion | status | where |
 |---|---|---|---|---|
 | 11-17 | "Make the sidebar 50% of screen ... show what was found per action, and what it MEANS" | drawer is 50% wide; per action a "What it means" box and an item-by-item table, worst first | branch | ba76a0e |
 | 11-17 | "If we could write such a thing per issue which needs a decision ... embed this" | a decision opens its case in the cockpit: headline, tiles, old vs new screenshot, why, options with the catch | branch | 775ddae |
-| 11-17 | the step writes its case on its own, not by hand | case files written by the step that raises the decision | open | |
+| 11-17 | the step writes its case on its own, not by hand | a regression without a case file gets one built from the run's own files | PR | this PR |
 | 11-17 | "All routine decisions just have one sign off ... in auto mode they just upgrade" | routine work: one plan sign-off, or approved by the agent in auto mode; only a deviation asks a person | branch | ba76a0e |
-| 11-17 | modules with screen edits counted as routine (6 of 10 carry local edits) | stop counting a module with local edits as routine | owner | |
+| 11-17 | modules with screen edits counted as routine (5 of 10 carry local edits) | a module with the app's edits gets its own step: carried over, screens compared, a difference is a decision with its case | PR | this PR |
 | 11-17 | "No manual copying" (Accounts page) | a Marketplace page the menu opens: copied onto the app layout, or its layout set in place when a copy is not safe | branch | 132323a, 183d044, 8aa073d |
 | 11-17 | 7 Accounts actions work on the old app, fail on the new | in-place layout keeps the user grid; rerun WM1 from build to prove the 7 pass | open | |
 | 11-17 | "we still don't understand what fails means" | a FAIL is only "worked on old, broken on new"; fails on both = a note; known platform differences PASS* with reason | branch | 44d9111, ba76a0e |

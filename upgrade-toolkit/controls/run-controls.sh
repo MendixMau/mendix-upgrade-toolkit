@@ -5836,6 +5836,13 @@ ctl proposal-steps-rerun-no-duplicates-catch 0 '^same events: yes$' '^same steps
 ctl proposal-steps-plan-change-updates-found-pass 0 'plan holds 2 module updates' -- sh -c "grep -Eo 'plan holds [0-9]+ module updates?' $PR/rerun/steps.jsonl | tail -1"
 # unattended (auto mode): routine work goes ahead (approved, source routine); a real decision stays assumed until a person answers (the owner, 2026-11-17)
 ctl proposal-steps-unattended-assumed-catch 0 '^S-[0-9]+ modules .* approval=approved by=agent source=routine ' '^S-[0-9]+ module:DataWidgets .* approval=assumed by=agent source=unattended ' '!approval=none' '!module:DataWidgets .*approval=approved' -- bash $PR/ssum.sh $PR/unatt
+# a routine update of a module with the app's own edits is not routine (the owner, 2026-11-17): its own step, carried over in auto mode
+# (source carry-over), and the plain routine step no longer holds it
+mkw carry kept; python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.append({'name': 'Plainmod', 'domain': [], 'ui': [{'kind': 'snippet', 'change': 'CHANGED', 'name': 'Plainmod.Card'}]}); json.dump(d, open(p, 'w'))" $PR/carry/localedits.json
+bash $PR/prop.sh $PR/carry --unattended > $PR/carry.out 2>&1 || cat $PR/carry.out >&2
+ctl proposal-steps-module-edits-carried-pass 0 '^S-[0-9]+ module-edits .* approval=approved by=agent source=carry-over ' '!^S-[0-9]+ module:Plainmod ' '^evidence module-edits: module update Plainmod ' '!^evidence modules: module update Plainmod ' -- sh -c "bash $PR/ssum.sh $PR/carry; python3 $B/steps.py show --work $PR/carry --json | python3 -c 'import json,sys
+for r in json.load(sys.stdin):
+    [print(\"evidence\", r[\"topic\"] + \":\", e) for e in r[\"found\"].get(\"evidence\") or [] if r[\"topic\"] in (\"modules\", \"module-edits\")]'"
 # signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
 ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
   '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '!approval=assumed' '!by=agent' -- bash $PR/ssum.sh $PR/signed
@@ -6860,6 +6867,9 @@ ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| n
 ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
 # a decision's case file (work/cases/<id>.json): found by id, screenshots embedded, a missing shot shown as such, a broken file ignored
 ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^old shot: data:image/png;base64, \| new shot: .{2}$' '^html: tiles why=2 no-shot$' -- python3 $here/found_means_control.py $T/fmc cases
+# a regression without a case file gets one from the run's own files (no manual case writing): count, old and new shot of the failing
+# step, the carried screen edits as the first place to look; a written case file wins
+ctl cockpit-auto-case-pass 0 '^auto: 2 actions that work on the old app fail on the new one \(M\.P, M\.Q\)\. \| tiles: \[2, 2, 1\] \| shots: True True \| carried: .*screen edits in Theme\. .*options: \[.accept., .fix., .old-wrong.\]$' '^written case kept: Seven break$' -- python3 $here/found_means_control.py $T/fmc2 cases
 ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' -- $CK render
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard

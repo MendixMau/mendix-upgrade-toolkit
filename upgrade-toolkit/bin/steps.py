@@ -949,6 +949,7 @@ def topic_title(work, sid):
 
 
 ROUTINE = "routine"
+CARRY = "carry-over"   # goes ahead like routine work; the screens that use the carried edits are checked on both apps (the owner, 2026-11-17)
 GENERIC = {"build", "builds", "widget", "widgets", "module", "modules", "error", "errors", "later", "after", "before", "which", "their", "there",
            "check", "checks", "rows", "journeys", "journey", "pages", "page", "client", "app", "apps", "script", "scripts",
            "update", "updates", "files", "agent", "notes", "edits", "using", "other", "kept", "cannot", "without", "should"}
@@ -1292,7 +1293,7 @@ def cmd_import_legacy(a):
             "decisions": merge_list(W, host, cur["proposed"].get("decisions") or [], [d]),
             "evidence": merge_list(W, host, cur["found"].get("evidence") or [], row["rows"])})
         keep(host)
-        if choice and (not cur.get("approval") or cur["approval"].get("source") == ROUTINE):
+        if choice and (not cur.get("approval") or cur["approval"].get("source") in (ROUTINE, CARRY)):
             append(W, host, "approval", {"state": "assumed", "source": LEGACY, "needs": "the owner's OK"}, "agent")
         elif not choice and not cur.get("approval"):
             routine_ok(host)
