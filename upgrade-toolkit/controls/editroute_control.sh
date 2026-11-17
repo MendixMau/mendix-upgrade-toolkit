@@ -38,7 +38,7 @@ if nav and a[0] == "refs" and a[3] in ("Uimod.Redir", "Uimod.Acct"):
 if nav and a[0] == "describe" and a[3] in ("page", "navigation"):
     print("mdl 1;\ncreate or modify page Uimod.Acct folder 'Admin' (\n  Title: 'Accounts',\n  Layout: Uimod.Redir\n) {\n};\n"
           "grant view on page Uimod.Acct to Uimod.Administrator, Uimod.Auditor;" if a[3] == "page" else
-          "mdl 1;\ncreate or modify navigation Responsive\n{\n  menu item 'Accounts' ( OnClick: show page Uimod.Acct with (DisabledDuringExecution: false) )\n}")
+          "mdl 1;\ncreate or modify navigation Responsive\n  app title 'Uimod App'\n  app icon Brand.Icons.Logo\n{\n  menu item 'Accounts' ( OnClick: show page Uimod.Acct with (DisabledDuringExecution: false) )\n}")
     sys.exit(0)
 if a[0] == "describe":
     mpr, kind, qn = a[2], a[3], a[4]

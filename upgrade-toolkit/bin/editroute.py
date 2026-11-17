@@ -373,8 +373,10 @@ def nav_copies(qn, company, orig, app_mpr):
         for nav in navs:
             n = describe(app_mpr, "navigation", nav) or ""
             n2 = re.sub(rf"\bshow page {re.escape(page)}\b", f"show page {copy}", n)
+            # WM1 2026-11-17: the container mxcli (78bdfa5) refuses the APP TITLE/APP ICON clauses the local describe prints;
+            # an omitted clause leaves the stored value alone (ako/mxcli#1756), so the copy drops them
             if n2 != n:
-                parts.append(n2)
+                parts.append(re.sub(r"(?im)^\s*app (title|icon)\b.*\n", "", n2))
         res.append((f"page {page}: opened from the navigation, copied to {copy} on {company}, menu pointed at the copy"
                     + (f"; no {tmod} role for {', '.join(lost)}: not granted" if lost else ""),
                     "mdl 1;\n" + "\n".join(re.sub(r"^mdl 1;\s*", "", p.strip(), flags=re.M) for p in parts) + "\n"))
