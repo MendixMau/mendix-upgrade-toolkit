@@ -322,6 +322,38 @@ printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2";
 mkdir -p $WS/w1 $WS/w2; cp $WS/plan.txt $WS/w1/; cp $WS/plan.txt $WS/w2/; : > $WS/w2/widgetskew-ack.txt
 ctl pipeline-update-widgetskew-catch 0 '^NJ 13 A module update replaced a widget whose styles stay with a kept module \(steps/repair\.md row 32\)$' '^WIDGET-SKEW Datagrid' '^NJ 13 Decision: Update the kept module' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WS/w1 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
 ctl pipeline-update-widgetskew-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WS/w2 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
+# widgetdrop.py (cold CMM 10.24.28): Administration 4.5.0's Roles filter was saved with Data Widgets 3.x (association
+# mode); update-widgets under the kept DataWidgets 2.2.1 rewrote it to the old definition and the ref settings were lost.
+# A set, non-default property the installed package does not declare stops; a default value or a declared key does not
+WD=$T/wd; mkdir -p $WD/old/widgets $WD/new/widgets $WD/dflt/widgets
+cat > $WD/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid, zipfile
+d, base, keys = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
+wid = "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter"
+def pt(i, k, dv): return {"$ID": i, "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": k, "ValueType": {"DefaultValue": dv}}
+def pv(i, val): return {"$Type": "CustomWidgets$WidgetProperty", "TypePointer": i, "Value": val}
+w = {"$Type": "CustomWidgets$CustomWidget", "Name": "drop_downFilter1",
+     "Type": {"WidgetId": wid, "ObjectType": {"PropertyTypes": [3, pt("a", "multiSelect", "false"), pt("b", "baseType", "attr"), pt("c", "refEntity", "")]}},
+     "Object": {"Properties": [2, pv("a", {"PrimitiveValue": "true"}), pv("b", {"PrimitiveValue": base}),
+                pv("c", {"EntityRef": {"Steps": [2, {"Association": "System.UserRoles"}]} if base == "ref" else None})]}}
+page = {"$Type": "Forms$Page", "Name": "Account_Overview", "Excluded": False, "Content": [w]}
+con = sqlite3.connect(f"{d}/app.mpr"); con.execute("create table Unit (UnitID blob, Contents blob)")
+con.execute("insert into Unit values (?, ?)", (uuid.uuid4().bytes_le, bson.encode(page))); con.commit()
+props = "".join(f'<property key="{k}" type="string"/>' for k in keys)
+with zipfile.ZipFile(f"{d}/widgets/com.mendix.widget.web.DatagridDropdownFilter.mpk", "w") as z:
+    z.writestr("package.xml", "<package/>")
+    z.writestr("DatagridDropdownFilter.xml", f'<widget id="{wid}"><properties>{props}</properties></widget>')
+EOF
+python3 $WD/mk.py $WD/old ref multiSelect; python3 $WD/mk.py $WD/new ref multiSelect,baseType,refEntity; python3 $WD/mk.py $WD/dflt attr multiSelect
+ctl widgetdrop-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.mendix\.widget\.web\.datagriddropdownfilter\.DatagridDropdownFilter, installed package lacks it\): baseType=ref, refEntity=System\.UserRoles$' '!multiSelect=' '^widgetdrop: FAIL, 1 of 1 widget' -- python3 $B/widgetdrop.py $WD/old
+ctl widgetdrop-declared-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS, 0 of 1 widget' -- python3 $B/widgetdrop.py $WD/new
+ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/widgetdrop.py $WD/dflt
+ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
+# step_update parks on it, unless widgetdrop-ack.txt accepts it
+awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WD/nj.sh
+mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
+ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
@@ -1123,6 +1155,8 @@ ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +la
 # T3-6: a step is judged by what the browser shows: the login form and the "An error occurred" dialog FAIL, a clean page passes
 ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok +landedOk error dialog .*FAIL wanted' '^ok +landedOk clean page .*PASS wanted' \
   '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
+# cold CMM: a page full of widget error boxes ("The Text filter widget must be placed inside the header ...") PASSed 23/23
+ctl smokewalk-landedok-widget-error-catch 0 '^ok +landedOk fake widget error box: got true' '^ok +landedOk fake validation message: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 # T6R-9: the compare pools repeated walks (fixtures/smoke/, --rejudge = no browser). A new error the old walks never showed
 # is a REGRESSION, also when intermittent; the old app's own intermittent error on the new side is FLAKY on both (exit 2)
 SW="node $B/smokewalk.js"; SF=$FX/smoke
@@ -1281,6 +1315,10 @@ ctl runapp-stop-refused-nothing-removed-pass 0 '^0$' -- sh -c "test -f $T/stop.l
 ctl runapp-stop-with-name-pass 0 'stopping container fm-new' 'stopped fm-new' -- env UPG_NAME=fm "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new fm-new mig-pg' python3 $B/runapp.py stop new
 ctl runapp-stop-only-default-pass 0 'stopping container mig-new' -- env -u UPG_NAME "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new mig-pg' python3 $B/runapp.py stop new
 ctl runapp-stop-allow-default-pass 0 'stopping container mig-new' -- env -u UPG_NAME UPG_ALLOW_DEFAULT_PREFIX=1 "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new fm-new' python3 $B/runapp.py stop new
+# cold WM1 next to cold CMM: the pipeline used ${UPG_NAME:-mig} without exporting it; runapp stop of mig-oldjp was REFUSED
+# (cmm-oldjp exists) and newjp found port 8080 taken. With the pipeline's own UPG_NAME line the stop goes through.
+awk '/^export UPG_NAME=/' $B/cloud/upgrade-pipeline.sh > $T/upgname.sh
+ctl pipeline-exports-upg-name-pass 0 'stopping container mig-oldjp' '!REFUSED' -- env -u UPG_NAME "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-oldjp cmm-oldjp' bash -c ". $T/upgname.sh; python3 $B/runapp.py stop oldjp"
 ctl runapp-login-sso-catch 0 '^HARNESS CONDITION: sso: .*replaced by login.old' -- lo sso auto
 ctl runapp-login-sso-marker-pass 0 'HARNESS CONDITION' 'usernameInput' -- sh -c "cat $LO/sso/harness-login-override.txt $LO/sso/web/login.html; test -f $LO/sso/web/login.html.orig && test -f $LO/sso/web/login.html.gz"
 ctl runapp-login-sso-nostock-catch 0 'no stock login page' 'INVALID' -- lo sso-nostock auto
@@ -1597,6 +1635,10 @@ SP="$T/my app"
 printf '120743 1.6.0 step1-adds\n' > $S/plan-sp.txt
 ctl stepupdate-space-split-catch 0 'committed' '!No such file' -- bash $B/stepupdate.sh "$SP" $S/plan-sp.txt
 ctl stepupdate-space-quoted-pass 0 'committed' '!No such file' -- env UPG_UPDATE_CMD="cp $S/{module}/App.mpr '{mpr}'" bash $B/stepupdate.sh "$T/my app2" $S/plan-sp.txt
+# cold CMM: run by hand under a HOME with no git identity, the step commit failed ("Author identity unknown", STOP exit 2)
+S4=$T/step-noid; mkdir -p $S4/app $S4/home; cp $M/base/App.mpr $S4/app/App.mpr
+(cd $S4/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-no-identity-pass 0 'committed' '!Author identity unknown' '!git commit failed' -- env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL HOME=$S4/home XDG_CONFIG_HOME=$S4/home GIT_CONFIG_NOSYSTEM=1 bash $B/stepupdate.sh $S4/app $S/plan-sp.txt
 unset UPG_UPDATE_CMD
 
 # --- stepupdate: recognised refusals, --no-baseline fallback, resume and keep (E4 13, E4 16, E4 7, E5b 26, E5b 27, E5b 17) -
@@ -2581,6 +2623,7 @@ if command -v node > /dev/null; then
     VB="env NODE_PATH=$VBNP node $here/verbs_browser_control.js"
     ctl journeys-verbs-browser-row-pass 0 '^ok +dg2 rows \(display: contents\): .*clicked row1' '^ok +dg2 rows load late' '^ok +dg2 cells with role="cell"' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-catch 0 '^ok +dg2 empty placeholder: threw .*the list is empty, a fixture gap' '^ok +rows render, unknown markup: threw .*an instrument gap' '!^FAIL' -- $VB
+    ctl journeys-verbs-browser-row-dg22-pass 0 '^ok +dg2\.2 cells without a role: returned .*clicked row1' '^ok +dg2\.2 row nth without a role: clicked row2nth' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-nth-pass 0 '^ok +dg2 row nth: row 3 clicked' '^ok +dg2 row nth with dblclick: row 2' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-nth-catch 0 '^ok +dg2 row nth: row 3 of 2 shown: threw: .*row 3 asked for, the list shows 2: .*a fixture gap' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-dblclick-pass 0 '^ok +dg2 double-click trigger: dblclick opens the row: clicked row1' '!^FAIL' -- $VB
@@ -2616,7 +2659,7 @@ if command -v node > /dev/null; then
     # PR-C1 (run 4): a journey that must open an unassigned task takes the list item that states no assignee
     ctl journeys-verbs-browser-unassigned-pass 0 '^ok +unassigned picks the item showing Assign to me, not the first: picked Appr F42B' '^ok +unassigned picks the item that states no assignee, also without the button' '^ok +unassigned absent takes the first \(the old pick\)' '^ok +unassigned with every item unassigned takes the first' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-unassigned-catch 0 '^ok +unassigned is not the assigned first item \(catch\): not Appr F42A' '^ok +unassigned with every item assigned keeps the first \(the step guard says it\)' '!^FAIL' -- $VB
-  else for c in row-pass row-catch tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
+  else for c in row-pass row-catch row-dg22-pass tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
 else for c in catch pass row-instrument-gap-catch row-hidden-first-pass tab-pass tab-catch date-pass date-catch browser-row-pass browser-row-catch browser-tab-pass browser-item-pass browser-item-catch browser-combo-pass browser-combo-catch browser-menu-pass browser-menu-catch browser-fill-pass browser-fill-catch browser-near-pass browser-near-catch browser-ack-pass browser-ack-catch; do
   skip journeys-verbs-$c "no node"; done; fi
 ctl journeys-fill-colon-pass 0 '^"https://idp.example.com:8443/sso\?run=0102"$' -- python3 -c "import sys,json; sys.path.insert(0,'$B'); import run_journeys as r; t=r.run_copy_text(json.dumps({'do':'fill','value':'https://idp.example.com:8443/sso?run=\${RUN_ID}'}), {}, '0102'); print(json.dumps(json.loads(t)['value']))"
@@ -7425,6 +7468,9 @@ hv_changes() {  # $1 file, $2 extra why text of the new fix
 hv_changes $HV/run/CHANGES.md ''
 printf 'mx check: CE9987 frob widget has no successor\n' > $HV/run/check.log
 printf '#!/usr/bin/env python3\n# Rewrite the frob widgets on every page of the app\nprint(1)\n' > $HV/run/frob_fix.py
+# files the pipeline writes itself are no agent script (cold CMM: 37 listed): a patched engine copy, replay MDL, saved edits
+mkdir -p $HV/run/e2e-base/engine $HV/run/replay $HV/run/saved-edits/Mod; printf '// patched engine copy\n' > $HV/run/e2e-base/engine/helpers.js
+printf '/* replay of Mod */\n' > $HV/run/replay/Mod.mdl; printf -- '-- CONSTANT Key, as it stands\n' > $HV/run/saved-edits/Mod/constant-Key.mdl
 printf '| 1 | WARNING: trail: 2 gap(s) in 2 steps |\n' > $HV/run/gate-summary.md
 printf -- '---\ntitle: mx.logger is gone in 11\nconfidentiality: internal\n---\nmx.logger calls crash on 11, CE9987 too.\n' > $HV/brain/internal/upgrade/mx-logger.md
 hv_changes $HV/run-deny/CHANGES.md ' for the Acmecorp portal'
@@ -7434,6 +7480,7 @@ ctl harvest-run-pass 0 '^harvest: 3 agent fixes \(2 known to the toolkit, 1 new\
 ctl harvest-new-fix-catch 0 'decision-frob.*Widget_Fake\.FrobAction\(\)' '!decision-mxlogger.*\[CHANGES' -- sed -n '/^## Fixes the agent made/,/^## Known/p' $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-known-fix-pass 0 'repair-row-13.*\[known: steps/repair\.md row 13\]' 'decision-mxlogger.*\[known: BACKLOG\.md #102' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-code-script-item-pass 0 '^- CE9987 ' 'frob_fix\.py \(3 lines\): Rewrite the frob widgets' 'trail: 2 gap' '!CE1613' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-toolkit-written-pass 0 'frob_fix\.py' '!e2e-base/engine' '!replay/Mod' '!saved-edits/' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md
 ctl harvest-scrub-pass 0 '!'"$HV" -- cat $HV/tk/2026-01-02-HV1-harvest.md $HV/bi/2026-01-02-HV1-upgrade.md
@@ -7441,6 +7488,29 @@ ctl harvest-denylist-catch 1 'Acmecorp' '!^harvest: wrote' -- sh -c "python3 -I 
 ctl harvest-denylist-wrote-nothing-pass 0 '^none$' -- sh -c "ls $HV/tk-deny/*.md 2>/dev/null || echo none"
 ctl harvest-bad-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code 'a b' --inbox $HV/tk-bad
 ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code Acmecorp --inbox $HV/tk-bad
+# feedback_report.py (cold WM1): harvest ran only when a person remembered steps/report.md 3c, so a stopped run taught the
+# toolkit nothing. Every exit now harvests into $WORK/learnings and writes FEEDBACK-REPORT.md with an issue summary
+# (metadata only, denylisted); the pipeline calls it from its exit trap, so a stop (exit 4 at build) gets one too.
+FB=$T/feedback; mkdir -p $FB; cp -R $HV/run $FB/run; cp -R $HV/run $FB/nocode; cp -R $HV/run $FB/deny; cp -R $HV/run $FB/trap
+printf '## Acmecorp portal module kept\n' > $FB/deny/NEEDS-JUDGMENT.md
+fbr() { env -u UPG_BRAIN -u UPG_HARVEST python3 -I $B/feedback_report.py "$@"; }
+ctl feedback-report-pass 0 '^feedback: .*FEEDBACK-REPORT\.md \(1 draft' -- fbr --work $FB/run --exit 4 --step build --code HV1 --source 9.24.0 --target 10.24.0
+ctl feedback-report-content-pass 0 '^Exit 4 at build: a fixed step failed' '^harvest: 3 agent fixes' '^- `learnings/[0-9-]+-HV1-harvest\.md`' 'stopped at step: build' 'upgrade 9\.24\.0 -> 10\.24\.0' 'submit-learnings\.sh toolkit' -- cat $FB/run/FEEDBACK-REPORT.md
+ctl feedback-report-nocode-pass 0 '^feedback: .*\(0 draft' -- fbr --work $FB/nocode --exit 13
+ctl feedback-report-nocode-says-pass 0 'skipped: no app code name' '^Exit 13 at the end of the run' -- cat $FB/nocode/FEEDBACK-REPORT.md
+fbr --work $FB/deny --exit 13 --code HV1 > /dev/null 2>&1 || true
+ctl feedback-report-deny-catch 0 'left out: it matches the private denylist' '!Acmecorp' -- cat $FB/deny/FEEDBACK-REPORT.md
+{ awk '/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
+  printf '%s\n' 'timing_close() { :; }' "B=$B; WORK=$FB/trap; DRY=0; STEP=build; UPG_APP_CODE=HV1; APPS_UP=()" 'trap cleanup EXIT' 'exit 4'; } > $FB/trap.sh
+ctl pipeline-feedback-on-exit-pass 0 '^rc=4$' '^Exit 4 at build' -- sh -c "env -u UPG_BRAIN bash $FB/trap.sh > /dev/null 2>&1; echo rc=\$?; cat $FB/trap/FEEDBACK-REPORT.md"
+# rung2_cids (cold CMM): rung 1 updated 7 modules, which then carry content id 0, and rung 2's localedits stopped for a
+# hand-written localedits.args. rung 2 now gets --cid lines from rung 1's plan.txt; a module the args already name stays.
+R2C=$T/rung2cids; mkdir -p $R2C
+printf '%s\n' '# plan' '117187 3.22.0 Atlas_Core' '116540 3.11.8 DataWidgets' '# association targets last' '23513 4.5.0 Administration' > $R2C/plan.txt
+printf '%s\n' '--cid=DataWidgets=999' > $R2C/args
+awk '/^rung2_cids\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $R2C/fn.sh
+ctl pipeline-rung2-cids-pass 0 '^--cid=Atlas_Core=117187$' '^--cid=Administration=23513$' '^--cid=DataWidgets=999$' '!DataWidgets=116540' '!plan' -- bash -c ". $R2C/fn.sh; rung2_cids $R2C/plan.txt $R2C/args; cat $R2C/args"
+ctl pipeline-rung2-cids-wired-pass 0 'rung2_cids "\$WORK/plan.txt" "\$WORK/rung2/localedits.args"' -- grep -n 'rung2_cids "' $B/cloud/upgrade-pipeline.sh
 
 # submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
 # internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a

@@ -157,6 +157,16 @@ resets properties that do not exist in the new version. Seen:
   version per package (ledger `.stepupdate/widgets.txt`, repeated in the summary). By hand: `python3 $B/widgetdiff.py
   app/ --rev HEAD~1`. For each replaced package, the pages that use it go on the shotdiff must-open list; a swap the
   plan did not ask for is restored from the previous commit or recorded as accepted.
+- Datagrid swapped, DataWidgets left behind (cold CMM run 10): Atlas_Web_Content 3.9 brought Datagrid 2.30 while the
+  app kept DataWidgets 2.x. The 2.x filters then render inside a red box ("must be placed inside the header") on every
+  filtered grid page. Update DataWidgets in the same rung as Atlas_Web_Content (3.11.8 cleared it); smokewalk fails a
+  page that shows a widget error box. Data grid 2.2 (9.24) rows are `div.tr[role=row]` with `display: contents` and
+  cells `div.td` with no role and no `widget-datagrid` class on the root; the journeys row verb handles both shapes.
+- Administration 4.x needs DataWidgets 3.x in the same rung (cold CMM): its pages are saved with Data Widgets 3.x
+  (Account_Overview's Roles filter is a drop-down in association mode). Under a kept DataWidgets 2.x, update-widgets
+  rewrites the filter to the 2.x definition and drops the association settings; on 3.x later the filter is back in
+  attribute mode and shows "Unable to get filter store". `bin/widgetdrop.py` names such losses before the build
+  (steps/repair.md row 33).
 
 ## 4. React-client readiness is not upgrade work, but list it
 

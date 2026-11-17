@@ -350,6 +350,8 @@ const ROWS = ['.mx-listview-item', '.mx-templategrid-item', '.widget-gallery-ite
   '[role="row"]:not(:has([role="columnheader"])) [role="gridcell"]:not(:has(.empty-placeholder))',
   '[role="row"]:not(:has([role="columnheader"])) [role="cell"]:not(:has(.empty-placeholder))',
   '.widget-datagrid .td:not(:has(.empty-placeholder))',
+  // cold CMM (9.24.2): Data grid 2.2.x cells are div.td with no role, and the grid has no widget-datagrid class
+  '.tr[role="row"] > .td:not(.column-selector):not(:has(.empty-placeholder))',
   '[role="gridcell"]:not(:has(.empty-placeholder))'];
 // what counts as a rendered row when no selector found a clickable one (instrument gap vs. empty list)
 const ANY_ROW = '[role="row"]:not(:has([role="columnheader"])):not(:has(.empty-placeholder)), tbody tr, ' +
@@ -430,16 +432,19 @@ async function upload(page, a, name) {
 // others met an Aborted workflow with the menu hidden. A row that does not exist is a fixture gap, said with the count.
 const ROW_BOXES = ['.mx-listview-item', '.mx-templategrid-item', '.widget-gallery-item', 'tbody tr',
   '[role="row"]:not(:has([role="columnheader"])):not(:has(.empty-placeholder))'];
+const ROW_CELL = '[role="gridcell"], [role="cell"], .td:not(.column-selector)';
 async function nthRow(box, n, ms) {
   const tries = Math.max(1, Math.ceil((ms || 8000) / 250));
   let seen = 0;
   for (let t = 0; t < tries; t++) {
     for (const s of ROW_BOXES) {
       const loc = box.locator(s), vis = [];
+      // a display: contents row (Data grid 2) has no box of its own: it counts when its first cell is visible
       for (let i = 0, c = await loc.count().catch(() => 0); i < c && i < 50; i++)
-        if (await loc.nth(i).isVisible().catch(() => false)) vis.push(loc.nth(i));
+        if (await loc.nth(i).isVisible().catch(() => false) ||
+            await loc.nth(i).locator(ROW_CELL).first().isVisible().catch(() => false)) vis.push(loc.nth(i));
       if (vis.length > n) {
-        const cell = vis[n].locator('[role="gridcell"], [role="cell"]').first();
+        const cell = vis[n].locator(ROW_CELL).first();
         return (await cell.count().catch(() => 0)) ? cell : vis[n];
       }
       seen = Math.max(seen, vis.length);

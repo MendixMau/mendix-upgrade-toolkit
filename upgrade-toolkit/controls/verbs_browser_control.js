@@ -104,6 +104,16 @@ const line = (ok, name, detail) => { if (!ok) fail++; console.log(`${ok ? 'ok  '
   await rowCase('dg2 rows (display: contents)', grid(rowsHtml('gridcell')), 'row1');
   await rowCase('dg2 rows load late (1.5 s)', grid('') + LATE, 'row1');
   await rowCase('dg2 cells with role="cell"', grid(rowsHtml('cell')), 'row1');
+  // cold CMM (9.24.2): Data grid 2.2.x renders div.td cells with no role and no widget-datagrid class on the grid; 110
+  // baseline row clicks threw "an instrument gap" on a healthy Lots page
+  const DG22 = grid(rowsHtml('gridcell')).replace(/ role="gridcell"/g, '').replace(' widget-datagrid', '');
+  await rowCase('dg2.2 cells without a role', DG22, 'row1');
+  await page.setContent(DG22.replace("dataset.clicked='row2'", "dataset.clicked='row2nth'"));
+  try {
+    await V.row(page, { widget: 'dataGrid21', nth: 1, timeoutMs: 2500 });
+    const c = await page.evaluate(() => document.body.dataset.clicked || '');
+    line(c === 'row2nth', 'dg2.2 row nth without a role', `clicked ${c || 'nothing'}`);
+  } catch (e) { line(false, 'dg2.2 row nth without a role', `threw ${e.message.slice(0, 160)}`); }
   await rowCase('dg2 empty placeholder', grid(EMPTY), /the list is empty, a fixture gap/);
   await rowCase('rows render, unknown markup', ODD, /row element\(s\) render .* an instrument gap/);
   // PR-P3: a Data grid 2 with onClickTrigger = double (Purchase Request Product_Overview): the row fires on a double click only

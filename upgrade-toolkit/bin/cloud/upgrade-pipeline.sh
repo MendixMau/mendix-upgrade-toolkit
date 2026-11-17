@@ -407,12 +407,38 @@ timing_close() { # timing_close EXITCODE
   { [ -s "$f" ] || printf 'step\tstart_utc\tend_utc\texit\n' > "$f"; printf '%s\t%s\t%s\t%s\n' "$TIMING_STEP" "$TIMING_START" "$end" "$1" >> "$f"; } 2> /dev/null || true
   TIMING_STEP=""
 }
+# feedback (bin/feedback_report.py): every exit, a stop as much as a PASS, harvests what the run taught into
+# $WORK/learnings/ and writes $WORK/FEEDBACK-REPORT.md: where it stopped, the drafts, and how to send them back (PR) or
+# file a toolkit bug (issue). Rung 2 reports on the whole run folder. Never changes the exit code. UPG_HARVEST=0 skips the
+# harvest; the report still comes. Before this, harvest.py ran only when someone remembered steps/report.md 3c (cold WM1).
+# rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
+# --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
+# ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+rung2_cids() { # rung2_cids PLAN ARGSFILE
+  [ -f "$1" ] || return 0
+  local cid ver mod
+  while read -r cid ver mod _; do
+    case "$cid" in ''|\#*) continue ;; esac
+    [[ "$cid" =~ ^[0-9]+$ ]] && [ "$cid" != 0 ] && [ -n "$mod" ] || continue
+    grep -Eq -- "(^|[= ])$mod=" "$2" 2> /dev/null || printf -- '--cid=%s=%s\n' "$mod" "$cid" >> "$2"
+  done < "$1"
+}
+feedback_finish() { # feedback_finish EXITCODE STEP
+  [ "${DRY:-0}" != 1 ] && [ -d "${WORK:-}" ] || return 0
+  local fw=$WORK app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}"
+  [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
+  [ -n "$app" ] || app=$(head -n 1 "$fw/state/app-code" 2> /dev/null || true)
+  python3 -I "$B/feedback_report.py" --work "$fw" --exit "$1" --step "$2" --code "$app" \
+    --source "${SOURCE:-}" --target "${TARGET:-}" 2>&1 | sed 's/^/  /' || true
+}
 cleanup() {
-  local a rc=$?
+  local a rc=$? st=${TIMING_STEP:-${STEP:-}}
+  [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
+  feedback_finish "$rc" "$st" || true
 }
 trap cleanup EXIT
 
@@ -447,6 +473,10 @@ git_identity() {
   export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-upgrade-pipeline}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-upgrade-pipeline@localhost}"
 }
 git_identity
+# The pipeline names its containers ${UPG_NAME:-mig}-<name> but did not export the name: runapp.py, with UPG_NAME unset, then
+# REFUSED to stop mig-oldjp because another run's cmm-oldjp existed (FM-9 guard), and newjp found port 8080 taken (cold WM1
+# journeys, next to cold CMM). Exported, every tool it calls uses the same prefix it does.
+export UPG_NAME="${UPG_NAME:-mig}"
 ensure_gitignore() {
   local f="$APP/.gitignore" l
   for l in '.claude/' '.mxcli/' '.stepupdate/' 'deployment/'; do
@@ -1159,9 +1189,19 @@ step_update() {
       nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
       nj_park
     fi
+    # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
+    # drop the settings the old package lacks (cold CMM: Administration 4.5.0's Roles filter lost its association mode)
+    rc=0
+    xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" || rc=$?
+    if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetdrop-ack.txt" ]; then
+      nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+      nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
+      nj_park
+    fi
   else
     x python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md"
     x python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt"
+    x python3 "$B/widgetdrop.py" "$APP"
   fi
   local rc=0 ap=()
   [ ! -f "$WORK/approved.txt" ] || ap=(--approved "$WORK/approved.txt")
@@ -1924,6 +1964,7 @@ main() {
       for s in env-values.json create-spec.json localedits.args interview-mode.txt; do
         [ ! -f "$WORK/$s" ] || [ -f "$WORK/rung2/$s" ] || cp "$WORK/$s" "$WORK/rung2/$s"
       done
+      rung2_cids "$WORK/plan.txt" "$WORK/rung2/localedits.args"
     fi
     exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi
