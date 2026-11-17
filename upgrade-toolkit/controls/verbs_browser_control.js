@@ -89,7 +89,7 @@ let fail = 0;
 const line = (ok, name, detail) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); };
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
   const page = await browser.newPage();
   const rowCase = async (name, html, want) => {
     await page.setContent(html);

@@ -5,7 +5,7 @@ const { chromium } = require(process.env.PW_MODULE || 'playwright');
 (async () => {
   const [base, user, pass, out, ...menus] = process.argv.slice(2);
   const fs = require('fs'); fs.mkdirSync(out, { recursive: true });
-  const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--no-sandbox'] });
+  const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--no-sandbox', '--use-mock-keychain', '--password-store=basic'] });
   const p = await (await b.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
   const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 160)));
   await p.goto(base + '/login.html', { waitUntil: 'load' });

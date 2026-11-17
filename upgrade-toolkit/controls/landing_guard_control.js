@@ -50,7 +50,7 @@ const G = '.mx-name-dataView1';
 (async () => {
   let fail = 0;
   const check = (name, got, want) => { const ok = got === want; if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${got}`); };
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
   const page = await browser.newPage();
   const old = () => page.locator(G).first().isVisible({ timeout: 12000 }).catch(() => false);
   const neu = (ms = 3000) => V.reached(page, page.locator(G).first(), ms);

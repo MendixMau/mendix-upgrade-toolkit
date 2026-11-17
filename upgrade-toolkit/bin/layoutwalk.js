@@ -40,7 +40,7 @@ async function closeErrors(p) {
   }
 }
 (async () => {
-  const args = process.env.UPG_BROWSER_SPKI ? ['--ignore-certificate-errors-spki-list=' + process.env.UPG_BROWSER_SPKI] : [];
+  const args = ['--use-mock-keychain', '--password-store=basic'].concat(process.env.UPG_BROWSER_SPKI ? ['--ignore-certificate-errors-spki-list=' + process.env.UPG_BROWSER_SPKI] : []);
   const b = await pw.chromium.launch({ args }); let n = 0, reached = 0;
   for (const [w, h] of widths) for (const s of plan) {
     const dir = path.join(out, `${w}x${h}`); fs.mkdirSync(dir, { recursive: true });

@@ -77,7 +77,7 @@ function pwLoad() {
 }
 (async () => {
   const pw = pwLoad(); let browser = null;
-  try { if (pw) browser = await pw.chromium.launch(); } catch (e) { browser = null; }
+  try { if (pw) browser = await pw.chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] }); } catch (e) { browser = null; }
   if (browser) {
     const page = await browser.newPage();
     for (const [name, [html, want]] of Object.entries(PAGES)) {

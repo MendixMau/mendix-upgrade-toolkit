@@ -289,8 +289,16 @@ function judge(olds, results) {
   const lines = [], tot = { regressions: 0, intermittent: 0, flaky_both: 0, flaky_baseline: 0, coverage_lost: 0 };
   const rate = (rs, v) => rs.filter(x => x.verdict === v).length;
   for (const r of results.roles) for (const s of r.steps) {
-    const k = stepKey(r.role, s), O = om.get(k), N = stepRuns(s);
+    const k = stepKey(r.role, s), N = stepRuns(s);
+    let O = om.get(k);
     om.delete(k);
+    if (O === undefined) {
+      // the same menu entry now opens the app's own copy of the page (editroute's menu copy: same caption and document name,
+      // another module; cold test WM1 Accounts): judged as the same step, not a new step plus a gone one
+      const pre = r.role + ' | ' + s.via + ' | ' + s.caption + ' | ', doc = String(s.target).split('.').pop();
+      const was = s.via === 'menu' && [...om.keys()].find(x => x.startsWith(pre) && x.slice(pre.length) !== s.target && x.slice(pre.length).split('.').pop() === doc);
+      if (was) { O = om.get(was); om.delete(was); lines.push(`  moved ${was} -> ${s.target}: the same menu entry opens the app's copy of the page`); }
+    }
     if (O === undefined) { lines.push('  new step ' + k + ': ' + s.verdict); continue; }
     const oldPass = rate(O, 'PASS');
     if (!oldPass) continue;   // never PASSed on the old app: a baseline defect, not a regression
@@ -338,7 +346,7 @@ if (require.main === module) (async () => {
   } else {
     const plan = JSON.parse(fs.readFileSync(o.plan, 'utf8'));
     const { chromium } = loadPlaywright();
-    const browser = await chromium.launch({ args: process.env.UPG_BROWSER_SPKI ? ['--ignore-certificate-errors-spki-list=' + process.env.UPG_BROWSER_SPKI] : [] });   // UPG_BROWSER_SPKI: trust a test broker's key only (natsfixture.py spki)
+    const browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'].concat(process.env.UPG_BROWSER_SPKI ? ['--ignore-certificate-errors-spki-list=' + process.env.UPG_BROWSER_SPKI] : []) });   // UPG_BROWSER_SPKI: trust a test broker's key only (natsfixture.py spki)
     results = { url: o.url, plan: o.plan, at: new Date().toISOString(), repeat: o.repeat, roles: [] };
     const walks = [];
     for (let walk = 0; walk < o.repeat; walk++) {

@@ -74,7 +74,7 @@ async function launchBrowser({ videoDir = null, trace = false, viewport = null }
   const launchOpts = {
     headless: !cfg.headed,
     slowMo: 0,   // cursor animation is JS-driven; slowMo is set via script-level pauses
-    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', ...trustArgs()],
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--use-mock-keychain', '--password-store=basic', ...trustArgs()],
   };
   if (cfg.channel && cfg.channel !== 'chromium') launchOpts.channel = cfg.channel;
   const exe = resolveExecutablePath();
@@ -98,7 +98,7 @@ async function launchBrowserAt(x, y, w, h, { videoDir = null, trace = false, mob
     headless: !cfg.headed,
     slowMo: 0,   // cursor animation is JS-driven; pauses live in the script
     args: [
-      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', ...trustArgs(),
+      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--use-mock-keychain', '--password-store=basic', ...trustArgs(),
       `--window-position=${x},${y}`,
       `--window-size=${w},${h}`,
       // Note: --app mode was removed for mobile — it caused page context to close
