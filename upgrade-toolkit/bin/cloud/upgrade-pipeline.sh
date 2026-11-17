@@ -1280,6 +1280,13 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     disk_cause "$WORK/build-$TARGET.log"
     nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
     nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
+    # cold CMM: a userlib fat jar's older Netty hid the class MendixSSO 10.6.2 needs; name the jar, not only the error
+    if grep -q 'error: cannot find symbol' "$WORK/build-$TARGET.log" 2> /dev/null; then
+      xo "$WORK/javacjar.out" python3 "$B/repair/javacjar.py" "$APP" "$WORK/build-$TARGET.log" || true
+      if grep -q '^  HIDDEN BY' "$WORK/javacjar.out" 2> /dev/null; then
+        nj_file 10 "An older copy of a class inside another jar hides what the code needs (steps/repair.md row 31)" "$WORK/javacjar.out" 20 '^(SYMBOL|  HAS|  HIDDEN BY)'
+      fi
+    fi
     nj_flush
   fi
   commit_app "build: regenerated stubs" config build-stubs

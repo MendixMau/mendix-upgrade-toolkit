@@ -281,6 +281,31 @@ ctl copydoc-roles-needed-invalid 2 'allows Src\.User: name the Shop roles' -- py
 ctl copydoc-missing-dep-invalid 2 'uses Src\.Pick_Snippet, which the app does not have' -- python3 $B/repair/copydoc.py $M/copydoc-new --from $M/copydoc-base/App.mpr --doc Src.Pick_Deep --to Shop
 ctl copydoc-into-marketplace-invalid 2 'KeptConn is a Marketplace module' -- python3 $B/repair/copydoc.py $M/copydoc-new --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to KeptConn --roles KeptConn.User
 ctl copydoc-version-invalid 2 'Mendix versions differ: app 11\.12\.7\.1' -- python3 $B/repair/copydoc.py $M/copydoc-v11 --from $M/copydoc-base/App.mpr --doc Src.Pick_Page --to Shop --roles Shop.User
+# javacjar.py (cold CMM 10.24.28): MendixSSO 10.6.2 needs CookieHeaderNames.SameSite (vendorlib netty 4.2); a userlib fat
+# jar's older Netty hid it from javac. The error names the jar that hides the class, --strip drops the vendorlib copies
+JC=$T/jc; mkdir -p $JC/app/userlib $JC/app/vendorlib $JC/app/javasource/sso $JC/solo/vendorlib
+python3 - "$JC" <<'PY'
+import sys, zipfile
+d = sys.argv[1]; c = "io/netty/handler/codec/http/cookie/CookieHeaderNames"
+with zipfile.ZipFile(f"{d}/app/userlib/fat-0.4.1.jar", "w") as z:
+    z.writestr(c + ".class", b"\xca\xfe\xba\xbe old PATH DOMAIN"); z.writestr("org/opc/Server.class", b"\xca\xfe\xba\xbe")
+for j in (f"{d}/app/vendorlib/netty-codec-http-4.2.17.Final.jar", f"{d}/solo/vendorlib/netty-codec-http-4.2.17.Final.jar"):
+    with zipfile.ZipFile(j, "w") as z:
+        z.writestr(c + ".class", b"\xca\xfe\xba\xbe new"); z.writestr(c + "$SameSite.class", b"\xca\xfe\xba\xbe")
+PY
+printf 'package sso;\nimport io.netty.handler.codec.http.cookie.CookieHeaderNames;\nclass U {}\n' > $JC/app/javasource/sso/U.java
+cp -R $JC/app/javasource $JC/solo/
+printf '%s\n' 'ERROR: An error occurred while compiling Java actions' "$JC/app/javasource/sso/U.java:7: error: cannot find symbol" '        c.setSameSite(CookieHeaderNames.SameSite.Lax);' '                                         ^' '  symbol:   variable SameSite' '  location: class CookieHeaderNames' > $JC/build.log
+ctl javacjar-hidden-catch 1 '^SYMBOL io\.netty\.handler\.codec\.http\.cookie\.CookieHeaderNames\.SameSite \(U\.java:7\)$' '^  HAS        vendorlib/netty-codec-http-4\.2\.17\.Final\.jar$' '^  HIDDEN BY  userlib/fat-0\.4\.1\.jar' 'row 31' -- python3 $B/repair/javacjar.py $JC/app $JC/build.log
+ctl javacjar-not-hidden-pass 0 '^  HAS        vendorlib/' '!HIDDEN BY' '0 hidden' -- python3 $B/repair/javacjar.py $JC/solo $JC/build.log
+ctl javacjar-strip-dry-pass 0 '^STRIP userlib/fat-0\.4\.1\.jar: 1 class\(es\) a vendorlib jar also carries' '^dry run' '^entries 2$' -- bash -c "python3 $B/repair/javacjar.py $JC/app --strip userlib/fat-0.4.1.jar && python3 -c 'import zipfile,sys; print(\"entries\", len(zipfile.ZipFile(sys.argv[1]).namelist()))' $JC/app/userlib/fat-0.4.1.jar"
+ctl javacjar-strip-apply-catch 0 '^wrote userlib/fat-0\.4\.1\.jar' "^left \['org/opc/Server\.class'\]$" -- bash -c "cp -R $JC/app $JC/app2 && python3 $B/repair/javacjar.py $JC/app2 --strip userlib/fat-0.4.1.jar --apply && python3 -c 'import zipfile,sys; print(\"left\", zipfile.ZipFile(sys.argv[1]).namelist())' $JC/app2/userlib/fat-0.4.1.jar"
+# the mxbuild stop runs it on a javac "cannot find symbol" and quotes it when a class is hidden
+awk '/if grep -q .error: cannot find symbol/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $JC/nj.sh
+printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' > $JC/stub.sh
+cp $JC/build.log $JC/build-10.24.1.log
+ctl pipeline-build-javacjar-catch 0 '^NJ 10 An older copy of a class inside another jar hides what the code needs \(steps/repair\.md row 31\)' '^  HIDDEN BY  userlib/fat' -- bash -c ". $JC/stub.sh; WORK=$JC APP=$JC/app TARGET=10.24.1 B=$B; . $JC/nj.sh; echo done"
+ctl pipeline-build-javacjar-not-hidden-pass 0 '!^NJ' '^done$' -- bash -c ". $JC/stub.sh; WORK=$JC APP=$JC/solo TARGET=10.24.1 B=$B; . $JC/nj.sh; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
