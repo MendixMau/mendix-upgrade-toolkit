@@ -143,6 +143,15 @@ mkdir -p "$WORK/state" "$WORK/logs"
   printf '{"route": ["%s", "%s"%s]}\n' "$SOURCE" "$TARGET" "${TARGET2:+, \"$TARGET2\"}" > "$WORK/ladder.json"
 
 # ---- env.sh from bin/cloud/setup.sh: TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
+# A RUN from the caller's environment counts only when --work lies inside it (setup.sh exports it so). Cold WM1: a
+# wrapper's own RUN=13 became the run folder, "missing source mxbuild toolset: 13/tools/..." and exit 3.
+if [ -n "${RUN:-}" ]; then
+  _rd=$(cd "$RUN" 2>/dev/null && pwd) || _rd=""
+  case "$(cd "$WORK" && pwd)/" in
+    "${_rd:-/nonexistent}"/*) ;;
+    *) echo "upgrade-pipeline.sh: ignoring RUN=$RUN from the environment: --work $WORK is not inside it"; RUN="" ;;
+  esac
+fi
 : "${RUN:=$(dirname "$WORK")}"
 set +u
 if [ -f "$WORK/env.sh" ]; then . "$WORK/env.sh"; elif [ -f "$RUN/env.sh" ]; then . "$RUN/env.sh"; fi
@@ -1151,6 +1160,19 @@ route_kept() {
 # update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
   [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
+  # an update rerun cannot redo this rung's replays: the module steps read as applied ("0 committed"), replay skips what the
+  # log holds, and the replayed copies and menu pointers stay. Cold WM1: an older replay's empty Account_Overview copy
+  # stayed in the menu after the rerun, the Local Users tab showed nothing. Rewind to the convert commit first.
+  if [ "$DRY" != 1 ] && [ ! -f "$WORK/replay-keep.txt" ]; then
+    local conv reps
+    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s { print $1; exit }')
+    reps=$([ -z "$conv" ] || git_app log --format='%h %s' "$conv..HEAD" 2> /dev/null | grep -E '^[0-9a-f]+ replay: ' | head -5 | tr '\n' ';' || true)
+    if [ -n "$reps" ]; then
+      nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
+      nj_add 12 "Decision" "Tag a backup, then rewind the app to $conv (git -C $APP tag backup/<name>; git -C $APP reset --hard $conv) and rerun --from update; to keep the replays, create $WORK/replay-keep.txt."
+      nj_flush
+    fi
+  fi
   # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
   [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:

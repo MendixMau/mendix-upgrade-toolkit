@@ -354,6 +354,21 @@ awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/u
 mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
 ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+# cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
+# step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
+RP=$T/rp; mkdir -p $RP
+for r in rep none old ack; do git init -q $RP/$r; done
+gc() { git -C $RP/$1 -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"; }
+gc rep 'convert 11.12.7'; gc rep 'step: DataWidgets 3.11.8 (stepupdate)'; gc rep 'replay: Atlas_Core'
+gc none 'convert 11.12.7'; gc none 'step: DataWidgets 3.11.8 (stepupdate)'
+gc old 'convert 10.24.28'; gc old 'replay: Atlas_Core'; gc old 'convert 11.12.7'
+gc ack 'convert 11.12.7'; gc ack 'replay: Atlas_Core'; mkdir -p $RP/wack; : > $RP/wack/replay-keep.txt
+awk '/replay-keep\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $RP/nj.sh
+printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
+ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that holds replay commits: Since convert [0-9a-f]+: [0-9a-f]+ replay: Atlas_Core;' '^NJ 12 Decision: Tag a backup, then rewind the app to [0-9a-f]+ ' '^FLUSH$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/rep; f; echo done"
+ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
+ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
+ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
@@ -1804,6 +1819,13 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
 ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
 ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
+# cold WM1: a wrapper's RUN=13 in the environment became the run folder (13/tools/..., exit 3); an inherited RUN counts
+# only when --work lies inside it, the RUN setup.sh exports still does
+mkdir -p $V/runenv/run/work $V/runenv/13
+awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $V/runenv/block.sh
+ctl pipeline-run-inherited-ignored-catch 0 "^tools=$V/runenv/run/tools\$" -- bash -c "cd $V/runenv && WORK=$V/runenv/run/work RUN=13 bash -c '. ./block.sh; echo tools=\$UPG_TOOLS'"
+ctl pipeline-run-inherited-missing-ignored-catch 0 "^tools=$V/runenv/run/tools\$" -- bash -c "cd / && WORK=$V/runenv/run/work RUN=$V/nope bash -c '. $V/runenv/block.sh; echo tools=\$UPG_TOOLS'"
+ctl pipeline-run-setup-kept-pass 0 "^tools=$V/runenv/run/tools\$" '!ignoring' -- bash -c "cd / && WORK=$V/runenv/run/work/rung2 RUN=$V/runenv/run bash -c 'mkdir -p \$WORK; . $V/runenv/block.sh; echo tools=\$UPG_TOOLS' 2>&1"
 # an explicit --db is kept for the next resume: the prefix block is evaluated with an older name already kept
 awk '/^RUNP=/{f=1} /^frozen_stamp\(\)/{exit} f' "${PIPE:-$B/cloud/upgrade-pipeline.sh}" > $V/dbblock.sh
 ctl pipeline-db-arg-persisted-catch 0 '^upg_new$' -- bash -c "mkdir -p $V/dba/run/work/state; echo upg_old > $V/dba/run/work/state/db-prefix; RUN=$V/dba/run WORK=$V/dba/run/work DB_ARG=upg_new DRY=0; usage_die() { echo \"\$*\"; exit 2; }; . $V/dbblock.sh; cat $V/dba/run/work/state/db-prefix"
