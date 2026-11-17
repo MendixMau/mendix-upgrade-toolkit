@@ -1283,6 +1283,10 @@ ctl runapp-stop-refused-nothing-removed-pass 0 '^0$' -- sh -c "test -f $T/stop.l
 ctl runapp-stop-with-name-pass 0 'stopping container fm-new' 'stopped fm-new' -- env UPG_NAME=fm "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new fm-new mig-pg' python3 $B/runapp.py stop new
 ctl runapp-stop-only-default-pass 0 'stopping container mig-new' -- env -u UPG_NAME "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new mig-pg' python3 $B/runapp.py stop new
 ctl runapp-stop-allow-default-pass 0 'stopping container mig-new' -- env -u UPG_NAME UPG_ALLOW_DEFAULT_PREFIX=1 "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-new fm-new' python3 $B/runapp.py stop new
+# cold WM1 next to cold CMM: the pipeline used ${UPG_NAME:-mig} without exporting it; runapp stop of mig-oldjp was REFUSED
+# (cmm-oldjp exists) and newjp found port 8080 taken. With the pipeline's own UPG_NAME line the stop goes through.
+awk '/^export UPG_NAME=/' $B/cloud/upgrade-pipeline.sh > $T/upgname.sh
+ctl pipeline-exports-upg-name-pass 0 'stopping container mig-oldjp' '!REFUSED' -- env -u UPG_NAME "PATH=$T/stopdocker:$PATH" WORKDIR=$T/stopwork STOP_LOG=$T/stop.log STOP_NAMES='mig-oldjp cmm-oldjp' bash -c ". $T/upgname.sh; python3 $B/runapp.py stop oldjp"
 ctl runapp-login-sso-catch 0 '^HARNESS CONDITION: sso: .*replaced by login.old' -- lo sso auto
 ctl runapp-login-sso-marker-pass 0 'HARNESS CONDITION' 'usernameInput' -- sh -c "cat $LO/sso/harness-login-override.txt $LO/sso/web/login.html; test -f $LO/sso/web/login.html.orig && test -f $LO/sso/web/login.html.gz"
 ctl runapp-login-sso-nostock-catch 0 'no stock login page' 'INVALID' -- lo sso-nostock auto

@@ -447,6 +447,10 @@ git_identity() {
   export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-upgrade-pipeline}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-upgrade-pipeline@localhost}"
 }
 git_identity
+# The pipeline names its containers ${UPG_NAME:-mig}-<name> but did not export the name: runapp.py, with UPG_NAME unset, then
+# REFUSED to stop mig-oldjp because another run's cmm-oldjp existed (FM-9 guard), and newjp found port 8080 taken (cold WM1
+# journeys, next to cold CMM). Exported, every tool it calls uses the same prefix it does.
+export UPG_NAME="${UPG_NAME:-mig}"
 ensure_gitignore() {
   local f="$APP/.gitignore" l
   for l in '.claude/' '.mxcli/' '.stepupdate/' 'deployment/'; do
