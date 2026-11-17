@@ -7452,6 +7452,21 @@ ctl harvest-denylist-catch 1 'Acmecorp' '!^harvest: wrote' -- sh -c "python3 -I 
 ctl harvest-denylist-wrote-nothing-pass 0 '^none$' -- sh -c "ls $HV/tk-deny/*.md 2>/dev/null || echo none"
 ctl harvest-bad-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code 'a b' --inbox $HV/tk-bad
 ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code Acmecorp --inbox $HV/tk-bad
+# feedback_report.py (cold WM1): harvest ran only when a person remembered steps/report.md 3c, so a stopped run taught the
+# toolkit nothing. Every exit now harvests into $WORK/learnings and writes FEEDBACK-REPORT.md with an issue summary
+# (metadata only, denylisted); the pipeline calls it from its exit trap, so a stop (exit 4 at build) gets one too.
+FB=$T/feedback; mkdir -p $FB; cp -R $HV/run $FB/run; cp -R $HV/run $FB/nocode; cp -R $HV/run $FB/deny; cp -R $HV/run $FB/trap
+printf '## Acmecorp portal module kept\n' > $FB/deny/NEEDS-JUDGMENT.md
+fbr() { env -u UPG_BRAIN -u UPG_HARVEST python3 -I $B/feedback_report.py "$@"; }
+ctl feedback-report-pass 0 '^feedback: .*FEEDBACK-REPORT\.md \(1 draft' -- fbr --work $FB/run --exit 4 --step build --code HV1 --source 9.24.0 --target 10.24.0
+ctl feedback-report-content-pass 0 '^Exit 4 at build: a fixed step failed' '^harvest: 3 agent fixes' '^- `learnings/[0-9-]+-HV1-harvest\.md`' 'stopped at step: build' 'upgrade 9\.24\.0 -> 10\.24\.0' 'submit-learnings\.sh toolkit' -- cat $FB/run/FEEDBACK-REPORT.md
+ctl feedback-report-nocode-pass 0 '^feedback: .*\(0 draft' -- fbr --work $FB/nocode --exit 13
+ctl feedback-report-nocode-says-pass 0 'skipped: no app code name' '^Exit 13 at the end of the run' -- cat $FB/nocode/FEEDBACK-REPORT.md
+fbr --work $FB/deny --exit 13 --code HV1 > /dev/null 2>&1 || true
+ctl feedback-report-deny-catch 0 'left out: it matches the private denylist' '!Acmecorp' -- cat $FB/deny/FEEDBACK-REPORT.md
+{ awk '/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
+  printf '%s\n' 'timing_close() { :; }' "B=$B; WORK=$FB/trap; DRY=0; STEP=build; UPG_APP_CODE=HV1; APPS_UP=()" 'trap cleanup EXIT' 'exit 4'; } > $FB/trap.sh
+ctl pipeline-feedback-on-exit-pass 0 '^rc=4$' '^Exit 4 at build' -- sh -c "env -u UPG_BRAIN bash $FB/trap.sh > /dev/null 2>&1; echo rc=\$?; cat $FB/trap/FEEDBACK-REPORT.md"
 
 # submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
 # internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a

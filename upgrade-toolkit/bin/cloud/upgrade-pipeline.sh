@@ -407,12 +407,26 @@ timing_close() { # timing_close EXITCODE
   { [ -s "$f" ] || printf 'step\tstart_utc\tend_utc\texit\n' > "$f"; printf '%s\t%s\t%s\t%s\n' "$TIMING_STEP" "$TIMING_START" "$end" "$1" >> "$f"; } 2> /dev/null || true
   TIMING_STEP=""
 }
+# feedback (bin/feedback_report.py): every exit, a stop as much as a PASS, harvests what the run taught into
+# $WORK/learnings/ and writes $WORK/FEEDBACK-REPORT.md: where it stopped, the drafts, and how to send them back (PR) or
+# file a toolkit bug (issue). Rung 2 reports on the whole run folder. Never changes the exit code. UPG_HARVEST=0 skips the
+# harvest; the report still comes. Before this, harvest.py ran only when someone remembered steps/report.md 3c (cold WM1).
+feedback_finish() { # feedback_finish EXITCODE STEP
+  [ "${DRY:-0}" != 1 ] && [ -d "${WORK:-}" ] || return 0
+  local fw=$WORK app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}"
+  [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
+  [ -n "$app" ] || app=$(head -n 1 "$fw/state/app-code" 2> /dev/null || true)
+  python3 -I "$B/feedback_report.py" --work "$fw" --exit "$1" --step "$2" --code "$app" \
+    --source "${SOURCE:-}" --target "${TARGET:-}" 2>&1 | sed 's/^/  /' || true
+}
 cleanup() {
-  local a rc=$?
+  local a rc=$? st=${TIMING_STEP:-${STEP:-}}
+  [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
+  feedback_finish "$rc" "$st" || true
 }
 trap cleanup EXIT
 

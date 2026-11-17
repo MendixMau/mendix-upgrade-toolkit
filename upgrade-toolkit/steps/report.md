@@ -27,7 +27,9 @@ coverage and the human handoff. Keep the machine verdict as evidence; explain th
    `Run log:` line in `gate-summary.md` and as an information section in `NEEDS-JUDGMENT.md`. The row has two timing columns,
    "run time (machine)" and "person wait", from `$WORK/state/timing.tsv`; the same numbers are the `Time:` line of
    `gate-summary.md`. Quote them in the report; `not recorded` means the run has no timing file.
-3c. **Harvest.** Before the work folder goes, run `bin/harvest.py --work $WORK --code <APP>`: it drafts what the run
+3c. **Harvest.** The pipeline does this on every exit (`bin/feedback_report.py`): drafts in `$WORK/learnings/` and
+   `$WORK/FEEDBACK-REPORT.md` with how to send them back and an issue summary for a toolkit bug. By hand, or with another
+   code name: `bin/harvest.py --work $WORK --code <APP>`: it drafts what the run
    taught (fixes the agent made by hand, error codes no step names, scripts it wrote, toolkit items of the gate) into
    `contrib/inbox/` for the toolkit and, for each lesson the brain has no note for, a brain-format draft into
    `$UPG_BRAIN/inbox/`. No LLM; review the drafts, then `bin/submit-learnings.sh toolkit` and `bin/submit-learnings.sh brain`
