@@ -3644,7 +3644,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -3653,6 +3653,9 @@ ctl replace-java-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Old\.java \(1
 # PV-5: IMendixIdentifier.getEntityId() (removed in 11) is a hit of R18; getType() and a longer method name are not
 ctl replace-java-entityid-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Ids\.java \(1\)' -- $RC $M/replace-java-id --to 11.12.5
 ctl replace-java-entityid-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-id-ok --to 11.12.5
+# cold WM1: DeepLink 10.0.10 (no 11 release) imports com.mendix.core.conf.RuntimeVersion, gone in 11; Core.getRuntimeVersion() is clear
+ctl replace-java-rtver-catch 1 '^HIT +R18 ' 'in javasource/deeplink/implementation/handler/SessionHandler\.java \(2\)' -- $RC $M/replace-java-rtver --to 11.12.5
+ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-rtver-ok --to 11.12.5
 # NS-1: the Mx10 metrics API (Core.metrics().counters()/timers()/gauges()) is gone in 11; DatadogConnector before 076dca76
 ctl replace-metrics-catch 1 '^HIT +R18 ' 'in javasource/datadogconnector/connector/DatadogConnector\.java \(3\)' -- $RC $M/replace-metrics --to 11.12.5
 ctl replace-metrics-new-pass 0 '^clear +R18 ' '!^HIT' -- $RC $M/replace-metrics-new --to 11.12.5
