@@ -653,6 +653,10 @@ ctl pipeline-smoke-mf-off-without-baseline-pass 0 '!microflows' -- bash -c "WORK
 # trap printed "unexpected failure (exit 1) at line 624 in step 'triage'" on every machine but the author's; the run went on
 ctl pipeline-scanner-lookup-no-local-env-pass 0 '^EA=\[\]$' '!unexpected failure' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
 ctl pipeline-scanner-lookup-local-env-pass 0 '^EA=\[/opt/scan\]$' -- bash -c "set -Eeuo pipefail; trap 'echo unexpected failure \$? >&2; exit 4' ERR; HOME=\$(mktemp -d); mkdir -p \$HOME/.config/upgrade-toolkit; echo UPG_SCANNER=/opt/scan > \$HOME/.config/upgrade-toolkit/local.env; unset EA UPG_SCANNER; eval \"f() { \$(grep 'upgrade-toolkit/local.env\" 2>' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -v '^ *#'); echo \\\"EA=[\\\$EA]\\\"; }\"; f"
+# cold CMM: with no scanner configured the note said "scanner not available at :" (an empty path); name what is missing
+awk '/if \[ -f "\$EA\/scripts\/scan\.py" \]/{p=1} p{print} p&&/^  (fi$|else note "scanner not available)/{exit}' $B/cloud/upgrade-pipeline.sh > $T/scanner-rung.sh
+ctl pipeline-scanner-not-configured-catch 0 '^NOTE scanner not configured \(EA, UPG_SCANNER' '!available at :' -- bash -c "note() { echo \"NOTE \$*\"; }; EA=; . $T/scanner-rung.sh"
+ctl pipeline-scanner-not-found-catch 0 '^NOTE scanner not found at /nonexistent/scan \(no scripts/scan\.py\)' -- bash -c "note() { echo \"NOTE \$*\"; }; EA=/nonexistent/scan; . $T/scanner-rung.sh"
 # WM1 2026-11-17: Atlas_Core 4's new module roles unmapped; every Atlas page failed for security reasons (smoke walk only)
 MR="bash $B/../controls/modroles_control.sh"
 ctl modroles-grant-by-name-pass 0 '^mdl: ALTER USER ROLE Administrator ADD MODULE ROLES \(Atlas_Core.Administrator\);' '^mdl: ALTER USER ROLE User ADD MODULE ROLES \(Atlas_Core.User\);' '^modroles: 3 grant' -- $MR

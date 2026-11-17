@@ -683,7 +683,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
       rc=0; xo "$WORK/scancover.out" python3 "$B/scancover.py" "$WORK/findings.json" || rc=$?
       [ "$rc" = 0 ] || note "scancover exit $rc: NO COVERAGE, scanner checked nothing for this rung: scanner rung INVALID, do the manual checks in $WORK/scancover.out"
     else note "scan.py failed (exit $rc): scanner rung INVALID"; fi
-  else note "scanner not available at $EA: scanner rung INVALID"; fi
+  elif [ -z "$EA" ]; then note "scanner not configured (EA, UPG_SCANNER, or UPG_SCANNER= in ~/.config/upgrade-toolkit/local.env): scanner rung INVALID"
+  else note "scanner not found at $EA (no scripts/scan.py): scanner rung INVALID"
+  fi
   if [ "$(major "$SOURCE")" -le 9 ]; then
     rc=0; xo "$WORK/javafinal.out" python3 "$B/javafinal.py" "$APP" --md "$WORK/javafinal.md" || rc=$?
     [ "$rc" != 1 ] || note "javafinal.py found assignments to Java action parameters: javac will fail at the build (by-hand fix, steps/repair.md row 10), see $WORK/javafinal.md"
