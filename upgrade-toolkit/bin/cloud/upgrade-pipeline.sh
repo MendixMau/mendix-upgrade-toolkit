@@ -432,11 +432,24 @@ rung2_cids() { # rung2_cids PLAN ARGSFILE
     grep -Eq -- "(^|[= ])$mod=" "$2" 2> /dev/null || printf -- '--cid=%s=%s\n' "$mod" "$cid" >> "$2"
   done < "$1"
 }
+# App code name: UPG_APP_CODE (UPG_APP_NAME is the older spelling), else the line in state/app-code of the rung 1 work
+# folder (rung 2 shares it), else a neutral code from the .mpr file name, written there: app-<6 hex>, no name in it,
+# so runlog and harvest never carry a customer name. Cold CMM: no code at all, harvest and the run log skipped.
+app_code() {
+  local c="${UPG_APP_CODE:-${UPG_APP_NAME:-}}" fw=$WORK m
+  [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
+  [ -n "$c" ] || c=$(cat "$WORK/state/app-code" "$fw/state/app-code" 2> /dev/null | head -n 1 || true)
+  if [ -z "$c" ] && m=$(ls "${APP:-/nonexistent}"/*.mpr 2> /dev/null | head -n 1) && [ -n "$m" ]; then
+    c="app-$(basename "$m" | shasum | cut -c1-6)"
+    [ "${DRY:-0}" = 1 ] || { mkdir -p "$fw/state" && printf '%s\n' "$c" > "$fw/state/app-code"; }
+  fi
+  printf '%s' "$c"
+}
 feedback_finish() { # feedback_finish EXITCODE STEP
   [ "${DRY:-0}" != 1 ] && [ -d "${WORK:-}" ] || return 0
-  local fw=$WORK app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}"
+  local fw=$WORK app
   [ "$(basename "$WORK")" != rung2 ] || fw=$(dirname "$WORK")
-  [ -n "$app" ] || app=$(head -n 1 "$fw/state/app-code" 2> /dev/null || true)
+  app=$(app_code)
   python3 -I "$B/feedback_report.py" --work "$fw" --exit "$1" --step "$2" --code "$app" \
     --source "${SOURCE:-}" --target "${TARGET:-}" 2>&1 | sed 's/^/  /' || true
 }
@@ -1875,13 +1888,13 @@ record_grade() {
 # bin/runlog.py. Never fails the run: the exit code and the gate verdict stay as they are. When runlog.py refuses (a run id
 # already in the log, exit 3; a customer name, exit 4; no app code name, exit 2) the reason goes to the console, to the gate
 # output (a `Run log:` line in gate-summary.md) and to NEEDS-JUDGMENT.md as an information section, and the run continues.
-# App code name: UPG_APP_CODE (UPG_APP_NAME is the older spelling), else the one line in $WORK/state/app-code; type: UPG_APP_TYPE,
+# App code name: app_code (UPG_APP_CODE, state/app-code, else a neutral app-<hex> from the .mpr name); type: UPG_APP_TYPE,
 # else $WORK/state/app-type. UPG_RUN_ID sets the run id. The Time: line (step timing) is stamped into gate-summary.md first.
 record_runlog() {
   RUNLOG_DONE=1
   [ -f "$WORK/gate-summary.md" ] || return 0
-  local log="${UPG_FIELD_RUNS:-$TK/FIELD-RUNS.md}" out rc=0 app="${UPG_APP_CODE:-${UPG_APP_NAME:-}}" typ="${UPG_APP_TYPE:-}" why
-  [ -n "$app" ] || app=$(head -n 1 "$WORK/state/app-code" 2> /dev/null || true)
+  local log="${UPG_FIELD_RUNS:-$TK/FIELD-RUNS.md}" out rc=0 app typ="${UPG_APP_TYPE:-}" why
+  app=$(app_code)
   [ -n "$typ" ] || typ=$(head -n 1 "$WORK/state/app-type" 2> /dev/null || true)
   python3 -I "$B/runlog.py" --stamp-time --work "$WORK" > /dev/null 2>&1 || true
   out=$(python3 -I "$B/runlog.py" --work "$WORK" --log "$log" --require-app ${UPG_RUN_ID:+--run-id "$UPG_RUN_ID"} \

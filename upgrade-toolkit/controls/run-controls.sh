@@ -6343,7 +6343,7 @@ ctl runlog-summary-latest-per-app-idempotent-pass 0 '^- \*\*CODE-A\*\* \(templat
   -- sh -c "L=$RL/log13.md; python3 -I $B/runlog.py --backfill $RL/sroot --log \$L --app CODE-A --type 'template app' --write >/dev/null; python3 -I $B/runlog.py --summary --log \$L >/dev/null; a=\$(md5sum < \$L); python3 -I $B/runlog.py --summary --log \$L >/dev/null; [ \"\$a\" = \"\$(md5sum < \$L)\" ] && echo same=yes; grep '^- \*\*' \$L; echo apps=\$(grep -c '^- \*\*' \$L)"
 # the pipeline hook: record_runlog and cleanup, extracted and run under the pipeline's own set -Eeu / ERR trap
 RP=$T/rl-pipe; mkdir -p $RP/bin-fail $RP/bin-ok $RP/work; cp $RLF/gate-summary.md $RP/work/
-{ sed -n '/^record_runlog() {/,/^}/p;/^timing_open() {/,/^}/p;/^timing_close() {/,/^}/p;/^cleanup() {/,/^}/p' $B/cloud/upgrade-pipeline.sh; sed -n '/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh; } > $RP/fn.sh
+{ sed -n '/^app_code() {/,/^}/p;/^record_runlog() {/,/^}/p;/^timing_open() {/,/^}/p;/^timing_close() {/,/^}/p;/^cleanup() {/,/^}/p' $B/cloud/upgrade-pipeline.sh; sed -n '/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh; } > $RP/fn.sh
 printf 'import sys\nprint("boom: runlog is broken on purpose", file=sys.stderr)\nsys.exit(5)\n' > $RP/bin-fail/runlog.py
 cp $B/runlog.py $B/customer_names_check.sh $RP/bin-ok/
 rpcase() { # rpcase BINDIR EXITCODE: run the extracted hook the way the pipeline's EXIT trap does, a gate step that exits $2
@@ -7525,9 +7525,16 @@ ctl feedback-report-nocode-pass 0 '^feedback: .*\(0 draft' -- fbr --work $FB/noc
 ctl feedback-report-nocode-says-pass 0 'skipped: no app code name' '^Exit 13 at the end of the run' -- cat $FB/nocode/FEEDBACK-REPORT.md
 fbr --work $FB/deny --exit 13 --code HV1 > /dev/null 2>&1 || true
 ctl feedback-report-deny-catch 0 'left out: it matches the private denylist' '!Acmecorp' -- cat $FB/deny/FEEDBACK-REPORT.md
-{ awk '/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
+{ awk '/^app_code\(\) \{/,/^}$/;/^feedback_finish\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh; awk '/^cleanup\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh
   printf '%s\n' 'timing_close() { :; }' "B=$B; WORK=$FB/trap; DRY=0; STEP=build; UPG_APP_CODE=HV1; APPS_UP=()" 'trap cleanup EXIT' 'exit 4'; } > $FB/trap.sh
 ctl pipeline-feedback-on-exit-pass 0 '^rc=4$' '^Exit 4 at build' -- sh -c "env -u UPG_BRAIN bash $FB/trap.sh > /dev/null 2>&1; echo rc=\$?; cat $FB/trap/FEEDBACK-REPORT.md"
+# backlog 153 (cold CMM): no app code anywhere, harvest and the run log skipped. app_code derives a neutral app-<6 hex>
+# from the .mpr file name (no name in it), writes it to the rung 1 state/app-code, and rung 2 reads the same one
+AC=$T/appcode; mkdir -p $AC/app $AC/run/work/rung2 $AC/kept/work/state; : > "$AC/app/Acmecorp Orders.mpr"; echo KEEP1 > $AC/kept/work/state/app-code
+awk '/^app_code\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $AC/fn.sh
+ctl pipeline-app-code-derived-catch 0 '^code=app-[0-9a-f]{6}$' '^state=app-[0-9a-f]{6}$' '^rung2=app-[0-9a-f]{6}$' '!rung2-own' '!Acmecorp' -- bash -c "env -u UPG_APP_CODE -u UPG_APP_NAME bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/run/work DRY=0; echo code=\$(app_code); echo state=\$(cat $AC/run/work/state/app-code); WORK=$AC/run/work/rung2; echo rung2=\$(app_code); [ ! -e $AC/run/work/rung2/state/app-code ] || echo rung2-own'"
+ctl pipeline-app-code-kept-pass 0 '^code=KEEP1$' -- bash -c "env -u UPG_APP_CODE -u UPG_APP_NAME bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/kept/work DRY=0; echo code=\$(app_code)'"
+ctl pipeline-app-code-env-pass 0 '^code=ENV1$' -- bash -c "UPG_APP_CODE=ENV1 bash -c '. $AC/fn.sh; APP=$AC/app WORK=$AC/kept/work DRY=0; echo code=\$(app_code)'"
 # rung2_cids (cold CMM): rung 1 updated 7 modules, which then carry content id 0, and rung 2's localedits stopped for a
 # hand-written localedits.args. rung 2 now gets --cid lines from rung 1's plan.txt; a module the args already name stays.
 R2C=$T/rung2cids; mkdir -p $R2C
