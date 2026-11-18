@@ -7110,6 +7110,23 @@ ctl heal-toolkit-gaps-pass 0 '^# Toolkit gaps: ' '`data:Shop\.Customer\.name` \(
 echo '{"journeys": {"j-flake": {"verdict": "PASS"}}}' > $HL/ro3/before-picked/summary.json
 python3 $B/heal.py merge --work $HL/h3 --old $HL/ro3 --new $HL/rn3 > /dev/null 2>&1; python3 $B/heal.py finalize --work $HL/h3 > /dev/null 2>&1
 ctl heal-rerun-regression-catch 0 'REGRESSION: passes on the old app, fails on the new one' 'real-regression' -- sh -c "python3 -I -c \"import json;r=[r for r in json.load(open('$HL/h3/heal.json'))['rows'] if r['id']=='journey:j-flake'][0];print(r['result'], r['class'])\""
+# TLT 2026-11-18: twin-old.md notes a known row (the harness's own admin login) as PASS*; heal read only FAIL/REVIEW there,
+# so the row stayed likely-real ("start noise does not explain it") while the twin had just explained it. And a row the gate
+# accepted in writing (PASS* in diff.md) kept stopping the run as "may be a real defect".
+python3 $here/lib/mkheal.py $HL/h6 > /dev/null 2>&1
+printf '# twin\n\n## All rows\n- FAIL Shop.Item.changedDate: 3 rows differ\n- PASS* Shop.Customer.name: 2 rows differ (noted: the harness login sets it)\n' > $HL/h6/twin-old.md
+python3 $B/heal.py plan --work $HL/h6 --round 1 > $HL/plan6.out 2>&1
+hcls6() { python3 -I -c "
+import json,sys
+for r in json.load(open('$HL/h6/heal.json'))['rows']:
+    if r['id']==sys.argv[1]: print(r['id'], '=>', r['class'], '/', r['result'])" "$1"; }
+ctl heal-twin-pass-star-is-noise-catch 0 'data:Shop\.Customer\.name => startup-noise' '!likely-real' -- hcls6 data:Shop.Customer.name
+python3 $here/lib/mkheal.py $HL/h7 > /dev/null 2>&1
+python3 $B/heal.py plan --work $HL/h7 --round 1 > /dev/null 2>&1
+sed -i.bak 's/^- FAIL Shop.Customer.name: 2 rows differ$/- PASS* Shop.Customer.name: 2 rows differ (accepted: harness)/' $HL/h7/diff.md
+python3 $B/heal.py finalize --work $HL/h7 > /dev/null 2>&1
+ctl heal-gate-accepted-row-closed-catch 0 '!Shop\.Customer\.name' -- python3 $B/heal.py nj --work $HL/h7
+ctl heal-gate-accepted-keeps-others-open-pass 0 'Shop\.Order\.total' -- python3 $B/heal.py nj --work $HL/h7
 # seedname (a seeded value used as an entity or member name): the classifier, the plan, the owner note, and bin/seedname_fix.py itself
 python3 $here/lib/mkheal.py $HL/h4 > /dev/null 2>&1
 python3 -I - $HL/h4 <<'PY'
