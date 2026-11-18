@@ -1932,6 +1932,17 @@ ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- en
 ctl pipeline-dry-smoke-microflows-pass 0 'smokewalk\.js .* --microflows --login-path' -- env UPG_SMOKE_MICROFLOWS=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf1 --only basewalk --dry-run
 ctl pipeline-dry-smoke-microflows-off-catch 0 'smokewalk\.js .* --login-path' '!--microflows' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf0 --only basewalk --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run
+# cold rfq: java-port.txt reaches stepupdate as --port-java; the build waits for java-port-done.txt while a step listed PORT-JAVA
+mkdir -p $V/pw5; printf '# port by hand\nSapConnector\n' > $V/pw5/java-port.txt
+ctl pipeline-dry-port-java-pass 0 'stepupdate\.sh .* --unattended .*--port-java SapConnector' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw5 --only update --dry-run
+PJ=$T/pj; mkdir -p $PJ/w $PJ/wd $PJ/wn
+awk '/java-port-done\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $PJ/blk.sh
+printf '%s\n' '   PORT-JAVA SapConnector javasource/sap/Utils.java (old file under /a/saved/SapConnector): the update replaces it' > $PJ/w/stepupdate-1.out
+cp $PJ/w/stepupdate-1.out $PJ/wd/; echo 'Utils.java: Accept header ported' > $PJ/wd/java-port-done.txt; echo '   committed abc1234' > $PJ/wn/stepupdate-1.out
+printf '%s\n' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; exit 13; }' 'DRY=0' 'f() { . '"$PJ"'/blk.sh; }' > $PJ/stub.sh
+ctl pipeline-build-port-java-stop-catch 13 '^NJ 13 Local Java edits to port by hand before the build' '^PORT-JAVA SapConnector javasource/sap/Utils\.java' '^FLUSH$' '!^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/w; f; echo built"
+ctl pipeline-build-port-java-done-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wd; f; echo built"
+ctl pipeline-build-port-java-none-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wn; f; echo built"
 # the update step runs crosscalls --own on the original model BEFORE the module updates (cold CMM: 3 CE1613 found only at the build)
 ctl pipeline-dry-update-owngone-catch 0 '^own-before-update$' -- bash -c "bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run | awk '/crosscalls\.py .*\/pw\/original\.mpr --kept .*--own --plan-file .*\/pw\/plan\.txt/{if(!c)c=NR} /stepupdate\.sh/{if(!s)s=NR} END{print (c && c<s) ? \"own-before-update\" : \"no c=\" c \" s=\" s}'"
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
@@ -2226,6 +2237,12 @@ ctl stepupdate-files-clean-pass 0 'files: [0-9]+ file\(s\) of Administration cha
 # files are compared (clean: committed) instead of FILES-UNKNOWN; a plan line with no id is still FILES-UNKNOWN.
 THMPR=$M/cid-zero/App.mpr newapp_th e6 $TH/vars-same.scss
 ctl stepupdate-files-plan-cid-pass 0 'files: [0-9]+ file\(s\) of Administration changed by the new package itself' 'committed' '!FILES-UNKNOWN' '!FILES-EDITED' -- thstep bash $B/stepupdate.sh $S/e6 $S/e6.plan
+# cold rfq: a module with a local Java USER CODE edit is always kept unattended; when its newer version must come in
+# (the kept Java no longer compiles on the target), --port-java updates it and lists the edited files to port by hand
+thapp jp $TH/vars-same.scss 'export const a = 1;' $TH/Act-edit.java; cp $TH/jp.plan $S/jp.plan; rm -rf $S/jp $S/jk; cp -R $TH/jp $S/jp; cp -R $TH/jp $S/jk
+ctl stepupdate-port-java-catch 0 '^ +PORT-JAVA Administration javasource/administration/actions/Act\.java \(old file under .*/\.stepupdate/saved/Administration\)' 'committed' '!KEPT' '!theme/JavaScript file edits' -- thstep bash $B/stepupdate.sh $S/jp $S/jp.plan --unattended --port-java Administration
+ctl stepupdate-port-java-saved-pass 0 'int a = 2' -- cat $S/jp/.stepupdate/saved/Administration/javasource/administration/actions/Act.java
+ctl stepupdate-java-edit-kept-pass 1 'port the edits by hand \(--port-java Administration\)' 'KEPT: Administration' '!PORT-JAVA' -- thstep bash $B/stepupdate.sh $S/jk $S/jp.plan --unattended
 # QW-3 (backlog #31): a package that answers HTTP 500 cannot be compared with, but git can prove the theme/JS/Java files
 # unedited: the install commit C (the newest commit touching the module's folders that also changes the module's recorded
 # version) has the same files as now. Built here: a real git repo, App.mpr 4.0.0 then 4.1.0 (mkmodel from base)
