@@ -626,6 +626,7 @@ ctl smokewalk-gen-exclude-option-catch 0 '^Admin: 1 page steps' '2 steps skipped
 # a home-page button shown only after a row is selected (Expression) is not on the page for the walk: LISTED as not walked, never silently dropped
 ctl smokewalk-gen-conditional-button-listed-catch 0 '^Admin: not walked: conditionally visible: 1 button\(s\): closePreview -> Shop\.Overview$' '^Admin: 3 page steps' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-button)/App.mpr -o $T/smoke-cond-plan.json
 ctl smokewalk-gen-visible-button-kept-pass 0 '^Admin: 2 page steps' '!not walked' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-cond-plan2.json
+ctl smokewalk-gen-same-name-visible-button-walked-pass 0 '^User: 2 page steps' '!^User: not walked' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-samename)/App.mpr -o $T/smoke-cond-plan3.json
 ctl smokewalk-gen-excluded-widget-pass 0 '^DemoData\*$' '^$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import smokewalk_gen as g; print(g.excluded('Shop.DemoData_X','w')); print(g.excluded('Shop.Orders','actionButton1'))"
 ctl localedits-proxy-catch 1 'PROXY: compared with 4\.0\.0' -- python3 $B/localedits.py $M/local-edit/App.mpr --module Administration --proxy Administration=4.0.0
 # E5b-5: a proxy a major version away says so; a proxy in the same major does not
