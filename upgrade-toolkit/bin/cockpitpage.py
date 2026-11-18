@@ -443,6 +443,31 @@ def running(work, now=None):
             "mins": max(0, int(((now or datetime.datetime.now().timestamp()) - since) // 60)), "tool": tool, "said": said}
 
 
+def stop_meta(body):
+    """The lines nj_meta writes under a stop section's heading: owner, question, recommended, option (key|label|what it does).
+    A section without them is owner "" and is read as before."""
+    m = re.match(r"((?:(?:owner|question|recommended|option): .*\n)+)\n?", body)
+    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "options": [], "body": body}
+    if not m:
+        return out
+    out["body"] = body[m.end():]
+    for ln in m.group(1).splitlines():
+        k, v = ln.split(": ", 1)
+        if k == "owner" and v.strip() in ("agent", "info", "person"):
+            out["owner"] = v.strip()
+        elif k == "question":
+            out["question"] = v.strip()
+        elif k == "recommended":
+            out["rec"] = v.strip()
+        elif k == "option":
+            p = [x.strip() for x in v.split("|", 2)]
+            if len(p) == 3 and p[0] and p[1]:
+                out["options"].append(p)
+    if out["rec"]:
+        out["rec_text"] = next((o[2] for o in out["options"] if o[0] == out["rec"]), "")
+    return out
+
+
 def build_model(work):
     work = os.path.abspath(work)
     P = parse_proposal(rd(os.path.join(work, "PROPOSAL.md")))
@@ -526,10 +551,20 @@ def build_model(work):
     if stopped:
         rerun = (re.search(r"then rerun:\n\n {4}(.+)", nj) or [None, ""])[1]
         secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
-        stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun}
+        meta = [stop_meta(s[2]) for s in secs]   # who each section is for (owner: agent|info|person), see nj_meta in upgrade-pipeline.sh
+        stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun,
+                    "owners": [m["owner"] for m in meta], "agent_titles": [s[0] for s, m in zip(secs, meta) if m["owner"] == "agent"]}
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
     if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
-        for k, (title, code, body) in enumerate(secs, 1):
+        for k, ((title, code, body), mt) in enumerate(zip(secs, meta), 1):
+            if mt["owner"] in ("agent", "info"):
+                continue   # the agent's own task or a result listing: nothing for a person to answer
+            if mt["owner"] == "person" and mt["question"] and mt["options"]:
+                add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
+                     "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
+                     "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"],
+                     "options": [{"key": o[0], "label": o[1], "causes": o[2]} for o in mt["options"]]})
+                continue
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                  "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),

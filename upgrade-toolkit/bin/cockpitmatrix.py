@@ -1406,6 +1406,9 @@ def band(model, rows, chips, g, tl, kpi=None):
     elif b and b["verdict"].startswith("PASS"):
         st, head = "ok", f"The app runs on Mendix {tgt}" if tgt else "The app runs on the new Mendix version"
         sub = "" if reg is None else (f"{reg} regression" + ("" if reg == 1 else "s"))
+        if reg:   # "runs on" next to open regressions read as all well (lane review): say what is true
+            st, head = "warn", f"The app builds on Mendix {tgt}, but not everything works yet" if tgt else "The app builds, but not everything works yet"
+            sub = f"{reg} regression" + ("" if reg == 1 else "s") + " to fix: it worked on the old app and fails on the new one."
     elif b and b["verdict"] == "FAIL":
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
@@ -1485,7 +1488,7 @@ def clip_ask(t, n=120, head=False):
 
 def ask_line(i, n=120):
     """The line for a question card in the brief: plan choices, sign-off and confirmations are already worded for a person."""
-    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm"))
+    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked"))
 
 
 def vshort(v):
@@ -1508,9 +1511,15 @@ def brief(work, model, rows, g, tl):
     # a stop whose first instruction is "write <file>" is the agent's task; the other sections of that stop file are its context
     agent_task = [i for i in allq if i["id"].startswith("stop:") and AGENT_TASK.search(i["title"])]
     qs = [i for i in allq if not (agent_task and i["id"].startswith("stop:"))]
-    asks = [r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
-    nask = len(qs) + len(asks)
+    asks = own_asks([r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"], qs)
     stopped, running = model.get("stopped"), model.get("running")
+    # choices the AI made on its own while the run goes on are an optional review, not something the run waits for (lane review 03)
+    # a run that is running waits for nobody: every open question is then a review, not a block (lane review 03: "Blocked on you: 21"
+    # next to "Running now", in an unattended run)
+    optional = (asks + qs) if (running and not stopped) else []
+    if optional:
+        asks, qs = [], []
+    nask = len(qs) + len(asks)
     if mp:
         prog = f"{mp.group(1)} of {mp.group(2)} checks closed ({mp.group(3)}%)"
     else:
@@ -1553,7 +1562,7 @@ def brief(work, model, rows, g, tl):
     if qs or asks:
         if qs:
             i = qs[0]
-            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
+            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
             rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
             act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call."
             if i["kind"] == "signoff":
@@ -1561,11 +1570,13 @@ def brief(work, model, rows, g, tl):
         else:
             act = {"kind": "ask", "text": f"Check what the agent chose on its own: {asks[0]['name']}", "q": "", "rec": "", "time": "One click"}
     elif stopped:
-        what = clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
+        owned = stopped.get("agent_titles") or []
+        what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
     elif running:
-        act = {"kind": "wait", "text": "Nothing. Come back later.", "rec": "", "q": "",
+        act = {"kind": "wait", "text": "Nothing. Come back later." if not optional else
+               f"Nothing is blocked: the run goes on. {len(optional)} {'choice is' if len(optional) == 1 else 'choices are'} open for your review; the run does not wait for {'it' if len(optional) == 1 else 'them'} (optional).", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
     elif reg:
         act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
@@ -1842,6 +1853,7 @@ details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bot
 .qclose{font:inherit;font-size:13px;margin-top:6px;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 .legend .gbreak{flex-basis:100%;height:0}.legend .gl b{color:var(--fg);font-weight:600}
 .stopbar{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--badbg);border:1px solid var(--bad);font-size:14px}
+.stopbar.agent{background:var(--waitbg);border-color:var(--wait)}.stopbar.agent b{color:var(--fg)}
 .stopbar b{color:var(--bad)}.stopbar ul{margin:6px 0;padding-left:20px}.stopbar small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
 @keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
@@ -2262,7 +2274,7 @@ def h_band(b):
     tick = {"ok": "✓", "bad": "!", "warn": "→"}.get(b["state"], "…")
     reg = ""
     if b["sub"]:
-        bad = b["state"] == "ok" and b["reg"]
+        bad = b["state"] in ("ok", "warn") and b["reg"] and "regression" in b["sub"]
         reg = f'<span class="rg{" bad" if bad else ""}">{E(b["sub"])}</span>'
     chips = "".join(f'<span class="cc"><b>{c["n"]}</b>{E(c["label"])}</span>' for c in b["closed"]["chips"])
     # who closes each open topic, and when (cold test WM1: "16 open topics still to validate" and the owner asked "what should a
@@ -2371,7 +2383,9 @@ def h_stopped(s):
     li = "".join(f"<li>{E(clip_ask(t, 160, head=True))}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
     # the headline answers "is it stuck?"; what stopped it and the rerun command are for the agent, so they fold (cockpit clarity)
-    return (f'<div class="stopbar" role="alert"><b>The run stopped during this step: {E(plainwords(cp.STEP_TEXT.get(s["step"], s["step"])))}.</b>'
+    own = [o for o in (s.get("owners") or []) if o != "info"]
+    cls = "stopbar agent" if own and all(o == "agent" for o in own) else "stopbar"   # the agent's own task is amber, not the red of a real block
+    return (f'<div class="{cls}" role="alert"><b>The run stopped during this step: {E(plainwords(cp.STEP_TEXT.get(s["step"], s["step"])))}.</b>'
             '<details><summary>What stopped it, technical (for the agent)</summary>'
             f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder (stop code {s["code"]}).</small>{cmd}</details></div>')
 
@@ -2380,6 +2394,16 @@ def open_questions(model):
     """The items a person still has to answer, one question card each: plan choices and judgments first, the sign-off last."""
     qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup"]
     return sorted(qs, key=lambda i: i["kind"] == "signoff")
+
+
+def own_asks(asks, qs):
+    """The "agent chose this on its own" step rows that are not already a question card: a plan item shows up both as the card
+    (P-n) and as its step row, and the page counted it twice (31 "choices" for 16; lane review 03)."""
+    titles = [re.sub(r"\s*\((module|widget|jar|java|check)\)$", "", i.get("title", "")) for i in qs]
+    def dup(r):
+        n = re.sub(r"^Keep or update module ", "", r.get("name", ""))
+        return any(n and (n == t or t.startswith(n) or n.startswith(t)) for t in titles if t)
+    return [r for r in asks if not dup(r)]
 
 
 def question_of(i):
@@ -2551,7 +2575,8 @@ def h_questions(model, matrix=None, cases_=None):
     /decide, live page only); on a static copy they stay off and the answer goes through chat."""
     qs = open_questions(model)
     # a choice the agent made on its own (a step with an assumed approval) blocks too; Resolve opens its plan cell, where its buttons are
-    asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
+    ok_ = {id(r) for r in own_asks([r for r in (matrix or {}).get("rows", []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"], qs)}
+    asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if id(r) in ok_]
     if not qs and not asks:
         return "", "", ""
     rows, dlgs = [], []
@@ -2612,7 +2637,7 @@ def render(model, matrix):
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
             f"<style>{CSS}</style>\n"
             '<div class="wrap">\n  <header class="head">\n    <div>\n      <div class="eyebrow">Upgrade cockpit</div>\n'
-            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(re.sub(r"\btriage\b", "triage (reading the app)", plainwords(model['sub'])))}</div>\n"
+            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(re.sub(r"\btriage\b", "triage (reading the app)", re.sub(r"stopped at (\w+)", lambda m_: "stopped at " + plainwords(STEP_PLAIN.get(m_.group(1), m_.group(1))), plainwords(model['sub']))))}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
             f"  {h_brief(matrix['brief'], qlist)}\n"
