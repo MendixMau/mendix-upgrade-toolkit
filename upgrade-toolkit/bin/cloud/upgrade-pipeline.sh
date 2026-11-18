@@ -224,13 +224,18 @@ need_path() { # need_path PATH WHAT
 # ---- judgment stops ----
 # Who the section is for (cockpit clarity): nj_meta agent|info|person ["question" "recommended-key" "key|label|what it does"...] before the
 # NEXT nj_add/nj_file. The cockpit shows an agent or info section as no question for the person, and a person section as its real
-# question with the options and the recommended one. A section without nj_meta is read as before.
+# question with the options and the recommended one ("none:<why>" in place of the key: no default exists, the page says why). A section
+# without nj_meta is read as before.
 NJ_META=""
 nj_meta() {
   NJ_META="owner: $1"; shift
   [ $# -gt 0 ] || return 0
   NJ_META="$NJ_META"$'\n'"question: $1"; local rec=$2; shift 2
-  [ -z "$rec" ] || NJ_META="$NJ_META"$'\n'"recommended: $rec"
+  case "$rec" in   # "none:<why>": the toolkit has no default here; the page says so and gives the reason
+    none:*) NJ_META="$NJ_META"$'\n'"why: ${rec#none:}" ;;
+    "") ;;
+    *) NJ_META="$NJ_META"$'\n'"recommended: $rec" ;;
+  esac
   local o; for o in "$@"; do NJ_META="$NJ_META"$'\n'"option: $o"; done
 }
 nj_add() { # nj_add CODE "title" "text"
@@ -490,7 +495,7 @@ disk_cause() { # disk_cause [LOG]: after a failed build, a judgment item that na
   [ "$DRY" = 1 ] && return 0
   local out rc=0
   out=$("$B/diskcheck.sh" --need-mb 300 --log "${1:-$LOG}" "$WORK") || rc=$?
-  [ "$rc" = 0 ] || nj_add 10 "DISK FULL, not an app defect" "$out"
+  [ "$rc" = 0 ] || { nj_meta person "The disk is full, so the step cannot go on. This is the machine, not the app. What should we do?" "none:Only you know what else lives on this disk, so the toolkit cannot say what to delete." "free|Free space on this disk, then rerun|Finished run folders, tools of finished runs, docker prune; the step is retried from here." "move|Run on a disk with 4 GB or more free|Point the run folder at it and rerun."; nj_add 10 "DISK FULL, not an app defect" "$out"; }
 }
 
 # ---- toolset / project helpers ----
@@ -722,7 +727,7 @@ step_triage() {
   if [ "$DRY" != 1 ] && [ "${UPG_ALLOW_MODULE_ONLY:-}" != 1 ]; then
     rc=0; xo "$WORK/appshape.out" python3 "$B/appshape.py" "$APP" || rc=$?
     if [ "$rc" = 1 ]; then
-      nj_add 13 "The source is a module, not an app: it needs a host app" "$(cat "$WORK/appshape.out")
+      nj_meta person "The source is a module template, not an app: there is no running old app to compare against. What should we do?" "none:Whether a host app exists is something only you know." "wrap|Wrap it in a host app and upgrade that|An app with a home page, a theme and the module imported (steps/triage.md)." "modules|Upgrade its modules inside the app that uses them|Record the template as not upgradeable on its own." "goon|Go on anyway|Set UPG_ALLOW_MODULE_ONLY=1; the build is expected to fail."; nj_add 13 "The source is a module, not an app: it needs a host app" "$(cat "$WORK/appshape.out")
 
 No navigation profile of this project has a home page, so mxbuild stops it with 'Select a default home page' (and, when the layouts use design properties, 'Design property ... is not supported by your theme'): there is no running old app to freeze as the baseline, and no journey to compare. This is a template to import into an app, not an app.
 Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme and the module imported) and run the upgrade on that app; or (b) record the template as not upgradeable on its own and upgrade its modules inside the app that uses them. Then rerun. To go on anyway (the build will fail): UPG_ALLOW_MODULE_ONLY=1."
@@ -861,7 +866,7 @@ step_basewalk() {
   must python3 "$B/smokewalk_gen.py" "$APP" -o "$WORK/plan.json"
   roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
-  [ -n "$roles" ] || { nj_add 11 "No user roles in the smoke-walk plan" "plan.json has no non-guest role: nothing can log in. $WORK/plan.json"; nj_flush; }
+  [ -n "$roles" ] || { nj_meta agent; nj_add 11 "No user roles in the smoke-walk plan" "plan.json has no non-guest role: nothing can log in. $WORK/plan.json"; nj_flush; }
   [ "$DRY" = 1 ] || write_users "$roles" "$WORK/users.json"
   user_args "$roles"
   # smoke walk
@@ -873,7 +878,7 @@ step_basewalk() {
     --out "$WORK/smoke-before.json" --shots "$WORK/smoke-before-shots" || rc=$?
   app_down oldwalk
   mark_used "$db" walk
-  [ "$rc" -le 1 ] || { nj_file 11 "Smoke walk on the OLD app is INVALID (exit $rc)" "$LOG" 30 'INVALID|FAIL|credential'; }
+  [ "$rc" -le 1 ] || { nj_meta agent; nj_file 11 "Smoke walk on the OLD app is INVALID (exit $rc)" "$LOG" 30 'INVALID|FAIL|credential'; }
   ! grep -q 'microflow (use --microflows)' "$LOG" 2> /dev/null ||
     note "the smoke walk SKIPPED microflow steps (UPG_SMOKE_MICROFLOWS=0): roles that reach pages only through them are judged on less; unset it to walk them on the walk's own DB copy"
   [ "$rc" != 1 ] || note "smoke walk on the old app has FAIL steps (baseline defects, listed apart): $WORK/smoke-before.json"
@@ -940,12 +945,12 @@ proposal_args() { # sets PA for proposal.py
 proposal_stop() { # proposal_stop RC: rc 14 / 15 end the run with NEEDS-JUDGMENT.md, anything else but 0 is a failed fixed step
   case "$1" in
     0) return 0 ;;
-    14) nj_add 14 "Upgrade proposal awaits sign-off: read $WORK/PROPOSAL.md" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
+    14) nj_meta person "Do you approve the upgrade plan?" "approve" "approve|Approve and continue|Signs with your Git name; nothing in the app changes before this." "change|Change a choice first|Answer the plan questions, then approve."; nj_add 14 "Upgrade proposal awaits sign-off: read $WORK/PROPOSAL.md" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
 Nothing in the app model has changed. Answer the questions under Blocked on you in the live cockpit and approve the plan there
 (the approval carries your Git name), or answer the section-3 items in chat (steps/decide.md) and approve on the page.
 To stop on purpose, write \`Status: PAUSED <reason>\` in PROPOSAL.md section 6. Then run the command at the top of this file."
-       nj_file 14 "PROPOSAL.md (head)" "$WORK/PROPOSAL.md" 30 ;;
-    15) nj_add 15 "Upgrade proposal PAUSED by the owner" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
+       nj_meta info; nj_file 14 "PROPOSAL.md (head)" "$WORK/PROPOSAL.md" 30 ;;
+    15) nj_meta info; nj_add 15 "Upgrade proposal PAUSED by the owner" "$(head -n 3 "$WORK/proposal.out" 2> /dev/null)
 The run stopped on purpose; no step after propose has run. Resume: remove the \`Status: PAUSED\` line from $WORK/PROPOSAL.md section 6, write \`Signed-off: <name> <yyyy-mm-dd>\`, then
     $(rerun_cmd)" ;;
     *) die4 "proposal.py failed (exit $1), see $WORK/proposal.out" ;;
@@ -1142,7 +1147,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
     esac
     local rlog="$WORK/replay-$mod$([ "${f##*.}" = patch ] && echo -patch).out"
     if [ "$rc" != 0 ] && [ "$clean" = 0 ]; then
-      nj_file 13 "replay of $mod failed (exit $rc) on a tree that was not clean before it, so it cannot be undone: $f" "$rlog" 30; nj_flush
+      nj_meta agent; nj_file 13 "replay of $mod failed (exit $rc) on a tree that was not clean before it, so it cannot be undone: $f" "$rlog" 30; nj_flush
     elif [ "$rc" != 0 ]; then
       # a failed replay is held, not a stop (WM1): its own changes are undone (the tree was clean before it), the build,
       # journeys and gate still run and give evidence, and the gate stops 13 on replay-held.txt until a person decides
@@ -1222,7 +1227,7 @@ route_kept() {
 
 # update: module updates with the post-convert plan; kept modules are routed (route_kept), the rest decided at the gate.
 step_update() {
-  [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
+  [ -f "$WORK/plan.txt" ] || [ "$DRY" = 1 ] || { nj_meta agent; nj_add 13 "plan.txt missing" "$WORK/plan.txt does not exist"; nj_flush; }
   # an update rerun cannot redo this rung's replays: the module steps read as applied ("0 committed"), replay skips what the
   # log holds, and the replayed copies and menu pointers stay. Cold WM1: an older replay's empty Account_Overview copy
   # stayed in the menu after the rerun, the Local Users tab showed nothing. Rewind to the convert commit first.
@@ -1294,7 +1299,7 @@ step_update() {
   [ ! -f "$WORK/approved.txt" ] || ap=(--approved "$WORK/approved.txt")
   xo "$WORK/idcheck-total.out" python3 "$B/idcheck.py" "$WORK/original.mpr" "$MPR" --md "$WORK/idcheck-total.md" "${ap[@]}" || rc=$?
   if [ "$rc" != 0 ]; then
-    nj_file 13 "Total idcheck (original vs now) has open data-bearing findings (exit $rc)" "$WORK/idcheck-total.md" 30
+    nj_meta person "The update removes or changes data the app stores. What should we do?" "none:Each finding is data that may be lost; only the owner knows whether that data matters." "accept|Accept each finding in writing|One line per finding in approved.txt with a reason (steps/upgrade.md)." "keep|Keep the module at its old version|The module is dropped from the plan and listed as kept."; nj_file 13 "Total idcheck (original vs now) has open data-bearing findings (exit $rc)" "$WORK/idcheck-total.md" 30
     nj_park
   fi
 }
@@ -1378,7 +1383,7 @@ step_build() {
   if [ "$DRY" != 1 ] && [ "$rc" = 1 ]; then
     note "missing_deps: $(grep -cE '^(MISSING|BROKEN)' "$WORK/missing_deps.txt" || true) missing or broken (see $WORK/missing_deps.txt)"
     if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then
-      nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
+      nj_meta agent; nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
     fi
   fi
   # row 5, row 6
@@ -1406,7 +1411,7 @@ step_build() {
 Codes: $(grep -oE '^\[error\] *\[C[EW][0-9]+\]' "$CHECK_LOG" | grep -oE 'C[EW][0-9]+' | sort | uniq -c | sort -rn | head -n 15 | tr '\n' ';')
 Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one commit per fix; checkdiff.py after each)."
     nj_meta info; nj_file 10 "First 20 error lines" "$CHECK_LOG" 20 '^\[error\]'
-    grep -q '^\[where\]' "$CHECK_LOG" 2> /dev/null && nj_file 10 "Where they are (first 20)" "$CHECK_LOG" 20 '^\[where\]'
+    grep -q '^\[where\]' "$CHECK_LOG" 2> /dev/null && { nj_meta info; nj_file 10 "Where they are (first 20)" "$CHECK_LOG" 20 '^\[where\]'; }
     if has_code CE1613 && grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
       nj_meta info; nj_file 10 "Own documents use targets the module update dropped (CE1613; steps/repair.md row 28)" "$WORK/owngone.out" 20 '^(OWN|  GONE)'
     fi
@@ -1424,7 +1429,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     if grep -q 'error: cannot find symbol' "$WORK/build-$TARGET.log" 2> /dev/null; then
       xo "$WORK/javacjar.out" python3 "$B/repair/javacjar.py" "$APP" "$WORK/build-$TARGET.log" || true
       if grep -q '^  HIDDEN BY' "$WORK/javacjar.out" 2> /dev/null; then
-        nj_file 10 "An older copy of a class inside another jar hides what the code needs (steps/repair.md row 31)" "$WORK/javacjar.out" 20 '^(SYMBOL|  HAS|  HIDDEN BY)'
+        nj_meta agent; nj_file 10 "An older copy of a class inside another jar hides what the code needs (steps/repair.md row 31)" "$WORK/javacjar.out" 20 '^(SYMBOL|  HAS|  HIDDEN BY)'
       fi
     fi
     nj_flush
@@ -1447,7 +1452,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
 step_after() {
   local db rc=0
   db=$(fresh_name "${X}_after"); copy_db "$X_FROZEN" "$db"
-  app_up newafter "$(mda_new)" "$TARGET" "$db" || { nj_file 10 "New app did not start on a copy of the frozen DB" "$WORK/logs/runtime-newafter.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
+  app_up newafter "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start on a copy of the frozen DB" "$WORK/logs/runtime-newafter.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   local ep_args=()
   [ ! -s "$WORK/endpoints.txt" ] || ep_args=(--endpoints "$WORK/endpoints.txt")
   x python3 "$B/snapshot.py" --label after --ledger "$WORK/db-ledger.txt" --psql "$(psql_str "$db")" \
@@ -1466,14 +1471,14 @@ step_afterwalk() {
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   user_args "$roles"
   db=$(fresh_name "${X}_smoke_new"); copy_db "$X_FROZEN" "$db"
-  app_up newwalk "$(mda_new)" "$TARGET" "$db" || { nj_file 10 "New app did not start for the smoke walk" "$WORK/logs/runtime-newwalk.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
+  app_up newwalk "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the smoke walk" "$WORK/logs/runtime-newwalk.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
   x node "$B/smokewalk.js" --plan "$WORK/plan-new.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --compare "$WORK/smoke-before.json" --out "$WORK/smoke-after.json" --shots "$WORK/smoke-after-shots" || rc=$?
   app_down newwalk
   mark_used "$db" walk
   if [ "$rc" != 0 ]; then
-    nj_file 12 "Smoke walk vs baseline (exit $rc: 1 = a PASS step regressed or broke, 2 = INVALID): a gate FAIL/INVALID, not a pass" "$LOG" 40 'REGRESS|FAIL|INVALID'
+    nj_meta person "A step that passed on the old app fails or breaks on the new one. What should we do?" "fix" "fix|Fix the app, then rerun|The old app passes it, so the upgrade changed behaviour (steps/heal.md: heal the test, never the app)." "accept|Accept it as intended, in writing|A reason per line in the allow files (steps/gate.md)." "test|The test is wrong: fix the test|Only when the step fails the same way on the old app."; nj_file 12 "Smoke walk vs baseline (exit $rc: 1 = a PASS step regressed or broke, 2 = INVALID): a gate FAIL/INVALID, not a pass" "$LOG" 40 'REGRESS|FAIL|INVALID'
     nj_park
   fi
 }
@@ -1532,7 +1537,7 @@ step_journeys() {
     # PR-F34: an INVALID confirmed process compiles to no legs at all, so the journeys ran for hours without it
     # (pipe-29). Stop before the apps start: the fix is a line in processes.md
     if grep -q '^INVALID' "$WORK/processes.out"; then
-      nj_file 11 "A confirmed process is INVALID: fix processes.md (or set the process to status: dropped), then rerun --from journeys" "$WORK/processes.out" 20 '^INVALID'
+      nj_meta agent; nj_file 11 "A confirmed process is INVALID: fix processes.md (or set the process to status: dropped), then rerun --from journeys" "$WORK/processes.out" 20 '^INVALID'
       nj_park
     fi
   fi
@@ -1550,7 +1555,7 @@ step_journeys() {
   mark_used "$db" journeys
   [ "$rc" = 0 ] || note "before-picked journeys on the old app exit $rc (baseline defects are listed apart): $WORK/journeys-before-picked.out"
   db=$(fresh_name "${X}_smoke_jnew"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
-  app_up newjp "$(mda_new)" "$TARGET" "$db" || { nj_file 10 "New app did not start for the journeys" "$WORK/logs/runtime-newjp.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
+  app_up newjp "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the journeys" "$WORK/logs/runtime-newjp.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
@@ -1577,6 +1582,7 @@ step_journeys() {
        [ "$(grep -E 'REGRESSION|NOT IN BASELINE|INVALID|\bFAIL\b' "$WORK/journeys-after.out" | grep -vc 'SCREEN REVIEW' || true)" = 0 ]; then code=12; fi
     # a count, not `| grep -vq`: under pipefail an early-quitting grep -q made the first grep die of SIGPIPE, and `!` turned
     # that into "only SCREEN REVIEW lines" (stop 12) for a run that had FAIL lines
+    nj_meta person "Journeys that passed on the old app fail or look different on the new one. What should we do?" "fix" "fix|Fix the app, then rerun the journeys|A REGRESSION or FAIL is a gate FAIL (steps/journeys.md)." "accept|Accept a changed screen, with a reason|Only for SCREEN REVIEW lines: write the reason in shot-accept.txt." "test|The journey is wrong: fix the journey|Only when it fails the same way on the old app."
     nj_file "$code" "Journeys on the NEW app (exit $rc): REGRESSION/FAIL is a gate FAIL, INVALID blocks DONE, SCREEN REVIEW needs both images opened and a reason in shot-accept.txt" "$WORK/journeys-after.out" 60 'REGRESSION|NOT IN BASELINE|INVALID|FAIL|SCREEN|todo|skipped|journeys:'
     nj_meta info; nj_add "$code" "Evidence" "summary: $WORK/e2e-after/after/summary.json ; plan: $WORK/journeys/plan.json ; screens: $WORK/e2e-after"
     nj_park
@@ -1653,7 +1659,7 @@ heal_run_journeys() { # heal_run_journeys IDS_CSV BASE_DB: those journeys on the
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-heal-old" --pause 50 ${act[@]+"${act[@]}"} || rc=$?
   app_down healold; mark_used "$db" heal; heal_drop "$db"
   db=$(fresh_name "${X}_smoke_jheal_new"); copy_db "$base" "$db"; fixture_db "$db"
-  app_up healnew "$(mda_new)" "$TARGET" "$db" || { nj_file 10 "New app did not start for the heal rerun" "$WORK/logs/runtime-healnew.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
+  app_up healnew "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the heal rerun" "$WORK/logs/runtime-healnew.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   rc=0; xo "$WORK/heal-journeys-new.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label after --only "$ids" --port "$APP_PORT" --psql "$(psql_str "$db")" \
@@ -1866,12 +1872,12 @@ step_diff() {
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
   bad=$(grep -E "^\| [0-9]+ \| (${only//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
-    nj_file 12 "gate.sh: open FAIL / REVIEW / INVALID / NOT RUN (exit $rc: 1 = FAIL, 2 = INVALID or NOT RUN); accept in writing (allow files, steps/gate.md) or repair" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
+    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."; nj_file 12 "gate.sh: open FAIL / REVIEW / INVALID / NOT RUN (exit $rc: 1 = FAIL, 2 = INVALID or NOT RUN); accept in writing (allow files, steps/gate.md) or repair" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
   fi
   if [ -f "$WORK/heal.json" ]; then   # rows that may be a real defect of the upgrade stay open, with options and a recommendation
     python3 "$B/heal.py" finalize --work "$WORK" > /dev/null 2>&1 || true
     local hn; hn=$(python3 "$B/heal.py" nj --work "$WORK" 2> /dev/null || true)
-    [ -z "$hn" ] || nj_add 12 "Heal: rows that may be real defects of the upgrade (no automatic fix)" "$hn"
+    [ -z "$hn" ] || { nj_meta person "Some checks may be real defects of the upgrade; no automatic fix applies. What should we do?" "fix" "fix|Fix the app, then rerun|The old version passes it, so a person must see why the new one does not." "accept|Accept the change as intended, in writing|A reason per row (steps/heal.md)." "old|The old behaviour was wrong: say so in writing|A reason per row."; [ -z "$hn" ] || nj_add 12 "Heal: rows that may be real defects of the upgrade (no automatic fix)" "$hn"; }
   fi
   nj_park
 }
@@ -1880,10 +1886,10 @@ step_diff() {
 step_gate() {
   local rc=0
   if [ -s "$WORK/plan.txt" ] && grep -qvE '^[[:space:]]*(#|$)' "$WORK/plan.txt" && [ ! -f "$WORK/module-jumps.txt" ] && [ "$DRY" != 1 ]; then
-    nj_add 12 "Release impact INVALID: module rows missing" "plan.txt has updates but $WORK/module-jumps.txt does not exist, so release-impact.md has no module rows (steps/triage.md item 10). Write module-jumps.txt, rerun triage, then fill every row."
+    nj_meta agent; nj_add 12 "Release impact INVALID: module rows missing" "plan.txt has updates but $WORK/module-jumps.txt does not exist, so release-impact.md has no module rows (steps/triage.md item 10). Write module-jumps.txt, rerun triage, then fill every row."
   fi
   xo "$WORK/release-impact.check" python3 "$B/release_impact.py" --check "$WORK/release-impact.md" || rc=$?
-  [ "$rc" = 0 ] || nj_file 12 "release_impact.py --check: open rows (exit $rc). Every row needs 'handled: <evidence>' or 'not relevant: <reason>' (INVALID until then)" "$WORK/release-impact.check" 30
+  [ "$rc" = 0 ] || { nj_meta agent; nj_file 12 "release_impact.py --check: open rows (exit $rc). Every row needs 'handled: <evidence>' or 'not relevant: <reason>' (INVALID until then)" "$WORK/release-impact.check" 30; }
   # NOT RUN items (mutant control, demo data replay) are never a pass: stop until a person ran them or wrote why not
   if [ "$DRY" != 1 ] && grep -q 'NOT RUN\|NOT replayed' "$WORK/state/notes.txt" 2> /dev/null && [ ! -f "$WORK/notrun-ack.txt" ]; then
     nj_meta info; nj_file 12 "Gate items NOT RUN by the pipeline (steps/baseline.md item 4: the mutant control must FAIL)" "$WORK/state/notes.txt" 20 'NOT RUN|NOT replayed'

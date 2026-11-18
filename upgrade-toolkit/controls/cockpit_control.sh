@@ -103,6 +103,14 @@ PY
             ck >/dev/null && brief_text && cards ;;
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'
             grep -E '^(## |owner:|question:|recommended:|option:)' "$W/NEEDS-JUDGMENT.md" ;;
+  # a stop site of the pipeline, as the source writes it: its nj_meta line (the real text) then one section of the given exit code
+  site) P="$B/cloud/upgrade-pipeline.sh"; line=$(grep -m1 -F -- "$2" "$P" | sed -E 's/^.*(nj_meta person)/\1/; s/; nj_(file|add) .*$//')
+            case "$line" in "nj_meta person"*) ;; *) echo "no person site: $2"; exit 1 ;; esac
+            mkstop "$line; nj_add $3 \"A stop\" \"body\""; ck >/dev/null && brief_text && cards; grep -o 'No recommendation:</b> [^<]*' "$T/out.html" | head -1 | sed 's/^/dialog: /' ;;
+  site-unmarked) P="${2:-$B/cloud/upgrade-pipeline.sh}"   # every nj_add / nj_file call has an nj_meta on its line or the line before
+            awk '/^nj_(add|file)\(\)/ || /nj_add "\$1" "\$2"/ || /^[ \t]*#/ {prev=$0; next} /nj_(add|file) / { l=$0; sub(/ # .*/,"",l); if (l !~ /nj_(add|file) /) { prev=$0; next }; if ($0 !~ /nj_meta/ && (prev !~ /nj_meta/ || prev ~ /nj_(add|file) /)) { n++; print NR": "substr($0,1,100) } } {prev=$0} END { print "unmarked sites: " n+0 }' "$P" ;;
+  nj-none) mkstop 'nj_meta person "Q one?" "none:Only you know." "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"'
+            grep -E '^(## |owner:|question:|recommended:|why:|option:)' "$W/NEEDS-JUDGMENT.md" ;;
   brief-owner-agent) mkstop 'nj_meta agent; nj_add 10 "mx check: 3 errors after convert" "Summary file: x"; nj_meta info; nj_add 10 "First 20 error lines" "file: y"'
             ck >/dev/null && brief_text && cards; grep -o '<div class="stopbar[a-z ]*"' "$T/out.html" | sed 's/^/bar: /' ;;
   hero-regression) W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/runlog/gate-summary.run6.md" "$W/gate-summary.md"; ck >/dev/null
