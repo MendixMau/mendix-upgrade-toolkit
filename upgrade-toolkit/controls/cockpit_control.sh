@@ -96,7 +96,7 @@ PY
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'
             grep -E '^(## |owner:|question:|recommended:|option:)' "$W/NEEDS-JUDGMENT.md" ;;
   brief-owner-agent) mkstop 'nj_meta agent; nj_add 10 "mx check: 3 errors after convert" "Summary file: x"; nj_meta info; nj_add 10 "First 20 error lines" "file: y"'
-            ck >/dev/null && brief_text && cards ;;
+            ck >/dev/null && brief_text && cards; grep -o '<div class="stopbar[a-z ]*"' "$T/out.html" | sed 's/^/bar: /' ;;
   hero-regression) W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/runlog/gate-summary.run6.md" "$W/gate-summary.md"; ck >/dev/null
             python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -107,6 +107,15 @@ PY
             ;;
   brief-optional) W=$T/min/work; mkdir -p "$W/state" "$W/logs"; mkst; st approve --id S-3 --state assumed --by agent --source unattended >/dev/null
             printf 'build\t%s\t%s\n' "$(( $(date +%s) - 60 ))" "$$" > "$W/state/running"; ck >/dev/null && brief_text | sed -n '1p;/^Do this now/,/^Who/p' ;;
+  own-asks) python3 - "$B" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitmatrix as cm
+# titles and step-row names as a lane run (TLT, unattended) showed them: each plan item was a card (P-n) AND a step row
+qs = [{"title": "R34 SSL certificate algorithm SunX509 (SslCertificateAlgorithm) (module)"}, {"title": "Administration (module)"}, {"title": "Approve the plan"}]
+asks = [{"name": "R34 SSL certificate algorithm SunX509 (SslCertificateAlgorithm)"}, {"name": "Keep or update module Administration"}, {"name": "R99 A rule with no card"}]
+print("step rows:", len(asks), "| not already a card:", [r["name"] for r in cm.own_asks(asks, qs)])
+PY
+            ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;

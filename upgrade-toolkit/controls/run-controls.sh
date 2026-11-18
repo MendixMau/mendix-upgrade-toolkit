@@ -6522,7 +6522,7 @@ ctl timing-resume-appends-never-rewrites-pass 0 'prefix=same' 'build-rows=1' 'jo
 # the stop keeps its own exit code (the judgment stop is the pipeline's result, timing never changes it)
 ctl timing-stop-keeps-exit-code-pass 0 'rc=11' '!rc=4' -- tmrun $TM/wc $TM/times-a.txt build journeys
 # the page written AT a stop (nj_flush calls cockpit_regen) must not still see the step as running (lane reviews 02 and 03, TLT)
-ctl cockpit-stop-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wc/regen-saw)"
+ctl cockpit-stop-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wr $TM/times-a.txt build journeys > /dev/null 2>&1; echo regen saw: \$(cat $TM/wr/regen-saw)"
 # an unexpected failure (ERR trap, exit 4) still leaves its row, with exit 4; the rerun a few hours later gets its own row
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1; touch $TM/wb/fixed
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1
@@ -7230,9 +7230,10 @@ ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' '
 # stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
 ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
 ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
-ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '!Resolve' -- $CK brief-owner-agent
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
 ctl cockpit-hero-not-runs-on-with-regressions-catch 0 'hero: → The app builds, but not everything works yet 2 regressions to fix: it worked on the old app and fails on the new one\.' '!The app runs on' -- $CK hero-regression
-ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just started\. The agent is working: building the new app\.$' '^Nothing is blocked\. The AI made 1 choice on its own; look at them when you like \(optional\)\.$' '!waiting for' -- $CK brief-optional
+ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just started\. The agent is working: building the new app\.$' '^Nothing is blocked: the run goes on\. 1 choice is open for your review; the run does not wait for it \(optional\)\.$' '!waiting for' -- $CK brief-optional
+ctl cockpit-plan-item-counted-once-catch 0 "^step rows: 3 \\| not already a card: \\['R99 A rule with no card'\\]$" -- $CK own-asks
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
