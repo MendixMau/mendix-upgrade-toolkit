@@ -339,11 +339,27 @@ class Facts:
             self.items2.append({"key": f"checked:{rid}", "text": f"{title}: only in the Java of " + ", ".join(f"{m} (updated to {to})" for m, to in mods)
                                 + f": the module update replaces those {len(hits)} call sites; the build checks it (java-api.md)"})
             return True
+        # a compile call in a module the plan updates goes with that update, so only the app's own (and kept) code is decided on
+        gone = [h for h in hits if h.get("kind") == "compile" and h.get("module", "").lower() in upd]
+        hits = [h for h in hits if h not in gone]
+        if getattr(self.a, "unattended", False):
+            # Interview mode unattended/auto: the build step makes the 1:1 rewrites in the test build itself (one commit of its own,
+            # reversible), so they are a routine repair with one OK; only the calls a person ports stay a decision
+            done = [h for h in hits if h.get("mechanical")]
+            if done:
+                self.items2.append({"key": f"repair:{rid}-rewrite", "text": f"{title}: fixed by the toolkit: {len(done)} Java calls rewritten "
+                                    "(javaapi.py --rewrite --apply, one commit of its own in the test build: "
+                                    + "; ".join(f"{h['file']}:{h['line']} -> {h['replacement']}" for h in done[:6])
+                                    + (f"; ... ({len(done)} calls, java-rewrite.diff)" if len(done) > 6 else "") + ")"})
+                hits = [h for h in hits if not h.get("mechanical")]
+            if not hits and not other:
+                return True
         mech = [h for h in hits if h.get("mechanical")]
         eff = max((h.get("effort", "S")[:1] for h in hits), key="SML".index, default="S")
         eff = "M" if len(hits) - len(mech) > 8 and eff == "S" else eff
         sites = "; ".join(f"{h['file']}:{h['line']} {h['removed']} -> {h['replacement']}" + (" (mechanical)" if h.get("mechanical") else "")
                           for h in hits[:6]) + (f"; ... ({len(hits)} call sites, java-api.md)" if len(hits) > 6 else "")
+        sites += f"; {len(gone)} more in modules the plan updates (the update replaces them)" if gone else ""
         behaviour = hits and all(h.get("kind") == "behaviour" for h in hits)
         n = len(hits)
         if behaviour or (other and not hits):

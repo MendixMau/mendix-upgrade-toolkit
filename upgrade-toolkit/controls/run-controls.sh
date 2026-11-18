@@ -1981,6 +1981,19 @@ ctl pipeline-dry-journeys-users-pass 0 'gen_journeys\.py .* --users .*/pw/users\
 ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.log' 'missing_deps.py .* --target 11\.15\.0\.1' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 # the 1:1 Java API rewrites: always the dry-run diff on an 11 target, written only on a signed proposal or UPG_JAVA_REWRITE=1
 ctl pipeline-dry-build-javaapi-catch 0 'javaapi\.py .*/papp --rewrite > .*/pw/java-rewrite\.diff' '!javaapi\.py .*--apply' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
+# Interview mode auto/unattended (the owner: the toolkit self-heals): the test build gets the 1:1 rewrite as a commit of its own,
+# reported "fixed by the toolkit: N Java calls rewritten"; interview mode (default) keeps the diff until the proposal is signed
+ctl pipeline-dry-build-javaapi-auto-catch 0 'javaapi\.py .*/papp --rewrite > .*/pw/java-rewrite\.diff' 'javaapi\.py .*/papp --rewrite --apply$' "commit -am 'repair: Java API rewrites \(javaapi\.py\)' \(Upgrade-Change: repair repair-row-34\)" -- env UPG_INTERVIEW_MODE=auto bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
+JR=$T/jrew; mkdir -p $JR
+{ for f in major say quoted x xo note git_app commit_app interview_unattended; do awk -v f="$f" 'index($0, f "() {") == 1 {p = 1; print; if (/}$/) exit; next} p {print} p && /^}$/ {exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; done
+  awk '/# removed Java API, 1:1 rewrites/,/# all fixed rows done/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; } > $JR/fn.sh
+for m in auto interview; do
+  mkdir -p $JR/$m/w/state; cp -R $FX/javaapi/catch $JR/$m/app
+  git -C $JR/$m/app init -q && git -C $JR/$m/app add -A && git -C $JR/$m/app -c user.name=t -c user.email=t@x commit -qm base
+done
+ctl pipeline-build-javaapi-auto-applies-catch 0 '^repair: Java API rewrites \(javaapi\.py\)$' '^Changed-By: toolkit$' '^Upgrade-Change: repair repair-row-34$' 'fixed by the toolkit: 3 Java calls rewritten, one commit of its own' \
+  'Core\.createXPathQuery\("//MyOwn\.Item\[Name = .a, b.\]"\)\.execute\(getContext\(\)\)' -- bash -c "cd $JR/auto && B=$B APP=$JR/auto/app WORK=$JR/auto/w LOG=$JR/auto/w/log STEP=build DRY=0 TARGET=11.15.0.1 UPG_INTERVIEW_MODE=auto bash $JR/fn.sh; git -C app log -1 --format=%B; cat w/state/notes.txt; grep createXPathQuery app/javasource/myown/actions/Fetch.java"
+ctl pipeline-build-javaapi-interview-waits-pass 0 '^base$' 'rewrites waiting for approval' '!fixed by the toolkit' '!createXPathQuery' -- bash -c "cd $JR/interview && B=$B APP=$JR/interview/app WORK=$JR/interview/w LOG=$JR/interview/w/log STEP=build DRY=0 TARGET=11.15.0.1 UPG_INTERVIEW_MODE= bash $JR/fn.sh; git -C app log -1 --format=%s; cat w/state/notes.txt; grep -h createXPathQuery app/javasource/myown/actions/Fetch.java; true"
 ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
@@ -6139,6 +6152,10 @@ ctl proposal-javaapi-checked-no-step-catch 0 '!R18' -- bash $PR/sec.sh $PR/ja-cl
 ctl proposal-javaapi-fix-catch 0 '^- \[P-[0-9]+\] .*R18' 'Fetch\.java:24 Core\.retrieveXPathQuery\(context, xpath\) -> Core\.createXPathQuery\(xpath\)\.execute\(context\) \(mechanical\)' \
   'let the toolkit rewrite the mechanical calls and port the rest by hand: 3 of the 5 calls' '!\[RA-' -- sh -c "bash $PR/sec.sh $PR/ja-catch 3 | sed -n '/Java: R18/,/^- \\[P-2/p'"
 ctl proposal-javaapi-r30-own-code-catch 0 '^- \[P-[0-9]+\] .*R30' 'Fetch\.java:31 getChangedDate' 'recommendation: check each read and change only the ones before a commit: 1 in Java' '!\[RA-' -- sh -c "bash $PR/sec.sh $PR/ja-catch 3 | sed -n '/Java: R30/,/^- \\[P-3/p'"
+mkw ja-auto; python3 $B/replacement_check.py $M/replace-java-m2ee-old --to 11.12.5 --out $PR/ja-auto/replacements.md > /dev/null
+python3 $B/javaapi.py $FX/javaapi/catch --json $PR/ja-auto/java-api.json > /dev/null; bash $PR/prop.sh $PR/ja-auto --unattended > /dev/null
+ctl proposal-javaapi-unattended-fixed-catch 0 'R18 .*: fixed by the toolkit: 3 Java calls rewritten \(javaapi\.py --rewrite --apply' -- bash $PR/sec.sh $PR/ja-auto 2
+ctl proposal-javaapi-unattended-rest-decision-catch 0 '^- \[P-[0-9]+\] .*R18' 'port the calls by hand: each of the 2 calls' '!Fetch\.java:24 Core\.retrieveXPathQuery\(context, xpath\)' -- sh -c "bash $PR/sec.sh $PR/ja-auto 3 | sed -n '/Java: R18/,/^- \\[P-2/p'"
 ctl proposal-javaapi-update-closes-catch 0 'R18 .*only in the Java of ShopKit \(updated to 2\.0\.0\): the module update replaces those 1 call sites' -- bash $PR/sec.sh $PR/ja-vendor 2
 ctl proposal-javaapi-update-no-step-pass 0 '!R18' -- bash $PR/sec.sh $PR/ja-vendor 3
 mkw ra-none kept

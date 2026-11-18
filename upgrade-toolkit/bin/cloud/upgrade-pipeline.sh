@@ -1377,14 +1377,18 @@ step_build() {
     try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
   fi
   # removed Java API, 1:1 rewrites (javaapi.py, steps/repair.md row 34): on an 11 target, after the convert and the module updates.
-  # Always the dry-run diff; written and committed as one change of its own only on approval: a signed proposal (its Java item
-  # recommends the rewrite) or UPG_JAVA_REWRITE=1. Unattended (assumed) runs keep the diff for a person.
+  # Always the dry-run diff first. Written and committed as one change of its own (the test build is a copy, the commit reverts) in
+  # Interview mode unattended/auto (the proposal lists it as "fixed by the toolkit"), on UPG_JAVA_REWRITE=1, or in interview mode
+  # once the proposal is signed (its Java item recommends the rewrite); before that the diff waits for a person.
   if [ "$(major "$TARGET")" -ge 11 ]; then
     rc=0; xo "$WORK/java-rewrite.diff" python3 "$B/javaapi.py" "$APP" --rewrite || rc=$?
+    [ "$DRY" != 1 ] || rc=1
     if [ "$rc" = 1 ]; then
-      if [ "${UPG_JAVA_REWRITE:-0}" = 1 ] || [ "$(python3 "$B/proposal.py" --status --work "$WORK" 2> /dev/null)" = signed ]; then
-        x python3 "$B/javaapi.py" "$APP" --rewrite --apply > /dev/null || true
+      if [ "${UPG_JAVA_REWRITE:-0}" = 1 ] || interview_unattended || { [ "$DRY" != 1 ] && [ "$(python3 "$B/proposal.py" --status --work "$WORK" 2> /dev/null)" = signed ]; }; then
+        x python3 "$B/javaapi.py" "$APP" --rewrite --apply || true
         commit_app "repair: Java API rewrites (javaapi.py)" repair repair-row-34
+        [ "$DRY" = 1 ] || note "fixed by the toolkit: $(sed -n 's/^javaapi: \([0-9]*\) mechanical rewrites.*/\1/p' "$WORK/java-rewrite.diff") Java calls rewritten, one commit of its own (see $WORK/java-rewrite.diff)"
+      elif [ "$DRY" = 1 ]; then say "  (the 1:1 Java rewrite waits for the signed proposal; Interview mode unattended/auto writes it)"
       else note "javaapi.py: mechanical Java API rewrites waiting for approval (sign the proposal or UPG_JAVA_REWRITE=1), see $WORK/java-rewrite.diff"; fi
     fi
   fi
