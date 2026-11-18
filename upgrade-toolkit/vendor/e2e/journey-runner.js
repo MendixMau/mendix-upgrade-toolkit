@@ -152,7 +152,7 @@ async function act(page, a, vars, note) {
   const w = n => page.locator(`.mx-name-${n}`).first();
   switch (a.do) {
     case 'nav':
-      await H.navTo(page, a.group || null, a.item);
+      await H.navTo(page, a.group || null, a.item, a.nth);
       break;
     case 'click': {
       const el = w(a.widget);

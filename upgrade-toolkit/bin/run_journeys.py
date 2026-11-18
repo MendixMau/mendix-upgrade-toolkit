@@ -335,10 +335,10 @@ PATCHES = [
     # and an item without a title attribute is found by its exact text
     ("navTo: also menu bars, and exact text when no title matches (T2-11)",
      "    const a = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a')]\n"
-     "      .find((x) => x.getAttribute('title') === title);",
+     "      .filter((x) => x.getAttribute('title') === title)[k || 0];",
      "    const all = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a, .mx-menubar a, .mx-simplemenubar a')];\n"
-     "    const a = all.find((x) => x.getAttribute('title') === title)\n"
-     "      || all.find((x) => (x.innerText || '').trim() === title);",
+     "    const a = all.filter((x) => x.getAttribute('title') === title)[k || 0]\n"
+     "      || (k ? undefined : all.find((x) => (x.innerText || '').trim() === title));",
      "helpers.js"),
     # E2E-9 / E5b-11: `mxcli oql --direct` does not answer on a runapp runtime; ask the app's Postgres (pgdata.js)
     ("oql: SQL through UPG_PSQL (pgdata.js + pgmap.py), not mxcli oql --direct (E2E-9, E5b-11)",
