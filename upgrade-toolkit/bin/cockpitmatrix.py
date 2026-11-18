@@ -1111,6 +1111,8 @@ def step_row(rec, work=None):
     ap = rec.get("approval") or {}
     # slice 8: only a step that is still assumed (or has no approval) gets the buttons; an answered step shows who answered
     r["ask"] = ap.get("state") in (None, "assumed") and not (rec.get("topic") or "").startswith("person:")
+    if r["ask"] and ap.get("source") == "unattended":   # an unattended run asked nobody: the choice is listed for review, no card (issue 11 item 4)
+        r["ask"], r["unattended"] = False, True
     if ap.get("state") in ("approved", "rejected"):
         r["ans"] = {"state": ap["state"], "by": ap.get("by") or "", "day": _answered(ap), "reason": ap.get("reason") or ""}
     states = [c["s"] for c in cells.values() if c["s"] not in ("ok", "none")]
@@ -1499,6 +1501,39 @@ def _steps_done(work):
     return sum(1 for s in cp.STEP_ORDER if cp.rd(os.path.join(work, "state", s + ".done")))
 
 
+TEST_STEPS = ("basewalk", "afterwalk", "journeys", "heal", "apidirect", "diff", "gate")
+# what a choice the AI made on its own does to the app, most impact first (lead user test on CHK: 20 choices, which matter?).
+# Matched on the evidence the plan item carries, never on the generic recommendation text every module shares.
+IMPACT = [("held back at its old version, a person has to look", re.compile(r"held for a person", re.I)),
+          ("a widget setting would be dropped", re.compile(r"widget[^.;]*\b(?:dropped?|lost)\b|setting[^.;]*would be dropped|would be dropped", re.I)),
+          ("your own edits are kept or carried over", re.compile(r"local edit|changed in this app|changed by this app|would overwrite|edits refuse", re.I))]
+
+
+def impact_of(text):
+    """(rank, phrase) of a choice: 0 held module, 1 dropped widget setting, 2 kept local edit, 3 routine (version updates, rules)."""
+    for n, (phrase, rx) in enumerate(IMPACT):
+        if rx.search(text or ""):
+            return n, phrase
+    return 3, ""
+
+
+def chosen_by_ai(items, rows):
+    """The choices the AI made on its own: plan items and step rows, ranked by effect. Returns (total, top, routine); top is
+    [(name, phrase)] for the ones with an effect on the app, routine is the count of the rest. The sign-off is no choice."""
+    its = [i for i in items if i["kind"] != "signoff"]
+    out = []
+    for i in its:
+        ev = " ".join(((i.get("evidence") or {}).get("what") or []) + [i.get("problem") or ""])
+        r, ph = impact_of(ev)
+        out.append((r, re.sub(r"\s*\((module|widget|jar|java|check|theme|page)\)$", "", i.get("title", "")), ph))
+    for r in own_asks(rows, its):
+        k, ph = impact_of(r.get("name", ""))
+        out.append((k, re.sub(r"^Keep or update module ", "", r.get("name", "")), ph))
+    out.sort(key=lambda x: x[0])   # stable: the plan's own order inside a rank
+    top = [(n, ph) for k, n, ph in out if k < 3][:3]
+    return len(out), top, sum(1 for k, _, _ in out if k == 3)
+
+
 def brief(work, model, rows, g, tl):
     """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
     what. Returns plain strings and numbers; h_brief draws them."""
@@ -1519,6 +1554,10 @@ def brief(work, model, rows, g, tl):
     optional = (asks + qs) if (running and not stopped) else []
     if optional:
         asks, qs = [], []
+    # the AI's own choices, in any state: what an unattended run took at the recommendation, plus what a running step does not wait for
+    own_items = [i for i in model["items"] if i.get("unattended") and not i.get("decided")] + [i for i in optional if "cells" not in i]
+    own_rows = [r for r in (rows or []) if r.get("unattended")] + [r for r in optional if "cells" in r]
+    nchosen, top, routine = chosen_by_ai(own_items, own_rows)
     nask = len(qs) + len(asks)
     if mp:
         prog = f"{mp.group(1)} of {mp.group(2)} checks closed ({mp.group(3)}%)"
@@ -1544,14 +1583,28 @@ def brief(work, model, rows, g, tl):
     unm, dec = (int(mc.group(3)), int(mc.group(2))) if mc else (None, None)
     if reg == 0 and not gs:   # no final-check file yet: "0" would be a claim nobody measured
         reg = None
-    if reg is None:
+    # the tests ARE the journeys / page walks: a step that runs or stopped among them is testing, not "not started" (lead user test, CHK)
+    testing = running and running.get("step") in TEST_STEPS
+    stopped_test = stopped and stopped.get("step") in TEST_STEPS
+    if reg is None and testing:
+        broken = ("none", "Nothing is known to be broken so far. The tests are running now.")
+    elif reg is None:
         broken = ("none", "Nothing is known to be broken, because nothing has been measured yet.")
     elif reg:
         broken = ("bad", f"{reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one.")
     else:
         broken = ("ok", "Nothing found broken so far.")
     if unm is None:
-        unmeasured = "The tests run in the Test step, which has not started." if reg is None else ""
+        if reg is not None:
+            unmeasured = ""
+        elif testing:
+            unmeasured = f"Testing now: {running['text'][:1].lower() + running['text'][1:]}. Results appear here when they finish."
+        elif stopped_test:
+            unmeasured = f"The tests stopped during this step: {(lambda t: t[:1].lower() + t[1:])(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. Results appear here after it reruns."
+        elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS):
+            unmeasured = "Some tests have run. The results are added up in the final check, which has not run yet."
+        else:
+            unmeasured = "The tests run in the Test step, which has not started."
     elif unm:
         unmeasured = f"{unm} {'check has' if unm == 1 else 'checks have'} not run yet. That is not a failure: nobody knows yet."
     else:
@@ -1575,27 +1628,32 @@ def brief(work, model, rows, g, tl):
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
     elif running:
-        act = {"kind": "wait", "text": "Nothing. Come back later." if not optional else
-               f"Nothing is blocked: the run goes on. {len(optional)} {'choice is' if len(optional) == 1 else 'choices are'} open for your review; the run does not wait for {'it' if len(optional) == 1 else 'them'} (optional).", "rec": "", "q": "",
+        act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
     elif reg:
         act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
     else:
-        act = {"kind": "wait", "text": "Nothing to do now.", "rec": "", "q": "", "time": ""}
+        act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing to do now.", "rec": "", "q": "", "time": ""}
     mch = GATE_CHANGES.search(gs)
     if mch:
         n, tk, ag, pe, un = (int(x or 0) for x in mch.groups())
         who = f"{n} changes to the app so far: {tk} by the toolkit's automatic tools, {ag} by the AI agent, {pe} by a person"
         who += f", {un} not labelled (nobody has said who made them)." if un else "."
     else:
-        who = "Counted from the final check on. Until then, every change is a Git commit you can review."
-    # who approved: a person's sign-off line, or the plain fact that nobody has (an unattended run marks the AI's choices ASSUMED)
+        who = "Shown after the final check. So far every change is a commit you can review."
+    # who approved: a person's sign-off line, or the plain fact that nobody has (an unattended run lets the AI take the recommendations)
     if model.get("signed"):
         who += f" The plan was approved by {model['signed'][0]} on {model['signed'][1]}."
     elif cp.rd(os.path.join(work, "PROPOSAL.md")):
-        who += (" No person has approved the plan. Some choices are marked ASSUMED: the AI made them."
-                if "ASSUMED" in (cp.rd(os.path.join(work, "DECISIONS.md")) or "") else " The plan is not approved by a person yet.")
-    return {"status": status, "broken": {"s": broken[0], "text": broken[1]}, "unmeasured": unmeasured, "act": act, "who": who, "n": nask}
+        dec = cp.rd(os.path.join(work, "DECISIONS.md")) or ""
+        k = nchosen or len(re.findall(r"^P-[1-9]\d* .*ASSUMED", dec, re.M))
+        if "ASSUMED" in dec:
+            who += (f" Nobody has approved the plan yet; the AI made {k} {'choice' if k == 1 else 'choices'} on its own" if k else
+                    " Nobody has approved the plan yet; the AI made some choices on its own") + (" (unattended run)." if "unattended" in dec.lower() else ".")
+        else:
+            who += " The plan is not approved by a person yet."
+    return {"status": status, "broken": {"s": broken[0], "text": broken[1]}, "unmeasured": unmeasured, "act": act, "who": who, "n": nask,
+            "chosen": {"n": nchosen, "top": top, "routine": routine}}
 
 
 def h_brief(b, qlist):
@@ -1603,13 +1661,24 @@ def h_brief(b, qlist):
     btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
     rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
     tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    c = b.get("chosen") or {}
+    chosen = ""
+    if c.get("n"):
+        lis = "".join(f"<li><b>{E(n)}</b>: {E(ph)}.</li>" for n, ph in c["top"])
+        rest = c["routine"] if c["top"] else c["n"]
+        tail = (f"The other {rest} {'is a' if rest == 1 else 'are'} routine {'version update or rule' if rest == 1 else 'version updates and rules'}. " if c["top"] else
+                (f"None of the {c['n']} changes how the app behaves; they are routine version updates and rules. " if c["n"] > 1 else "It does not change how the app behaves. ")) if rest else ""
+        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. The {len(c['top'])} with the most impact"
+                if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
+        chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
+                  f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
     more = f'<details class="allq"><summary>All {b["n"]} questions waiting for you</summary>{qlist}</details>' if b["n"] > 1 and qlist else ""
     return ('<section class="brief" aria-label="Where the upgrade stands">\n'
             f'<p class="status">{E(b["status"])}</p>\n'
             f'<div class="bl"><div class="bk {b["broken"]["s"]}"><b>Broken for your users</b><span>{E(b["broken"]["text"])}</span></div>'
             f'<div class="bk"><b>Not measured yet</b><span>{E(b["unmeasured"] or "Nothing pending.")}</span></div></div>\n'
-            f'<div class="act {a["kind"]}"><b class="at">Do this now</b><div class="ab"><div><p class="atext">{E(a["text"])}</p>{rec}{tm}</div>{btn}</div>{more}</div>\n'
-            f'<p class="who"><b>Who changed what.</b> {E(b["who"])}</p>\n</section>')
+            f'<div class="act {a["kind"]}"><b class="at">Do this now</b><div class="ab"><div><p class="atext">{E(a["text"])}</p>{rec}{tm}</div>{btn}</div>{more}</div>\n{chosen}'
+            f'<p class="who"><b>Who changed what:</b> {E(b["who"])}</p>\n</section>')
 
 
 def h_glossary():
@@ -1916,7 +1985,7 @@ details.more[open]>summary{margin-bottom:10px}
 .brief p{margin:0}.brief .atext{font-size:18px;font-weight:600;overflow-wrap:anywhere}
 .brief .arec{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
 .resolve.big{font-size:16px;padding:12px 20px;min-height:44px;border-radius:12px}
-.brief .allq summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.brief .allq summary,.brief .chosen summary{cursor:pointer;font-size:13px;color:var(--muted)}.brief .chosen{margin-top:10px}.brief .chosen ol{margin:8px 0 0;padding-left:20px;font-size:14px}.brief .chosen .m{margin:6px 0 0;font-size:13px;color:var(--muted)}
 .brief .allq ol{margin:8px 0 0;padding:0;list-style:none}.brief .allq li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
 .brief .who{font-size:14px;color:var(--muted)}.brief .who b{color:var(--fg)}
 details.fold{padding:0;overflow:visible}
@@ -2392,7 +2461,7 @@ def h_stopped(s):
 
 def open_questions(model):
     """The items a person still has to answer, one question card each: plan choices and judgments first, the sign-off last."""
-    qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup"]
+    qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup" and not i.get("unattended")]
     return sorted(qs, key=lambda i: i["kind"] == "signoff")
 
 
