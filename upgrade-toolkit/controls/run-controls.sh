@@ -4083,6 +4083,12 @@ ctl gate-regression-never-complete-catch 1 'Overall: \*\*FAIL\*\*' 'Progress: [0
   -- gcase regr GATE_STUB_RC_run_journeys=1 GATE_STUB_OUT_run_journeys='journeys: 99 PASS, 2 REGRESSION' WIDGETS_APP=$GI
 ctl gate-review-only-decision-pass 1 'needs a decision' '0 with REGRESSIONS to fix, 1 need a decision' '!REGRESSION to fix: .*screens' \
   -- gcase rev GATE_STUB_RC_shotdiff=1 GATE_STUB_OUT_shotdiff='screens: 140 PASS, 0 PASS*, 3 REVIEW, 0 INVALID' WIDGETS_APP=$GI
+# cold run: one unpaired shot (INVALID 1) beside 2 REVIEW pairs read "screens: not measured yet" and hid a broken Data grid 2;
+# the REVIEW pairs still wait on a person. INVALID alone stays "not measured yet".
+ctl gate-screens-invalid-review-decision-catch 2 'screens: needs a decision' '!screens: not measured yet' \
+  -- gcase sir GATE_STUB_RC_shotdiff=2 GATE_STUB_OUT_shotdiff='pairs 19: INVALID 1 | REVIEW 2 | PASS* 0 | PASS 16'$'\n''screens: 16 PASS, 0 PASS*, 2 REVIEW, 1 INVALID' WIDGETS_APP=$GI
+ctl gate-screens-invalid-only-unmeasured-pass 2 'screens: not measured yet' '!screens: needs a decision' \
+  -- gcase sio GATE_STUB_RC_shotdiff=2 GATE_STUB_OUT_shotdiff='pairs 19: INVALID 1 | REVIEW 0 | PASS* 0 | PASS 18'$'\n''screens: 18 PASS, 0 PASS*, 0 REVIEW, 1 INVALID' WIDGETS_APP=$GI
 ctl gate-review-with-fail-is-regression-catch 1 'screens: REGRESSION to fix' '1 with REGRESSIONS to fix, 0 need a decision' \
   -- gcase revf GATE_STUB_RC_shotdiff=1 GATE_STUB_OUT_shotdiff='screens: 140 PASS, 1 FAIL, 3 REVIEW, 0 INVALID' WIDGETS_APP=$GI
 ctl gate-unparsable-fail-is-regression-catch 1 'REGRESSION to fix: .*logdiff' '1 with REGRESSIONS to fix' -- gcase unp GATE_STUB_RC_logdiff=1 WIDGETS_APP=$GI
