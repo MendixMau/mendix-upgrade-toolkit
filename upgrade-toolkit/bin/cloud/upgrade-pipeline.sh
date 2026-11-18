@@ -291,6 +291,9 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
     cat "$NJ_TMP"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
+  # one row per stop (step, exit code, a fingerprint of what it said with the digits left out): the brief counts "stopped here N times
+  # in a row" from the rows that agree, so a stop with a new cause is never called stuck (lane B, PMNT: three reruns, the same two FAILs)
+  { mkdir -p "$WORK/state"; printf '%s\t%s\t%s\n' "$STEP" "$NJ_CODE" "$(tr -d '0-9' < "$NJ_TMP" | cksum | cut -d' ' -f1)" >> "$WORK/state/stops.tsv"; } 2> /dev/null || true
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
   brief_say || true   # the brief is information: it never changes a stop's exit code

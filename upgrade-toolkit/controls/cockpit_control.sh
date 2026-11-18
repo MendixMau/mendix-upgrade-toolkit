@@ -74,7 +74,29 @@ ls = brief.lines(brief.fields(sys.argv[2]))
 print(f"lines: {len(ls)} widest: {max(map(len, ls))} ok: {len(ls) <= 8 and max(map(len, ls)) <= 80}")
 PY
 }
+# lane B's final findings (cockpit clarity round 6): captured stops in fixtures/cockpit/lane-b (real files, paths replaced)
+LB=$here/fixtures/cockpit/lane-b
+lbw() { W=$T/lb/work; mkdir -p "$W/state" "$W/logs"; cp "$LB/$1" "$W/NEEDS-JUDGMENT.md"; }   # lbw <captured stop file>
+# njrun STEP CODE SECTIONS: the pipeline's own nj_flush (extracted from upgrade-pipeline.sh) writes a stop, so state/stops.tsv is the real one
+njrun() { W=$T/lb/work; mkdir -p "$W/state" "$W/logs"
+  ( WORK=$W; STEP=$1; NJ_CODE=$2; RUN=x; SOURCE=a; TARGET=b; DRY=0; NJ_TMP=$T/lb/nj.tmp; mkdir -p "$T/lb"; printf '%s\n' "$3" > "$NJ_TMP"
+    eval "$(sed -n '/^now_utc() {/p;/^nj_flush() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; rerun_cmd() { echo rerun; }; cockpit_regen() { :; }; say() { :; }; brief_say() { :; }; nj_flush ) >/dev/null; }
+sections_of() { sed -n '/^## /,$p' "$LB/$1"; }   # the captured stop's own sections, as nj_flush would have collected them
 case $case_ in
+  # --- lane B final findings ---
+  lb-box)   lbw "$2"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-brief) lbw "$2"; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; grep -o '<div class="stopbar[^"]*"' "$T/out.html" ;;
+  lb-term)  lbw "$2"; python3 "$B/brief.py" --work "$W" | sed -n '1,/^$/p' | sed -e :a -e '$!N;s/\n  / /;ta' -e 'P;D' ;;
+  lb-term-size) lbw "$2"; termsize "$W" ;;
+  lb-norun) lbw psop-afterwalk-stop.md; sed -i '/^  REGRESSION/d' "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-stuck) W=$T/lb/work; shift_=0; for sec in "${@:2}"; do njrun basewalk 11 "$(sections_of $sec)"; done; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; echo "stops: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')" ;;
+  lb-stuck-agent) W=$T/lb/work; for k in 1 2 3; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, %s ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\n' "$k")"; done; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-stuck-new-cause) W=$T/lb/work; for k in 1 2; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\nCE0463 in the widget\n')"; done
+            njrun build 10 "$(printf '\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\nOut of memory\n')"; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-stuck-person) W=$T/lb/work; for k in 1 2 3; do njrun afterwalk 12 "$(sections_of psop-afterwalk-stop.md)"; done; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-screens) W=$T/lb/work; mkdir -p "$W"; cp "$LB/chk-gate-summary.md" "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-screens-pass) W=$T/lb/work; mkdir -p "$W"; sed 's/REVIEW 3 | PASS\* 0 | PASS 8;screens: 8 PASS, 0 PASS\*, 3 REVIEW/REVIEW 0 | PASS* 0 | PASS 11;screens: 11 PASS, 0 PASS*, 0 REVIEW/;s/^| 10 | screens | FAIL | 1 /| 10 | screens | PASS | 0 /' "$LB/chk-gate-summary.md" > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-screens-and-reg) W=$T/lb/work; mkdir -p "$W"; { printf 'Overall: **FAIL** (exit 1): 3 PASS.\nProgress: 3 of 5 checks closed (60%%). 2 with REGRESSIONS to fix, 1 need a decision, 0 not measured yet.\n\n| # | rung | verdict | rc | one line |\n|---|---|---|---|---|\n'; grep '^| 10 | screens' "$LB/chk-gate-summary.md"; } > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
   term-brief-count) tbc() { python3 "$B/brief.py" --work "$1" | python3 -c "
 import re,sys
 t=sys.stdin.read(); a=re.search(r'waiting for (\d+) answer',t.replace('\n  ',' ')); b=re.search(r'Open questions: (\d+)',t)
