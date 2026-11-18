@@ -750,12 +750,13 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   # release impact (V31-RI): needs the module jumps, which come from the plan. The brain is the company brain on top of
   # the starter brain the toolkit ships (cold test: a fresh install had no brain, so the check never ran). --auto with the
   # app's own model and javasource closes the rows the app cannot hit; the production database and OS come from
-  # UPG_DB_VENDOR, UPG_DB_VERSION, UPG_RUNTIME_OS when set (no file holds them).
+  # UPG_DB_VENDOR, UPG_DB_VERSION, UPG_RUNTIME_OS when set (no file holds them). --evidence: a row stays open only when
+  # the app's own modules use what it names; environment rows become one go-live checklist (cold test: 190 open rows).
   rc=0
   local riargs=(--from "$SOURCE" --to "$TARGET" --out "$WORK/release-impact.md")
   if [ -f "$WORK/module-jumps.txt" ]; then riargs+=(--plan "$WORK/module-jumps.txt")
   else note "no module-jumps.txt: release-impact.md holds Studio Pro rows only; module rows NOT generated"; fi
-  local riauto=(--auto --facts-from-mpr "$MPR")
+  local riauto=(--auto --evidence --facts-from-mpr "$MPR")
   [ -z "${UPG_DB_VENDOR:-}" ] || riauto+=(--db-vendor "$UPG_DB_VENDOR")
   [ -z "${UPG_DB_VERSION:-}" ] || riauto+=(--db-version "$UPG_DB_VERSION")
   [ -z "${UPG_RUNTIME_OS:-}" ] || riauto+=(--runtime-os "$UPG_RUNTIME_OS")

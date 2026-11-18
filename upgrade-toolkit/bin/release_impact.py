@@ -91,12 +91,24 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                The report's "Brain:" line says which brain was used. With the starter alone, a missing table (a module
                with no file, a major or version it lacks) is a "Toolkit gaps" line, never a row for a person (cold test).
                Open rows get one recommended action each under "Open rows: what to do".
+  --evidence   (with --auto and a project) only real decisions reach a person (cold test: 190 open rows drowned the owner). A row
+               the rules leave open stays open ONLY when the app demonstrably uses what it names: a name from the row
+               (CamelCase, dotted, snake_case, ...()) found in the app's own modules (the model and project settings,
+               javasource/javascriptsource/themesource of those modules, theme/), a feature fact above 0 with a document of
+               the app's own modules, or a model element the row is about (legacy scheduled events, commit event handlers).
+               The evidence (document or file) is written under "Open rows". Marketplace modules do not count: the plan
+               updates them. A row about the deployment environment (database vendor or version, OS, Java, browser, cloud,
+               build host) is "later (auto): go-live-env: ..." and one grouped "Go-live environment checklist (N items)" for a
+               person before go-live, with the run's database (bin/runapp.py) as the TEST environment; production is
+               confirmed once. Every other row is "not relevant (auto): not-used: not used in this app (no hit in model or
+               code): ..." with what was searched. --check and the cockpit count only the open rows.
   --out        default release-impact.md. A rerun keeps the handled entries of rows it finds again. An entry whose row is gone
                (the brain reworded it, T2F-4) is listed under "Entries that matched no row", kept until the row returns, and
                counted in the output. With --auto a rerun also says how many human entries auto would have decided and which
                differ in kind (T2F-3); the header counts auto, kept and open (T2F-5).
   --check      exit 1 while any row has no "handled: <evidence path or commit>" or "not relevant: <reason>" entry
-               ("handled (...)" and "handled - ..." count too, T5-20). Prints auto, human and open counts.
+               ("handled (...)" and "handled - ..." count too, T5-20). Prints auto, human and open counts. A "later (auto):"
+               row (the go-live environment checklist) is not open; it is counted on its own line.
 
 Exit (generate): 0 = written, every source covered; 2 = something not covered (an UNKNOWN module, a plan line without
 an old version, no Studio Pro table for a major in the range, or --to newer than the newest Studio Pro row of its
@@ -115,7 +127,9 @@ MODULE_DEFAULT_TYPES = DEFAULT_TYPES + ["migration-step"]
 # FM-7: "not relevant: (deployed app) reason" (text may start with a bracket after the colon) and "not relevant for the
 # deployed app: reason" (up to 60 characters between the verdict and the colon) are accepted.
 HANDLED = re.compile(r"^(handled|not relevant)(?:\s+for\s+[^:()]{1,60}?)?\s*(?::\s*[^\s\-\u2013\u2014]|(?:\(|-|\u2013|\u2014)\s*[^\s()\-\u2013\u2014])", re.I)
-AUTO = re.compile(r"^(not relevant|handled) \(auto\):", re.I)
+AUTO = re.compile(r"^(not relevant|handled|later) \(auto\):", re.I)
+# --evidence: a row about the deployment environment, for a person before go-live (not open, not closed)
+LATER = re.compile(r"^later \(auto\):", re.I)
 # Closure rule (QJ-2, steps/triage.md step 10). A removed setting or a flipped default changes behaviour exactly where
 # the setting was NOT set: the app ran with the old default. So on such a row a "not relevant" that rests only on the
 # setting being absent is unsound and the row stays open. Sound: the source version already had the new default (cite
@@ -685,6 +699,7 @@ def facts_from_project(mpr, db_vendor=None, db_version=None, runtime_os=None):
     import mprmodel  # needs bson (pip install pymongo)
     mpr = Path(mpr)
     m = mprmodel.Model.load(str(mpr))
+    _MODELS[str(mpr)] = m   # --evidence reads the same model
     types, per_unit = {}, []  # per_unit: (unit $Type, {$Type: n} inside that unit)
 
     def walk(x, acc):
@@ -953,6 +968,193 @@ def auto_rule(section, cols, facts, lo, hi):
     return f"not relevant (auto): feature-absent: row is about {', '.join(touched)}; {', '.join(dict.fromkeys(cite))}"
 
 
+# ---------------------------------------------------------------- --evidence (cold test: only real decisions reach a person)
+# A row the rules leave open stays open only when the app demonstrably uses what it names. The app = its own modules
+# (not from the Marketplace: the plan updates those), the project settings and theme/. Every verdict cites what it read.
+ENV_AREAS = ("data-storage", "deployment", "deployment-cloud", "mxbuild-cli")
+ENV_TEXT = re.compile(r"\bjava\s*\d+|\bjdk\b|\bjre\b|openjdk|\.net\b|\bdotnet\b|node\.?js|\bwindows\b|\blinux\b|\bmac ?os\b|"
+                      r"\bubuntu\b|\bbrowsers?\b|\bsafari\b|\bchrome\b|\bfirefox\b|\bkubernetes\b|\bdocker\b|cloud foundry|"
+                      r"\bjetty\b|\btomcat\b|\bamazon s3\b|\baws\b|\bazure\b|\bs3\b|\bgradle\b|\barm64\b|"
+                      + "|".join(VENDORS.values()), re.I)
+# CamelCase product and vendor names: no name the app chooses, so no evidence
+NOT_NAME = {"OData", "PostgreSQL", "MariaDB", "MySQL", "JavaScript", "TypeScript", "MxBuild", "GitHub", "GitLab", "macOS",
+            "WebSocket", "WebSockets", "DevOps", "TeamServer", "AppStore", "CloudFoundry", "OpenID", "OAuth", "XPath",
+            "JavaDoc", "IntelliJ", "MPRv1", "MPRv2", "SQLServer", "DataGrid", "ReactJS", "NodeJS", "PowerShell"}
+NAME = re.compile(r"[A-Za-z_][\w$]*(?:[.#][A-Za-z_][\w$]*)*(?:\(\))?")
+SRC_EXT = {".java", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".scss", ".css", ".html", ".xml", ".json"}
+
+
+def row_names(text):
+    """Names an app can hold: CamelCase, dotted (Core.execute, com.mendix.x.Y), snake_case, Foo#bar. A parameter list is
+    no name ("initialize(IContext, IMendixIdentifier)": IContext is in every Java action), nor an XPath function ("false()")."""
+    out = []
+    for t in NAME.findall(re.sub(r"\([^()]*\)", "()", text or "")):
+        b = t.replace("()", "")
+        if b in NOT_NAME or len(b) < 4 or re.search(r"\.(?:exe|js|mpr|md)$", b, re.I) or b.lower() in ("node.js", "asp.net"):
+            continue
+        if (re.search(r"[A-Za-z]\.[A-Za-z]", b) or "_" in b.strip("_") or "#" in b
+                or re.search(r"[a-z][A-Z]|[A-Z]{2,}[a-z]", b)) and b not in out:
+            out.append(b)
+    return out
+
+
+class Evidence:
+    """The app's own parts, read once: per document of an own module its strings and element types, the project settings,
+    and the source files of the own modules plus theme/."""
+
+    def __init__(self, mpr):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import mprmodel
+        self.m = m = _MODELS.get(str(mpr)) or mprmodel.Model.load(str(mpr))
+        self.own = sorted(n for n, i in m.modules.items() if n and not i.get("from_appstore"))
+        own = set(self.own)
+        self.docs = []   # (label, module, text, {$Type})
+
+        def types(x, acc):
+            if isinstance(x, dict):
+                t = x.get("$Type")
+                if isinstance(t, str):
+                    acc.add(t)
+                for v in x.values():
+                    types(v, acc)
+            elif isinstance(x, list):
+                for v in x:
+                    types(v, acc)
+        seen = set()
+        for d in list(m.all_docs) + [v for k, v in m.docs.items() if "$" in k.split(".", 1)[-1]]:
+            if d.module not in own or id(d) in seen:
+                continue
+            seen.add(id(d))
+            acc = set()
+            types(d.data, acc)
+            self.docs.append((f"{d.qn} ({d.type.split('$')[-1]})", d.module, "\n".join(mprmodel.strings(d.data)), acc, d))
+        for t, d in m.singletons.items():
+            if t in ("Settings$ProjectSettings", "Navigation$NavigationDocument"):
+                self.docs.append(("project settings" if "Settings" in t else "navigation", "", "\n".join(mprmodel.strings(d)), set(), None))
+        root = Path(mpr).resolve().parent
+        self.root = root
+        self.files = {}   # relative path -> text
+        lower = {n.lower() for n in own}
+        for top in ("javasource", "javascriptsource", "themesource"):
+            for f in (root / top).glob("*/**/*") if (root / top).is_dir() else []:
+                rel = f.relative_to(root)
+                if (f.is_file() and f.suffix.lower() in SRC_EXT and rel.parts[1].lower() in lower and "proxies" not in rel.parts
+                        and "node_modules" not in rel.parts):
+                    self.files[rel.as_posix()] = f.read_text(errors="replace")
+        for f in (root / "theme").rglob("*") if (root / "theme").is_dir() else []:
+            if f.is_file() and f.suffix.lower() in SRC_EXT and "node_modules" not in f.parts:
+                self.files[f.relative_to(root).as_posix()] = f.read_text(errors="replace")
+
+    def scope(self):
+        return (f"the model of the app's own modules ({len(self.own)} modules, {len(self.docs)} documents and settings) and "
+                f"their javasource/javascriptsource/themesource plus theme/ ({len(self.files)} files); Marketplace modules excluded")
+
+    def find(self, name, module=None):
+        """['Module.Doc (Type)' or 'path'] holding name; module (a Marketplace module's rows): only references into it."""
+        last = re.split(r"[.#]", name)[-1]
+        if module:
+            rx = re.compile(r"(?<![\w$])" + re.escape(module) + r"\.(?:[\w$]+[./])*" + re.escape(name.split(".")[-1]) + r"(?![\w$])")
+        else:
+            rx = re.compile(r"(?<![\w$])" + re.escape(name) + r"(?![\w$])")
+        hits = [lab for lab, _, text, _, _ in self.docs if rx.search(text)]
+        # code: the full name, or a method call foo( in a file that also names its class (Core.execute -> Core + execute()
+        cls = re.split(r"[.#]", name)[-2] if re.search(r"[.#]", name) else None
+        mrx = re.compile(r"(?<![\w$])" + re.escape(last) + r"\s*\(") if cls and last[:1].islower() else None
+        crx = re.compile(r"(?<![\w$])" + re.escape(cls) + r"(?![\w$])") if cls else None
+        pk = module.lower() if module else None
+        for path, text in self.files.items():
+            if module and (path.split("/")[1].lower() == pk or pk not in text.lower()):
+                continue
+            if (not module and rx.search(text)) or (module and re.search(r"(?<![\w$])" + re.escape(last) + r"(?![\w$])", text)) \
+                    or (mrx and mrx.search(text) and crx.search(text)):
+                hits.append(path)
+        return hits
+
+    def of_types(self, rx):
+        return [lab for lab, _, _, ts, _ in self.docs if any(re.search(rx, t) for t in ts)]
+
+
+_MODELS = {}
+# feature (FEATURES name) -> the element types that show the app's own modules use it
+FEATURE_TYPES = {"published OData": r"PublishedODataService", "consumed OData": r"ConsumedODataService|ODataRemoteEntitySource",
+                 "OData": r"ODataService", "published REST": r"PublishedRestService$",
+                 "consumed REST": r"ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
+                 "REST": r"PublishedRestService$|ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
+                 "web services": r"WebService|WebServiceCallAction", "workflows": r"^Workflows\$Workflow$",
+                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile"}
+
+
+def legacy_events(ev):
+    """Scheduled events with no repeating schedule (the legacy kind Mendix 10 refuses at start)."""
+    out = []
+    for lab, _, _, ts, d in ev.docs:
+        if d is not None and d.type == "ScheduledEvents$ScheduledEvent" and not any(t.endswith("Schedule") for t in ts):
+            out.append(lab)
+    return out
+
+
+# model elements a row is about, by its words (Studio Pro rows): (row regex, finder)
+ELEMENTS = [
+    (r"legacy scheduled events?|scheduled events?\b.*\b(?:non-repeating|start time)", legacy_events),
+    (r"\b(?:before|after) commit\b", lambda ev: ev.of_types(r"DomainModels\$EntityEvent$|DomainModels\$EventHandler$")),
+]
+
+
+def evidence_rule(section, cols, facts, ev):
+    """('open', evidence) | ('later', 'later (auto): ...') | ('closed', 'not relevant (auto): not-used: ...')."""
+    if section == "Studio Pro":
+        typ, area, change, affected = cols[1], cols[2].lower(), cols[3], cols[4]
+        mod = None
+    else:
+        typ, area, change, affected = cols[1], "", cols[2], cols[3]
+        mod = section[len("Module "):]
+    text = f"{change} {affected}"
+    names = row_names(affected) + [x for x in row_names(change) if x not in row_names(affected)]
+    hits = []
+    for nm in names:
+        h = ev.find(nm, mod)
+        if h:
+            hits.append(f"{nm} in {', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+    if section == "Studio Pro":
+        for rx, fn in ELEMENTS:
+            if re.search(rx, text, re.I):
+                h = fn(ev)
+                if h:
+                    hits.append(f"{', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+        for name, rx, ks in FEATURES:
+            if re.search(rx, text, re.I) and any(k in facts and facts[k][0] not in (0, False, None, []) for k in ks):
+                h = ev.of_types(FEATURE_TYPES[name])
+                if h:
+                    hits.append(f"{name}: {', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+    if hits and typ == "deprecation":   # it still works on the target: a backlog note, no decision for this upgrade
+        return "closed", ("not relevant (auto): deprecated-still-works: the app uses it (" + "; ".join(dict.fromkeys(hits))[:300]
+                          + "), and a deprecated item still works on the target; replace it before the next major version")
+    if hits:
+        return "open", "; ".join(dict.fromkeys(hits))
+    env = [x.group(0) for x in ENV_TEXT.finditer(text)]
+    if area == "java-actions":   # Java action code; only the JDK it runs on is the environment
+        env = [e for e in env if re.match(r"(?i)jdk|jre|java\s*\d|openjdk", e)]
+    if section == "Studio Pro" and (area in ENV_AREAS or env):
+        what = ", ".join(dict.fromkeys(e.strip() for e in env)) or f"area {area}"
+        return "later", (f"later (auto): go-live-env: about the deployment environment ({what}), not the app's model or code; "
+                         "in the Go-live environment checklist")
+    where = f"references into {mod} from " if mod else ""
+    what = (f"searched {', '.join(names)} in {where}" if names else
+            "the row names no class, setting or element to search; its features and model elements were checked in ")
+    return "closed", f"not relevant (auto): not-used: not used in this app (no hit in model or code): {what}{ev.scope()}"
+
+
+def test_environment():
+    """The database the toolkit runs the app on (bin/runapp.py): the TEST environment, never production."""
+    t = (Path(__file__).resolve().parent / "runapp.py")
+    t = t.read_text(errors="replace") if t.exists() else ""
+    db = re.search(r'"DatabaseType":\s*"(\w+)"', t)
+    ver = re.search(r'"postgres:(\d+)', t)
+    if not db:
+        return "unknown (bin/runapp.py not readable)"
+    return f"{db.group(1)}{' ' + ver.group(1) if ver and db.group(1).lower().startswith('postgres') else ''} (the database bin/runapp.py runs the app on)"
+
+
 def recommend(section, cols):
     """One recommended action for a row the facts left open, in plain words (cold test: rows without a way to solve them)."""
     if section == "Studio Pro":
@@ -1081,6 +1283,13 @@ def generate(a):
                 lost.append(f"{k}: unknown, the rows it decides stay open")
         for l in dict.fromkeys(lost):
             print(f"auto cannot use: {l}")
+    ev = None
+    if a.evidence:
+        src = a.facts_from_mpr or a.from_mpr or a.to_mpr
+        if not a.auto or not src:
+            sys.exit("release_impact: --evidence needs --auto and the project (--facts-from-mpr app/<App>.mpr): it reads the app's own modules")
+        ev = Evidence(src)
+        print(f"evidence: {ev.scope()}")
     keep, orphans = old_handled(out)
     keep = {**orphans, **keep}
     used = set()
@@ -1100,12 +1309,12 @@ def generate(a):
     L.append("")
     n = 0
     counts = {}
-    nauto = nhuman = 0
+    nauto = nhuman = nlater = 0
 
-    open_rows = []
+    open_rows, later_rows, evid = [], [], {}
 
     def row(section, cols):
-        nonlocal n, nauto, nhuman
+        nonlocal n, nauto, nhuman, nlater
         n += 1
         key = (section, cols[0], cols[3] if section == "Studio Pro" else cols[2])
         h = keep.get(key, "")
@@ -1115,11 +1324,21 @@ def generate(a):
             rule = auto_rule(section, cols, facts, lo, hi) or ""
             if not h or AUTO.match(h):  # auto entries are recomputed; a human entry stays
                 h = rule
-                nauto += bool(h)
+                if not h and ev is not None and section != "Not covered":
+                    kind, what = evidence_rule(section, cols, facts, ev)
+                    if kind == "open":
+                        evid[n] = what
+                    else:
+                        h = what
+                if LATER.match(h):
+                    nlater += 1
+                    later_rows.append((n, cols, section))
+                else:
+                    nauto += bool(h)
             elif rule:
                 would.append((n, cols[0], h, rule))
         nhuman += bool(h) and not AUTO.match(h) and bool(HANDLED.match(h))
-        if not HANDLED.match(h or "") and section != "Not covered":
+        if not HANDLED.match(h or "") and not LATER.match(h or "") and section != "Not covered":
             open_rows.append((n, cols[0], section, cols))
         return f"| {n} | " + " | ".join(esc(c) for c in cols) + f" | {esc(h)} |"
 
@@ -1184,9 +1403,20 @@ def generate(a):
     recs = [(num, ver, recommend(sec, cols)) for num, ver, sec, cols in open_rows]
     if recs:
         L += [f"## Open rows: what to do ({len(recs)})", "",
-              "These rows touch something the app holds (or a fact the run could not count). One recommended action each;",
+              ("These rows name something the app's own modules use (the evidence is cited). One recommended action each;"
+               if ev is not None else
+               "These rows touch something the app holds (or a fact the run could not count). One recommended action each;"),
               "write `handled: <evidence>` in the row once done, or `not relevant: <reason>` when it does not apply.", ""]
-        L += [f"- row {num} ({ver}): {r}" for num, ver, r in recs]
+        L += [f"- row {num} ({ver}): " + (f"the app uses it: {evid[num]}. Do: " if num in evid else "") + r for num, ver, r in recs]
+        L.append("")
+    # --evidence: rows about the deployment environment are one grouped item for a person before go-live, not open rows
+    if later_rows:
+        L += [f"## Go-live environment checklist ({len(later_rows)} items)", "",
+              f"Test environment (this run): {test_environment()}. Production: confirm once that it runs a database, Java, OS",
+              f"and browser that Mendix {a.to} supports; these release-note rows are about that environment. Not a decision now:",
+              "a person ticks the list once before go-live (not counted as open rows).", ""]
+        L += [f"- row {num} ({c[0]}, {c[1]}, {c[2] if sec == 'Studio Pro' else sec}): {(c[3] if sec == 'Studio Pro' else c[2])[:160]}"
+              for num, c, sec in later_rows]
         L.append("")
     # Cold test (fresh install): a table the toolkit lacks is the toolkit's gap, never a question for the person. With the
     # starter brain alone a missing table is listed here, not as a row: --check does not count it. A company brain's
@@ -1224,7 +1454,8 @@ def generate(a):
             "`not relevant (auto): <rule>: <fact>` entries were written by --auto from the facts "
             + ", ".join(f"`{f}`" for f in fact_files) + ": replace one with your own entry",
             f"when the fact is wrong for that row (a human entry is never overwritten). This run: {nauto} auto, "
-            f"{nhuman} kept from a person, {n - nauto - nhuman} open."]
+            f"{nhuman} kept from a person, {n - nauto - nhuman - nlater} open"
+            + (f", {nlater} in the go-live environment checklist." if nlater else ".")]
     out.write_text("\n".join(L) + "\n")
     print(f"brain: {br.label()}")
     print(f"release-impact: Studio Pro {len(srows)} rows (" + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none") +
@@ -1232,6 +1463,8 @@ def generate(a):
     if a.auto:
         print(f"auto: {nauto} of {n} rows pre-filled as not relevant from {len(facts)} facts "
               f"({', '.join(sorted(facts)) or 'none'}); the rest stay for a person")
+    if ev is not None:
+        print(f"evidence: {len(open_rows)} rows open (the app uses what they name), {nlater} in the go-live environment checklist")
     if lost_entries:
         print(f"orphan entries: {len(lost_entries)} handled entries matched no row (listed under '{ORPHAN_HEAD}' in {out})")
     if would:
@@ -1254,6 +1487,7 @@ def check(path):
         print(f"release_impact: no file {p}", file=sys.stderr)
         return 2
     section, open_rows, unsound, blocked, total, nauto, reviewed, rejected = "", [], [], [], 0, 0, [], []
+    nlater = 0
     for line in p.read_text(errors="replace").splitlines():
         if line.startswith("## "):
             section = line[3:].split(" (")[0]
@@ -1263,6 +1497,9 @@ def check(path):
             if HANDLED.match(c[-1]) and re.search(r"\bREVIEW\b", c[-1]):   # MC-15: counted as handled, but a person said "look again"
                 reviewed.append(f"{section} row {c[0]}")
             label = f"{section} row {c[0]}: {c[1]} {c[2]} {c[4] if len(c) > 4 else ''}"[:160]
+            if LATER.match(c[-1]):   # --evidence: the go-live environment checklist, for a person before go-live
+                nlater += 1
+                continue
             if not HANDLED.match(c[-1]):
                 open_rows.append(label)
                 if c[-1].strip() and not re.match(r"^(open|blocked)\s*:\s*\S", c[-1], re.I):
@@ -1289,12 +1526,14 @@ def check(path):
         print(f"{len(rejected)} open row(s) have text in the last column that is not an entry (e.g. {rejected[0]}). "
               "Expected: `handled: <evidence path or commit>` or `not relevant: <reason>` (also `not relevant for <what>: <reason>`), "
               "starting with that word; the reason must follow the colon.")
-    print(f"release-impact check: {total - len(open_rows)} of {total} rows handled or not relevant, {len(open_rows)} open"
+    if nlater:
+        print(f"go-live environment checklist: {nlater} rows (a person confirms the production environment once before go-live; not open)")
+    print(f"release-impact check: {total - len(open_rows) - nlater} of {total} rows handled or not relevant, {len(open_rows)} open"
           + (f" ({len(reviewed)} handled row(s) marked REVIEW)" if reviewed else ""))
     if reviewed:
         print("REVIEW-MARKED (handled, flagged for a human; the check does not fail on them, the report must list them): "
               + ", ".join(reviewed[:12]) + (f" and {len(reviewed) - 12} more" if len(reviewed) > 12 else ""))
-    print(f"auto: {nauto}, human: {total - len(open_rows) - nauto}, open: {len(open_rows)}")
+    print(f"auto: {nauto}, human: {total - len(open_rows) - nauto - nlater}, open: {len(open_rows)}")
     if blocked:
         print(f"blocked: {len(blocked)} (finding written), untouched: {len(open_rows) - len(blocked) - len(unsound)}, "
               f"unsound: {len(unsound)}")
@@ -1314,6 +1553,7 @@ def main():
     ap.add_argument("--to-mpr", dest="to_mpr")
     ap.add_argument("--slug", action="append", help="Module=brain-slug, for a module neither name nor content id finds (T6R-4)")
     ap.add_argument("--auto", action="store_true")
+    ap.add_argument("--evidence", action="store_true", help="with --auto: open only rows the app demonstrably uses (see the docstring)")
     ap.add_argument("--facts", action="append")
     ap.add_argument("--types")
     ap.add_argument("--out", default="release-impact.md")

@@ -460,10 +460,16 @@ def derive(work, model):
     else:
         n = len([r for r in ri.splitlines() if re.match(r"^\| \d+ \|", r)])
         mm = re.search(r"This run: (\d+) auto, \d+ kept from a person, (\d+) open", ri)
+        # cold test: the environment rows (database, Java, OS, browser, cloud) are ONE item for a person before go-live
+        gl = re.search(r"^## Go-live environment checklist \((\d+) items\)", ri, re.M)
         t = cell("ok", f"{n} rows listed", [f"{n} release-note rows were checked against the app."], ["release-impact.md"])
-        p = (cell("ok", f"{mm.group(1)} handled automatically", [f"{mm.group(1)} rows are handled automatically.", f"{mm.group(2)} rows need a person's answer."]) if mm else notyet())
+        p = (cell("ok", f"{mm.group(1)} handled automatically", [f"{mm.group(1)} rows are handled automatically.", f"{mm.group(2)} rows need a person's answer."]
+                  + ([f"{gl.group(1)} rows about the deployment environment are one go-live checklist for a person before go-live."] if gl else []))
+             if mm else notyet())
         rows.append(row("release", "Release notes", f"{n} rows", "app",
                         {"triage": t, "plan": p, "upgrade": nowork("Release notes are read, not applied."), "test": release_cell(g)}))
+        if gl:
+            rows[-1]["checklist"] = int(gl.group(1))
 
     # How we prove it still works: one row per kind of app part in test-inventory.md, with the gate rungs that measure it
     # (cold test WM1: 13 kinds of test sat in test-inventory.md and the matrix showed one row, "Click paths: Not needed")
@@ -1355,6 +1361,8 @@ def open_items(rows, chips, g):
     if nrel:
         add("Your call", f"{nrel} release notes to review", "you")
     for r in rows:
+        if r["id"] == "release" and r.get("checklist"):   # later, by a person: one grouped item, not one per row
+            add("At deploy", f"Go-live environment checklist ({r['checklist']} items)", "you / customer")
         if r["id"] == "release" and nrel:
             continue
         cs = [(k, r["cells"][k]) for k in STAGES if r["cells"][k]["s"] in ("wait", "bad", "you")]
