@@ -310,7 +310,9 @@ cmd_rung() {
       opt --actions "$V_ACTIONS"; opt --no-actions "$V_ACTIONS_WAIVE"; opt --baseline-evidence "$V_JOURNEY_EVIDENCE"   # E2E-11
       opt --bar "$V_JOURNEY_BAR"   # B5-3
       [ -z "$V_APIMOCK" ] || { CMD+=(--apimock-log "$V_APIMOCK/requests.jsonl"); opt --exclude-systems "$V_EXCLUDE_SYSTEMS"; };;   # E2E-14
-    screens) CMD=("$PY" "$B/shotdiff.py" "$V_SMOKE_BEFORE_SHOTS" "$G/smoke-after-shots"); opt --accept "$V_SMOKE_SHOT_ACCEPT"; CMD+=(--md "$G/shotdiff-smoke.md");;
+    screens) CMD=("$PY" "$B/shotdiff.py" "$V_SMOKE_BEFORE_SHOTS" "$G/smoke-after-shots"); opt --accept "$V_SMOKE_SHOT_ACCEPT"
+      [ -f "$V_WORK/screen-causes.txt" ] && CMD+=(--causes "$V_WORK/screen-causes.txt")   # known layout causes (repair/gridlayout.py)
+      CMD+=(--md "$G/shotdiff-smoke.md");;
     layout) CMD=("$PY" "$B/layoutdiff.py" "$V_LAYOUT_OLD" "$V_LAYOUT_NEW"); opt --accept "$V_LAYOUT_ACCEPT"; CMD+=(--md "$G/layoutdiff.md");;
     release) CMD=("$PY" "$B/release_impact.py" --check "$V_RELEASE_IMPACT");;
     widgets) CMD=("$PY" "$B/widgetcover.py" "$V_WIDGETS_APP"); [ -f "$G/smoke-after.json" ] && CMD+=(--smoke "$G/smoke-after.json")

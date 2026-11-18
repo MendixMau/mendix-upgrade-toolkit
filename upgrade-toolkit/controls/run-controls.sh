@@ -75,6 +75,8 @@
 #              runapp-const-* / -harness-* / -log-db-*, gate-const-* / gate-help-full-header-pass.
 # LAY (layout rung): layoutdiff-* / geometry-* / layoutwalk-* (fixtures/layout, trimmed .geo.json of a real React upgrade), gate-layout-*,
 #              theme-clash-dojo-table-* (Dojo mxui table rules on React scroll containers in own and vendor SCSS).
+# Cold 9.24 -> 10.24 grid: gridlayout-* (bin/repair/gridlayout.py over fixtures/gridlayout: an old Data grid 2 theme rule that
+#              overrides the Data Widgets 3 grid), shotdiff-cause-* (--causes), gate-screens-*causes*, pipeline-dry-build-gridlayout-catch.
 # Plan 9b: theme-clash-* (bin/theme_clash.py over fixtures/theme/: an old and new atlas_core tree plus one app-own
 #              styling case per clash kind, the pass cases, the vendor skip, the no-atlas exit 3, the JSON round trip).
 # Plan 6a (quality-judgement-plan.md section 3): impact-actions-* (bin/impact_actions.py over action_inventory.py's reach:
@@ -986,6 +988,25 @@ ctl scsscase-idempotent 0 'summary: 0 import' '!FIXED' -- python3 $B/repair/scss
 ctl scsscase-idempotent-check 0 'summary: 0 import' -- python3 $B/repair/scsscase.py $S --check
 ctl scsscase-unresolvable-left-alone 0 -- grep -q '"buildingblocks/nothere/nothere"' $S/themesource/pub/web/_main.scss
 ctl scsscase-input-catch 2 -- python3 $B/repair/scsscase.py $T/empty-nothing
+
+# --- repair: an old Data grid 2 theme rule breaks the Data Widgets 3 grid (cold 9.24 -> 10.24: every cell its own row) ---
+# gridlayout.py: fixtures/gridlayout/dw3 has the Data Widgets 3 grid on .table (nested &-grid { &.table } under #{$root}),
+# dw2 the Data Widgets 2 grid on .table-content; the app module (CRLF) styles .widget-datagrid .table with display: block
+GL=$T/gridlayout; rm -rf $GL; mkdir -p $GL; cp -R $FX/gridlayout/. $GL/
+for v in dw3 dw2; do mkdir -p $GL/$v/themesource/Shop/web $GL/$v/theme/web; printf '.widget-datagrid .table { display: none; }\n.widget-datagrid .table-content { display: block; }\n' > $GL/$v/theme/web/main.scss; done
+printf '// datagrid 2\r\ndiv[class^="mx-name-dataGrid"],\r\n.widget-datagrid {\r\n    .table {\r\n        overflow-x: auto;\r\n        display: block !important;\r\n        .th { display: flex; }\r\n    }\r\n    /* .table { display: block; } in a comment */\r\n}\r\n' > $GL/dw3/themesource/Shop/web/_grid.scss
+cp $GL/dw3/themesource/Shop/web/_grid.scss $GL/dw2/themesource/Shop/web/_grid.scss
+ctl gridlayout-check-catch 1 '^CLASH themesource/Shop/web/_grid\.scss:6 \.widget-datagrid \.table \{ display: block !important \}' 'gridlayout: 1 rule\(s\) override' 'reference: themesource/datawidgets/web/_datagrid\.scss' '^SAY Data grid 2 pages show every cell as its own row' '!theme/web/main' '!:7 ' -- python3 $B/repair/gridlayout.py $GL/dw3 --check
+ctl gridlayout-check-wrote-nothing 0 -- grep -q '^        display: block !important;' $GL/dw3/themesource/Shop/web/_grid.scss
+ctl gridlayout-fix 0 '^FIXED themesource/Shop/web/_grid\.scss:6' 'commented out' "^SAY .*commit 'repair: data grid 2 layout'" -- python3 $B/repair/gridlayout.py $GL/dw3 --causes $GL/causes.txt
+ctl gridlayout-commented-out 0 -- grep -q '/\* display: block !important;  -- removed by the upgrade toolkit' $GL/dw3/themesource/Shop/web/_grid.scss
+ctl gridlayout-only-that-line 0 '^1 6$' -- bash -c "diff $GL/dw2/themesource/Shop/web/_grid.scss $GL/dw3/themesource/Shop/web/_grid.scss | grep -c '^>' | tr '\n' ' '; diff $GL/dw2/themesource/Shop/web/_grid.scss $GL/dw3/themesource/Shop/web/_grid.scss | sed -n '1s/c.*//p'"
+ctl gridlayout-crlf-kept 0 '^10$' -- bash -c "grep -c \$'\r\$' $GL/dw3/themesource/Shop/web/_grid.scss"
+ctl gridlayout-causes-written 0 '^\* # Data grid 2 pages showed every cell as its own row: .*themesource/Shop/web/_grid\.scss:6, .*\[gridlayout\]$' -- cat $GL/causes.txt
+ctl gridlayout-idempotent 0 '0 rule\(s\)' '!FIXED' -- python3 $B/repair/gridlayout.py $GL/dw3 --causes $GL/causes.txt
+ctl gridlayout-idempotent-causes-kept 0 '\[gridlayout\]$' -- cat $GL/causes.txt
+ctl gridlayout-dw2-not-applicable-pass 0 'not applicable' '!CLASH|FIXED' -- python3 $B/repair/gridlayout.py $GL/dw2 --check
+ctl gridlayout-input-catch 2 'no theme/ or themesource/' -- python3 $B/repair/gridlayout.py $T/empty-nothing
 
 # --- repair: mx check got worse (E5 F16 guard) --------------------------------------------------------------------------
 # B4T1-3, B4T2-2, B4T4-1, B4T5-2, B4T7-2, B4T8-1: a fixture that .gitignore swallows (*.log) is never committed, so its
@@ -1959,6 +1980,7 @@ ctl pipeline-dry-journeys-psql-pass 0 'gen_journeys\.py .* --data-rung' 'run_jou
 # PRF-2: the journeys step hands users.json to gen_journeys.py, which names the actions of a one-user role that can never render (assign-to-me-dead)
 ctl pipeline-dry-journeys-users-pass 0 'gen_journeys\.py .* --users .*/pw/users\.json --data-rung' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only journeys --dry-run
 ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.log' 'missing_deps.py .* --target 11\.15\.0\.1' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
+ctl pipeline-dry-build-gridlayout-catch 0 'repair/gridlayout\.py .*/papp --causes .*/pw/screen-causes\.txt > .*/pw/gridlayout\.out' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
@@ -2467,6 +2489,12 @@ ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old
 ctl shotdiff-missing-invalid 2 '^INVALID +shots-Administrator/dashboard.*no NEW screenshot' -- python3 $B/shotdiff.py $SH/old $SH/missing
 ctl shotdiff-notreached-invalid 2 '^INVALID .*NOT-REACHED' -- python3 $B/shotdiff.py $SH/old $SH/notreach
 ctl shotdiff-size-catch 1 '^REVIEW .*page size 480x360 -> 480x560' -- python3 $B/shotdiff.py $SH/old $SH/taller
+# a known layout cause (repair/gridlayout.py's line in screen-causes.txt) is named on a pixel REVIEW, never on a text REVIEW
+printf '# comment\nshots-*/dash* # Data grid 2 layout: repaired, OK one grid page [gridlayout]\n' > $T/screen-causes.txt
+ctl shotdiff-cause-catch 1 '^REVIEW +shots-Administrator/dashboard.*page size .* -> likely cause: Data grid 2 layout: repaired, OK one grid page$' -- python3 $B/shotdiff.py $SH/old $SH/taller --causes $T/screen-causes.txt
+printf '* # Data grid 2 layout cause\n' > $T/screen-causes-all.txt
+ctl shotdiff-cause-text-review-pass 1 '^REVIEW +shots-Administrator/overview.*visible text changed' '!likely cause' -- python3 $B/shotdiff.py $SH/textold $SH/textlost --causes $T/screen-causes-all.txt
+ctl shotdiff-cause-nomatch-pass 1 '^REVIEW .*page size' '!likely cause' -- python3 $B/shotdiff.py $SH/old $SH/taller --causes $T/no-such-causes.txt
 echo 'shots-*/dashboard-* # control: charts removed on purpose' > $T/shot-accept.txt
 ctl shotdiff-accept-pass 0 '^PASS\* .*accepted: control' -- python3 $B/shotdiff.py $SH/old $SH/empty --accept $T/shot-accept.txt
 echo 'shots-*/dashboard-*' > $T/shot-accept-noreason.txt
@@ -4074,6 +4102,11 @@ ctl gate-smoke-repeat-pass 0 '^\[smoke\] .*smokewalk\.js .*--repeat 3' -- gcase 
 ctl gate-smoke-login-path-catch 0 '^\[smoke\] .*smokewalk\.js .*--login-path /login-without-sso\.html' -- gcase dryloginp --dry-run SMOKE_LOGIN_PATH=/login-without-sso.html
 ctl gate-smoke-no-login-path-pass 0 '^\[smoke\] .*smokewalk\.js' '!--login-path' -- gcase dryloginp2 --dry-run
 ctl gate-smoke-no-repeat-pass 0 '^\[smoke\] .*smokewalk\.js' '!--repeat' -- gcase dry2 --dry-run
+# screen-causes.txt in the work folder (repair/gridlayout.py) reaches shotdiff as --causes; without it no --causes
+printf '* # control cause\n' > $GI/w/screen-causes.txt
+ctl gate-screens-causes-catch 0 "^\[screens\] .*shotdiff\.py .*--causes $GI/w/screen-causes\.txt" -- gcase drycause --dry-run
+rm -f $GI/w/screen-causes.txt
+ctl gate-screens-no-causes-pass 0 '^\[screens\] .*shotdiff\.py' '!--causes' -- gcase drycause2 --dry-run
 ctl gate-dry-run-writes-nothing-pass 0 'no stub log' '!gate-summary' -- sh -c "test ! -e $GI/stub-dry.log && test ! -e $GI/w/gatedry && echo 'no stub log'"
 ctl gate-all-pass 0 'Overall: \*\*PASS\*\*' '\| 1 \| build \| PASS \|' '\| 4 \| data \| PASS\* \|' '\| 5 \| rest \| PASS \|' '\| 11 \| release \| PASS \|' '!FAIL \||INVALID \||\| (build|idcheck|const|data|rest|logdiff|smoke|layout|journeys|screens|release|apis|widgets) \| NOT RUN \|' \
   -- gcase pass GATE_STUB_OUT_diff='INVALID 0 | FAIL 0 | REVIEW 0 | PASS* 3 | PASS 84' WIDGETS_APP=$GI LAYOUT_OLD=$FX/layout/old LAYOUT_NEW=$FX/layout/old
