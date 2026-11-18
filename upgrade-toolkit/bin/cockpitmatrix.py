@@ -1477,6 +1477,19 @@ def plainwords(t):
     return " ".join(t.split())
 
 
+# a file name is the script's word, not the reader's (SNOW review 02: "The agent has to finish this (plan-pre.txt missing on a 10.x to 11 run)")
+FILE_WORDS = [(r"\bplan-pre\.txt missing on a 10\.x to 11 run\b", "the list of add-on updates that go before the Mendix 11 conversion is missing"),
+              (r"\bplan\.txt missing\b", "the module update plan is missing"),
+              (r"\bmx check: (\d+) errors?\b", lambda m: f"the app model check found {m.group(1)} {'error' if m.group(1) == '1' else 'errors'}"),
+              (r"\b[\w.-]+\.(?:txt|json|md|tsv|out|log)\b", "a work file")]
+
+
+def unfile(t):
+    for pat, r in FILE_WORDS:
+        t = re.sub(pat, r, t or "")
+    return t
+
+
 AGENT_TASK = re.compile(r"\bwrite\s+\S+\.(?:txt|json|md|tsv)\b", re.I)   # "Module plan missing: write plan.txt": a file the agent writes, not a person's answer
 
 
@@ -1684,6 +1697,10 @@ def brief(work, model, rows, g, tl):
             i = qs[0]
             act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
             rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
+            if len(i["options"]) > 1:   # the choices are said in the card: behind the button they were invisible (SNOW review 03: "Nothing you can answer here" for a keep-or-rewind question)
+                act["opts"] = [plainwords(plain(o["label"])).rstrip(".") for o in i["options"]]
+            if i.get("asked") and i["id"].startswith("stop:"):   # a stop section written for a person: say the run waits and that nobody else can answer
+                act["time"] = "The run is paused until you answer. " + act["time"]
             act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call." + (f" {i['norec_why']}" if i.get("norec_why") else "")
             if i["kind"] == "signoff":
                 act["rec"] = "We recommend: approve, once the other answers are in."
@@ -1692,7 +1709,7 @@ def brief(work, model, rows, g, tl):
     elif stopped:
         owned = stopped.get("agent_titles") or []
         what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
-        what = re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip()   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
+        what = unfile(re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip())   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
         if sinfo.get("handoff"):   # an agent-owned stop with no route the agent can take is a hand-off, not "the agent will finish this" (lane B, PMNT, LDMS, PSOP)
@@ -1737,6 +1754,9 @@ def h_brief(b, qlist):
     btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
     rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
     tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    if a.get("opts"):
+        o = a["opts"]
+        rec += f'<p class="aopts">Your choices: {", ".join(E(x) for x in o[:-1])} or {E(o[-1])}.</p>'
     if a.get("later"):   # the sign-off stays one click away, quietly: it is not what the run waits for
         tm += f'<p class="atime">{E(a["later"])} <button type="button" class="resolve" data-q="{a["later_q"]}">Review the plan →</button></p>'
     c = b.get("chosen") or {}
@@ -1746,7 +1766,7 @@ def h_brief(b, qlist):
         rest = c["routine"] if c["top"] else c["n"]
         tail = (f"The other {rest} {'is a' if rest == 1 else 'are'} routine {'version update or rule' if rest == 1 else 'version updates and rules'}. " if c["top"] else
                 (f"None of the {c['n']} changes how the app behaves; they are routine version updates and rules. " if c["n"] > 1 else "It does not change how the app behaves. ")) if rest else ""
-        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. The {len(c['top'])} with the most impact"
+        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. Open this to see the {len(c['top'])} with the most impact"
                 if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
         chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
                   f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
@@ -2063,7 +2083,7 @@ details.more[open]>summary{margin-bottom:10px}
 .brief .ab{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .brief .ab>div{flex:1 1 260px;min-width:0}
 .brief p{margin:0}.brief .atext{font-size:18px;font-weight:600;overflow-wrap:anywhere}
-.brief .arec{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
+.brief .arec{margin-top:4px;font-size:15px}.brief .aopts{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
 .resolve.big{font-size:16px;padding:12px 20px;min-height:44px;border-radius:12px}
 .brief .allq summary,.brief .chosen summary{cursor:pointer;font-size:13px;color:var(--muted)}.brief .chosen{margin-top:10px}.brief .chosen ol{margin:8px 0 0;padding-left:20px;font-size:14px}.brief .chosen .m{margin:6px 0 0;font-size:13px;color:var(--muted)}
 .brief .allq ol{margin:8px 0 0;padding:0;list-style:none}.brief .allq li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px}

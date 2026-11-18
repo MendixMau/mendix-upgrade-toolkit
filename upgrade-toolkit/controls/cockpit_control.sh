@@ -204,6 +204,21 @@ import cockpitpage as cp, cockpitmatrix as cm
 print("page: " + " ".join(sorted(i["id"] for i in cm.open_questions(cp.build_model(sys.argv[2])))))
 PY
             ;;
+  # round 7 (SNOW, issue 25): the stop strings are the pipeline's own (replay-commits and widget-skew sites of upgrade-pipeline.sh), written by its nj_meta / nj_add
+  p7-replay) mkstop 'nj_meta info; nj_add 12 "Update rerun on an app that holds replay commits" "Since convert 1a2b3c4: 5d6e7f8 replay: Administration; an update rerun keeps their documents and menu changes."
+                     nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup, rewind, rerun from update." "keep|Keep the replays|Create replay-keep.txt; the rerun keeps their documents and menu changes."; nj_add 12 "Decision" "Tag a backup, then rewind."'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p'; cards ;;
+  p7-widgetskew) mkstop 'nj_meta agent; nj_add 13 "Module plan missing: write plan.txt" "x"; nj_meta info; nj_add 13 "A module update replaced a widget" "WIDGET-SKEW Datagrid"
+                     nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-one-option) mkstop 'nj_meta person "Continue with the old jar?" "" "ok|Continue|Nothing else is possible."; nj_add 13 "Decision" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-agent-file) mkstop 'nj_meta agent; nj_add 13 "plan-pre.txt missing on a 10.x to 11 run" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-agent-mxcheck) mkstop 'nj_meta agent; nj_add 10 "mx check: 1 errors after convert + updates + the fixed repair rows" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
+            python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
   brief-owner-person) mkstop 'nj_meta info; nj_add 13 "Widget list" "file: x"; nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update or accept."'
             ck >/dev/null && brief_text && cards ;;
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'

@@ -7346,7 +7346,7 @@ ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' '
 # stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
 ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
 ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
-ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the app model check found 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
 # round 3 (cockpit clarity): every stop site of upgrade-pipeline.sh says who it is for; a sample per exit code is rendered from the source's own nj_meta text
 ctl cockpit-stop-sites-all-marked-catch 0 '^unmarked sites: 0$' -- $CK site-unmarked
 printf '%s\n' 'nj_add 13 "x" "y"' 'nj_meta agent; nj_add 13 "z" "w"' 'foo || nj_file 10 "q" f' 'nj_meta info' 'nj_file 10 "r" f   # nj_file mentioned in a comment' > $T/unmarked-sites.sh
@@ -7362,7 +7362,7 @@ ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just 
 ctl cockpit-brief-testing-now-not-contradicted-catch 0 '^Testing now: running the user journeys on old and new\. Results appear here when they finish\.$' '^Nothing is known to be broken so far\. The tests are running now\.$' '!has not started' '!nothing has been measured' -- $CK chk-testing
 ctl cockpit-brief-tests-not-started-pass 0 '^The tests run in the Test step, which has not started\.$|^The old app is recorded as the reference\. The new app is tested against it after the conversion\.$|^Some tests have run\. The results are added up in the final check, which has not run yet\.$' '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Testing now' -- $CK chk-idle
 ctl cockpit-brief-tests-stopped-not-unstarted-catch 0 '^The tests stopped during this step: running the user paths on old and new\. Results appear here after it reruns\.$' '!has not started' -- $CK chk-stopped-test
-ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. The 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
+ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. Open this to see the 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
@@ -7912,6 +7912,15 @@ ctl diff-allow-unmatched-file-catch 0 'allow line 1 matched nothing' -- sh -c "p
 ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt --md $T/out/allow-md.md > /dev/null 2>&1; [ -e $T/out/allow-unmatched.txt ] && echo stale || echo no file"
 ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
 ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
+
+# --- cockpit clarity, round 7 (SNOW, issue 25): a decision for a person is the top card, with its choices said in it ---
+ctl cockpit-person-stop-card-names-choices-catch 0 '^The update rerun finds replay commits already in the app\. What should we do\?$' '^Your choices: Rewind the app to the convert commit or Keep the replays\.$' '^The run is paused until you answer\. One click$' '^cards: 1$' '!Nothing you can answer' -- $CK p7-replay
+ctl cockpit-person-stop-three-choices-catch 0 '^Your choices: Update the kept module, Put the old widget back or Accept the skew\.$' '!Nothing you can answer' -- $CK p7-widgetskew
+ctl cockpit-one-option-question-no-choices-line-pass 0 '^Continue with the old jar\?$' '!Your choices' -- $CK p7-one-option
+ctl cockpit-agent-stop-headline-no-file-name-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the list of add-on updates that go before the Mendix 11 conversion is missing\) and rerun\.$' '!plan-pre' -- $CK p7-agent-file
+ctl cockpit-agent-stop-mxcheck-count-plain-catch 0 'The agent has to finish this \(the app model check found 1 error after convert' '!mx check' '!1 errors' -- $CK p7-agent-mxcheck
+ctl term-brief-person-stop-lists-choices-pass 0 '^Do this now: The update rerun finds replay commits already in the app\. What' '^    rewind: Rewind the app to the convert commit$' '^    keep: Keep the replays$' -- $CK p7-term-person
+
 
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
