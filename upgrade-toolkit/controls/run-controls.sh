@@ -7780,6 +7780,10 @@ ctl submit-pushed-branch-pass 0 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-ha
 ctl submit-inbox-emptied-pass 0 '^README\.md TEMPLATE\.md $' -- sh -c "ls $SI | tr '\n' ' '"
 ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-current
 
+# apidirect names its database copy so smoke_users accepts it (the old name _apid_<side> was refused: "not a copy")
+ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- python3 $B/smoke_users.py upg_t_apid_old --roles Administrator --container no-such-ctr
+ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
+
 
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"

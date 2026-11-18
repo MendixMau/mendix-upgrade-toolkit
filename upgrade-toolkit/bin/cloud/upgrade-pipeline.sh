@@ -1785,7 +1785,7 @@ apidirect_side() { # apidirect_side SIDE VER MDA: build the throwaway copy, run 
   [ "$rc" = 0 ] || { note "apidirect: the $side test module could not be prepared (exit $rc, $AD/prepare-$side.out)"; return 1; }
   rc=0; xo "$AD/build-$side.log" heavy "apid-build-$side" "$ver" mxbuild --target=package -o "$mda" "$AD/$side-src/$(basename "$MPR")" || rc=$?
   [ "$rc" = 0 ] || { note "apidirect: the $side test build failed (exit $rc, $AD/build-$side.log)"; return 1; }
-  db=$(fresh_name "${X}_apid_$side"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
+  db=$(fresh_name "${X}_smoke_apid_$side"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up "apid$side" "$mda" "$ver" "$db" || { note "apidirect: the $side test app did not start"; heal_drop "$db"; return 1; }
   must python3 "$B/smoke_users.py" "$db" --roles "$role" --sole-target --apply
   fixture_users_db "$db"
