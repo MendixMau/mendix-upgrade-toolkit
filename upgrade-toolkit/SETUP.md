@@ -2,13 +2,18 @@
 
 Who can use it: anyone with this repo and a Mendix account. Nothing else private is needed.
 
+Headless end to end: nothing here opens Studio Pro. Everything — triage, convert, module
+updates, build, data diff, journeys, gate — runs in containers, driven by a coding agent.
+You point it at your app and say "upgrade this"; Studio Pro, the latest version, is only for
+opening the finished app afterward to look at it.
+
 ## What you need
 
 | need | why | where it comes from |
 |---|---|---|
 | this repo, linked at `~/Mendix/mxcli-project-toolkit` | every path in SKILL.md starts there | `git clone`; setup-container.sh makes the link |
 | `MENDIX_PAT` (a Mendix personal access token, Marketplace scope) | module updates and template downloads | Mendix Portal, user settings. Keep it in the environment, never in a file or a command line in a log |
-| Docker | mxbuild, mx check, app start, Postgres run in containers | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below) |
+| Docker, or Podman (`UPG_CONTAINER_RUNTIME=podman`) | mxbuild, mx check, app start, Postgres run in containers | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below). `bin/doctor.sh` detects whichever is present |
 | mxcli | Marketplace updates, model reads, diffs | public repo `mendixlabs/mxcli`, built from source at `MXCLI_REF` (default the commit `78bdfa5`; see "The mxcli version" below), or a release binary at `tools/mxcli-linux` |
 | mxbuild + runtime per Mendix version on the path | build and run old and new app | `cdn.mendix.com/runtime/` (public) |
 | python3 with pymongo, bcrypt; node with Playwright; zsh | the scripts | pip / npm / apt |
@@ -31,6 +36,31 @@ put the app under `~/run1/app` (its own git) and follow [SKILL.md](SKILL.md) ste
 the mxcli build (Maven Central 429: mirror fallback; `UPG_MAVEN_MIRROR` adds your own, credentials in `~/.netrc`, never
 in the URL), installs pymongo, bcrypt and rsync, and ends with `toolcheck.sh --host`: exit non-zero = not ready, the
 last lines say what is missing (B4T2-1, B4N1-3). Add a 10.24.x version to the list for the controls.
+
+## What to expect, the first time
+
+How long, build vs test: it varies a lot by app size, but test time (the journey walk) is consistently what
+dominates, not the build. The shipped example (`examples/fsm/rung1-9.24-to-10.24/steps/test/gate-summary.md`) ran
+16h2m of machine time on one rung: build itself was 26m, basewalk (mapping journeys) was 2h24m, and the journey
+walk was 11h59m by itself — test time outweighs build time by roughly 30 to 1 here. 59m of person wait at the gate
+on top. Smaller apps with fewer journeys finish in closer to 1-2 hours machine time end to end. Either way: don't
+expect it in a coffee break the first time, and don't assume something's stuck just because journeys are still
+running hours in — check the step it's actually on before you worry.
+
+Cost: the toolkit has a cost ledger (`bin/cost_ledger.py`, reported at the gate) for wall time, tokens and review
+minutes per layer, but no field run has filled it in yet, so there's no real token-cost figure to give here. What we
+do know from the wall-clock split above: the journey walk and basewalk are driven by deterministic browser scripts,
+not the agent thinking per click, so that 12+ hours is machine time, not token spend. The steps where the agent is
+actually reasoning over code (triage, propose, repair, heal) are the ones that would show up in a token bill, and
+they're minutes each, not hours. Fill in `cost_ledger.py add` on your own run if you want a real number; until
+someone does, don't repeat "16 hours" as if it were 16 hours of agent cost.
+
+Permissions: the agent runs dozens of scripted steps in a row (shell commands, container builds, file edits), all
+inside the run folder and your app's own git checkout. If your coding agent asks you to approve every command, turn
+that off for this session before you start (Claude Code: run with permissions bypassed, e.g. `--dangerously-skip-permissions`,
+or the equivalent "accept all" setting) — otherwise it stalls on the first prompt and never gets going. It still only
+touches the run folder, the app's own repo, and this toolkit's own checkout; it doesn't need access to anything else
+on your machine.
 
 ## The mxcli version
 
