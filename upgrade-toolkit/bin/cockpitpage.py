@@ -243,7 +243,7 @@ def accepted_reasons(work, rung, detail=""):
     if detail.startswith("noted, not a failure"):
         return [detail.split(";")[0]]
     got = {}
-    for ln in rd(os.path.join(work, f"{rung}.out")).splitlines():
+    for ln in (rd(os.path.join(work, f"{rung}.out")) or "").splitlines():
         m = re.match(r"^\|\s*PASS\*\s*\|[^|]*\|.*\((accepted|noted): (.+)\)\s*\|?\s*$", ln)
         if m:
             why = re.split(r"[:(]", m.group(2))[0].strip()[:90]

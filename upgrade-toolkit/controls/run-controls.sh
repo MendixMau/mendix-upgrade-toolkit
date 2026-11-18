@@ -7189,6 +7189,8 @@ ctl cockpit-render-upgrade-from-git-log-catch 0 '"Widgetpack 2\.0\.0", "Automati
 ctl cockpit-render-gate-and-heal-catch 0 'Click through pages|"Smoke"' '[0-9] real problem' '"1 check not run"' '1 of 2 page checks fails\. Cause: Gridmod\.' 'Replace Gridmod' 'Overlay blocks 2 clicks' -- $CK render
 # WM1 2026-11-17: "All pass, 1 with accepted differences" said nothing about what was accepted; each reason is on the card
 ctl cockpit-render-accepted-reasons-pass 0 'Accepted, no loss: start noise; the Vendmod update 1\.0\.0 -> 2\.0\.0 changed its own attribute' -- $CK render
+# a PASS* rung whose <rung>.out is not in the folder (a run copied from committed evidence) crashed the page build (cockpit clarity, run pr6)
+ctl cockpit-render-without-rung-out-catch 0 '^rendered with a PASS\* rung and no data.out$' '!Traceback' -- $CK no-rung-out
 # the Test stage shows what ran on the old and the new app; a new-app file older than the old one is not this run's
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale

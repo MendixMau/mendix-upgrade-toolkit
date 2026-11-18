@@ -53,6 +53,7 @@ PY
   step-signoff-refused) mkst; cp "$W/steps.jsonl" "$T/before"; dec add --item signoff --choice sign --by Ana --source chat; echo "rc=$?"
             cmp "$T/before" "$W/steps.jsonl" && echo "steps untouched"; test ! -f "$W/decisions.json" && echo "ledger untouched" ;;
   step-apply) mkst; dec add --item S-3 --choice approve --by Ana --source chat >/dev/null; dec apply; echo "S-3: $(stapp S-3)"; echo "approvals after apply: $(nev S-3)" ;;
+  no-rung-out) rm -f "$W/data.out"; ck > /dev/null && echo "rendered with a PASS* rung and no data.out" ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
