@@ -708,6 +708,12 @@ seed_demo() {
     note "demo data NOT loaded (seed_snapshot.py exit $rc, UNMAPPED in logs/seed-snapshot.txt): synthetic seed_pg.py rows instead"
     return 1
   fi
+  # STOR: a snapshot whose app tables are all empty ("applied: 0 rows") loaded nothing: the frozen database then held only System rows
+  # and the baseline diff stopped as vacuous. Same as "nothing loaded": the caller seeds synthetic rows.
+  if grep -q '^applied: 0 rows in ' "$WORK/logs/seed-snapshot.txt" 2> /dev/null; then
+    note "demo data NOT loaded (the snapshot holds no rows for the app's tables, logs/seed-snapshot.txt): synthetic seed_pg.py rows instead"
+    return 1
+  fi
   [ "$rc" = 0 ] || note "demo data loaded, but some table counts differ (logs/seed-snapshot.txt)"
   [ "$DRY" = 1 ] || { rm -rf "$WORK/demo-files"; mkdir -p "$WORK/demo-files"
     unzip -qo "$snap" 'data/files/*' -d "$WORK/demo-files/x" 2> /dev/null && mv "$WORK/demo-files/x/data/files"/* "$WORK/demo-files/" 2> /dev/null; rm -rf "$WORK/demo-files/x"; }
