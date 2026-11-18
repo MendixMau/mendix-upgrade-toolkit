@@ -309,3 +309,16 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 - evidence: brain oidc-sso (Marketplace 120371) and usercommons (223053) release notes; docs.mendix.com/appstore/modules/oidc upgrade sections; replacements.tsv R2; research/snippet-oidc/proof-oidc.md: a public starter app on OIDC 3.1.0 (no public template holds one below 3.0), converted to 10.24, then stopped at step 1 by stepupdate on 4 logic edits in the module; nothing after that ran, the IdP side is not measured.
 - status: idea
 - cards: none
+
+### RA-21 Scheduler widget (Scheduling module, SchedulerWidget 1.0.0) throws on the 10 client
+- topic: widget-gone
+- match: schedulerwidget|scheduling module|scheduler widget
+- trigger: gate smoke walk or journeys: a page with the widget FAILs on the new app and passes on the old one, console `TypeError: titleGetter is not a function` (or `getTitle is not a function`) in `widgets/mendix/schedulerwidget/SchedulerWidget.js`; the Scheduling module has no Marketplace version listing (`mxcli marketplace versions` empty), so no module update exists.
+- why: the widget package is a 9.x-era pluggable widget; on the Mendix 10 client the title getter its code maps over the events is not a function any more (the widget reads an event property the platform now delivers as an expression). The page opens and the guards hold, but no events render.
+- options: keep on 9 (not possible on this path) | rewrite the widget's event title property as the current expression-based one and rebuild the package (M, needs the widget source) | replace by a current scheduler/calendar widget from the Marketplace (M, layout redone) | hand off
+- recommendation: replace by a current calendar widget; only rewrite the package when its source is in the project.
+- effort: M
+- recipe: 1) list the pages with `com.mendix.widget.custom.SchedulerWidget` or `mendix.schedulerwidget` (impact_map). 2) Compare the old and new page screenshot for the failing role. 3) Read the widget's XML for the event title property and the new client's expectation. 4) Replace the widget per page with the chosen calendar widget, same data source and event attributes. 5) Rerun the page's smoke step and journey.
+- evidence: PSOP (Paperless SOP template, 9.24.3 -> 10.24, rung 1 smoke walk: ProductionApp.ProductionProcess_Overview FAIL for 3 roles, old PASS 3 of 3). No repair run, so no field result.
+- status: idea
+- cards: none
