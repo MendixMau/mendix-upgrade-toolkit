@@ -626,7 +626,8 @@ def build_model(work):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
                       "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
-                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
+                      "options": opts, "decided": last.get(pid), "assumed": is_assumed,
+                      "unattended": bool(row and len(row) > 5 and "ASSUMED (unattended)" in row[5]),   # nobody was asked: listed for review, no card (issue 11 item 4) "effort": effort_of(rec_txt),
                       "evidence": evidence.for_item(work, it["name"], it["kind"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
@@ -831,7 +832,9 @@ def build_model(work):
     total = sum(per.values())
     cost = (rj(os.path.join(work, "run-cost.json")) or {}).get("usd")
     runname = os.path.basename(os.path.dirname(work)) if os.path.basename(work) == "work" else os.path.basename(work)
-    sub = " · ".join(x for x in [versions, runname, dur(total) if total else "", f"${cost:g}" if cost else ""] if x)
+    # "60 min" alone read as nothing: say what it counts, and that a run still going has more to come
+    tlabel = (dur(total) + (" run time" if gate["overall"] == "PASS" and not run else " run time so far")) if total else ""
+    sub = " · ".join(x for x in [versions, runname, tlabel, f"${cost:g}" if cost else ""] if x)
     if stopped:
         sub += f" · stopped at {stopped[0]}"
     return {"title": f"{app_name(work)} upgrade", "sub": sub, "state": {"dot": state[0], "text": state[1]}, "planHash": P["hash"],

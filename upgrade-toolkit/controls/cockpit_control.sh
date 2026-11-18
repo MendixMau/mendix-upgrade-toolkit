@@ -28,6 +28,11 @@ mkstop() { W=$T/min/work; mkdir -p "$W"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_COD
   eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; eval "$1"
   { printf '# NEEDS JUDGMENT: step update, exit 13\n\nrun folder: x\nwork: x\nsource 10.24.0.1 -> target 11.12.5\nRule: ...\n\n    pipeline --from update\n'; cat "$NJ_TMP"; } > "$W/NEEDS-JUDGMENT.md"; }
 cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc -l | tr -d ' ')"; }
+# a copy of a real unattended run (fixtures/cockpit/chk-unattended: plan with 19 choices taken at the recommendation, two modules held):
+# chkw [running-step]: the markers of a run that finished everything up to the new app's page walk, optionally with a step running
+chkw() { W=$T/chk/work; mkdir -p "$W/state" "$W/logs"; for f in PROPOSAL.md DECISIONS.md localedits.md edit-routes.json; do cp "$here/fixtures/cockpit/chk-unattended/$f" "$W/"; done
+  cp "$here/fixtures/cockpit/chk-unattended/timing.tsv" "$W/state/timing.tsv"; for s in fetch triage baseline basewalk propose convert update build after; do echo done > "$W/state/$s.done"; done
+  [ -z "${1:-}" ] || printf '%s\t%s\t%s\n' "$1" "$(( $(date +%s) - 120 ))" "$$" > "$W/state/running"; }
 # the brief on top of the page (cockpit clarity): its text, one element per line
 brief_text() { python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -91,7 +96,7 @@ PY
             printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
   brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
             grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
-  pending-signed) sed -i 's/ASSUMED (unattended)/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
+  pending-signed) sed -i 's/ASSUMED (unattended)/CONFIRMED/g;s/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
             echo "chat: $(dec pending | grep -E '^[A-Za-z:0-9_-]+  ' | awk '{print $1}' | sort | paste -sd' ' -)"
             python3 - "$B" "$W" <<'PY'
 import sys; sys.path.insert(0, sys.argv[1])
@@ -132,6 +137,23 @@ asks = [{"name": "R34 SSL certificate algorithm SunX509 (SslCertificateAlgorithm
 print("step rows:", len(asks), "| not already a card:", [r["name"] for r in cm.own_asks(asks, qs)])
 PY
             ;;
+  chk-testing) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
+            python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+d = re.search(r'<details class="chosen">.*?</details>', h, re.S).group(0)
+print("ranked:", " | ".join(html.unescape(re.sub(r"<[^>]+>", "", x)) for x in re.findall(r"<li>(.*?)</li>", d)))
+PY
+            ;;
+  chk-routine-only) chkw journeys; rm -f "$W/edit-routes.json" "$W/localedits.md"; sed -i 's/held for a person/waiting/g;s/local edit/own change/g;s/changed in this app/new/g;s/changed by this app/new/g;s/would overwrite/replace/g;s/edits refuse/updates refuse/g' "$W/PROPOSAL.md"; ck >/dev/null && brief_text | sed -n '/^Do this/,$p' ;;
+  chk-header) chkw journeys; ck >/dev/null; grep -o '<div class="ver">[^<]*' "$T/out.html" | head -1; sed -i '/^journeys/d' "$W/state/running" 2>/dev/null; rm -f "$W/state/running"
+            for s in afterwalk journeys heal diff gate; do echo done > "$W/state/$s.done"; done; printf 'gate\t2026-11-18T11:50:00Z\t2026-11-18T11:51:00Z\t0\n' >> "$W/state/timing.tsv"; printf 'Overall: **PASS** (exit 0): 5 PASS.\n' > "$W/gate-summary.md"; ck >/dev/null; grep -o '<div class="ver">[^<]*' "$T/out.html" | head -1 ;;
+  chk-cards) chkw; ck >/dev/null; cards; brief_text | sed -n '/^Do this/,/^Who/p' | head -4
+            sed -i 's/ASSUMED (unattended)/ASSUMED/' "$W/DECISIONS.md"; ck >/dev/null; echo "attended:"; cards ;;
+  chk-who) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Who changed/,$p' | head -2 ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
