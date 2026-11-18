@@ -2053,6 +2053,8 @@ printf '%s\n' 'Checking app for errors...' 'The app contains: 0 errors.' > $V/cw
 ctl pipeline-mxcheck-crash-catch 0 '^\[error\] \[MXCHECK\] mx check ended without a result .*KeyNotFoundException' '^errors 1$' -- bash -c "B=$B WORK=$V/cw/crash TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/crash.log; return 1; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
 ctl pipeline-mxcheck-clean-pass 0 '^errors 0$' '!MXCHECK' -- bash -c "B=$B WORK=$V/cw/clean TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/clean.log; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
 ctl pipeline-dry-check-json-catch 0 'mx10\.sh 11\.15\.0\.1 mx check .*/papp/App\.mpr -j .*/pwle/check-1\.json > ' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only build --dry-run
+ctl pipeline-row0-java-10-6-source-catch 0 'mxcli_run .*JavaVersion' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.6.3.1 --target 10.24.0.1 --work $V/pwr0 --only build --dry-run
+ctl pipeline-row0-java-10-24-source-pass 0 '!JavaVersion' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr0b --only build --dry-run
 # v3.1 E6-7: a removal (idcheck verdict REVIEW) is named REVIEW in the KEPT line, a GUID change stays a plain finding
 mkdir -p $S/base; cp $M/base/App.mpr $S/base/
 newapp rv '1 1.0 Removes\n'; cp $M/step1-adds/App.mpr $S/rv/App.mpr; git -C $S/rv commit -qam 'start at step1-adds'
