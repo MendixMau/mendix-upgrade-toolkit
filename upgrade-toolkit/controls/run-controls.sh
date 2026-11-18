@@ -4707,6 +4707,23 @@ a['actions']=[x for x in a['actions'] if x['id'] in o]; json.dump(a, open('$SC/o
     -- $RJS $SC/gen --label after --work $SC/w --rejudge --actions $FX/scope/actions.json
   ctl journey-scope-gate-without-scope-catch 3 '^journeys: 0 PASS, 0 FAIL, 11 INVALID$' '^actions 11 found .*coverage 0/11 ' '^  INVALID act-Shop\.Orphan\.btn ' '!out of scope' \
     -- $RJS $SC/gen-none --label after --work $SC/w --rejudge --actions $FX/scope/actions.json
+  # cold run 4: every item of the role menu is icon-only, caption " " (not empty); a path entering at item " " is the
+  # icon-menu skip like an empty caption, not a journey whose nav looks for " " and FAILs on both apps. A named entry
+  # still gets its journey; with every action skipped and no out dir yet, plan.json is still written
+  python3 -c "
+import json
+d=json.load(open('$FX/scope/actions.json'))
+for cap, name in ((' ', 'blank'), ('Home', 'named')):
+    for x in d['actions']:
+        if x['id'] == 'Shop.Home.btnA':
+            x.update(path_role='Clerk', path=[{'entry': 'menu Responsive: ' + cap, 'target': 'Shop.Home', 'profile': 'Responsive', 'profile_kind': 'Responsive', 'via': 'menu', 'menu': [cap]}, {'page': 'Shop.Home'}, {'click': 'btnA', 'on': 'Shop.Home', 'action': 'microflow', 'id': 'Shop.Home.btnA'}])
+    json.dump(d, open('$SC/icm-' + name + '.json', 'w'))"
+  rm -rf $SC/icm-gen-blank $SC/icm-gen-named
+  python3 $B/gen_journeys.py --actions $SC/icm-blank.json --out-dir $SC/icm-gen-blank --roles-with-users Clerk > $SC/icm-blank.out 2>&1
+  python3 $B/gen_journeys.py --actions $SC/icm-named.json --out-dir $SC/icm-gen-named --roles-with-users Clerk > $SC/icm-named.out 2>&1
+  ctl gen-journeys-blank-caption-menu-skip-catch 0 "'act-Shop\.Home\.btnA' \['icon-menu'\]" -- python3 -c "import json; [print(repr(s['id']), s['reasons']) for s in json.load(open('$SC/icm-gen-blank/plan.json'))['skipped']]"
+  ctl gen-journeys-named-menu-entry-kept-pass 0 '^1 journeys,' -- cat $SC/icm-named.out
+  ctl gen-journeys-all-skipped-plan-written-catch 0 '^0 journeys, .* 11 skipped' '!Traceback' -- cat $SC/icm-blank.out
 else
   skip journey-scope-line-pass 'python3 has no bson (pip install pymongo): the synthetic model cannot be built'
 fi
