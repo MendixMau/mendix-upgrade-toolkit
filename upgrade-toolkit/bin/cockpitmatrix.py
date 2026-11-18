@@ -1406,6 +1406,9 @@ def band(model, rows, chips, g, tl, kpi=None):
     elif b and b["verdict"].startswith("PASS"):
         st, head = "ok", f"The app runs on Mendix {tgt}" if tgt else "The app runs on the new Mendix version"
         sub = "" if reg is None else (f"{reg} regression" + ("" if reg == 1 else "s"))
+        if reg:   # "runs on" next to open regressions read as all well (lane review): say what is true
+            st, head = "warn", f"The app builds on Mendix {tgt}, but not everything works yet" if tgt else "The app builds, but not everything works yet"
+            sub = f"{reg} regression" + ("" if reg == 1 else "s") + " to fix: it worked on the old app and fails on the new one."
     elif b and b["verdict"] == "FAIL":
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
@@ -1485,7 +1488,7 @@ def clip_ask(t, n=120, head=False):
 
 def ask_line(i, n=120):
     """The line for a question card in the brief: plan choices, sign-off and confirmations are already worded for a person."""
-    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm"))
+    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked"))
 
 
 def vshort(v):
@@ -1509,8 +1512,12 @@ def brief(work, model, rows, g, tl):
     agent_task = [i for i in allq if i["id"].startswith("stop:") and AGENT_TASK.search(i["title"])]
     qs = [i for i in allq if not (agent_task and i["id"].startswith("stop:"))]
     asks = [r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
-    nask = len(qs) + len(asks)
     stopped, running = model.get("stopped"), model.get("running")
+    # choices the AI made on its own while the run goes on are an optional review, not something the run waits for (lane review 03)
+    optional = asks if (running and not stopped) else []
+    if optional:
+        asks = []
+    nask = len(qs) + len(asks)
     if mp:
         prog = f"{mp.group(1)} of {mp.group(2)} checks closed ({mp.group(3)}%)"
     else:
@@ -1553,7 +1560,7 @@ def brief(work, model, rows, g, tl):
     if qs or asks:
         if qs:
             i = qs[0]
-            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
+            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
             rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
             act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call."
             if i["kind"] == "signoff":
@@ -1561,11 +1568,13 @@ def brief(work, model, rows, g, tl):
         else:
             act = {"kind": "ask", "text": f"Check what the agent chose on its own: {asks[0]['name']}", "q": "", "rec": "", "time": "One click"}
     elif stopped:
-        what = clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
+        owned = stopped.get("agent_titles") or []
+        what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
     elif running:
-        act = {"kind": "wait", "text": "Nothing. Come back later.", "rec": "", "q": "",
+        act = {"kind": "wait", "text": "Nothing. Come back later." if not optional else
+               f"Nothing is blocked. The AI made {len(optional)} {'choice' if len(optional) == 1 else 'choices'} on its own; look at them when you like (optional).", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
     elif reg:
         act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
@@ -2262,7 +2271,7 @@ def h_band(b):
     tick = {"ok": "✓", "bad": "!", "warn": "→"}.get(b["state"], "…")
     reg = ""
     if b["sub"]:
-        bad = b["state"] == "ok" and b["reg"]
+        bad = b["state"] in ("ok", "warn") and b["reg"] and "regression" in b["sub"]
         reg = f'<span class="rg{" bad" if bad else ""}">{E(b["sub"])}</span>'
     chips = "".join(f'<span class="cc"><b>{c["n"]}</b>{E(c["label"])}</span>' for c in b["closed"]["chips"])
     # who closes each open topic, and when (cold test WM1: "16 open topics still to validate" and the owner asked "what should a

@@ -23,6 +23,11 @@ stapp() { st show "$1" --json | python3 -c 'import json,sys; a=json.load(sys.std
 nev() { grep -c "\"id\": \"$1\", \"field\": \"approval\"" "$W/steps.jsonl" || true; }
 # a work folder holding only a captured stop file (stops/<name>.md, a real NEEDS-JUDGMENT.md with paths replaced): nothing else asks anything
 minw() { W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/cockpit/stops/$1.md" "$W/NEEDS-JUDGMENT.md"; }
+# a stop file written by the pipeline's own nj_meta / nj_add (so the format is the one the cockpit really reads)
+mkstop() { W=$T/min/work; mkdir -p "$W"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""
+  eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; eval "$1"
+  { printf '# NEEDS JUDGMENT: step update, exit 13\n\nrun folder: x\nwork: x\nsource 10.24.0.1 -> target 11.12.5\nRule: ...\n\n    pipeline --from update\n'; cat "$NJ_TMP"; } > "$W/NEEDS-JUDGMENT.md"; }
+cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc -l | tr -d ' ')"; }
 # the brief on top of the page (cockpit clarity): its text, one element per line
 brief_text() { python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -86,6 +91,22 @@ PY
             printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
   brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
             grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
+  brief-owner-person) mkstop 'nj_meta info; nj_add 13 "Widget list" "file: x"; nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update or accept."'
+            ck >/dev/null && brief_text && cards ;;
+  nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'
+            grep -E '^(## |owner:|question:|recommended:|option:)' "$W/NEEDS-JUDGMENT.md" ;;
+  brief-owner-agent) mkstop 'nj_meta agent; nj_add 10 "mx check: 3 errors after convert" "Summary file: x"; nj_meta info; nj_add 10 "First 20 error lines" "file: y"'
+            ck >/dev/null && brief_text && cards ;;
+  hero-regression) W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/runlog/gate-summary.run6.md" "$W/gate-summary.md"; ck >/dev/null
+            python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+b = re.search(r'<section class="hero.*?</section>', h, re.S).group(0)
+print("hero:", html.unescape(" ".join(re.sub(r'<[^>]+>', ' ', b).split())))
+PY
+            ;;
+  brief-optional) W=$T/min/work; mkdir -p "$W/state" "$W/logs"; mkst; st approve --id S-3 --state assumed --by agent --source unattended >/dev/null
+            printf 'build\t%s\t%s\n' "$(( $(date +%s) - 60 ))" "$$" > "$W/state/running"; ck >/dev/null && brief_text | sed -n '1p;/^Do this now/,/^Who/p' ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;

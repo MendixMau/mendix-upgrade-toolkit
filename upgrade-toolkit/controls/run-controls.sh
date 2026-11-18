@@ -318,7 +318,7 @@ ctl widgetskew-catch 1 '^WIDGET-SKEW Datagrid 2\.2\.2 -> 2\.30\.6 \(by Atlas_Web
 ctl widgetskew-nothing-kept-pass 0 '!WIDGET-SKEW' '0 kept module\(s\), 0 widget' -- python3 $B/widgetskew.py $WS/solo --plan $WS/plan.txt --cache $WS/cache
 # step_update parks on it, unless widgetskew-ack.txt accepts it
 awk '/xo "\$WORK\/widgetskew.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WS/nj.sh
-printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_park() { echo PARK; }' 'export UPG_CACHE='"$WS"'/cache; rc=0' > $WS/stub.sh
+printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' 'nj_meta() { :; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_park() { echo PARK; }' 'export UPG_CACHE='"$WS"'/cache; rc=0' > $WS/stub.sh
 mkdir -p $WS/w1 $WS/w2; cp $WS/plan.txt $WS/w1/; cp $WS/plan.txt $WS/w2/; : > $WS/w2/widgetskew-ack.txt
 ctl pipeline-update-widgetskew-catch 0 '^NJ 13 A module update replaced a widget whose styles stay with a kept module \(steps/repair\.md row 32\)$' '^WIDGET-SKEW Datagrid' '^NJ 13 Decision: Update the kept module' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WS/w1 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
 ctl pipeline-update-widgetskew-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WS/w2 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
@@ -402,7 +402,7 @@ gc none 'convert 11.12.7'; gc none 'step: DataWidgets 3.11.8 (stepupdate)'
 gc old 'convert 10.24.28'; gc old 'replay: Atlas_Core'; gc old 'convert 11.12.7'
 gc ack 'convert 11.12.7'; gc ack 'replay: Atlas_Core'; mkdir -p $RP/wack; : > $RP/wack/replay-keep.txt
 awk '/replay-keep\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $RP/nj.sh
-printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
+printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_meta() { :; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
 ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that holds replay commits: Since convert [0-9a-f]+: [0-9a-f]+ replay: Atlas_Core;' '^NJ 12 Decision: Tag a backup, then rewind the app to [0-9a-f]+ ' '^FLUSH$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/rep; f; echo done"
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
@@ -1979,7 +1979,7 @@ ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.
 printf 'FAIL old walk\nINVALID old role\n' > $T/nj-step.log; printf 'FAIL in another file\n' > $T/nj-other.log
 cat > $T/nj-quote.sh <<SH
 eval "\$(sed -n '/^nj_file() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)"
-nj_add() { echo "\$3"; }
+nj_meta() { :; }; nj_add() { echo "\$3"; }
 LOG=$T/nj-step.log; LOG_START=\$(wc -l < \$LOG); echo 'FAIL new walk' >> \$LOG
 nj_file 12 t "\$LOG" 40 'FAIL|INVALID'; nj_file 12 t $T/nj-other.log 40 FAIL
 SH
@@ -6484,7 +6484,7 @@ WORK=$1; TIMES=$2; shift 2
 date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { :; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; }
 step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
@@ -6521,6 +6521,8 @@ ctl timing-resume-appends-never-rewrites-pass 0 'prefix=same' 'build-rows=1' 'jo
   -- sh -c "n=\$(wc -l < $TM/wa-first.tsv); head -n \$n $TM/wa/state/timing.tsv | cmp -s - $TM/wa-first.tsv && echo prefix=same; echo build-rows=\$(grep -c '^build' $TM/wa/state/timing.tsv); echo journeys-rows=\$(grep -c '^journeys' $TM/wa/state/timing.tsv)"
 # the stop keeps its own exit code (the judgment stop is the pipeline's result, timing never changes it)
 ctl timing-stop-keeps-exit-code-pass 0 'rc=11' '!rc=4' -- tmrun $TM/wc $TM/times-a.txt build journeys
+# the page written AT a stop (nj_flush calls cockpit_regen) must not still see the step as running (lane reviews 02 and 03, TLT)
+ctl cockpit-stop-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wc/regen-saw)"
 # an unexpected failure (ERR trap, exit 4) still leaves its row, with exit 4; the rerun a few hours later gets its own row
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1; touch $TM/wb/fixed
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1
@@ -6697,7 +6699,7 @@ ctl bt10-pipeline-baseline-gate-catch 3 "step 'baseline': DISK FULL: only 12 MB 
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
-  nj_add() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }; . $BTR/disk-fn.sh; "$@"; echo "rc=$?" ); }
+  nj_meta() { :; }; nj_add() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }; . $BTR/disk-fn.sh; "$@"; echo "rc=$?" ); }
 ctl bt10-disk-cause-enospc-catch 0 '^10\|DISK FULL, not an app defect\|DISK FULL: the log holds' -- env UPG_FREE_MB=50000 bash -c "$(declare -f btdisk); B=$B BTF=$BTF BTR=$BTR T=$T; btdisk disk_cause"
 ctl bt10-disk-cause-plain-failure-pass 0 '!DISK FULL' 'rc=0' -- env UPG_FREE_MB=50000 bash -c "$(declare -f btdisk); B=$B BTF=$BTF BTR=$BTR T=$T; btdisk disk_cause $BTF/baseline-plain-fail.log"
 ctl bt10-pipeline-steps-wired-pass 0 '^ +disk_gate baseline$' '^ +disk_cause$' '^  disk_gate build$' '^    disk_cause "\$WORK/build-\$TARGET.log"$' '^  disk_gate convert$' -- grep -E '^ *disk_(gate|cause)' $B/cloud/upgrade-pipeline.sh
@@ -7225,6 +7227,12 @@ ctl cockpit-brief-nothing-measured-not-green-catch 0 '^Nothing is known to be br
 ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold closed$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
 ctl cockpit-brief-who-approved-catch 0 "No person has approved the plan\. Some choices are marked ASSUMED: the AI made them\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' -- $CK brief-approval
 ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' 'running bar detail: \.nowrun small\{display:none' 'tap opens it: nr\.addEventListener\("click"' -- $CK brief-live-bits
+# stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
+ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
+ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '!Resolve' -- $CK brief-owner-agent
+ctl cockpit-hero-not-runs-on-with-regressions-catch 0 'hero: → The app builds, but not everything works yet 2 regressions to fix: it worked on the old app and fails on the new one\.' '!The app runs on' -- $CK hero-regression
+ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just started\. The agent is working: building the new app\.$' '^Nothing is blocked\. The AI made 1 choice on its own; look at them when you like \(optional\)\.$' '!waiting for' -- $CK brief-optional
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
