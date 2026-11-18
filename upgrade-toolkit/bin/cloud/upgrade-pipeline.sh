@@ -767,6 +767,30 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
     nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
     nj_flush
   fi
+  kept_java_check
+  nj_flush
+}
+
+kept_java_check() { # a plan that keeps a module whose Java calls Runtime API that Mendix 11 removed: javac fails at the build
+  # Cold rfq rung 2: a minimum-impact plan kept ExcelImporter, MxModelReflection and SAPODataConnector; the build after
+  # convert and update stopped on 34 "cannot find symbol" (Core.retrieveXPathQuery, Core.isSubClassOf). replacements.md R18
+  # had the hit, nothing tied it to the plan. MendixSSO's R18 hits (other patterns) built, so only these calls count.
+  [ "$DRY" != 1 ] && [ -f "$WORK/plan.txt" ] && [ -d "${APP:-/nonexistent}/javasource" ] || return 0
+  [ "$(echo "$TARGET" | cut -d. -f1)" -ge 11 ] 2> /dev/null || return 0
+  local re='Core\.(retrieveXPathQuery[A-Za-z]*|isSubClassOf) *\(|com\.mendix\.core\.conf\.RuntimeVersion' d m f skip hits=""
+  skip=$(cat "$WORK/plan.txt" "$WORK/plan-pre.txt" 2> /dev/null | grep -vE '^[[:space:]]*(#|$)' | awk '{ print tolower($3) }' || true)
+  skip+=$'\n'$(grep -vE '^[[:space:]]*(#|$)' "$WORK/java-port.txt" 2> /dev/null | awk '{ print tolower($1) }' || true)
+  for d in "$APP"/javasource/*/; do
+    m=$(basename "$d")
+    ! printf '%s\n' "$skip" | grep -qxi "$m" || continue
+    f=$(grep -rlE "$re" --include='*.java' "$d" 2> /dev/null | grep -v '/proxies/' | sed "s#^$APP/##" || true)
+    [ -z "$f" ] || hits+="$m: $(printf '%s\n' "$f" | wc -l | tr -d ' ') file(s), e.g. $(printf '%s\n' "$f" | head -2 | tr '\n' ' ')"$'\n'
+  done
+  [ -n "$hits" ] || return 0
+  nj_add 13 "Kept module calls Java API Mendix $TARGET removed (javac will fail at the build)" "Not on the plan, and their Java calls Core.retrieveXPathQuery*, Core.isSubClassOf or com.mendix.core.conf.RuntimeVersion (playbooks/10-to-11.md: update those modules, do not edit their code):
+
+$hits
+Put each Marketplace module on $WORK/plan.txt (newest version for $TARGET); a module with no 11 release or an own module is ported as a repair (playbooks/10-to-11.md row 11): name it in $WORK/java-port.txt, one per line."
 }
 
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.

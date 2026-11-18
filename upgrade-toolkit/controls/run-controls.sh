@@ -407,6 +407,19 @@ ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that hol
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
+# triage stops a plan that keeps a module whose Java calls Runtime API that 11 removed (cold rfq rung 2: 34 javac errors at
+# the build in three kept Marketplace modules); planned, ported (java-port.txt) or clean modules and a 10.x target pass
+KJ=$T/kj; mkdir -p $KJ/app/javasource/keptmod/reader $KJ/app/javasource/planmod $KJ/app/javasource/ownok $KJ/app/javasource/ownok/proxies $KJ/w $KJ/wp
+echo 'class A { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/keptmod/reader/A.java
+echo 'class B { boolean f() { return Core.isSubClassOf("A", "B"); } }' > $KJ/app/javasource/planmod/B.java
+echo 'class C { void f() { Core.createXPathQuery("//X").execute(ctx); } }' > $KJ/app/javasource/ownok/C.java
+echo 'class P { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/ownok/proxies/P.java
+printf '# kept: KeptMod\n1 2.0.0 PlanMod\n' | tee $KJ/w/plan.txt > $KJ/wp/plan.txt; echo 'KeptMod no 11 release' > $KJ/wp/java-port.txt
+{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
+ctl triage-kept-java-removed-api-catch 0 '^NJ 13 Kept module calls Java API Mendix 11\.12\.7 removed' '^keptmod: 1 file\(s\), e\.g\. javasource/keptmod/reader/A\.java $' '!^planmod' '!^ownok' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=11.12.7; kept_java_check"
+ctl triage-kept-java-ported-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/wp TARGET=11.12.7; kept_java_check; echo done"
+ctl triage-kept-java-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=10.24.28; kept_java_check; echo done"
+ctl triage-kept-java-wired-pass 0 '^  kept_java_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
