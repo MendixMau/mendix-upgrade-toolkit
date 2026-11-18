@@ -3105,6 +3105,36 @@ ctl cloudsetup-mxcli-link-refused-catch 1 'REFUSED, .*/link/tools/mxcli-bin is a
 ctl cloudsetup-mxcli-link-kept-pass 0 'other-build' -- $CS/other/mxcli
 ctl cloudsetup-mxcli-stale-aside-catch 1 'moved to .*/own/tools/mxcli-bin/mxcli\.not-' -- cloudsetup $CS/own
 ctl cloudsetup-mxcli-stale-kept-pass 0 'other-build' -- sh -c "cat $CS/own/tools/mxcli-bin/mxcli.not-*"
+# cold predictive-maintenance run on a Mac: tools/mxcli-linux was the Mac build; mxcli-container.sh mounted it into the
+# linux/amd64 container and the first module update died, "Exec format error" (exit 126). On a host that is not Linux the
+# container binary is a cross build next to the host one. Fake uname, make and go: make writes a host script, go an ELF stub.
+CM=$CS/mac; mkdir -p $CM/bin $CM/src
+printf '#!/bin/sh\necho "${FAKE_UNAME:-Darwin}"\n' > $CM/bin/uname
+printf '#!/bin/sh\nexit 0\n' > $CM/bin/git; cp $CM/bin/git $CM/bin/sleep; cp $CM/bin/git $CM/bin/antlr4
+cat > $CM/bin/make <<'EOF2'
+#!/bin/sh
+for a; do case $a in VERSION=*) v=${a#VERSION=};; BUILD_DIR=*) d=${a#BUILD_DIR=};; esac; done
+echo "make $*" >> "$FAKELOG/make.log"; mkdir -p "$d"; printf '#!/bin/sh\necho "mxcli version %s"\n' "$v" > "$d/mxcli"; chmod +x "$d/mxcli"
+EOF2
+cat > $CM/bin/go <<'EOF2'
+#!/bin/sh
+echo "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$FAKELOG/go.log"
+o=""; v=""; for a; do [ "$prev" = -o ] && o=$a; case $a in *main.Version=*) v=${a##*main.Version=}; v=${v%% *};; esac; prev=$a; done
+printf '\177ELF fake linux mxcli %s\n' "$v" > "$o"
+EOF2
+chmod +x $CM/bin/*
+cloudmac() { local r=$1; shift; mkdir -p $r/home/.m2/repository/org/antlr/antlr4/4.13.2; echo jar > $r/home/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
+  env HOME=$r/home PATH=$CM/bin:$PATH MXCLI_SRC=$CM/src FAKELOG=$r "$@" bash $B/cloud/setup.sh --run-dir $r --source 9.24.10.18073 --target 10.24.28.129343 --only mxcli; }
+ctl cloudsetup-mxcli-mac-linux-link-catch 0 'container mxcli: .*/mac1/tools/mxcli-linux -> .*/mac1/tools/mxcli-bin/mxcli-linux-amd64 \(linux/amd64 cross build, Darwin host\)' -- cloudmac $CM/mac1
+ctl cloudsetup-mxcli-mac-link-elf-catch 0 '^177ELF$' -- bash -c "head -c 4 \$(readlink $CM/mac1/tools/mxcli-linux) | od -An -c | tr -d ' \n'; echo"
+ctl cloudsetup-mxcli-mac-go-env-catch 0 '^GOOS=linux GOARCH=amd64 build -ldflags -s -w -X main.Version=78bdfa5 -o .*/mxcli-linux-amd64 \./cmd/mxcli$' -- cat $CM/mac1/go.log
+ctl cloudsetup-mxcli-mac-host-link-pass 0 '/mac1/tools/mxcli-bin/mxcli$' -- readlink $CM/mac1/home/.local/bin/mxcli
+# the state the cold run left: the host build is the pinned ref, mxcli-linux points at it; the old check called that done
+mkdir -p $CM/mac2/tools/mxcli-bin $CM/mac2/home/.local/bin; printf '#!/bin/sh\necho "mxcli version 78bdfa5"\n' > $CM/mac2/tools/mxcli-bin/mxcli
+chmod +x $CM/mac2/tools/mxcli-bin/mxcli; ln -sfn $CM/mac2/tools/mxcli-bin/mxcli $CM/mac2/tools/mxcli-linux; ln -sfn $CM/mac2/tools/mxcli-bin/mxcli $CM/mac2/home/.local/bin/mxcli
+ctl cloudsetup-mxcli-mac-host-only-rebuilt-catch 0 'container mxcli: .*/mac2/tools/mxcli-bin/mxcli-linux-amd64' '!already done' -- cloudmac $CM/mac2
+ctl cloudsetup-mxcli-linux-host-one-binary-pass 0 '!container mxcli' -- cloudmac $CM/lin1 FAKE_UNAME=Linux
+ctl cloudsetup-mxcli-linux-host-link-pass 0 '/lin1/tools/mxcli-bin/mxcli$' '!go\.log' -- bash -c "readlink $CM/lin1/tools/mxcli-linux; command ls $CM/lin1"
 # same run: setup.sh wrote TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit into env.sh (the toolkit has its own repo now)
 # and its journeys step rm -rf'd that path and cloned a repo without upgrade-toolkit; env.sh's TK then replaced the
 # pipeline's own, "dockerhost.sh: No such file", exit 2
