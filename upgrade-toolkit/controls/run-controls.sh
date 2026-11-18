@@ -4874,6 +4874,11 @@ nse ev-base "$(model base)/App.mpr"; nse ev-guard "$(model guard)/App.mpr"; nse 
 RJN() { python3 $B/run_journeys.py $NS/$1 --label after --work $NS/w --rejudge --baseline-evidence $NS/$2.txt; }
 ctl journeys-no-signout-pass 0 '^  UNREACHABLE sign-out +NO-SIGNOUT: no page, layout, snippet, menu or navigation profile of App\.mpr has a sign-out item' \
   '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 1 PASS\* \(unreachable in the OLD UI, evidence checked\)$' -- RJN gen ev-base
+nse ev-spare "$(model nosignout-spare-layout)/App.mpr"; nse ev-usedlay "$(model nosignout-used-layout)/App.mpr"
+# SNOW: a sign-out button in a layout no page renders inside is no sign-out UI (pass); the same button in a layout a page uses is (catch)
+ctl journeys-no-signout-unused-layout-pass 0 '^  UNREACHABLE sign-out +NO-SIGNOUT: no page, layout, snippet, menu or navigation profile of App\.mpr has a sign-out item' \
+  '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 1 PASS\* \(unreachable in the OLD UI, evidence checked\)$' -- RJN gen ev-spare
+ctl journeys-no-signout-used-layout-catch 3 'UNREACHABLE refused, .*NO-SIGNOUT: Shop\.Layout_Spare\.signOutButton signs out' '!PASS\* \(unreachable' -- RJN gen ev-usedlay
 ctl journeys-no-signout-has-one-catch 3 'sign-out .*NO-SIGNOUT refused|UNREACHABLE refused, .*NO-SIGNOUT: Shop\.User_Menu: menu item Account > Sign out signs out \(action' '!PASS\* \(unreachable' -- RJN gen ev-guard
 ctl journeys-no-signout-unreadable-menu-catch 3 'UNREACHABLE refused, .*the todo lists a menu the model cannot read' '!PASS\* \(unreachable' -- RJN gen-addon ev-base
 ctl journeys-no-signout-no-model-catch 3 'UNREACHABLE refused, .*gone\.mpr is not readable' '!PASS\* \(unreachable' -- RJN gen ev-gone

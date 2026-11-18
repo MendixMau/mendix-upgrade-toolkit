@@ -328,14 +328,18 @@ def any_sign_out(m, limit=5):
     and a button / link / card widget with an Action, on any page, layout or snippet. [(where, by, detail)], at most
     `limit`. Empty is the proof run_journeys.py's NO-SIGNOUT evidence needs: the app has no sign-out UI at all."""
     hits = []
+    # A layout no page renders inside (an add-on's spare desktop layout) is no UI a user can reach: its sign-out button
+    # is not "the app has a sign-out" (run SNOW: an Encryption add-on layout, used by 0 of 116 pages).
+    used = {q for d in m.all_docs if d.type == "Forms$Page" for q in layout_closure(m, d.qn)}
+    unused = {d.qn for d in m.all_docs if d.type == "Forms$Layout" and d.qn not in used}
     nav = [("navigation", m.singletons[t]) for t in m.singletons if "Navigation" in t]
-    for qn, data in nav + [(d.qn, d.data) for d in m.all_docs if d.type.startswith(("Forms$", "Pages$", "Menus$"))]:
+    for qn, data in nav + [(d.qn, d.data) for d in m.all_docs if d.type.startswith(("Forms$", "Pages$", "Menus$")) and d.qn not in unused]:
         for p, kind, idx, a in _menu_items(data):
             k = _sign_out_kind(m, p[-1] if p else "", a)
             if k:
                 hits.append((f"{qn}: menu item {' > '.join(p)}", *k))
     for d in m.all_docs:
-        if d.type.startswith(("Forms$", "Pages$")):
+        if d.type.startswith(("Forms$", "Pages$")) and d.qn not in unused:
             for w in m.widgets(d.qn):
                 if isinstance(w.get("Action"), dict) and not NAV_TYPES.search(w.get("$Type", "")):
                     k = _sign_out_kind(m, text_of(w.get("Caption")) if w.get("Caption") else "", w["Action"])
