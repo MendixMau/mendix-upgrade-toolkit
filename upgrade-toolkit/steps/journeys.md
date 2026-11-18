@@ -120,7 +120,7 @@ the instrument cannot fail: stop. The run exits 0 when every ui-landing row is P
 `CONTROL MISS` per miss and exits 1. Rungs the journeys declare nothing for (trace, data, outcome without oql) are
 counted as INFO UNPROVEN: they stay INVALID in the gate, but they are not control failures (E7-12).
 
-create-spec.json, once per app: `{"role", "nav": {"group", "item"}, "newButton", "fields": [{"widget", "value", "attr"}],
+create-spec.json, once per app: `{"role", "nav": {"group", "item", "nth"?}, "newButton", "fields": [{"widget", "value", "attr"}],
 "saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. A reference selector is a field
 `{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). Without it create-and-save stays a todo,
 which is INVALID, never covered. `textPresent` is the saved value as the grid shows it, `textAbsent` the validation

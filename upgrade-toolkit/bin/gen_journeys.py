@@ -456,6 +456,8 @@ def create_journey(spec, data_rung=False):
     (E2E-9). path: clicks between the menu item and the New button, for a list page that no menu item opens (R1,
     Purchase Request: Vendors overview is a link on the admin home page)."""
     acts = [{"do": "nav", "group": spec["nav"].get("group"), "item": spec["nav"]["item"]}]
+    if spec["nav"].get("nth") is not None:  # an icon-only menu item: its position among the items with the same (blank) title
+        acts[0]["nth"] = spec["nav"]["nth"]
     acts += [{"do": "click", "widget": c["widget"], "label": c.get("label") or c["widget"]} for c in spec.get("path", [])]
     acts += [{"do": "click", "widget": spec["newButton"], "label": "New"}]
     # a field with "do": "select" picks from a reference selector ({"match": caption} or {"first": true}); the rest fill
