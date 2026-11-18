@@ -7913,6 +7913,21 @@ ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff
 ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
 ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
 
+# journeys progress line (issue 26): a long walk says how far it is, so a slow run is not taken for a hung one (SNOW: 435 user paths, no output for 90 min)
+JPC="python3 $here/journeys_progress_control.py"
+ctl journeys-progress-start-unknown-catch 0 '^progress: 435 user paths to walk\. Expected duration: unknown \(no earlier run here' -- $JPC start-unknown
+ctl journeys-progress-start-known-pass 0 'Expected duration: about 435 min \(earlier runs here: 60 s per path\)' '!unknown' -- $JPC start-known
+ctl journeys-progress-tiny-earlier-run-unknown-catch 0 'Expected duration: unknown' '!about' -- $JPC pace-ignores-tiny
+ctl journeys-progress-line-every-25-paths-pass 0 '^progress: 209 of 435 user paths done, about 15 min left$' '^log: progress: 209 of 435 user paths done, about 15 min left$' '^state: \{"done": 209, "total": 435, "left_min": 15, "finished": false\}$' '^lines: 15$' -- $JPC ticks
+ctl journeys-progress-line-every-minute-catch 0 '^lines after 160 s: 2$' -- $JPC by-minute
+ctl journeys-progress-pace-kept-for-next-run-pass 0 '^pace row: new	10	60$' '^finished: True$' '^next start: about 10 min$' -- $JPC finish-keeps-pace
+ctl journeys-progress-counts-markers-in-real-child-pass 0 '^batch 0 rc=0 journeys in output=3$' '^batch 1 rc=0 journeys in output=3$' '^done=6$' '^live files left: 0$' -- $JPC walk-counts
+ctl journeys-progress-read-line-pass 0 '^Testing now: 212 of 435 user paths done, about 40 min left$' -- $JPC read-line
+ctl journeys-progress-read-over-says-nothing-pass 0 '^\[\]$' -- $JPC read-over
+ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 212 of 435 user paths done, about 40 min left\. Results appear here when they finish\.$' '^terminal: Testing now: 212 of 435 user paths done, about 40 min left' -- $CK prog-box
+ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
+ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
+ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
