@@ -293,7 +293,7 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
-  brief_say
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit "$NJ_CODE"
 }
 # WM1 cold test 2026-11-17: 16 stops, one question each, most answered with the recommendation. Auto mode parks the stops
@@ -320,7 +320,7 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   rm -f "$WORK/state/running"
   cockpit_regen
   say "STOP    auto: $(grep -c '^<!-- parked at' "$WORK/NEEDS-JUDGMENT.md") parked item(s) to answer in one round (exit $code), see $WORK/NEEDS-JUDGMENT.md"
-  brief_say
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit "$code"
 }
 
@@ -2114,7 +2114,7 @@ main() {
     if [ "$s" != fetch ]; then resolve_app; fi
     run_step "$s"
   done
-  [ -z "$ONLY" ] || { park_finish; brief_say; exit 0; }
+  [ -z "$ONLY" ] || { park_finish; brief_say || true; exit 0; }
   # rung 2 (steps/upgrade.md rule: 10.24 first, then 11): the same pipeline, new app of rung 1 is the old app of rung 2
   if [ -n "$TARGET2" ]; then
     say "rung 2   $TARGET -> $TARGET2 in $WORK/rung2"
@@ -2136,7 +2136,7 @@ main() {
     exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi
   park_finish
-  brief_say
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit 0
 }
 main
