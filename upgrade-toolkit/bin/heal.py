@@ -24,8 +24,9 @@ Classes (every failing row gets exactly one):
                    entity: seedname_fix.py makes the seeded entity/member names valid on both sides, owner note written
                    (heal-gate-notes.txt, gate-notes-effective.txt).
   test-setup       the harness, not the app: a runner that did not run (rerun), a button that exists only for a selected
-                   row (a row-select step is inserted), a known harness log line (accepted with its reason), or a failure
-                   the old app has too (listed, no heal).
+                   row (a row-select step is inserted), a known harness log line (accepted with its reason), a known
+                   platform line at its one-time count (PLATFORM_LOG, accepted with its reason), or a failure the old app
+                   has too (listed, no heal).
   real-regression  the old app passes and the new one does not, or data/log rows were lost or a new ERROR appeared. No heal.
   likely-real      anything the rules above could not explain, and any heal that did not work. No heal.
 """
@@ -47,6 +48,15 @@ HARNESS_LOG = [
      "pattern": "WARNING Configuration: Using derived value for ClusterManagerActionInterval*",
      "needs": "the harness starts every app with SessionTimeout {timeout} ms (runapp.py UPG_SESSION_TIMEOUT) and the line itself names SessionTimeout",
      "reason": "test harness: runapp.py starts every app with SessionTimeout {timeout} ms, so the runtime derives the cluster action interval; production sets its own"},
+]
+# A new ERROR the PLATFORM writes once on the first start of a version jump, over a database copied from the old app (not
+# app code). Accepted only at its known count; a line that repeats stays open. Each entry carries why that holds.
+PLATFORM_LOG = [
+    # cold WM1 and cold rfq rung 2 (10.24 -> 11): 11 has no System action MigrateOldFiles; the copied database holds a
+    # queued run of it marked running by a 10.24 node that is gone, and the runtime fails it once when it reschedules
+    {"match": re.compile(r"^1x ERROR TaskQueue: Failed to execute task 'ClusterManagement-MigrateOldFiles\(\)'"),
+     "needs": "once, on the first start of Mendix 11 over a 10.24 database copy (playbooks/10-to-11.md)",
+     "reason": "platform: Mendix 11 dropped the System action ClusterManagement-MigrateOldFiles; the copied 10.24 database holds a queued run of it and the runtime fails it once at reschedule (no app code)"},
 ]
 SELECT_GATED = re.compile(r"\$currentObject/[\w.]+\s*!=\s*empty")
 EMPTY_LIST = re.compile(r"(no (items|data|results|rows|records)( found)?|showing 0|0 of 0|nothing to show)", re.I)
@@ -191,6 +201,11 @@ class Run:
     def log_row(self, r):
         c, det = r["check"], r["detail"]
         id_ = "log:" + c + ":" + re.sub(r"\W+", "_", det)[:48]
+        for h in PLATFORM_LOG:
+            if c == "log.new_error" and h["match"].search(det):
+                return self.row(id_, c, "test-setup", f"known platform line: {h['needs']}",
+                                heal="allow line written to heal-allow.txt, accepted with its reason", kind="allow",
+                                allow=f"{c} {allow_pattern(det)} # {h['reason']}")
         if c.endswith(("NEW_ERROR", "NEW_CRITICAL")) or det.startswith(("ERROR", "CRITICAL")):
             return self.row(id_, c, "real-regression", f"a new error signature after the upgrade: {det[:200]}")
         timeout = os.environ.get("UPG_SESSION_TIMEOUT", "30000")

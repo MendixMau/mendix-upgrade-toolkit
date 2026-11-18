@@ -7013,6 +7013,26 @@ ctl heal-unknown-log-line-stays-open-catch 0 'Something_else_changed => likely-r
 python3 $here/lib/mkheal.py $HL/h3 && sed -i.bak 's/^- PASS Shop.Other: same$/- REVIEW log.start.NEW_WARNING: WARNING Configuration: Using derived value for ClusterManagerActionInterval (# ms) based on SessionTimeout\n&/' $HL/h3/diff.md \
   && python3 $B/heal.py plan --work $HL/h3 --round 1 > $HL/plan3.out 2>&1
 ctl heal-cluster-interval-harness-line-pass 0 '^WARNING Configuration: Using derived value for ClusterManagerActionInterval\* # test harness: .*SessionTimeout' -- cat $HL/h3/heal-log-allow.txt
+# cold WM1 + cold rfq (10.24 -> 11): the runtime fails a queued run of the dropped System action MigrateOldFiles once on
+# the first start over the copied database (log.new_error FAIL, open in auto mode); accepted at 1x, a repeat stays open
+mig="ERROR TaskQueue: Failed to execute task 'ClusterManagement-MigrateOldFiles()' from task queue 'System.ScheduledEventsQueue'."
+for hn in 1 2; do
+  python3 $here/lib/mkheal.py $HL/m$hn && python3 -I -c "import sys; p=sys.argv[1]; s=open(p).read(); open(p,'w').write(s.replace('- PASS Shop.Other: same\n', '- FAIL log.new_error: '+sys.argv[2]+'x '+sys.argv[3]+'\n- PASS Shop.Other: same\n', 1))" $HL/m$hn/diff.md $hn "$mig" \
+    && python3 $B/heal.py plan --work $HL/m$hn --round 1 > $HL/planm$hn.out 2>&1
+done
+hclsm() { python3 -I -c "
+import json,sys
+for r in json.load(open(sys.argv[1]))['rows']:
+    if r['id']==sys.argv[2]: print(r['id'], '=>', r['class'], '/', r['heal_kind'], '/', r['evidence'])" "$HL/m$1/heal.json" "$2"; }
+ctl heal-platform-migrate-once-accepted-catch 0 '_Cluste => test-setup / allow / known platform line: once, on the first start of Mendix 11' -- hclsm 1 'log:log.new_error:1x_ERROR_TaskQueue_Failed_to_execute_task_Cluste'
+ctl heal-platform-migrate-allow-line-pass 0 "^log\.new_error 1x ERROR TaskQueue: Failed to execute task 'ClusterManagement-MigrateOldFiles\(\)' from task queue 'System\.ScheduledEventsQueue'\. # platform: Mendix 11 dropped" -- cat $HL/m1/heal-allow.txt
+ctl heal-platform-migrate-repeat-stays-open-pass 0 '_Cluste => likely-real / None /' '!test-setup' -- hclsm 2 'log:log.new_error:2x_ERROR_TaskQueue_Failed_to_execute_task_Cluste'
+ctl heal-platform-migrate-allow-matches-row-pass 0 '^ok: matches 1x, not 2x$' -- python3 -I -c "
+import fnmatch,sys
+ln=[l for l in open(sys.argv[1]) if l.startswith('log.new_error ')][0].split(' # ')[0]
+c,_,p=ln.partition(' ')
+m=[fnmatch.fnmatch(n+'x '+sys.argv[2], p) for n in ('1','2')]
+print('ok: matches 1x, not 2x' if m==[True,False] else m)" $HL/m1/heal-allow.txt "$mig"
 ctl heal-effective-allow-has-both-pass 0 '^# written by heal.py' 'Shop\.Item\.changedDate' -- cat $HL/h1/allow-effective.txt
 ctl heal-no-test-data-seed-catch 0 'journey:j-empty => no-test-data / seed / the page Shop\.Empty shows an empty list' -- hcls journey:j-empty
 ctl heal-seed-entity-in-plan-pass 0 '"Shop\.Thing"' '!Shop\.Item"' -- sh -c "sed -n '/\"seed\"/,/\]/p' $HL/h1/heal-plan.json"
