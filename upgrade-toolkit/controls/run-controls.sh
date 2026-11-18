@@ -3135,6 +3135,18 @@ ctl setup-playwright-skip-nextstep-catch 0 'NEXT-STEP: Chromium not installed .*
 ctl setup-playwright-skip-no-npx-pass 1 -- test -e $SC/mac-pws/npx.log
 ctl setup-playwright-cloud-pass 0 '!installing Chromium' '!NEXT-STEP' -- macsetup mac-pwc UPG_PW_OPT=$SC/haspw UPG_SETUP_STEPS=playwright
 ctl setup-playwright-cloud-no-npx-pass 1 -- test -e $SC/mac-pwc/npx.log
+# a fresh container has no rsync and mxcli's Makefile needs it: "make: rsync: No such file or directory", exit 2 (found 2026-11-18, step 5 ran before the rsync install of step 7)
+MR=$T/mrs; mkdir -p $MR; cp -a $MAC/. $MR/
+printf '#!/bin/sh\ncommand -v rsync >/dev/null || { echo "make: rsync: No such file or directory" >&2; exit 2; }\n' > $MR/make; sed -n '2,$p' $MAC/make >> $MR/make
+printf '#!/bin/sh\necho "apt-get $*" >> "$HOME/apt.log"\ncase "$*" in *install*) printf "#!/bin/sh\\n" > '$MR'/rsync; chmod +x '$MR'/rsync;; esac\nexit 0\n' > $MR/apt-get; chmod +x $MR/make $MR/apt-get
+mrsetup() { local h=$1; shift; mkdir -p $SC/$h/.local/bin; env HOME=$SC/$h PATH=$MR:$NM MXCLI_SRC=$SC/mxsrc UPG_PYTHON=$T/py-ok FAKE_UNAME=Linux "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
+ctl setup-rsync-before-mxcli-build-catch 0 'rsync installed' '!make: rsync' -- mrsetup mr-fresh UPG_SETUP_STEPS=mxcli
+ctl setup-rsync-before-mxcli-build-make-ran-pass 0 '^GOOS=linux GOARCH=amd64 build ' -- cat $SC/mr-fresh/make.log
+ctl setup-rsync-before-mxcli-apt-once-pass 0 '^apt-get update -q$' '^apt-get install -y -q rsync$' -- cat $SC/mr-fresh/apt.log
+printf '#!/bin/sh\n' > $MR/rsync; chmod +x $MR/rsync
+ctl setup-rsync-present-no-apt-pass 0 '!rsync installed' -- mrsetup mr-has UPG_SETUP_STEPS=mxcli
+ctl setup-rsync-present-no-apt-log-pass 1 -- test -e $SC/mr-has/apt.log
+rm -f $MR/rsync
 mkdir -p $SC/tc-home
 ctl toolcheck-host-chromium-warn-catch 0 'WARNING, no Chromium for Playwright .*cd ~/mendix-playwright && npx --yes playwright@1\.56\.1 install chromium' 'host OK' '!REFUSED' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/nopw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 ctl toolcheck-host-chromium-pass 0 'host OK' '!Chromium' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/haspw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
