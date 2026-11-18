@@ -195,7 +195,9 @@ PATCHES = [
      "      const el = w(a.widget);\n      await el.waitFor(",
      "      const el = await V.topmost(page, a.widget, a.near, a.unassigned ? { has: a.has } : null);\n      await el.waitFor("),
     # PR-F42: an information or warning message box over the widget is answered with OK, as its user would; the
-    # message is logged. Anything else still covering it stays the finding
+    # message is logged. Anything else still covering it stays the finding, and names the dialog it is: an error box's
+    # underlay read only "covered by .mx-underlay", and the cause ("Could not get information from <service>", an
+    # outside service the sandbox does not reach) was in the screenshot alone (17 FAILs on the old app, cold run 4)
     ("click: OK on a message box that covers the widget (PR-F42)",
      "      if (cover)\n        throw new Error(`.mx-name-${a.widget} is covered by",
      "      for (let k = 0; cover && k < 3; k++) {\n"
@@ -204,7 +206,8 @@ PATCHES = [
      "        console.log(`    ack: OK on the message \"${said.slice(0, 100)}\" over .mx-name-${a.widget}, as its user would`);\n"
      "        cover = await V.cover(el);\n"
      "      }\n"
-     "      if (cover)\n        throw new Error(`.mx-name-${a.widget} is covered by"),
+     "      const under = cover ? await V.openDialog(page, 0) : null;\n"
+     "      if (cover)\n        throw new Error((under ? `open dialog ${under}; ` : '') + `.mx-name-${a.widget} is covered by"),
     # E5b-21 / E7-3: switches, native drop-downs and reference selectors, confirmation dialogs
     ("act: toggle/switch, select/reference/dropdown, row, menu, confirm (E7-3, E2E-10, PR-F35)",
      "    case 'dismissModal': await H.dismissModal(page); break;",
