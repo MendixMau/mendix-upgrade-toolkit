@@ -96,6 +96,10 @@ with version tables; the scripts find it the same way).
    mpr path resolves; E6-4) then ALWAYS `python3 $B/scancover.py $W/findings.json`. NO COVERAGE (exit 1) means the scanner checked nothing for
    this rung (its catalog holds Mendix 11 blockers only); do the manual checks it prints instead. For 9 to 10 that
    includes `python3 $B/javafinal.py app/` (final Java action parameters, a javac error that mx check misses).
+   For an 11 target the pipeline also runs `python3 $B/repair/missing_deps.py app/ --target <ver>` here: Charts 3.x
+   widgets (DEPRECATED-11, listed per module) build but fail at runtime on 11, and the build stops on them after the
+   convert and the updates (cold run 4: 16 min later). Write the route per module in `$W/charts11.txt` (own pages:
+   Charts 6.x on the 10.24 rung; a Marketplace module's demo pages: update, remove or exclude the module).
 7. Brain field notes for the versions on the path:
    `grep -rl "topic: upgrade" $BR/internal | grep -v -e '/_snapshot-' -e '/_prefix' | xargs grep -l "versions:.*<major.minor>"`
    Frontmatter `applies_to` says what kind of note it is; `versions` says where it is valid. A note outside its range
