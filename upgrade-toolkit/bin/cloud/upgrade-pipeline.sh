@@ -1830,7 +1830,17 @@ step_diff() {
   local kv=("WORK=$WORK" "GATE_DIR=$WORK" "BUILD_LOG=$WORK/build-$TARGET.log" "OLD_MDA=$(mda_old)" "NEW_MDA=$(mda_new)")
   # GATE_DIR=$WORK: the evidence names stay as before and the screens rung finds $WORK/smoke-after-shots (afterwalk's)
   local allowf=allow.txt logallowf=log-allow.txt
-  # the heal step's own lists (the person's file plus the rows the evidence accepted) replace the plain ones
+  # the heal step's own lists (the person's file plus the rows the evidence accepted) replace the plain ones; they are
+  # rebuilt here from the two sources, so a line written to allow.txt at a diff stop counts on `--from diff` without a heal rerun (TLT rung 2)
+  local nm t
+  for nm in allow log-allow; do
+    [ -f "$WORK/$nm-effective.txt" ] || [ -f "$WORK/heal-$nm.txt" ] || continue
+    : > "$WORK/$nm-effective.txt.new"
+    for t in "$WORK/$nm.txt" "$WORK/heal-$nm.txt"; do
+      [ ! -f "$t" ] || { cat "$t"; [ -z "$(tail -c1 "$t")" ] || echo; } >> "$WORK/$nm-effective.txt.new"
+    done
+    mv "$WORK/$nm-effective.txt.new" "$WORK/$nm-effective.txt"
+  done
   [ ! -f "$WORK/allow-effective.txt" ] || allowf=allow-effective.txt
   local notesf=gate-notes.txt; [ ! -f "$WORK/gate-notes-effective.txt" ] || notesf=gate-notes-effective.txt   # the person's notes plus the heal's behaviour-change lines
   [ ! -f "$WORK/log-allow-effective.txt" ] || logallowf=log-allow-effective.txt
