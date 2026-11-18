@@ -61,6 +61,13 @@ if a[0] == "describe":
         if "/orig/" in mpr and qn == "Other.A_B":
             print(f"mdl 1;\ncreate or modify association {qn}\nfrom Other.X to Target.Y;")
         sys.exit(0)
+    acc = {"Accmod.Acct": {"ours": "grant read (Name, Emp_Acct) on entity Accmod.Acct to Accmod.User;",
+                           "base": "grant read (Name) on entity Accmod.Acct to Accmod.User;"},
+           "Holdmod.H": {"ours": "grant read (Name, Secret, Emp_H) on entity Holdmod.H to Holdmod.User;",
+                         "base": "grant read (Name) on entity Holdmod.H to Holdmod.User;"}}.get(qn, {}).get(side)
+    if kind == "entity" and acc:
+        print(f"mdl 1;\ncreate or modify entity {qn} (\n  Name: String\n);\n{acc}")
+        sys.exit(0)
     if kind == "entity" and qn == "Other.X":
         print("create or modify entity Other.X (\n);\ngrant read (A_B, Name), write (A_B) on entity Other.X to Other.User;\ngrant read (Name) on entity Other.X to Other.Guest;")
         sys.exit(0)
@@ -148,6 +155,29 @@ case "${1:-}" in
         python3 -c "import json,sys; [print('routes:', x['module'], x['route']) for x in json.load(open(sys.argv[1])) if x['module'] in ('Cosmo','Uimod')]" "$W/edit-routes.json"
         sed 's/^/route-plan.txt: /' "$W/route-plan.txt"
         python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?" ;;
+  access) # cold rfq: the update refused an entity whose only difference is a grant member, an association another module
+        # owns into it; a second entity also reads an attribute the package lacks (a real edit)
+        O=$T/acc/orig; mkdir -p "$O"
+        cat > "$T/acc.json" <<'J'
+{"modules": [{"name": "Accmod", "entities": [{"name": "Acct", "persistent": true}]},
+             {"name": "Holdmod", "entities": [{"name": "H", "persistent": true}]},
+             {"name": "Emp", "entities": [{"name": "E", "persistent": true}],
+              "cross": [{"name": "Emp_Acct", "parent": "E", "child": "Accmod.Acct"}, {"name": "Emp_H", "parent": "E", "child": "Holdmod.H"}]},
+             {"name": "Demo", "entities": [{"name": "D", "persistent": true}],
+              "cross": [{"name": "Demo_Acct", "parent": "D", "child": "Accmod.Acct"}]}]}
+J
+        python3 "$B/../controls/lib/mkmodel.py" "$T/acc.json" "$O" > /dev/null
+        rm -f "$S"/step*; n=1; refuse 1 Accmod "ENTITY Acct"; n=2; refuse 2 Holdmod "ENTITY H"
+        printf 'Accmod local edits refuse the update\nHoldmod local edits refuse the update\n' > "$S/kept.txt"
+        printf '7 2.0.0 Accmod\n7 2.0.0 Holdmod\n' > "$W/plan.txt"
+        python3 - "$W/localedits.json" <<'PY'
+import json, sys
+json.dump([{"name": m, "cid": 7, "version": "1.0.0", "domain": [{"change": "CHANGED", "kind": "entity", "name": m + ".X",
+           "detail": "access rules (security, not data; lost on update)"}], "ui": [], "logic": []} for m in ("Accmod", "Holdmod")],
+          open(sys.argv[1], "w"))
+PY
+        python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$O/App.mpr" --plan "$W/plan.txt"; echo "rc=$?"
+        for f in route-plan.txt force-ui.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
   gate) python3 - "$B" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
