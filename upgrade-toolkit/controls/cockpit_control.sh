@@ -262,6 +262,16 @@ PY
             ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
   prog-other-step) chkw heal; printf '{"label":"new","done":212,"total":435,"left_min":40,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
             ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  # issue 24: the stop the pipeline writes for a module an update needs and the app lacks (the stop text is missing_module_stop.py's real output)
+  p24-stop) mkdir -p "$T/p24"; git -C "$T/p24" init -q; git -C "$T/p24" config user.email t@t; git -C "$T/p24" config user.name t
+            printf 'binary page' > "$T/p24/u"; git -C "$T/p24" add -A; git -C "$T/p24" commit -qm init; printf 'x UserCommons.SNIP_Header y' > "$T/p24/u"; git -C "$T/p24" commit -qam "step: Atlas_Core 4.7.0 (x)"
+            python3 "$here/lib/mkmodel.py" "$here/fixtures/models/missing-deps.json" "$T/p24/m" > /dev/null
+            python3 "$B/repair/missing_deps.py" --catalog "$here/fixtures/catalog/catalog.json" "$T/p24/m" > "$T/p24/deps.txt" 2>/dev/null
+            printf '1 4.7.0 Atlas_Core\n' > "$T/p24/plan.txt"
+            python3 "$B/repair/missing_module_stop.py" "$T/p24/deps.txt" "$T/p24/plan.txt" --app "$T/p24" > "$T/p24/out.txt"
+            mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
+            sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
+            ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'

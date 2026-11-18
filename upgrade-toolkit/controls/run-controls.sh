@@ -698,6 +698,17 @@ ctl missing-deps-target-pass 1 '!above target' -- python3 $B/repair/missing_deps
 # pipeline run 3 (T7-29): Charts 3.x widgets build on 11 but fail at runtime: DEPRECATED-11 before the 11 rung, quiet below 11
 ctl missing-deps-charts3-11-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.PieChart.PieChart: used 1x in Account_Overview' '!MISSING' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3)
 ctl missing-deps-charts3-10-pass 0 '!DEPRECATED-11' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $(model charts3)
+# issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
+MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
+ctl missing-module-stop-names-module-and-version-catch 0 '^Q	The update of Atlas_Core needs a module this app does not have: UserCommons\.' '^O	install\|Install UserCommons 2\.4\.0 from the Marketplace\|.*mxcli marketplace install 223053 --version 2\.4\.0' '^R	install$' '^exit 1$' -- $MMC update-introduced $MMA
+ctl missing-module-stop-offers-keep-old-version-catch 0 '^O	keep\|Keep the old version of Atlas_Core\|Revert its update \(git revert [0-9a-f]+\)' '^B	  UserCommons: Marketplace content 223053, version 2\.4\.0; introduced by Atlas_Core 4\.7\.0 \(' -- $MMC update-introduced $MMA
+ctl missing-module-stop-says-nothing-is-installed-pass 0 'Nothing is installed until you say so\.' -- $MMC update-introduced $MMA
+ctl missing-module-above-target-recommends-keep-catch 0 '^R	keep$' '^B	  UserCommons: .*NOT usable on the target' '!--version 2\.4\.0' -- $MMC above-target $MMA
+ctl missing-module-already-dangling-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC already-dangling $MMA
+ctl missing-module-acked-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC acked $MMA
+ctl missing-module-nothing-missing-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC nothing-missing $MMA
+ctl missing-module-no-git-history-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC no-git $MMA
+ctl cockpit-missing-module-stop-is-the-card-catch 0 '^The update of Atlas_Core needs a module this app does not have: UserCommons' '^We recommend: Install UserCommons 2\.4\.0 from the Marketplace$' '^question cards: 1$' '!Nothing you can answer here' -- bash $here/cockpit_control.sh p24-stop
 ctl widget-descriptor-catch 1 'BROKEN.*data descriptor missing' -- python3 $B/repair/missing_deps.py $M/widget-descriptor
 ctl widget-crc-catch 1 'BROKEN' -- python3 $B/repair/missing_deps.py $M/widget-crc
 
