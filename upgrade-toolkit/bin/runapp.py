@@ -25,7 +25,7 @@ Env:
                    Both layouts are found: runtime-<ver>/runtime/launcher/runtimelauncher.jar, and the tarball as it
                    unpacks, runtime-<ver>/<full version>/runtime/launcher/... (E5b-2). <runtime-version> may be the short
                    (10.24.16) or the full form (10.24.16.96987, as mxversion.py prints it) (E5b-31).
-  RT_IMAGE         Java image (default: by Mendix version, 9 and 10.0 to 10.6 -> eclipse-temurin:11-jdk, 10.7 and up -> eclipse-temurin:21-jdk)
+  RT_IMAGE         Java image (default: by Mendix version, 9 and 10.0 to 10.9 -> eclipse-temurin:11-jdk, 10.10 and up -> eclipse-temurin:21-jdk)
   XMX              runtime heap (default 1g)
   PORT_OFF         admin port 8090+PORT_OFF, app port 8080+PORT_OFF (default 0; controls use 800 -> 8890/8880)
   CONST_OVERRIDES  JSON {"Module.Constant": "value"}, or the path of a file holding it: give old and new runs the SAME
@@ -92,8 +92,8 @@ def image_for(rtv):
     if os.environ.get("RT_IMAGE"):
         return os.environ["RT_IMAGE"]
     parts = rtv.split(".")
-    # CHK-1: the 10.6 runtime stops with "Java 11 is required"; 10.7 to 10.23 are not field-tested and keep the default
-    if parts[0] in ("7", "8", "9") or (parts[0] == "10" and len(parts) > 1 and int(parts[1]) <= 6):
+    # CHK-1, DVS: the 10.6 and the 10.9 runtime stop with "Mendix required Java 11"; 10.10 to 10.23 are not field-tested and keep the default
+    if parts[0] in ("7", "8", "9") or (parts[0] == "10" and len(parts) > 1 and int(parts[1]) <= 9):
         return "eclipse-temurin:11-jdk"
     return "eclipse-temurin:21-jdk"
 

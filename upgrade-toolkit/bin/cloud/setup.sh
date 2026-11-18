@@ -98,7 +98,7 @@ need_mx9() { [ "$SRC_MAJOR" = 9 ]; }
 # and bin/mono-shim.sh on its toolset (step toolsets).
 need_mono() { [ "$SRC_MAJOR" = 9 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -lt 20 ]; }
 # Java 11 variant (mig-mx10-j11, CHK-1): a 10.0 to 10.6 source has Gradle 7.6 in its mxbuild (dies on JDK 21) and a runtime that wants Java 11; mx10.sh picks the image.
-need_j11() { [ "$SRC_MAJOR" = 10 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -le 6 ]; }
+need_j11() { [ "$SRC_MAJOR" = 10 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -le 23 ]; }  # 10.9 bundles Gradle 7.6.3 as 10.6 does (DVS); 10.24 has Gradle 8.5
 base_images() {
   echo "eclipse-temurin:21-jdk postgres:16"
   if need_mx9 || need_j11; then echo "eclipse-temurin:11-jdk"; fi
