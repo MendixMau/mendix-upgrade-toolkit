@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Old 10.x app: a toolset that bundles Gradle 7 (10.9) builds in the Java 11 image like 10.6, and the 10.9 runtime runs on Java 11 (run DVS).
 - NO-SIGNOUT evidence: a sign-out button in a layout no reachable page renders in is not sign-out UI (#62; run SNOW).
 - Baseline: a demo snapshot with no rows for the app's tables falls back to synthetic seed rows (#63; run STOR).
 - Baseline: wrong-case SCSS imports of the old app are fixed before its Linux build, repair row 11 (#64; run LDMS).
