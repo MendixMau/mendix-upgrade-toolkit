@@ -1564,7 +1564,7 @@ def brief(work, model, rows, g, tl):
             i = qs[0]
             act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
             rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
-            act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call."
+            act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call." + (f" {i['norec_why']}" if i.get("norec_why") else "")
             if i["kind"] == "signoff":
                 act["rec"] = "We recommend: approve, once the other answers are in."
         else:
@@ -2613,6 +2613,8 @@ def h_questions(model, matrix=None, cases_=None):
             why = why[len(rl) + 1:].strip()
             why = why[:1].upper() + why[1:]
         rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 and not cs.get("options") else ""
+        if i.get("norec_why") and not rl:
+            rec = f'<p class="qrec"><b>No recommendation:</b> this one is your call. {E(i["norec_why"])}</p>'
         if cs:   # a case written by the agent replaces the generic context: the case says what is wrong, shows it, and why
             ctx = h_case(cs)
         dlgs.append(f'<dialog class="qdlg{" wide" if cs else ""}" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '

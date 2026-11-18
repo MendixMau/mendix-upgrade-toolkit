@@ -446,8 +446,8 @@ def running(work, now=None):
 def stop_meta(body):
     """The lines nj_meta writes under a stop section's heading: owner, question, recommended, option (key|label|what it does).
     A section without them is owner "" and is read as before."""
-    m = re.match(r"((?:(?:owner|question|recommended|option): .*\n)+)\n?", body)
-    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "options": [], "body": body}
+    m = re.match(r"((?:(?:owner|question|recommended|why|option): .*\n)+)\n?", body)
+    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "why": "", "options": [], "body": body}
     if not m:
         return out
     out["body"] = body[m.end():]
@@ -459,6 +459,8 @@ def stop_meta(body):
             out["question"] = v.strip()
         elif k == "recommended":
             out["rec"] = v.strip()
+        elif k == "why":   # no recommendation exists; this is the reason it is the reader's call
+            out["why"] = v.strip()
         elif k == "option":
             p = [x.strip() for x in v.split("|", 2)]
             if len(p) == 3 and p[0] and p[1]:
@@ -562,7 +564,7 @@ def build_model(work):
             if mt["owner"] == "person" and mt["question"] and mt["options"]:
                 add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
                      "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
-                     "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"],
+                     "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"], "norec_why": mt["why"],
                      "options": [{"key": o[0], "label": o[1], "causes": o[2]} for o in mt["options"]]})
                 continue
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
