@@ -3086,6 +3086,25 @@ ctl setup-mirror-credentials-nocurl-pass 1 -- grep -q s3cr3t $SC/curl.log
 ctl setup-auth-run-pass 0 '!pat-XYZ' -- setup home-au PATH=$SC/bin:$NR MENDIX_PAT=pat-XYZ UPG_SETUP_STEPS=auth
 ctl setup-auth-stdin-catch 0 '^argv: auth login$' '^stdin: pat-XYZ$' '!argv: .*pat-XYZ' -- cat $SC/mxcli.log
 ctl setup-check-refused-catch 1 'REFUSED, python modules missing for /fake/python3: pymongo' 'NOT READY: toolcheck\.sh --host refused' '!done: source' -- setup home-rf PATH=$SC/bin2:$NR UPG_PYTHON=$T/py-nobson UPG_SETUP_STEPS=host,check
+# cold rfq run on a Mac: cloud/setup.sh crashed in the mxcli step. retry logged "$1 $2" under set -u, and a one-word
+# call (retry mxcli_checkout) died on "$2: unbound variable"; MXCLI_SRC defaulted to /opt/mendixlabs, which a non-root
+# user can't create. Both functions are sourced straight out of setup.sh.
+CS=$T/cloudsetup; mkdir -p $CS/home $CS/ro; chmod 555 $CS/ro
+awk '/^log\(\) /; /^retry\(\) \{/,/^\}/; /^mxcli_src_default\(\) \{/,/^\}/' $B/cloud/setup.sh > $CS/fns.sh
+ctl cloudsetup-retry-oneword-catch 1 'retry in 2s: false' 'retry in 8s: false' '!unbound variable' -- bash -c "set -euo pipefail; sleep() { :; }; . $CS/fns.sh; retry false"
+ctl cloudsetup-mxcli-src-readonly-catch 0 "^$CS/home/mendixlabs/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/ro"
+ctl cloudsetup-mxcli-src-writable-pass 0 "^$CS/rw/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/rw"
+# same run: step_mxcli rm -f'd a binary that didn't report the pinned ref (a Linux build on a Mac never does), and with
+# mxcli-bin linked to another run's tools it deleted that run's binary. Fake git and sleep keep the step offline and fast.
+mkdir -p $CS/bin $CS/other $CS/link/tools $CS/own/tools/mxcli-bin
+printf '#!/bin/sh\nexit 1\n' > $CS/bin/git; printf '#!/bin/sh\nexit 0\n' > $CS/bin/sleep
+printf '#!/bin/sh\necho "mxcli version other-build"\n' > $CS/other/mxcli; cp $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli
+chmod +x $CS/bin/* $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli; ln -sfn $CS/other $CS/link/tools/mxcli-bin
+cloudsetup() { local r=$1; env HOME=$CS/home PATH=$CS/bin:$PATH MXCLI_SRC=$CS/src bash $B/cloud/setup.sh --run-dir $r --source 9.24.10.18073 --target 10.24.28.129343 --only mxcli; }
+ctl cloudsetup-mxcli-link-refused-catch 1 'REFUSED, .*/link/tools/mxcli-bin is a link' 'FAILED mxcli' -- cloudsetup $CS/link
+ctl cloudsetup-mxcli-link-kept-pass 0 'other-build' -- $CS/other/mxcli
+ctl cloudsetup-mxcli-stale-aside-catch 1 'moved to .*/own/tools/mxcli-bin/mxcli\.not-' -- cloudsetup $CS/own
+ctl cloudsetup-mxcli-stale-kept-pass 0 'other-build' -- sh -c "cat $CS/own/tools/mxcli-bin/mxcli.not-*"
 rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2

@@ -29,7 +29,7 @@ retry() {
   local d
   for d in 2 4 8; do
     "$@" && return 0
-    log "retry in ${d}s: $1 $2"
+    log "retry in ${d}s: $1 ${2:-}"   # one-word calls (retry mxcli_checkout) have no $2 under set -u
     sleep "$d"
   done
   "$@"
@@ -77,7 +77,7 @@ RUN=$(cd "$RUN" && pwd)
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 TK=$HOME/Mendix/mxcli-project-toolkit/upgrade-toolkit
 MXCLI=$RUN/tools/mxcli-linux
-MXCLI_SRC=${MXCLI_SRC:-/opt/mendixlabs/mxcli}
+MXCLI_SRC=${MXCLI_SRC:-}   # empty: mxcli_src_default picks it in step_mxcli
 # default: 78bdfa5, the build the pipeline ran on. v0.28.0 is blocked (SETUP.md, "Known problem of v0.28.0")
 MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
 MXCLI_VER=$MXCLI_REF; [[ $MXCLI_REF =~ ^[0-9a-f]{40}$ ]] && MXCLI_VER=${MXCLI_REF:0:7}   # a full commit id reports as its 7-digit form
@@ -194,6 +194,12 @@ step_cacert() { log "no CA bundle at $CA_BUNDLE: container Marketplace calls wil
 
 # The built binary must be the pinned ref: a binary built from HEAD earlier (or from another MXCLI_REF) is rebuilt.
 mxcli_is_ref() { "$1" --version 2>/dev/null | head -1 | grep -qE "(^| )${MXCLI_VER//./\\.}( |\$)"; }
+# /opt is root-only on macOS and for a non-root user (cold rfq run: "mkdir: /opt/mendixlabs: Permission denied"):
+# fall back to the home folder, as setup-container.sh does. $1 is the base folder, /opt/mendixlabs by default.
+mxcli_src_default() {
+  local d=${1:-/opt/mendixlabs}/mxcli
+  if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then echo "$d"; else echo "$HOME/mendixlabs/mxcli"; fi
+}
 mxcli_checkout() {  # the ref (tag, branch or commit) at depth 1 into $MXCLI_SRC
   mkdir -p "$MXCLI_SRC"; [ -d "$MXCLI_SRC/.git" ] || git -C "$MXCLI_SRC" init -q
   git -C "$MXCLI_SRC" remote get-url origin >/dev/null 2>&1 || git -C "$MXCLI_SRC" remote add origin https://github.com/mendixlabs/mxcli
@@ -202,11 +208,20 @@ mxcli_checkout() {  # the ref (tag, branch or commit) at depth 1 into $MXCLI_SRC
 }
 chk_mxcli() { [ -x "$RUN/tools/mxcli-bin/mxcli" ] && [ -L "$MXCLI" ] && [ -e "$MXCLI" ] && [ -L ~/.local/bin/mxcli ] && mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli"; }
 step_mxcli() {
+  # cold rfq run: mxcli-bin linked to another run's tools, and a Linux build that can't report its version on a Mac;
+  # the old rm -f deleted the other run's binary through the link. Never build into a link, never delete a binary.
+  if [ -L "$RUN/tools/mxcli-bin" ]; then
+    log "REFUSED, $RUN/tools/mxcli-bin is a link to $(readlink "$RUN/tools/mxcli-bin"): another run's mxcli is not rebuilt from here"
+    return 1
+  fi
   if [ -x "$RUN/tools/mxcli-bin/mxcli" ] && ! mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli"; then
-    log "mxcli in $RUN/tools/mxcli-bin is not $MXCLI_VER ($("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1)): rebuilding"
-    rm -f "$RUN/tools/mxcli-bin/mxcli"
+    local aside="$RUN/tools/mxcli-bin/mxcli.not-$MXCLI_VER.$(date +%Y%m%d%H%M%S)"
+    log "mxcli in $RUN/tools/mxcli-bin is not $MXCLI_VER ($("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1)): moved to $aside, rebuilding"
+    mv "$RUN/tools/mxcli-bin/mxcli" "$aside"
   fi
   if [ ! -x "$RUN/tools/mxcli-bin/mxcli" ]; then
+    [ -n "$MXCLI_SRC" ] || MXCLI_SRC=$(mxcli_src_default)
+    log "mxcli source: $MXCLI_SRC"
     # GitHub release downloads are 403 at the egress proxy (T1): build from source, at the pinned ref (not HEAD)
     retry mxcli_checkout
     command -v antlr4 >/dev/null 2>&1 || retry python3 -m pip install -q 'antlr4-tools==0.2.2'
