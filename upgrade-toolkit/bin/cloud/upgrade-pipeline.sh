@@ -14,6 +14,8 @@
 #   --only STEP      run just that step (even when done)
 #   --dry-run        print the commands, run nothing
 #   --cockpit        run no step: only regenerate $WORK/COCKPIT.html (needs just --work)
+#   --brief          run no step: print the plain brief (where the upgrade stands, what is broken, what to do now, open
+#                    questions) from the same model as the cockpit's top (bin/brief.py). Also printed at every stop and at the end.
 # Steps, in order: fetch triage baseline basewalk propose convert update build after afterwalk journeys heal diff gate
 # heal (steps/heal.md): classifies every failing row, heals what belongs to the test (start noise, selection-gated buttons, a runner
 # that did not run, outside calls via apimock, known harness log lines) and reruns only the affected journeys, at most 2 rounds.
@@ -50,7 +52,7 @@ ARGS_ORIG=("$@")
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 TK="$(cd "$(dirname "$SELF")/../.." && pwd)"
 APP_ZIP=""; APP_DIR_ARG=""; SOURCE=""; TARGET=""; TARGET2=""; WORK=""; TO=""; VIA=""
-FROM=""; ONLY=""; DRY=0; COCKPIT=0; DB_ARG=""; OLD_MDA=""; SEED_FROM=""
+FROM=""; ONLY=""; DRY=0; COCKPIT=0; BRIEF=0; DB_ARG=""; OLD_MDA=""; SEED_FROM=""
 
 STEPS=(fetch triage baseline basewalk propose convert update build after afterwalk journeys heal apidirect diff gate)
 SMOKE_PW='Smoke-only-1!'
@@ -79,12 +81,17 @@ while [ $# -gt 0 ]; do
     --seed-from) SEED_FROM=${2:-}; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     --cockpit) COCKPIT=1; shift ;;
+    --brief) BRIEF=1; shift ;;
     -h|--help) sed -n 2,41p "$SELF"; exit 0 ;;
     *) usage_die "unknown argument: $1" ;;
   esac
 done
 
 [ -n "$WORK" ] || usage_die "--work is required"
+if [ "${BRIEF:-0}" = 1 ]; then   # step-free: the brief of the cockpit's top, in the terminal
+  [ -d "$WORK" ] || usage_die "no such folder: $WORK"
+  exec python3 "$TK/bin/brief.py" --work "$(cd "$WORK" && pwd)"
+fi
 if [ "$COCKPIT" = 1 ]; then   # step-free: regenerate the cockpit page and stop
   [ -d "$WORK" ] || usage_die "no such folder: $WORK"
   WORK=$(cd "$WORK" && pwd)
@@ -252,6 +259,20 @@ nj_file() { # nj_file CODE "title" FILE [lines] [grep-pattern]: first lines of a
   fi
   nj_add "$1" "$2" "$body"
 }
+# The question of a final check with open rows. Issue 20 (TBUD): "open failures, repair the cause" over 0 regressions. When the
+# Progress line counts 0 regressions nothing failed: the open rows are checks that could not be measured or still need a yes or no,
+# so the recommended answer is to hand them to the owner. No count (an older summary): the old wording, repair first.
+gate_open_nj_meta() { # gate_open_nj_meta REGRESSIONS [NEED_A_DECISION NOT_MEASURED]: the counts of gate-summary.md's Progress line, or empty
+  GATE_OPEN_TITLE="gate.sh: open FAIL / REVIEW / INVALID / NOT RUN (exit $rc: 1 = FAIL, 2 = INVALID or NOT RUN); accept in writing (allow files, steps/gate.md) or repair"
+  if [ "${1:-}" = 0 ]; then
+    GATE_OPEN_TITLE="No regression was found; open rows could not be measured or need a yes or no (exit $rc, gate-summary.md)"
+    local what="Some checks could not be measured or still need a yes or no."
+    [ -z "${2:-}${3:-}" ] || what="${3:-0} checks could not be measured yet and ${2:-0} still need a yes or no."
+    nj_meta person "No regression was found. $what What should we do?" "handoff" "handoff|Hand the open lists to the owner|Nothing is broken for your users; the owner measures or accepts each open row in writing (steps/gate.md)." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended." "repair|Repair a cause, then rerun the final check|Only if an open row turns out to be a real defect."
+  else
+    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."
+  fi
+}
 rerun_cmd() { # the command that resumes at the current step: the run's own --from is dropped so the hint carries exactly one
   local a=() skip=0 v
   for v in ${ARGS_ORIG[@]+"${ARGS_ORIG[@]}"}; do
@@ -272,6 +293,7 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit "$NJ_CODE"
 }
 # WM1 cold test 2026-11-17: 16 stops, one question each, most answered with the recommendation. Auto mode parks the stops
@@ -298,6 +320,7 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   rm -f "$WORK/state/running"
   cockpit_regen
   say "STOP    auto: $(grep -c '^<!-- parked at' "$WORK/NEEDS-JUDGMENT.md") parked item(s) to answer in one round (exit $code), see $WORK/NEEDS-JUDGMENT.md"
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit "$code"
 }
 
@@ -305,6 +328,10 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
 decisions_apply() {
   [ "$DRY" != 1 ] || return 0
   python3 "$B/decisions.py" apply --work "$WORK" >> "$WORK/logs/decisions.log" 2>&1 || true
+}
+brief_say() { # the brief at a stop and at the end of a run: one answer to "what do I do next?", same words as the cockpit's top
+  [ "$DRY" != 1 ] || return 0
+  printf '\n'; python3 "$B/brief.py" --work "$WORK" 2> /dev/null || true; printf '\n'
 }
 cockpit_regen() {
   [ "$DRY" != 1 ] || return 0
@@ -1893,7 +1920,7 @@ step_diff() {
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
   bad=$(grep -E "^\| [0-9]+ \| (${only//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
-    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."; nj_file 12 "gate.sh: open FAIL / REVIEW / INVALID / NOT RUN (exit $rc: 1 = FAIL, 2 = INVALID or NOT RUN); accept in writing (allow files, steps/gate.md) or repair" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
+    gate_open_nj_meta $(sed -n 's/.* \([0-9][0-9]*\) with REGRESSIONS to fix, \([0-9][0-9]*\) need a decision, \([0-9][0-9]*\) not measured yet.*/\1 \2 \3/p' "$WORK/gate-summary.md" 2> /dev/null | head -1); nj_file 12 "$GATE_OPEN_TITLE" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
   fi
   if [ -f "$WORK/heal.json" ]; then   # rows that may be a real defect of the upgrade stay open, with options and a recommendation
     python3 "$B/heal.py" finalize --work "$WORK" > /dev/null 2>&1 || true
@@ -2087,7 +2114,7 @@ main() {
     if [ "$s" != fetch ]; then resolve_app; fi
     run_step "$s"
   done
-  [ -z "$ONLY" ] || { park_finish; exit 0; }
+  [ -z "$ONLY" ] || { park_finish; brief_say || true; exit 0; }
   # rung 2 (steps/upgrade.md rule: 10.24 first, then 11): the same pipeline, new app of rung 1 is the old app of rung 2
   if [ -n "$TARGET2" ]; then
     say "rung 2   $TARGET -> $TARGET2 in $WORK/rung2"
@@ -2109,6 +2136,7 @@ main() {
     exec env "RUN=$RUN" "UPG_PHASE=$(echo "$TARGET2" | cut -d. -f1-3)" "UPG_COCKPIT_OUT=$WORK/COCKPIT.html" "${r2[@]}"
   fi
   park_finish
+  brief_say || true   # the brief is information: it never changes a stop's exit code
   exit 0
 }
 main

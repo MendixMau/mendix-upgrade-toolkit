@@ -7825,6 +7825,29 @@ ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- py
 ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
 
 
+# --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
+# terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end
+ctl term-brief-equals-cockpit-pass 0 'fields on the page: 5 of 5' 'printed paragraphs: 5, off the page: 0' -- $CK term-brief-equal
+ctl term-brief-differs-from-stale-page-catch 0 'not on the page: status, unmeasured' 'off the page: [1-9]' -- $CK term-brief-stale
+ctl term-brief-size-pass 0 '!ok: False' 'ok: True' -- $CK term-brief-size
+ctl term-brief-size-cap-catch 0 'uncapped lines: (9|1[0-9])' -- $CK term-brief-size-uncapped
+ctl term-brief-count-equal-pass 0 'status 6 footer 6 same' '!DIFFERENT' -- $CK term-brief-count
+ctl term-brief-count-split-catch 0 'status 6 footer 6 same' '2 more named: True' '!DIFFERENT' -- $CK term-brief-count-extra
+ctl term-brief-open-questions-pass 0 '^Open questions: 6\. Answer them here or on the cockpit page\.' 'fix \(recommended\): Fix the app' 'pending: open items \(6\)' -- $CK term-brief-pending
+ctl term-brief-flag-pass 0 'rc=0' 'same text as brief.py' -- $CK term-brief-cli
+ctl term-brief-printed-at-stops-pass 0 '^nj_flush: 1$' '^park_finish: 1$' '^main: [12]$' -- $CK term-brief-at-stops
+# issue 20 (TBUD): 0 regressions says so and recommends handing the open rows over; any other count keeps "repair"
+ctl gate-open-zero-regressions-catch 0 'No regression was found\. 57 checks could not be measured yet and 4 still need a yes or no' 'We recommend: Hand the open lists to the owner' '!Repair the cause' -- $CK gate-open-0
+ctl gate-open-regressions-repair-pass 0 'The final check has open failures' 'We recommend: Repair the cause' '!No regression was found' -- $CK gate-open-3
+ctl gate-open-no-count-repair-pass 0 'The final check has open failures' 'We recommend: Repair the cause' -- $CK gate-open-none
+# issue 21 (TBUD): `data <check> *` matched nothing and said nothing; now each such line is named, with the check it probably meant, and the page shows it
+ctl diff-allow-malformed-warns-catch 1 'WARNING allow line 1 matched nothing: data db\.attr\.Administration\.Account\.Email \*' 'did you mean db\.attr\.Administration\.Account\.Email\?' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '## Allow lines that matched nothing' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/malformed.txt
+ctl diff-allow-all-matched-silent-pass 0 '!matched nothing' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt
+ctl diff-allow-unmatched-file-catch 0 'allow line 1 matched nothing' -- sh -c "python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/malformed.txt --md $T/out/allow-md.md > /dev/null 2>&1; cat $T/out/allow-unmatched.txt"
+ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt --md $T/out/allow-md.md > /dev/null 2>&1; [ -e $T/out/allow-unmatched.txt ] && echo stale || echo no file"
+ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
+ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

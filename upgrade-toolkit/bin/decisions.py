@@ -333,23 +333,30 @@ def cmd_apply(a):
     return 0
 
 
-def cmd_pending(a):
-    w = a.work
-    model = cockpitpage.build_model(w)
+def open_items(w, model=None):
+    """The questions still open: the one list the page, the chat (`pending`) and the terminal brief (brief.py) all show."""
+    model = model or cockpitpage.build_model(w)
     last = lastmap(load(w))
     # the page asks only what is neither in the ledger nor already decided by the signed plan (i["decided"]); chat asks the same list
-    open_items = [i for i in model["items"] if not (i["id"] in last) and not i.get("decided") and i["kind"] != "confirmgroup"]   # the group row is only a page heading; its changes are the items
+    return [i for i in model["items"] if not (i["id"] in last) and not i.get("decided") and i["kind"] != "confirmgroup"]   # the group row is only a page heading; its changes are the items
+
+
+def cmd_pending(a):
+    w = a.work
+    open_items_ = open_items(w)
     if a.json:
-        print(json.dumps([{k: i[k] for k in ("id", "kind", "title", "meta", "rec", "options")} for i in open_items], indent=1))
+        print(json.dumps([{k: i[k] for k in ("id", "kind", "title", "meta", "rec", "options")} for i in open_items_], indent=1))
         return 0
-    print(f"open items ({len(open_items)}):")
-    for i in open_items:
+    open_items_.sort(key=lambda i: bool(i.get("unattended")))   # the ones that need a person first
+    own = sum(1 for i in open_items_ if i.get("unattended"))
+    print(f"open items ({len(open_items_)}):" + (f" {len(open_items_) - own} need you, {own} the AI chose on its own (review is optional)" if own else ""))
+    for i in open_items_:
         print(f"\n{i['id']}  {i['title']}")
         print(f"    {i['meta']}")
         if i["kind"] == "signoff":
             print("    sign the plan with the page button (a sign-off is never taken from chat)")
             continue
-        for o in i["options"]:
+        for o in sorted(i["options"], key=lambda o: o["key"] != i["rec"]):   # the recommended option first
             print(f"    {o['key']}{' (recommended)' if o['key'] == i['rec'] else ''}: {o['label']}")
         print(f"    chat: decisions.py add --work {w} --item {i['id']} --choice {i['rec']} --by NAME --source chat")
     return 0

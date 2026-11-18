@@ -100,23 +100,26 @@ def main():
         for l in open(a.module_jumps):
             m, _, v = l.strip().partition(" ")
             if m and v: jumps[m] = v.strip()
-    allow = []
+    allow, allow_at, used = [], [], set()
     if a.allow:
-        for l in open(a.allow):
+        for n, l in enumerate(open(a.allow), 1):
             if l.strip() and not l.startswith("#"):
                 pat, _, why = l.partition("#")
                 cpat, _, dpat = pat.strip().partition(" ")
-                allow.append((cpat, dpat.strip(), why.strip()))
+                allow.append((cpat, dpat.strip(), why.strip())); allow_at.append((n, l.strip()))
     rows = []
 
     def add(check, verdict, detail):
         # WM1 2026-11-17: MendixSSO 4.2 -> 10.6 dropped AuthRequest.Nonce and MxModelReflection 7 -> 9 rewrote its own rows;
         # both read FAIL on the gate card though nothing of the app's data was lost. Only a vendor module's own attribute,
         # and only when the run updated that module; rows lost stay FAIL whatever the module
-        if verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
-            for cpat, dpat, why in allow:
-                if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
-                    verdict, detail = "PASS*", f"{detail} (accepted: {why})"; break
+        hit = None
+        for k, (cpat, dpat, why) in enumerate(allow):
+            if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
+                used.add(k)   # a line that matched a row, whatever its verdict, was read as meant (issue 21)
+                if hit is None: hit = why
+        if hit is not None and verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
+            verdict, detail = "PASS*", f"{detail} (accepted: {hit})"
         mod = check.split(".")[2] if check.startswith("db.attr.") else ""
         if verdict == "FAIL" and mod in jumps and detail.startswith(("column gone", "values changed")):
             verdict, detail = "PASS*", f"{detail} (noted: the {mod} update {jumps[mod]} changed its own attribute, not the app's data)"
@@ -253,6 +256,15 @@ def main():
     elif sb or sa:
         add("log.start", "INVALID", "start window recorded on one side only (re-take the older snapshot with this snapshot.py)")
 
+    # issue 21 (TBUD): `data db.attr.System.User.changedDate *` matched no row and said nothing, so the row stayed FAIL while the person
+    # believed it applied. Every allow line that matched no row is named, with the check it probably meant. No verdict changes.
+    unmatched = []
+    for k, (n, text) in enumerate(allow_at):
+        if k in used: continue
+        mean = next((c for _, c, _ in rows for t in text.split("#")[0].split()
+                     if t not in ("*", "?") and (c == t.rstrip("*") or ("." in t and fnmatch.fnmatch(c, t)))), None)
+        unmatched.append(f"allow line {n} matched nothing: {text.split('#')[0].strip()}" + (f" (did you mean {mean}?)" if mean else
+                         " (the form is <check id> [<detail pattern>] # reason; the check id is the second column of the table)"))
     order = {"INVALID": 0, "FAIL": 1, "REVIEW": 2, "NEW_ENDPOINT": 3, "PASS*": 4, "PASS": 5, "INFO": 6}
     rows.sort(key=lambda r: (order[r[0]], r[1]))
     counts = {k: sum(1 for r in rows if r[0] == k) for k in order}
@@ -272,7 +284,14 @@ def main():
         open(a.emit_allow, "w").write("".join(noise))
         print(f"--emit-allow: {len(noise)} check(s) written to {a.emit_allow}; read each one before the gate uses the file"
               + (f"; {refused} row(s) with no detail to match were NOT written (accept them by hand)" if refused else ""))
-    if a.md:
+    if unmatched:
+        table += "\n## Allow lines that matched nothing\n\n" + "\n".join(f"- {u}" for u in unmatched) + "\n"
+    for u in unmatched:
+        print(f"WARNING {u}", file=sys.stderr)
+    if a.md:   # next to the report, for the cockpit's "Everything else" fold; no stale file when every line matched
+        side = os.path.join(os.path.dirname(os.path.abspath(a.md)), "allow-unmatched.txt")
+        if unmatched: open(side, "w").write("\n".join(unmatched) + "\n")
+        elif os.path.exists(side): os.remove(side)
         open(a.md, "w").write(head + table + "\n## All rows\n\n" + "\n".join(f"- {v} {c}: {d}" for v, c, d in rows) + "\n")
     print(head + table)
     sys.exit(1 if counts["FAIL"] or counts["REVIEW"] else 2 if counts["INVALID"] or counts["NEW_ENDPOINT"] else 0)
