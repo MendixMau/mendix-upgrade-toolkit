@@ -3117,6 +3117,11 @@ awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$
 mkdir -p $CS/tkrun/work; echo 'export TK=/stale/mxcli-project-toolkit/upgrade-toolkit' > $CS/tkrun/env.sh
 ctl pipeline-envsh-tk-ignored-catch 0 '^tk=/own/toolkit$' 'ignoring TK=/stale/mxcli-project-toolkit/upgrade-toolkit from env.sh' -- bash -c "WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
 ctl pipeline-envsh-tk-same-pass 0 '^tk=/own/toolkit$' '!ignoring TK' -- bash -c "echo 'export TK=/own/toolkit' > $CS/tkrun/env.sh; WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+# same run: env.sh's MXCLI was the Linux build; on the Mac -x held, the exec did not (exit 126). It now goes to the container.
+awk '/^mxcli_host_check\(\) \{/,/^\}/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/hostcheck.sh
+printf '#!/bin/sh\nexit 126\n' > $CS/mx-foreign; printf '#!/bin/sh\necho mxcli version 1\n' > $CS/mx-host; chmod +x $CS/mx-foreign $CS/mx-host
+ctl pipeline-mxcli-foreign-container-catch 0 "does not run on this host" "^m=, mxc=$CS/mx-foreign, u=\$" -- bash -c "set -euo pipefail; MXCLI=$CS/mx-foreign; UPG_MXCLI=$CS/mx-foreign; . $CS/hostcheck.sh; mxcli_host_check; echo \"m=\$MXCLI, mxc=\${MXC_MXCLI:-}, u=\${UPG_MXCLI:-}\""
+ctl pipeline-mxcli-host-kept-pass 0 "^m=$CS/mx-host\$" '!does not run' -- bash -c "set -euo pipefail; MXCLI=$CS/mx-host; . $CS/hostcheck.sh; mxcli_host_check; echo m=\$MXCLI"
 rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2

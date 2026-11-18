@@ -173,6 +173,16 @@ PORT_OFF=${PORT_OFF:-0}
 APP_PORT=$((8080 + PORT_OFF)); ADMIN_PORT=$((8090 + PORT_OFF))
 export TK RUN UPG_TOOLS
 export UPG_ROOT="$RUN"
+# cold rfq run on a Mac: env.sh from cloud/setup.sh set MXCLI to the Linux build; -x held, the host could not exec it (triage,
+# exit 126). Such a binary runs in the container (mxcli-container.sh reads MXC_MXCLI); the Python helpers use the host mxcli.
+mxcli_host_check() {
+  [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ] || return 0
+  local rc=0; "$MXCLI" --version >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 126 ] || return 0
+  echo "upgrade-pipeline.sh: $MXCLI does not run on this host ($(uname -s)): mxcli calls go through mxcli-container.sh"
+  export MXC_MXCLI="$MXCLI"; MXCLI=""; unset UPG_MXCLI
+}
+mxcli_host_check
 [ -z "${MXCLI:-}" ] || export UPG_MXCLI="$MXCLI"
 export UPG_EXTRA="${UPG_EXTRA:-}"
 export UPG_MXCLI_STATE="$WORK/state/mxcli-version"   # stepupdate.sh checks it too (bin/mxcli_pin.sh)
