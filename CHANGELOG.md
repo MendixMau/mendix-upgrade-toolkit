@@ -4,6 +4,10 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- NO-SIGNOUT evidence: a sign-out button in a layout no reachable page renders in is not sign-out UI (#62; run SNOW).
+- Baseline: a demo snapshot with no rows for the app's tables falls back to synthetic seed rows (#63; run STOR).
+- Baseline: wrong-case SCSS imports of the old app are fixed before its Linux build, repair row 11 (#64; run LDMS).
+- Journeys: a create-spec nav item can name its position (nth), so an icon-only menu can be walked (#65; run PMNT).
 - Brief: the status sentence and the "Open questions" footer now give the same number (the questions that wait for a person); the AI's own choices are counted apart; "Not measured yet" reads "nothing; every check has run."
 - Terminal brief: `upgrade-pipeline.sh --brief` prints the same plain brief as the cockpit page (8 lines at most), at every stop and at the end of a run, followed by the open questions.
 - SKILL.md: a short "Driving the run" block (print the brief, ask each open decision in chat, record it, rerun) and a current status line in place of the version history.
