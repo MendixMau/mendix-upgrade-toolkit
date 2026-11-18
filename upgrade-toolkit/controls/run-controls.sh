@@ -6095,7 +6095,7 @@ bash $PR/prop.sh $PR/kept > /dev/null; bash $PR/prop.sh $PR/plain > /dev/null
 # the catch: kept module, RED local edit, stranded module and a widget with no successor are decisions, never "done by the toolkit"
 ctl proposal-unsigned-exit14-catch 14 'proposal awaits sign-off' 'PROPOSAL\.md' -- bash $PR/prop.sh $PR/kept
 ctl proposal-kept-widget-section3-catch 0 '^- \[P-[0-9]+\] module: DataWidgets$' '^- \[P-[0-9]+\] widget: Stuck\.mpk' '^- \[P-[0-9]+\] module: Administration$' '^- \[P-[0-9]+\] module: PDFReader$' \
-  'evidence: .*kept at its version by the update step' -- bash $PR/sec.sh $PR/kept 3
+  'evidence: .*the update step did not update it' -- bash $PR/sec.sh $PR/kept 3
 ctl proposal-kept-widget-not-in-section2-catch 0 'module update Plainmod 0\.9\.0 -> 1\.0\.0' 'predicted repair R37 .*repair row 21 \(CE6779\)' '!DataWidgets' '!Stuck' '!Administration' '!PDFReader' -- bash $PR/sec.sh $PR/kept 2
 ctl proposal-plain-module-section2-pass 0 'module update DataWidgets 2\.30\.4 -> 3\.11\.7' 'module update Plainmod' -- bash $PR/sec.sh $PR/plain 2
 ctl proposal-plain-module-not-section3-pass 0 '!module: DataWidgets' '!module: Plainmod' 'widget: Stuck\.mpk' -- bash $PR/sec.sh $PR/plain 3
@@ -7219,7 +7219,7 @@ CK="bash $here/cockpit_control.sh"
 ctl cockpit-render-five-phases-catch 0 '"id": "find"' '"id": "plan"' '"id": "upgrade"' '"id": "test"' '"id": "golive"' -- $CK render
 ctl cockpit-render-versions-from-run-pass 0 '10\.24\.1\.1 \\u2192 11\.1\.0|10\.24\.1\.1 .{1,3} 11\.1\.0' '!HTMLSnippet' -- $CK render
 ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id": "regression:Gridmod"' '"id": "confirm:D2"' '"id": "signoff"' '"id": "P-1"' -- $CK render
-ctl cockpit-render-effort-from-proposal-catch 0 '"Gridmod", "kept at its version|"Gridmod", "local edits refuse the update[^"]*", "M"' '"Themepack styles", "[^"]*", "S"' -- $CK render
+ctl cockpit-render-effort-from-proposal-catch 0 '"Gridmod", "the update step did not update it|"Gridmod", "local edits refuse the update[^"]*", "M"' '"Themepack styles", "[^"]*", "S"' -- $CK render
 ctl cockpit-render-upgrade-from-git-log-catch 0 '"Widgetpack 2\.0\.0", "Automatic module update' '"Repair D2"' '"Rebuilds"' -- $CK render
 ctl cockpit-render-gate-and-heal-catch 0 'Click through pages|"Smoke"' '[0-9] real problem' '"1 check not run"' '1 of 2 page checks fails\. Cause: Gridmod\.' 'Replace Gridmod' 'Overlay blocks 2 clicks' -- $CK render
 # WM1 2026-11-17: "All pass, 1 with accepted differences" said nothing about what was accepted; each reason is on the card
@@ -7270,6 +7270,12 @@ printf '[{"name": "Shopmod", "files": [{"change": "CHANGED", "kind": "theme", "p
 ctl evidence-check-release-notes-catch 0 '^- release_impact: no brain version tables' '^files: work/release-impact\.out$' -- python3 $B/evidence.py --work $T/evw/work --kind check "Release notes"
 ctl evidence-theme-files-catch 0 '^- themesource/shopmod/web/main\.scss: changed \(1 variable' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Shopmod themesource edits"
 ctl evidence-theme-other-module-pass 1 '\(no evidence found\)' '!main\.scss' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Othermod themesource edits"
+# a copy of a work folder: state/app-dir still names the original run (a path that is gone); the evidence files are found beside work/ and shown from the app folder, never as ../../..
+mkdir -p $T/evc/run/work/state $T/evc/run/app/.stepupdate; printf '/gone/elsewhere/runs/X1/app\n' > $T/evc/run/work/state/app-dir
+printf 'RED REMOVED Entity Mod.Thing\n' > $T/evc/run/app/.stepupdate/step1-Mod.idcheck
+ctl evidence-copied-work-folder-no-dotdot-catch 0 '^files: app/\.stepupdate/step1-Mod\.idcheck$' '!\.\./' '!gone' -- python3 $B/evidence.py --work $T/evc/run/work Mod
+mkdir -p $T/evd/run/work/state; printf '/gone/elsewhere/runs/X1/app\n' > $T/evd/run/work/state/app-dir
+ctl evidence-no-app-folder-no-evidence-pass 1 '\(no evidence found\)' '!\.\./' -- python3 $B/evidence.py --work $T/evd/run/work Mod
 ctl cockpitpage-evidence-passes-kind-pass 0 'evidence\.for_item\(work, it\["name"\], it\["kind"\]\)' -- grep -F 'evidence.for_item(work, it["name"], it["kind"])' $B/cockpitpage.py
 # editroute.py (cold test WM1): a module the update refused is routed to an update; only a real logic edit, Java code, a removal
 # something still uses or a tool fault stays kept. A stub mxcli answers describe and refs.
