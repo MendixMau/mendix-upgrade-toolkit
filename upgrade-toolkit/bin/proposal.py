@@ -137,6 +137,7 @@ class Facts:
         self.actions = None
         self.scope = None       # journey_scope.py output: line, testability_line, counts
         self.effort = {}        # S/M/L -> count (section 3 items)
+        self.java_seen = set()  # replacements rows decided per call site by java-api.json
 
     def p(self, name):
         return os.path.join(self.W, name)
@@ -296,6 +297,8 @@ class Facts:
                 ev, pat, rep = col(head, r, "evidence"), col(head, r, "pattern"), col(head, r, "replacement")
                 eff = (col(head, r, "effort") or "M")[:1].upper()
                 eff = eff if eff in "SML" else "M"
+                if self.javaapi_item(rid, st, ev, pat, short):
+                    continue
                 if rid in self.repair_rows and st == "HIT":
                     n, code = self.repair_rows[rid]
                     self.items2.append({"key": f"repair:{rid}", "text": f"predicted repair {rid} ({short(pat)}) -> repair row {n}"
@@ -309,6 +312,90 @@ class Facts:
                           f"{rep} (replacements.tsv row {rid})" if rep and rep != "-" else "see replacements.tsv row " + rid,
                           f"follow replacements.tsv row {rid}: {rep}" if rep and rep != "-" else "hand to a named person",
                           eff, (col(head, r, "risk") or "see the row")[:80])
+
+    def javaapi_item(self, rid, st, ev, pat, short):
+        """A replacements row that java-api.json (javaapi.py, triage) decided per call site: True when handled here. No call site
+        and no model evidence: "checked: not used in this app", closed (section 2, no step). Removed-API call sites only in modules
+        the plan updates: the update replaces that code, closed. Else ONE decision with the replacement call per call site, and the
+        toolkit's own 1:1 rewrites in the recommendation (cold run: R18 and R30 asked for an OK with no fix, and RA-16 put an SSO
+        recommendation on them because the evidence named mendixsso)."""
+        ja = self.javaapi()
+        if ja is None or rid not in ja.get("rows", {}) or st != "HIT":
+            return False
+        self.java_seen.add(rid)
+        hits = [h for h in ja.get("hits", []) if h.get("row") == rid]
+        # evidence the Java cannot explain: a model clause (an expression in a microflow) or a jar name
+        other = re.sub(r"/[^/]*/ in javasource/[^;]*", "", ev or "")
+        other = other if re.search(r"\w", re.sub(r"\bjavasource\b", "", other)) else ""
+        title = f"{rid} {short(pat)}"
+        if not hits and not other:
+            self.items2.append({"key": f"checked:{rid}", "text": f"{title}: checked: not used in this app ({ja.get('files', '?')} Java files "
+                                "read call by call, no removed or changed API of this row; java-api.md)"})
+            return True
+        edited = edited_modules(self.W)   # a module with the app's own edits may hold the call in the edit itself
+        upd = {m.lower(): (m, to) for m, fr, to, when in self.plan if m not in self.kept and m not in self.stranded and m not in edited}
+        if hits and not other and all(h.get("kind") == "compile" and h.get("module", "").lower() in upd for h in hits):
+            mods = sorted({upd[h["module"].lower()] for h in hits})
+            self.items2.append({"key": f"checked:{rid}", "text": f"{title}: only in the Java of " + ", ".join(f"{m} (updated to {to})" for m, to in mods)
+                                + f": the module update replaces those {len(hits)} call sites; the build checks it (java-api.md)"})
+            return True
+        mech = [h for h in hits if h.get("mechanical")]
+        eff = max((h.get("effort", "S")[:1] for h in hits), key="SML".index, default="S")
+        eff = "M" if len(hits) - len(mech) > 8 and eff == "S" else eff
+        sites = "; ".join(f"{h['file']}:{h['line']} {h['removed']} -> {h['replacement']}" + (" (mechanical)" if h.get("mechanical") else "")
+                          for h in hits[:6]) + (f"; ... ({len(hits)} call sites, java-api.md)" if len(hits) > 6 else "")
+        behaviour = hits and all(h.get("kind") == "behaviour" for h in hits)
+        n = len(hits)
+        if behaviour or (other and not hits):
+            # Marketplace modules without the app's own edits: the plan, kept.txt and the modules localedits.py compared
+            le = read(self.p("localedits.json"))
+            try:
+                le = [m.get("name") for m in json.loads(le) if isinstance(m, dict)] if le else []
+            except ValueError:
+                le = []
+            market = {m.lower(): m for m in [x for x, *_ in self.plan] + list(self.kept) + le if m and m not in edited}
+            vendor = sorted({market[h["module"].lower()] for h in hits if h.get("module", "").lower() in market})
+            if (len(vendor) == len({h["module"] for h in hits}) and "(own)" not in other
+                    and (not other or "(Marketplace)" in other)):
+                names = sorted(set(vendor) | set(re.findall(r"\b([A-Z]\w*)\.\w+ \(Marketplace\)", other)))
+                rec = (f"accept, no change in the app: every read is inside Marketplace modules ({', '.join(names)}), which their "
+                       "publisher keeps for the new version; the app's own logic reads neither attribute")
+                opts = ("accept, no change in the app (the reads are Marketplace code) | check each read and change only the ones before a "
+                        "commit (S per read) | hand to a named person")
+            else:
+                rec = (f"check each read and change only the ones before a commit: {n} in Java" if hits else "check each read and change only "
+                       "the ones before a commit") + (" plus the flows" if other else "") + "; where a read comes before the commit of the same object, set and read an own attribute instead"
+                opts = "check each read and change only the ones before a commit (S per read) | hand to a named person"
+        elif mech:
+            rec = (f"let the toolkit rewrite the mechanical calls and port the rest by hand: {len(mech)} of the {n} calls are 1:1 rewrites the "
+                   "toolkit makes as one commit, each other call has its replacement named")
+            opts = ("let the toolkit rewrite the mechanical calls and port the rest by hand (as listed) | update the module that holds the code "
+                    "when a newer version exists | hand to a named person")
+        else:
+            rec = f"port the calls by hand: each of the {n} calls has its replacement named"
+            opts = "port the calls by hand (as listed) | update the module that holds the code when a newer version exists | hand to a named person"
+        self.add3("Java", title, f"replacements.md row {rid} HIT: " + (sites if hits else "") + (f"; {other.strip(' ;')}" if other else ""),
+                  opts, rec, eff, "the build fails on the target until each call is ported" if not behaviour else "silent data risk: the build stays green")
+        self.items3[-1]["no_ra"] = True
+        return True
+
+    def javaapi(self):
+        if not hasattr(self, "_javaapi"):
+            t = read(self.p("java-api.json"))
+            try:
+                self._javaapi = json.loads(t) if t else None
+            except ValueError:
+                self._javaapi = None
+            if self._javaapi is not None:
+                self.measured.append("java-api.json")
+        return self._javaapi
+
+    def javaapi_rows(self):
+        """Call sites java-api.json found on a row replacement_check did not open (a pattern only the per-call table knows)."""
+        ja = self.javaapi() or {}
+        for rid, r in sorted(ja.get("rows", {}).items()):
+            if rid not in self.java_seen and r.get("status") == "HIT":
+                self.javaapi_item(rid, "HIT", "", f"Java API calls removed or changed on the target ({rid})", lambda x: x)
 
     def dojo(self):
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
@@ -394,7 +481,7 @@ class Facts:
 
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.replacements(); self.javaapi_rows(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"
@@ -446,7 +533,7 @@ class Facts:
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
         ra = load_ra(getattr(self.a, "ra_file", None))
         for it in self.items3:
-            for e in ra:
+            for e in ra if not it.get("no_ra") else ():
                 if e["rx"].search(f"{it['kind']} {it['name']} {it['evidence']}"):
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
@@ -666,7 +753,7 @@ def render(F, hashval, changed_block, signoff_text):
           f"- From {F.src} to {F.tgt}" + (f" and {F.tgt2}" if F.tgt2 else "") + f" ({rungs}). App size: {size}.",
           f"- {n2} items the toolkit expects to handle, {n3} need your decision, {n4} need a person anyway.", "",
           "## 2. Done by the toolkit", "",
-          "Module updates and predicted repairs only. A kept module, a stranded module, a RED local edit and a widget with no "
+          "Module updates, predicted repairs and catalog rows checked with nothing to do. A kept module, a stranded module, a RED local edit and a widget with no "
           "successor are never here; they are in section 3.", ""]
     L += [f"- {it['text']}" for it in F.items2] or ["- none: no module update and no predicted repair in the inputs read"]
     L += ["", "## 3. Needs your decision before we start", "",

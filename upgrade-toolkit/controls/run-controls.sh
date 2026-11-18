@@ -1100,6 +1100,26 @@ ctl javafinal-catch 1 'Create_201.*ContentType' 'Create_400.*StatusCode' -- pyth
 ctl javafinal-pass 0 -- python3 $B/javafinal.py $FX/java/pass
 ctl javafinal-input-catch 2 -- python3 $B/javafinal.py $FX/rest
 
+# --- removed / changed runtime Java API per call site (javaapi.py, playbooks/java-api.tsv; cold run R18/R30 had no fix) ---------
+# catch: file:line, removed API, replacement call, release note row; a 1:1 call is mechanical, a typed or longer form is by hand;
+# a commented-out call, an IMxRuntimeRequest import, a proxy and a helper's own context() are no hit
+ctl javaapi-catch 1 '^HIT R18 J1 javasource/myown/actions/Fetch\.java:24 \[myown\] Core\.retrieveXPathQuery\(context, xpath\) -> Core\.createXPathQuery\(xpath\)\.execute\(context\) \[effort S, mechanical' \
+  '^HIT R18 J4 .*Fetch\.java:27 .*mechanical' '^HIT R18 J4 .*Fetch\.java:28 .*by hand' '^HIT R18 J3 .*Fetch\.java:30 .*by hand' '^HIT R30 J20 .*Fetch\.java:31 .*docs\.mendix\.com/releasenotes/studio-pro/10\.20' \
+  '6 call sites \(3 mechanical rewrites\)' '!Fetch\.java:25' '!m2ee' '!Helper\.java' '!proxies' -- python3 $B/javaapi.py $FX/javaapi/catch
+# a row with no call site closes itself: "checked: not used in this app"
+ctl javaapi-clean-pass 0 '^checked R18: not used in this app' '^checked R30: not used in this app' '!^HIT' -- python3 $B/javaapi.py $FX/javaapi/clean
+ctl javaapi-input-catch 2 'no javasource folder' -- python3 $B/javaapi.py $FX/rest
+JA=$T/javaapi; rm -rf $JA; mkdir -p $JA; cp -R $FX/javaapi/catch $JA/dry; cp -R $FX/javaapi/catch $JA/app
+# dry run: the diff, nothing written; context() inside the rewritten call is rewritten too (a second pass)
+ctl javaapi-rewrite-dryrun-catch 1 "^\+.*Core\.createXPathQuery\(\"//MyOwn\.Item\[Name = 'a, b'\]\"\)\.execute\(getContext\(\)\);" '^\+.*= Core\.getMetaObject\(type\)\.isSubClassOf\(SUPER\);' \
+  '!^\+.*getMetaObject\(items' 'dry run, nothing written' '^same$' -- bash -c "python3 $B/javaapi.py $JA/dry --rewrite; rc=\$?; cmp -s $FX/javaapi/catch/javasource/myown/actions/Fetch.java $JA/dry/javasource/myown/actions/Fetch.java && echo same; exit \$rc"
+# --apply --commit: one commit of its own with the toolkit trailers; afterwards only the by-hand call sites remain
+git -C $JA/app init -q && git -C $JA/app add -A && git -C $JA/app -c user.name=t -c user.email=t@x commit -qm base
+ctl javaapi-rewrite-commit-catch 0 '^repair: Java API rewrites \(3 call sites, javaapi\.py\)$' '^Changed-By: toolkit$' '^Upgrade-Change: repair java-api-rewrite$' '3 call sites \(0 mechanical rewrites\)' '^ M|^\?\?' -- \
+  bash -c "cd $JA && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x python3 $B/javaapi.py app --rewrite --apply --commit > /dev/null; git -C app log -1 --format=%B; python3 $B/javaapi.py app | head -1; git -C app status --short; echo '?? end'"
+ctl javaapi-rewrite-noop-pass 0 '0 mechanical rewrites in 0 files' -- python3 $B/javaapi.py $FX/javaapi/clean --rewrite
+ctl javaapi-commit-needs-apply-catch 2 'needs --apply' -- python3 $B/javaapi.py $FX/javaapi/clean --rewrite --commit
+
 # --- seed: unique System.User names across specializations (E5 F3) ----------------------------------------------------
 uniq_names() { "$@" | python3 $here/lib/uniqnames.py; }
 FP="python3 $here/lib/fakepsql.py $FX/seed/two-user-specializations.json"
@@ -1959,6 +1979,8 @@ ctl pipeline-dry-journeys-psql-pass 0 'gen_journeys\.py .* --data-rung' 'run_jou
 # PRF-2: the journeys step hands users.json to gen_journeys.py, which names the actions of a one-user role that can never render (assign-to-me-dead)
 ctl pipeline-dry-journeys-users-pass 0 'gen_journeys\.py .* --users .*/pw/users\.json --data-rung' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only journeys --dry-run
 ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.log' 'missing_deps.py .* --target 11\.15\.0\.1' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
+# the 1:1 Java API rewrites: always the dry-run diff on an 11 target, written only on a signed proposal or UPG_JAVA_REWRITE=1
+ctl pipeline-dry-build-javaapi-catch 0 'javaapi\.py .*/papp --rewrite > .*/pw/java-rewrite\.diff' '!javaapi\.py .*--apply' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
@@ -3694,7 +3716,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4 replace-java-m2ee replace-java-m2ee-old; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -3709,6 +3731,10 @@ ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace
 # NS-1: the Mx10 metrics API (Core.metrics().counters()/timers()/gauges()) is gone in 11; DatadogConnector before 076dca76
 ctl replace-metrics-catch 1 '^HIT +R18 ' 'in javasource/datadogconnector/connector/DatadogConnector\.java \(3\)' -- $RC $M/replace-metrics --to 11.12.5
 ctl replace-metrics-new-pass 0 '^clear +R18 ' '!^HIT' -- $RC $M/replace-metrics-new --to 11.12.5
+# cold run rung 2: MendixSSO's com.mendix.m2ee.api.IMxRuntimeRequest/Response imports compile on 11.12.7, so they are no R18 hit;
+# another com.mendix.m2ee class still is
+ctl replace-java-m2ee-api-pass 0 '^clear +R18 ' '!^HIT' -- $RC $M/replace-java-m2ee --to 11.12.5
+ctl replace-java-m2ee-other-catch 1 '^HIT +R18 ' 'in javasource/shopsso/implementation/Handler\.java \(1\)' -- $RC $M/replace-java-m2ee-old --to 11.12.5
 ctl replace-js-catch 1 '^HIT +R19 ' 'mx\\\.logger.* in javascriptsource/myown/actions/Log\.js \(1\)' 'dojo.* in javascriptsource/myown/actions/Dlg\.js \(1\)' '!node_modules' -- $RC $M/replace-js --to 11.12.5
 ctl replace-js-jump-na-pass 0 '^NOT APPLICABLE R19 ' 'applies_on_jump ->11: not reached' '!^HIT' -- $RC $M/replace-js --to 10.24.16
 ctl replace-widget-catch 1 '^HIT +R10 ' 'evidence: widget .* on MyOwn\.Home \(own\)' -- $RC $M/replace-chart --to 11.12.5
@@ -3769,6 +3795,9 @@ RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
   'note() { echo "$STEP: $*" >> "$WORK/state/notes.txt"; }' 'replacement_report; echo rc=$?'; } > $RR/fn.sh
 ctl pipeline-replacements-run-catch 0 '^rc=0$' '^r38-hit$' '[0-9]+ HIT row\(s\) for 11\.12\.6 \(open in the proposal\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 bash $RR/fn.sh; grep -qE '^HIT +R38 ' $RR/w/replacements.out && echo r38-hit; cat $RR/w/state/notes.txt"
 ctl pipeline-replacements-unused-pass 0 '^rc=0$' '^written$' '!^r38-hit$' -- bash -c "B=$B APP=$M/replace-mxlogger-quiet WORK=$RR/w2 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; test -s $RR/w2/replacements.md && echo written; grep -qE '^HIT +R38 ' $RR/w2/replacements.out && echo r38-hit; true"
+# the same report reads the Java call by call: java-api.json (javaapi.py) is what the proposal's Java items quote
+mkdir -p $RR/w3/state
+ctl pipeline-replacements-javaapi-catch 0 '^rc=0$' '"row": "R18"' '"file": "javasource/shopsso/implementation/Handler\.java"' -- bash -c "B=$B APP=$M/replace-java-m2ee-old WORK=$RR/w3 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; cat $RR/w3/java-api.json"
 ctl pipeline-replacements-wired-catch 0 '^triage$' '^propose$' -- bash -c "awk '/^step_triage\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q '^  replacement_report\$' && echo triage; awk '/^step_propose\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q 'replacement_report\$' && echo propose"
 # cold WM1: editroute held both Atlas layouts (edit-routes.json held[]) inside a replay that ran fine; nothing stopped and
 # every page lost the app's shell. held_routes lists each held element in replay-held.txt, so the gate stops 13
@@ -6029,7 +6058,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
 if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
-for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
+for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2 replace-java-m2ee-old; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
 mkw() {
   local w=$PR/$1; mkdir -p $w/state $PR/cache-$1
@@ -6096,6 +6125,22 @@ print('snippet item: RA-19', yn(ra['RA-19'].search(sn)))
 print('snippet item: RA-9', yn(ra['RA-9'].search(sn)))
 "
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
+# a Java row (R18) decided per call site by javaapi.py: no call site closes it in section 2, a call site in the app's own Java is ONE
+# decision with the replacement per call and the toolkit's rewrite, a call site only in a module the plan updates is closed
+# (cold run: R18/R30 asked for an OK with no fix, and RA-16 put an SSO recommendation on them)
+for j in ja-clean:clean ja-catch:catch ja-vendor:vendor; do
+  mkw ${j%%:*}; python3 $B/replacement_check.py $M/replace-java-m2ee-old --to 11.12.5 --out $PR/${j%%:*}/replacements.md > /dev/null
+  python3 $B/javaapi.py $FX/javaapi/${j#*:} --json $PR/${j%%:*}/java-api.json > /dev/null
+done
+printf '1 2.0.0 ShopKit\n' >> $PR/ja-vendor/plan.txt
+for j in ja-clean ja-catch ja-vendor; do bash $PR/prop.sh $PR/$j > /dev/null; done
+ctl proposal-javaapi-checked-closes-catch 0 'R18 .*: checked: not used in this app \([0-9]+ Java files' -- bash $PR/sec.sh $PR/ja-clean 2
+ctl proposal-javaapi-checked-no-step-catch 0 '!R18' -- bash $PR/sec.sh $PR/ja-clean 3
+ctl proposal-javaapi-fix-catch 0 '^- \[P-[0-9]+\] .*R18' 'Fetch\.java:24 Core\.retrieveXPathQuery\(context, xpath\) -> Core\.createXPathQuery\(xpath\)\.execute\(context\) \(mechanical\)' \
+  'let the toolkit rewrite the mechanical calls and port the rest by hand: 3 of the 5 calls' '!\[RA-' -- sh -c "bash $PR/sec.sh $PR/ja-catch 3 | sed -n '/Java: R18/,/^- \\[P-2/p'"
+ctl proposal-javaapi-r30-own-code-catch 0 '^- \[P-[0-9]+\] .*R30' 'Fetch\.java:31 getChangedDate' 'recommendation: check each read and change only the ones before a commit: 1 in Java' '!\[RA-' -- sh -c "bash $PR/sec.sh $PR/ja-catch 3 | sed -n '/Java: R30/,/^- \\[P-3/p'"
+ctl proposal-javaapi-update-closes-catch 0 'R18 .*only in the Java of ShopKit \(updated to 2\.0\.0\): the module update replaces those 1 call sites' -- bash $PR/sec.sh $PR/ja-vendor 2
+ctl proposal-javaapi-update-no-step-pass 0 '!R18' -- bash $PR/sec.sh $PR/ja-vendor 3
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
 ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the toolkit\|## 3\. Needs your decision before we start\|## 4\. Needs a person anyway\|## 5\. Human effort\|## Testing plan\|## 6\. Sign-off\|$' -- sh -c "grep -E '^## ' $PR/kept/PROPOSAL.md | tr '\n' '|'; echo"

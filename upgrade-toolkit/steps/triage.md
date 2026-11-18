@@ -174,6 +174,11 @@ with version tables; the scripts find it the same way).
    their reason; exit 2 = the app could not be read. Each open row gets `handled: <evidence or commit>` or
    `not relevant: <reason>` in its handled column, and its unchecked column (database rows, a forked native template)
    is checked by hand or by a journey.
+   The Java rows (R18 removed runtime API, R30 changedDate/changedBy) are also read call by call: the pipeline runs
+   `python3 $B/javaapi.py app/ --json $W/java-api.json --md $W/java-api.md` next to it (table `playbooks/java-api.tsv`: file:line,
+   removed API, replacement call, effort, release note row, mechanical or by hand). The proposal closes a row with no call site
+   ("checked: not used in this app"), closes removed calls that sit only in modules the plan updates, and gives every other row
+   one recommendation with the fix per call site; the 1:1 rewrites are `steps/repair.md` row 34.
    WorkflowCommons 3.x to 4.x: comment data and the history migration (PRR-4, Purchase Request). The step drops the association
    `WorkflowComment_WorkflowView` and ships ONE migration, `ASU_UserTaskView_Migrate` (UserTaskView in a final state to
    `System.WorkflowEndedUserTask`); nothing calls it, so an idcheck approval "the publisher's migration moves the data" is false
