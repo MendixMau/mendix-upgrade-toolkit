@@ -7200,6 +7200,8 @@ ctl cockpit-render-upgrade-from-git-log-catch 0 '"Widgetpack 2\.0\.0", "Automati
 ctl cockpit-render-gate-and-heal-catch 0 'Click through pages|"Smoke"' '[0-9] real problem' '"1 check not run"' '1 of 2 page checks fails\. Cause: Gridmod\.' 'Replace Gridmod' 'Overlay blocks 2 clicks' -- $CK render
 # WM1 2026-11-17: "All pass, 1 with accepted differences" said nothing about what was accepted; each reason is on the card
 ctl cockpit-render-accepted-reasons-pass 0 'Accepted, no loss: start noise; the Vendmod update 1\.0\.0 -> 2\.0\.0 changed its own attribute' -- $CK render
+# a PASS* rung whose <rung>.out is not in the folder (a run copied from committed evidence) crashed the page build (cockpit clarity, run pr6)
+ctl cockpit-render-without-rung-out-catch 0 '^rendered with a PASS\* rung and no data.out$' '!Traceback' -- $CK no-rung-out
 # the Test stage shows what ran on the old and the new app; a new-app file older than the old one is not this run's
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
@@ -7211,6 +7213,18 @@ ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^o
 # step, the carried screen edits as the first place to look; a written case file wins
 ctl cockpit-auto-case-pass 0 '^auto: 2 actions that work on the old app fail on the new one \(M\.P, M\.Q\)\. \| tiles: \[2, 2, 1\] \| shots: True True \| carried: .*screen edits in Theme\. .*options: \[.accept., .fix., .old-wrong.\]$' '^written case kept: Seven break$' -- python3 $here/found_means_control.py $T/fmc2 cases
 ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' -- $CK render
+# cockpit clarity (10-second test, runs TLT / pr6 / fixture): the page opens with one plain sentence, what is broken apart from what is not measured,
+# ONE action with its recommended choice, who changed what; the rest is folded. Stop files are real captures with paths replaced (fixtures/cockpit/stops).
+ctl cockpit-brief-status-sentence-catch 0 '^Upgrade from Mendix 10\.24\.1 to 11\.1\.0: 13 of 14 steps done\. Paused, waiting for 6 answers from you\.$' -- $CK brief
+ctl cockpit-brief-broken-apart-from-unmeasured-catch 0 '^Broken for your users$' '^2 things worked on the old app and fail on the new one\.$' '^Not measured yet$' -- $CK brief
+ctl cockpit-brief-one-action-with-choice-catch 0 '^Do this now$' '^Decide: Overlay blocks 2 clicks$' '^We recommend: Fix the app$' '^One click, then 5 more$' -- $CK brief
+ctl cockpit-brief-gate-lines-pass 0 '^Upgrade from Mendix 10\.24\.1 to 11\.1\.0: 5 of 10 checks closed \(50%\)\.' '^2 checks have not run yet\. That is not a failure: nobody knows yet\. 1 needs a decision\.$' "^30 changes to the app so far: 5 by the toolkit's automatic tools, 1 by the AI agent, 0 by a person, 24 not labelled" -- $CK brief-who
+ctl cockpit-brief-agent-stop-not-yours-catch 0 '^Upgrade: just started\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!Resolve' '!waiting for' -- $CK brief-stop-agent
+ctl cockpit-brief-stop-title-plain-catch 0 '^Decide: Journeys on the upgraded app$' '!NEW app' '!REGRESSION' '!INVALID' '!exit 1' '^The run stopped during this step: Running the user paths on old and new\.$' '!user user' -- $CK brief-stop-judgment
+ctl cockpit-brief-nothing-measured-not-green-catch 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Nothing found broken' -- $CK brief-stop-judgment
+ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold closed$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
+ctl cockpit-brief-who-approved-catch 0 "No person has approved the plan\. Some choices are marked ASSUMED: the AI made them\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' -- $CK brief-approval
+ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' 'running bar detail: \.nowrun small\{display:none' 'tap opens it: nr\.addEventListener\("click"' -- $CK brief-live-bits
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
@@ -7275,7 +7289,7 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
-ctl cockpit-stopped-bar-pass 0 'bar: The run stopped at basewalk \(exit 11\) and waits for you\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
+ctl cockpit-stopped-bar-pass 0 'bar: The run stopped during this step: Clicking through every page of the old app\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \
   'rows: 6' 'says: 1' 'bad option: "ok": false' 'form post: 404' 'answer: {"ok": true, "said": "Saved: P-2 by Ana"}' \

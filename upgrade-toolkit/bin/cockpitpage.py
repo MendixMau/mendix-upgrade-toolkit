@@ -243,7 +243,7 @@ def accepted_reasons(work, rung, detail=""):
     if detail.startswith("noted, not a failure"):
         return [detail.split(";")[0]]
     got = {}
-    for ln in rd(os.path.join(work, f"{rung}.out")).splitlines():
+    for ln in (rd(os.path.join(work, f"{rung}.out")) or "").splitlines():
         m = re.match(r"^\|\s*PASS\*\s*\|[^|]*\|.*\((accepted|noted): (.+)\)\s*\|?\s*$", ln)
         if m:
             why = re.split(r"[:(]", m.group(2))[0].strip()[:90]
@@ -813,7 +813,7 @@ b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.queryS
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
 setInterval(function(){var dr=document.getElementById("drawer"),qo=document.querySelector("dialog.qdlg[open]");if(due){if((!dr||dr.hidden)&&!qo)reload();return;}
 fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if((!dr||dr.hidden)&&!qo)reload();}}).catch(function(){});},3000);})();
-(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal)d.showModal();});});
+(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal&&!d.open)d.showModal();});});
 document.querySelectorAll(".qclose").forEach(function(c){c.addEventListener("click",function(){c.closest("dialog").close();});});
 document.querySelectorAll(".qcard button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
 var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]");c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
