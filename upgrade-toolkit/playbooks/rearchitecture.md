@@ -178,7 +178,7 @@ ready / delete / can move / can't move / not researched. Clear what blocks on 11
 ### RA-11 Widget package that calls the removed client logger (mx.logger)
 - topic: dojo
 - match: mx\.logger|logger shim|widget-mxlogger|replacement: R38
-- trigger: replacement_check R38 (`mpkjs:\bmx\.logger\b`, widgets a page uses); remedies key `widget-mxlogger`; the scanner misses this.context() calls inside .mpk packages (AM-M4, backlog #25).
+- trigger: replacement_check R38 (`mpkjs:` mx.logger or the bare global `logger.<level>(` call, widgets a page uses); remedies key `widget-mxlogger`; the scanner misses this.context() calls inside .mpk packages (AM-M4, backlog #25).
 - why: the 11.12 client no longer defines mx.logger; a widget that calls it throws, so the page never renders.
 - options: newer widget version without mx.logger, checked with R38 first (S) | local shim defining mx.logger (no-op debug/info, console warn/error) in the theme or index.html (S, proven in a browser only) | rebuild the part on platform widgets (M) | fork the widget (M) | stay on 10.24 (S)
 - recommendation: newer version if R38 clears it; else the shim, with a recorded owner and a removal date.

@@ -3736,7 +3736,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -3804,6 +3804,10 @@ ctl replace-mxlogger-catch 1 '^HIT +R38 ' 'evidence: widgets/Logger\.mpk 1\.3\.1
 ctl replace-mxlogger-blocker-catch 1 '^HIT +R38 ' 'evidence: BLOCKER \(no newer version: logger\): widgets/Logger\.mpk' '^blockers: R38: no update can fix these' -- $RC $M/replace-mxlogger --to 11.12.6 --no-newer Logger
 ctl replace-mxlogger-unused-pass 1 '^clear +R38 ' 'package\(s\) with /.*mx.*logger.* in their JavaScript, but no page uses them: widgets/Spare\.mpk' '!^HIT +R38' -- $RC $M/replace-mxlogger-quiet --to 11.12.6
 ctl replace-mxlogger-jump-na-pass 0 '^NOT APPLICABLE R38 ' '!^HIT +R38' -- $RC $M/replace-mxlogger --to 10.24.16
+# Run TLT rung 2: Mendix 11 also removed the bare global `logger` (Bootstrap Tooltip 3.2.5 calls logger.debug / window.logger.warn: every page blank,
+# five smoke REGRESSIONs, not a planned item). The golden JS is the real call sites; the pass control holds look-alikes (this.logger, mylogger, a local var).
+ctl replace-mxlogger-global-catch 1 '^HIT +R38 ' 'evidence: widgets/BootstrapTooltip\.mpk 3\.2\.5 runs /' 'BootstrapTooltip\.widget\.BootstrapTooltip is used 1 time\(s\) on MyOwn\.Home' -- $RC $M/replace-mxlogger-global --to 11.12.6
+ctl replace-mxlogger-global-lookalike-pass 1 '^clear +R38 ' '!^HIT +R38' '!widgets/Quiet\.mpk' -- $RC $M/replace-mxlogger-global-quiet --to 11.12.6
 # cold CMM: the pipeline never ran replacement_check.py (agent-only triage item 10), so R38 never named MicroflowTimer's
 # mx.logger before the 11.12.7 build. replacement_report runs it against the last rung; propose fills a missing report
 RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
