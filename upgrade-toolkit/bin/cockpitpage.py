@@ -530,11 +530,24 @@ def build_model(work):
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
     if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
         for k, (title, code, body) in enumerate(secs, 1):
+            # a section may carry its own recommendation and the one line its OK (and its B) writes (widgetroute: "N charts replaced: OK?")
+            rtext = (re.search(r"^Recommended: (.+)$", body, re.M) or [None, ""])[1]
+            okw = re.search(r"^OK writes: ([\w.-]+\.txt): (.+)$", body, re.M)
+            opts = [{"key": "rerun", "label": "Decided, rerun", "causes": rerun or "Rerun the pipeline from this step."}]
+            bw = re.search(r"^B writes: ([\w.-]+\.txt): (.+)$", body, re.M)   # the other candidate (widgetroute: keep-module M)
+            bname = (re.search(r"^Candidates: .*?, B (.+?) \([^()]*;", body, re.M) or [None, "the other candidate"])[1]
+            if bw:
+                opts.insert(0, {"key": "b", "label": f"B: {bname}", "causes": f"Writes '{bw[2]}' to {bw[1]}; the rerun undoes A and takes B.",
+                                "writes": [{"file": bw[1], "line": bw[2]}]})
+            if okw:
+                opts.insert(0, {"key": "ok", "label": "OK", "causes": f"Writes '{okw[2]}' to {okw[1]}; the rerun acts on it.",
+                                "writes": [{"file": okw[1], "line": okw[2]}]})
+            body = re.sub(r"^(Recommended|OK writes|B writes): .*\n?", "", body, flags=re.M)
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                  "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),
-                 "rec": "rerun", "rec_text": "Decide in writing as the text says, then rerun from this step.",
-                 "options": [{"key": "rerun", "label": "Decided, rerun", "causes": rerun or "Rerun the pipeline from this step."}]})
+                 "rec": "ok" if okw else "rerun", "rec_text": rtext or "Decide in writing as the text says, then rerun from this step.",
+                 "options": opts})
     conf = {}   # change id -> {"label","tech","commit"}; from AGENT-DECISIONS rows marked confirm and gate-notes lines that ask for a look
     for bid, d in AD.items():
         if d["confirm"]:

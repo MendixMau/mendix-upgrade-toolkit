@@ -19,6 +19,8 @@ Spec (all keys optional except modules):
                 "module_roles": ["User", "Administrator"],
                 "constants": [{"name": "Enabled", "type": "Boolean", "default": "true"}],
                 "pages": [{"name": "Home", "excluded": false, "layout": "Atlas_Core.Atlas_Default", "widgets": ["com.mendix.widget.web.markdown.Markdown"],
+                           (a widget is an id or {"id", "name", "props"}: see cwidget(); "docs" entries take "widgets" and "named"
+                            too; a named entry {"custom": SPEC} is a pluggable widget inside, e.g., a data view's children)
                            "refs": {"Microflow": "UserCommons.ACT_Save"},
                            "named": [["DataGrid", "grid1"], {"type": "Label", "name": "label1", "text": "Hello", "conditional": false}]}],
                 "docs": [{"type": "ScheduledEvents$ScheduledEvent", "name": "SE_Clean", "data": {"Enabled": true}}],
@@ -76,6 +78,9 @@ def named(owner, ws):
     out = []
     for i, w in enumerate(ws):
         w = {"type": w[0], "name": w[1]} if isinstance(w, list) else w
+        if w.get("custom"):  # {"custom": SPEC}: a pluggable widget inside a data view (cwidget)
+            out.append(cwidget(f"{owner}.c", i, w["custom"]))
+            continue
         x = {"$ID": gid(f"nw:{owner}.{i}"), "$Type": "Forms$" + w["type"], "Name": w["name"]}
         if w.get("text"):
             x["Caption"] = mtext(f"{owner}.{i}", w["text"])
@@ -117,6 +122,36 @@ def named(owner, ws):
             x["DataSource"] = datasource(f"{owner}.{i}", w["datasource"])
         out.append(x)
     return out
+
+
+def cwidget(owner, i, w):
+    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN}}}. TEXT is a
+    String property (PrimitiveValue), {"text"} a TranslatableString (Texts$Text), {"attr"} an Attribute: the Type's
+    ObjectType declares each key, the Object's properties point at it (the shape of a 10.24 Any Chart unit)."""
+    w = {"id": w} if isinstance(w, str) else w
+    k = f"{owner}.{i}"
+    x = {"$ID": gid(f"w:{k}"), "$Type": "CustomWidgets$CustomWidget", "Name": w.get("name", f"w{i}"),
+         "Type": {"$ID": gid(f"wt:{k}"), "$Type": "CustomWidgets$CustomWidgetType", "WidgetId": w["id"]}}
+    if w.get("props"):
+        pts, ps = [], []
+        for j, (key, v) in enumerate(w["props"].items()):
+            kind = "Attribute" if isinstance(v, dict) and "attr" in v else "TranslatableString" if isinstance(v, dict) else "String"
+            pt = {"$ID": gid(f"wpt:{k}.{key}"), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": key,
+                  "ValueType": {"$ID": gid(f"wvt:{k}.{key}"), "$Type": "CustomWidgets$WidgetValueType", "Type": kind}}
+            val = {"$ID": gid(f"wv:{k}.{key}"), "$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "",
+                   "TranslatableValue": None, "AttributeRef": None}
+            if kind == "String":
+                val["PrimitiveValue"] = v
+            elif kind == "TranslatableString":
+                val["TranslatableValue"] = mtext(f"wv:{k}.{key}", v["text"])
+            else:
+                val["AttributeRef"] = {"$ID": gid(f"wa:{k}.{key}"), "$Type": "DomainModels$AttributeRef", "Attribute": v["attr"]}
+            pts.append(pt)
+            ps.append({"$ID": gid(f"wp:{k}.{key}"), "$Type": "CustomWidgets$WidgetProperty", "TypePointer": pt["$ID"], "Value": val})
+        x["Type"]["ObjectType"] = {"$ID": gid(f"wot:{k}"), "$Type": "CustomWidgets$WidgetObjectType", "PropertyTypes": lst(pts)}
+        x["Object"] = {"$ID": gid(f"wo:{k}"), "$Type": "CustomWidgets$WidgetObject", "TypePointer": x["Type"]["ObjectType"]["$ID"],
+                       "Properties": lst(ps)}
+    return x
 
 
 def flow_call(key, c, field):
@@ -247,9 +282,7 @@ def build(spec, out):
                                      "Excluded": False}))
         for p in m.get("pages", []):
             pid = gid(f"page:{mn}.{p['name']}")
-            widgets = [{"$ID": gid(f"w:{mn}.{p['name']}.{i}"), "$Type": "CustomWidgets$CustomWidget", "Name": f"w{i}",
-                        "Type": {"$ID": gid(f"wt:{mn}.{p['name']}.{i}"), "$Type": "CustomWidgets$CustomWidgetType", "WidgetId": w}}
-                       for i, w in enumerate(p.get("widgets", []))]
+            widgets = [cwidget(f"{mn}.{p['name']}", i, w) for i, w in enumerate(p.get("widgets", []))]
             refs = [{"$ID": gid(f"r:{mn}.{p['name']}.{k}" + (f".{i}" if i else "")), "$Type": "Forms$ActionButton", k: v}
                     for k, vs in p.get("refs", {}).items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])]
             page = {"$ID": pid, "$Type": "Forms$Page", "Name": p["name"], "Excluded": p.get("excluded", False),
@@ -269,6 +302,9 @@ def build(spec, out):
         for i, x in enumerate(m.get("docs", [])):  # any other document: {"type", "name", "excluded", "data", "refs"}
             did = gid(f"doc:{mn}.{x['name']}.{x['type']}")
             d = {"$ID": did, "$Type": x["type"], "Name": x["name"], "Excluded": x.get("excluded", False), **x.get("data", {})}
+            if x.get("widgets") or x.get("named"):  # a snippet or building block with widgets, as pages take them
+                d["Widgets"] = lst([cwidget(f"{mn}.{x['name']}", i, w) for i, w in enumerate(x.get("widgets", []))]
+                                   + named(f"{mn}.{x['name']}", x.get("named", [])))
             if x.get("refs"):
                 d["Refs"] = lst([{"$ID": gid(f"dr:{mn}.{x['name']}.{k}" + (f".{i}" if i else "")), "$Type": "Forms$ActionButton", k: v}
                                  for k, vs in x["refs"].items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])])

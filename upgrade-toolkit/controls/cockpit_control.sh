@@ -121,6 +121,20 @@ PY
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
          rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+  stopped-ok) # a stop section that carries "Recommended:", "OK writes:" and "B writes:" (widgetroute): the row recommends OK, B is an option, and the
+         # OK writes that one line where the pipeline reads it (decisions.py apply)
+         printf '# NEEDS JUDGMENT: step build, exit 10\n\nwork: %s\nRule: ..., then rerun:\n\n    upgrade-pipeline.sh --work W --from build\n\n## 2 charts replaced by Charts 6.x (Custom chart), 1 approximated: OK? (exit 10)\n\nFound: Any Chart 3.x on 1 snippet (2 uses)\nSearched: the platform-supported list\nCandidates: A Custom chart (Charts 6.x) (recommended: the same settings; ~10 min; the widget id changes), B Line, Column or Pie chart (Charts 6.x) (typed charts; ~1 h; rebuilt)\nApplied: A in the test build\n- Shop.SNIP_Sales anyChart2\n\nRecommended: OK; look at the charts once.\nOK writes: widget-routes-approved.txt: ok-replaced anychart 2\nB writes: widget-routes-approved.txt: route-b anychart\n\n## Role Anonymous has no walk (exit 10)\n\nfile: x\n' "$W" > "$W/NEEDS-JUDGMENT.md"
+         python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp
+for it in cp.build_model(sys.argv[2])["items"]:
+    if it["id"].startswith("stop:"):
+        print("row:", it["id"], "| rec:", it["rec"], "|", it["rec_text"], "| options:", " ".join(o["key"] for o in it["options"]),
+              "| writes:", [w for o in it["options"] for w in o.get("writes", [])], "|", " | ".join(f"{o['key']}: {o['label']}" for o in it["options"]),
+              "| problem:", it["problem"])
+PY
+         dec add --item stop:build:1 --choice ok --by Ana --source chat > /dev/null && dec apply > /dev/null
+         echo "approved: $(cat "$W/widget-routes-approved.txt")" ;;
   decide) # Blocked on you (cold test WM1): every open question is a sidebar row and a dialog with one button per option, the sign-off last; the local
          # server's POST /decide writes the same ledger as the page import, refuses bad answers and form posts, and a card
          # disappears once answered
