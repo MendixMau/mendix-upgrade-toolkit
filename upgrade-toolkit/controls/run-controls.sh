@@ -2191,6 +2191,14 @@ for k in junk real; do rm -rf $TH/fj-$k; cp -R $TH/same $TH/fj-$k; done
 rm $TH/fj-real/themesource/administration/web/_variables.scss
 ctl localedits-os-junk-files-pass 0 'files unchanged' '!FILES-EDITED' '!DS_Store' -- env UPG_CACHE=$TH/cache-junk python3 $B/localedits.py $TH/fj-junk/App.mpr --module Administration --files-only
 ctl localedits-os-junk-real-removed-catch 1 'FILES-EDITED themesource/administration/web/_variables\.scss' '!DS_Store' -- env UPG_CACHE=$TH/cache-junk python3 $B/localedits.py $TH/fj-real/App.mpr --module Administration --files-only
+# cold WM1: with HOME a run's own home, ~/.local/bin/mxcli was an older binary than the mxcli on PATH the shell steps call;
+# localedits (and editroute through it) took the old one, its DESCRIBE LAYOUT had no master and both Atlas layouts were held
+LM=$T/le-mxcli; mkdir -p $LM/home/.local/bin $LM/path; PYB=$(command -v python3)
+printf '#!/bin/sh\necho old\n' > $LM/home/.local/bin/mxcli; printf '#!/bin/sh\necho new\n' > $LM/path/mxcli; chmod +x $LM/home/.local/bin/mxcli $LM/path/mxcli
+LMPY="import sys; sys.path.insert(0, '$B'); import localedits; print('mxcli=' + localedits.MXCLI)"
+ctl localedits-mxcli-path-first-catch 0 "^mxcli=$LM/path/mxcli\$" '!home/\.local' -- env -u UPG_MXCLI HOME=$LM/home PATH=$LM/path:/usr/bin:/bin $PYB -c "$LMPY"
+ctl localedits-mxcli-env-wins-pass 0 '^mxcli=/opt/mx/mxcli$' -- env UPG_MXCLI=/opt/mx/mxcli HOME=$LM/home PATH=$LM/path:/usr/bin:/bin $PYB -c "$LMPY"
+ctl localedits-mxcli-home-fallback-pass 0 "^mxcli=$LM/home/\.local/bin/mxcli\$" -- env -u UPG_MXCLI HOME=$LM/home PATH=/usr/bin:/bin $PYB -c "$LMPY"
 # after the update (themefiles report): a regenerated action is not FILES-OVERWRITTEN, a replaced USER CODE line is
 rm -rf $TH/js-pkgform; cp -R $TH/js-regen $TH/js-pkgform; cp $TH/jsact-pkg.js $TH/js-pkgform/javascriptsource/administration/actions/Decode.js
 python3 -c "import sys; sys.path.insert(0,'$B'); import themefiles as t; t.snapshot('$TH/js-regen','Administration','$TH/snap-regen'); t.snapshot('$TH/js-user','Administration','$TH/snap-user')"
@@ -3762,6 +3770,49 @@ RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
 ctl pipeline-replacements-run-catch 0 '^rc=0$' '^r38-hit$' '[0-9]+ HIT row\(s\) for 11\.12\.6 \(open in the proposal\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 bash $RR/fn.sh; grep -qE '^HIT +R38 ' $RR/w/replacements.out && echo r38-hit; cat $RR/w/state/notes.txt"
 ctl pipeline-replacements-unused-pass 0 '^rc=0$' '^written$' '!^r38-hit$' -- bash -c "B=$B APP=$M/replace-mxlogger-quiet WORK=$RR/w2 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; test -s $RR/w2/replacements.md && echo written; grep -qE '^HIT +R38 ' $RR/w2/replacements.out && echo r38-hit; true"
 ctl pipeline-replacements-wired-catch 0 '^triage$' '^propose$' -- bash -c "awk '/^step_triage\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q '^  replacement_report\$' && echo triage; awk '/^step_propose\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q 'replacement_report\$' && echo propose"
+# cold WM1: editroute held both Atlas layouts (edit-routes.json held[]) inside a replay that ran fine; nothing stopped and
+# every page lost the app's shell. held_routes lists each held element in replay-held.txt, so the gate stops 13
+HR=$T/hroutes; mkdir -p $HR/w/state $HR/w2/state
+cat > $HR/w/edit-routes.json <<'EOF'
+[{"module": "Atlas_Core", "route": "REPLAY", "held": ["layout Atlas_Default: copy it to the app's own module", "layout Atlas_TopBar: copy it"]},
+ {"module": "Email_Connector", "route": "REPLAY", "held": []}]
+EOF
+printf 'Old exit 4: replay/Old.mdl (log: x.log)\nAtlas_Core held: stale line (edit-routes.json)\n' > $HR/w/replay-held.txt
+printf '[{"module": "Email_Connector", "route": "REPLAY", "held": []}]\n' > $HR/w2/edit-routes.json
+{ awk '/^held_routes\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; printf '%s\n' 'note() { echo "$STEP: $*" >> "$WORK/state/notes.txt"; }' 'held_routes; echo rc=$?'; } > $HR/fn.sh
+ctl pipeline-held-routes-catch 0 '^rc=0$' "^Atlas_Core held: layout Atlas_Default: copy it to the app's own module \(edit-routes\.json\)$" '^Atlas_Core held: layout Atlas_TopBar' '^Old exit 4: ' '!stale line' '2 element\(s\) held for a person are not in the app' -- bash -c "WORK=$HR/w STEP=update DRY=0 bash $HR/fn.sh; cat $HR/w/replay-held.txt $HR/w/state/notes.txt"
+ctl pipeline-held-routes-none-pass 0 '^rc=0$' '^no-file$' -- bash -c "WORK=$HR/w2 STEP=update DRY=0 bash $HR/fn.sh; test -e $HR/w2/replay-held.txt || echo no-file"
+ctl pipeline-held-routes-wired-catch 0 '^wired$' -- bash -c "awk '/^step_update\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -A1 '^  replay_edits\$' | grep -q '^  held_routes\$' && echo wired"
+# cold WM1: kept.txt in $WORK was copied only when the update kept something and never cleared, so the gate parked
+# Email_Connector "kept" two passes after it was updated
+KS=$T/keptstale; mkdir -p $KS/app/.stepupdate $KS/w1 $KS/w2; echo "Email_Connector 6.0.0" > $KS/w1/kept.txt; : > $KS/app/.stepupdate/kept.txt
+echo "Email_Connector 6.0.0" > $KS/w2/kept.txt; echo "DataWidgets 2.2.1 kept" > $KS/app/.stepupdate/kept.txt.new
+grep -E '\.stepupdate/kept\.txt.*"\$WORK/kept\.txt"' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $KS/line.sh
+ctl pipeline-kept-stale-cleared-catch 0 '^gone$' -- bash -c "APP=$KS/app WORK=$KS/w1; . $KS/line.sh; [ -e $KS/w1/kept.txt ] && echo stale || echo gone"
+ctl pipeline-kept-copied-pass 0 '^DataWidgets 2\.2\.1 kept$' -- bash -c "cp $KS/app/.stepupdate/kept.txt.new $KS/app/.stepupdate/kept.txt; APP=$KS/app WORK=$KS/w2; . $KS/line.sh; cat $KS/w2/kept.txt; : > $KS/app/.stepupdate/kept.txt"
+# cold WM1 gap 6: --from update with another mxcli cleared the .done of update..gate, then the pin refused (exit 3) and the
+# run's markers were gone; main checks the pin before it clears anything
+FP=$T/frompin; mkdir -p $FP/w/state; for st in triage update build gate; do echo t > $FP/w/state/$st.done; done
+{ awk '/^main\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
+    'mxcli_pin() { echo "pin refused at $1" >&2; exit 3; }' 'run_step() { mxcli_pin "$1"; }' \
+    'STEPS=(fetch triage baseline update build gate); ONLY=""; TARGET2=""; DRY=0; main'; } > $FP/fn.sh
+ctl pipeline-from-pin-before-clear-catch 0 '^rc=3$' '^left: build\.done gate\.done triage\.done update\.done$' -- bash -c "WORK=$FP/w FROM=update bash $FP/fn.sh 2> /dev/null; echo rc=\$?; echo left: \$(cd $FP/w/state && ls | tr '\n' ' ')"
+# cold WM1 gap 5: a rung-1 rerun on a rewound app kept rung2/state/{triage,baseline}.done, and rung 2 would skip its baseline
+# of the new rung-1 app; rung2_stale moves them aside when the recorded rung-1 HEAD left the app's history
+RS=$T/r2stale; mkdir -p $RS
+mkapp() { rm -rf $RS/$1; mkdir -p $RS/$1/app $RS/$1/w/rung2/state; python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table _MetaData (_ProductVersion text)'); c.execute('insert into _MetaData values (?)', (sys.argv[2],)); c.commit()" $RS/$1/app/App.mpr $2
+  ( cd $RS/$1/app && git init -q && git -c user.email=t@t -c user.name=t add -A && git -c user.email=t@t -c user.name=t commit -qm convert && echo a > f && git add f && git -c user.email=t@t -c user.name=t commit -qm rung1 )
+  git -C $RS/$1/app rev-parse HEAD > $RS/$1/w/rung2/state/rung1-head; for st in fetch triage baseline; do echo t > $RS/$1/w/rung2/state/$st.done; done; }
+{ awk '/^rung2_stale\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; printf '%s\n' 'say() { echo "$*"; }' 'rung2_stale; echo rc=$?; ls "$WORK/rung2/state" | grep "\.done$" | tr "\n" " "; echo' \
+  '[ "$(cat "$WORK/rung2/state/rung1-head")" = "$(git -C "$APP" rev-parse HEAD)" ] && echo head-recorded; true'; } > $RS/fn.sh
+mkapp rew 10.24.28.1; ( cd $RS/rew/app && git reset -q --hard HEAD~1 && echo b > f && git add f && git -c user.email=t@t -c user.name=t commit -qm rerun )
+mkapp ontop 10.24.28.1; ( cd $RS/ontop/app && echo c > g && git add g && git -c user.email=t@t -c user.name=t commit -qm more )
+mkapp conv 11.12.7.1; ( cd $RS/conv/app && git reset -q --hard HEAD~1 )
+ctl pipeline-rung2-stale-rewound-catch 0 '^rc=0$' '2 step marker\(s\) moved to .*/rung2/state/stale-' '^fetch\.done $' '^head-recorded$' -- bash -c "APP=$RS/rew/app WORK=$RS/rew/w TARGET=10.24.28 TARGET2=11.12.7 bash $RS/fn.sh"
+ctl pipeline-rung2-stale-ontop-pass 0 '^rc=0$' '!moved to' '^baseline\.done fetch\.done triage\.done $' -- bash -c "APP=$RS/ontop/app WORK=$RS/ontop/w TARGET=10.24.28 TARGET2=11.12.7 bash $RS/fn.sh"
+ctl pipeline-rung2-stale-converted-pass 0 '^rc=0$' '!moved to' '^baseline\.done fetch\.done triage\.done $' -- bash -c "APP=$RS/conv/app WORK=$RS/conv/w TARGET=10.24.28 TARGET2=11.12.7 bash $RS/fn.sh"
+ctl pipeline-rung2-stale-wired-catch 0 '^wired$' -- bash -c "awk '/^main\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -A1 'mkdir -p \"\$WORK/rung2/state\"' | grep -q '^      rung2_stale\$' && echo wired"
 ctl replace-out-md-pass 1 '^\| R3 \| HIT \| MendixSSO module' '^\| R8 \| NOT APPLICABLE \|' '\| handled \|$' -- sh -c "$RC $M/replace-sso --to 10.24.16 --out $T/replace-sso.md >/dev/null; rc=\$?; cat $T/replace-sso.md; exit \$rc"
 # --- B6-2: brain_mine.py, replacement candidates from the brain's release-note tables (no LLM) ---
 BM="python3 $B/brain_mine.py"

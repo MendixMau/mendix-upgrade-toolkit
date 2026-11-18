@@ -467,7 +467,7 @@ def runner_env(a, role, cred, role_dir, pgenv, pglog):
         ready = read_journey(lj)["steps"][0]["ui"].get("ready") or ready
     env = dict(os.environ, READY_SELECTORS=ready, LOGIN_PATH=a.login_path, APP_PORT=str(a.port), M2EE_ADMIN_PORT=str(a.admin_port), M2EE_ADMIN_PASS=a.admin_pass,
                TEST_USER=cred["user"], TEST_PASS=cred["pass"], FALLBACK_USER="", NODE_PATH=NODE_PATH,
-               MXCLI=os.environ.get("MXCLI", str(Path("~/.local/bin/mxcli").expanduser())))
+               MXCLI=os.environ.get("MXCLI") or shutil.which("mxcli") or str(Path("~/.local/bin/mxcli").expanduser()))
     if cred.get("anonymous"):
         env["UPG_ANONYMOUS"] = "1"
     for k in ("UPG_PSQL", "UPG_PGMAP", "UPG_PGDATA_DOWN"):
