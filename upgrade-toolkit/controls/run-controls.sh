@@ -2412,6 +2412,17 @@ ctl stepupdate-java-action-commit-pass 0 'step: JavaAct 2.0 \(stepupdate, idchec
 javaapp jc '\t\tLog.info("local tweak"); return Login.start(this.ctx);'
 ctl stepupdate-java-action-changed-usercode-keep-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' 'local LOGIC edits \(JAVA_ACTION' 'KEPT: JavaAct' '!committed [0-9a-f]{7}' '0 committed, 1 kept' -- env UPG_CACHE=$UC/cache bash $B/stepupdate.sh $S/jc $S/jc.plan --localedits $UC/le.json --unattended
 ctl usercode-no-package-catch 2 'CANNOT COMPARE: installed package JavaAct 1\.1 not cached' -- env UPG_CACHE=$UC/cache UPG_MXCLI=$(command -v false) python3 $B/usercode.py $S/ja JavaAct --cid 999 --version 1.1
+# A package file with "END EXTRA CODE" and no "BEGIN EXTRA CODE" (field: ExternalDatabaseConnector 5.3.8): Studio Pro adds the begin
+# marker, the app's EXTRA block is empty, and that is not an edit; a changed USER CODE line still is.
+SE=$T/se; mkdir -p $SE/cache $SE/pkg/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin {\n\t// BEGIN USER CODE\n\t\treturn Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// END EXTRA CODE\n}\n' > $SE/pkg/javasource/javaact/actions/StartLogin.java
+(cd $SE/pkg && python3 -m zipfile -c $SE/cache/997-1.0.mpk javasource)
+newapp se1 '997 1.0 JavaAct\n'; mkdir -p $S/se1/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin extends UserAction<Boolean> {\n\t// BEGIN USER CODE\n\t\treturn Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// BEGIN EXTRA CODE\n\t// END EXTRA CODE\n}\n' > $S/se1/javasource/javaact/actions/StartLogin.java
+newapp se2 '997 1.0 JavaAct\n'; mkdir -p $S/se2/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin extends UserAction<Boolean> {\n\t// BEGIN USER CODE\n\t\tLog.info("x"); return Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// BEGIN EXTRA CODE\n\t// END EXTRA CODE\n}\n' > $S/se2/javasource/javaact/actions/StartLogin.java
+ctl usercode-package-stray-end-extra-pass 0 'IDENTICAL: user code of 1 Java files of JavaAct 1\.0' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se1 JavaAct --cid 997 --version 1.0
+ctl usercode-package-stray-end-extra-edit-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se2 JavaAct --cid 997 --version 1.0
 if [ -d "$LAB/f1/runs/e4/work" ] && [ -d "$LAB/e5/run2/work" ]; then
   # field: replay the real refusal output (E4 ExcelImporter local edits, E5b NanoflowCommons pre-9.18 baseline)
   newapp fe4 '1 1.0 ExcelImporter\n'
