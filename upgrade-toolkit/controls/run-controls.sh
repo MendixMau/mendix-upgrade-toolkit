@@ -3105,6 +3105,18 @@ ctl cloudsetup-mxcli-link-refused-catch 1 'REFUSED, .*/link/tools/mxcli-bin is a
 ctl cloudsetup-mxcli-link-kept-pass 0 'other-build' -- $CS/other/mxcli
 ctl cloudsetup-mxcli-stale-aside-catch 1 'moved to .*/own/tools/mxcli-bin/mxcli\.not-' -- cloudsetup $CS/own
 ctl cloudsetup-mxcli-stale-kept-pass 0 'other-build' -- sh -c "cat $CS/own/tools/mxcli-bin/mxcli.not-*"
+# same run: setup.sh wrote TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit into env.sh (the toolkit has its own repo now)
+# and its journeys step rm -rf'd that path and cloned a repo without upgrade-toolkit; env.sh's TK then replaced the
+# pipeline's own, "dockerhost.sh: No such file", exit 2
+mkdir -p $CS/envrun $CS/home/Mendix/mxcli-project-toolkit
+cloudsetup2() { env HOME=$CS/home PATH=$CS/bin:$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only "$1"; }
+ctl cloudsetup-envsh-tk-own-catch 0 "^export TK=\"$(cd $B/.. && pwd)\"\$" -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only envsh >/dev/null; grep '^export TK=' $CS/envrun/env.sh"
+ctl cloudsetup-journeys-vendored-catch 0 'ok journeys \(already done\)' '!run journeys' -- cloudsetup2 journeys
+ctl cloudsetup-journeys-home-kept-pass 0 'kept' -- sh -c "[ -d $CS/home/Mendix/mxcli-project-toolkit ] && echo kept"
+awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/envblock.sh
+mkdir -p $CS/tkrun/work; echo 'export TK=/stale/mxcli-project-toolkit/upgrade-toolkit' > $CS/tkrun/env.sh
+ctl pipeline-envsh-tk-ignored-catch 0 '^tk=/own/toolkit$' 'ignoring TK=/stale/mxcli-project-toolkit/upgrade-toolkit from env.sh' -- bash -c "WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+ctl pipeline-envsh-tk-same-pass 0 '^tk=/own/toolkit$' '!ignoring TK' -- bash -c "echo 'export TK=/own/toolkit' > $CS/tkrun/env.sh; WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
 rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
