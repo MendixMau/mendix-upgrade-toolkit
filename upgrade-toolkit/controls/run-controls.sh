@@ -7867,6 +7867,28 @@ ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- py
 ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
 
 
+# --- cockpit clarity, round 6: lane B's final findings (fixtures/cockpit/lane-b: captured stop files and a final check, paths replaced) ---
+# 1. the broken box reads a regression a step found before the final check ran (PSOP afterwalk: "nothing is known to be broken" over 3 regressions)
+ctl cockpit-broken-box-names-stop-regression-catch 0 '^1 thing worked on the old app and fails on the new one: Production \(for 3 roles\)\.$' '!Nothing is known to be broken' -- $CK lb-box psop-afterwalk-stop.md
+ctl cockpit-broken-box-rule-line-is-no-regression-pass 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!worked on the old app' -- $CK lb-norun
+ctl term-brief-names-stop-regression-catch 0 '^Broken for your users: 1 thing worked on the old app and fails on the new one: Production' -- $CK lb-term psop-afterwalk-stop.md
+# 2. an agent-owned stop with no route the agent can take is a hand-off, said as one (PMNT, LDMS: user paths that fail on the OLD app)
+ctl cockpit-agent-stop-no-route-handoff-catch 0 '^Upgrade: just started\. Paused: the agent cannot get past this alone\.$' '^The agent cannot get past this alone: 2 of 6 user paths fail on the old app itself \(sign-out, login-WebServiceUser\)\.$' '^It needs: a person to confirm each is an old-app defect, or fix the old app\.$' '^<div class="stopbar"$' '!Nothing you can answer here' '!stopbar agent' -- $CK lb-brief pmnt-basewalk-stop.md
+ctl cockpit-agent-stop-no-route-one-path-catch 0 '^The agent cannot get past this alone: 1 of 3 user paths fails on the old app itself \(login-User\)\.$' '^It needs: a person to confirm it is an old-app defect, or fix the old app\.$' -- $CK lb-brief ldms-basewalk-stop.md
+ctl cockpit-agent-stop-with-a-route-stays-agents-pass 0 '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!cannot get past' -- $CK brief-stop-agent
+ctl term-brief-handoff-keeps-what-it-needs-catch 0 'It needs: a person to confirm each is an old-app defect' -- $CK lb-term pmnt-basewalk-stop.md
+ctl term-brief-handoff-size-pass 0 'ok: True' -- $CK lb-term-size pmnt-basewalk-stop.md
+# 3. the same stop again after a rerun is called stuck; a stop with a new cause is not (stops.tsv is written by the pipeline's own nj_flush)
+ctl cockpit-same-stop-three-times-says-stuck-catch 0 'Paused: the agent cannot get past this alone\. Stopped here 3 times in a row, each time for the same reason\.' '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+ctl cockpit-repeated-plain-agent-stop-handoff-catch 0 '^The agent cannot get past this alone: the same stop \(mxbuild failed\) has come back 3 times in a row\.$' '^It needs: a person to look at it, or a toolkit change\.$' -- $CK lb-stuck-agent
+ctl cockpit-repeated-person-stop-says-stuck-catch 0 'Paused, waiting for 1 answer from you\. Stopped here 3 times in a row' '^A step that passed on the old app fails or breaks on the new one\. What should we do\?$' -- $CK lb-stuck-person
+ctl cockpit-stop-new-cause-is-not-stuck-pass 0 '^Paused: the agent has to do something and rerun\. Nothing for you to answer\.$|^Upgrade: just started\. Paused: the agent has to do something and rerun' '!Stopped here' '!cannot get past' -- $CK lb-stuck-new-cause
+ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
+ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+# 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
+ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
+ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
+ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
 # --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
 # terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end
 ctl term-brief-equals-cockpit-pass 0 'fields on the page: 5 of 5' 'printed paragraphs: 5, off the page: 0' -- $CK term-brief-equal
