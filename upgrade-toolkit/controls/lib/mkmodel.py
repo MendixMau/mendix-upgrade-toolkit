@@ -57,6 +57,17 @@ def gid(name, override=None):
     return (uuid.UUID(override) if override else uuid.uuid5(NS, name)).bytes_le
 
 
+def wrap_row(key, depth, btn):
+    """depth N: the button inside N levels of CustomWidget > WidgetObject > WidgetProperty > WidgetValue (2 = a grid column's
+    content, shown once per data row; 1 = a plain widget property holding widgets, always shown); 0: unchanged."""
+    for lv in range(depth):
+        btn = {"$ID": gid(f"cw:{key}.{lv}"), "$Type": "CustomWidgets$CustomWidget", "Name": f"grid{lv}",
+               "Object": {"$ID": gid(f"wo:{key}.{lv}"), "$Type": "CustomWidgets$WidgetObject", "Properties": lst([
+                   {"$ID": gid(f"wp:{key}.{lv}"), "$Type": "CustomWidgets$WidgetProperty", "Value": {
+                       "$ID": gid(f"wv:{key}.{lv}"), "$Type": "CustomWidgets$WidgetValue", "Widgets": lst([btn])}}])}}
+    return btn
+
+
 def lst(xs):
     return [3] + list(xs)  # Mendix BSON lists carry a leading type marker
 
@@ -257,12 +268,13 @@ def build(spec, out):
             if p.get("home_buttons"):  # buttons in the layout call's arguments, as a real page holds them; "when": a
                 # ConditionalVisibilitySettings Expression (shape of a real 10.3 ActionButton)
                 page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p.get("layout", ""),
-                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([
+                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([wrap_row(f"{mn}.{p['name']}.{i}", b.get("in_row", 0),
+
                     {"$ID": gid(f"hb:{mn}.{p['name']}.{i}"), "$Type": "Forms$ActionButton", "Name": b["name"],
                      "ConditionalVisibilitySettings": ({"$ID": gid(f"hv:{mn}.{p['name']}.{i}"), "$Type": "Forms$ConditionalVisibilitySettings",
                                                         "Expression": b["when"]} if b.get("when") else None),
                      "Action": {"$ID": gid(f"ha:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormAction",
-                                "FormSettings": {"$ID": gid(f"hs:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormSettings", "Form": b["page"]}}}
+                                "FormSettings": {"$ID": gid(f"hs:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormSettings", "Form": b["page"]}}})
                     for i, b in enumerate(p["home_buttons"])])}])}
             elif p.get("layout"):
                 page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p["layout"]}
