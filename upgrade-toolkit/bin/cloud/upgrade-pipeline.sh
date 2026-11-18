@@ -1348,8 +1348,9 @@ step_build() {
   if [ "$DRY" = 1 ] || [ -n "$(find "$APP" -maxdepth 1 -name '*\\*' -print -quit)" ]; then
     try_fix "backslash paths" repair-row-1 CE0463 python3 "$B/repair/backslash_paths.py" "$APP" --apply
   fi
-  # row 0: Java 11 setting after a 9 -> 10 convert
-  if [ "$(major "$SOURCE")" -le 9 ] && { [ "$DRY" = 1 ] || has_code CE2513; }; then
+  # row 0: Java 11 setting after a 9 -> 10 convert, and after a 10.0 to 10.6 -> 10.24 convert (CHK-3: the 10.6 project says Java11 too)
+  if { [ "$DRY" = 1 ] && { [ "$(major "$SOURCE")" -le 9 ] || { [ "$(major "$SOURCE")" = 10 ] && [ "$(minor "$SOURCE")" -le 6 ]; }; }; } ||
+     { [ "$DRY" != 1 ] && has_code CE2513; }; then
     try_fix "JavaVersion Java21" repair-row-0 CE2513 mxcli_run -p "$MPR" -c "alter settings model JavaVersion = 'Java21'"
   fi
   # rows 2 and 3: always, before the first build
