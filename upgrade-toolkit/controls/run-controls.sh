@@ -1347,6 +1347,23 @@ ctl runapp-prefix-catch 1 'refused' -- env UPG_DB_PREFIX=fx_ UPG_TOOLS=$T python
 # runtime lookup: short or full version, flat or the CDN tarball layout <full version>/runtime (E5b-31, E5b-2)
 R=$T/rt; mkdir -p $R/runtime-10.24.16/runtime/launcher $R/runtime-9.24.32/9.24.32.58223/runtime/launcher
 : > $R/runtime-10.24.16/runtime/launcher/runtimelauncher.jar; : > $R/runtime-9.24.32/9.24.32.58223/runtime/launcher/runtimelauncher.jar
+# cold app: APIMOCK_PROXY (the pipeline sets it while the stand-in runs) sends the app's outside calls to the stand-in and
+# makes the container trust its certificate; a certificate the container cannot see (outside WORKDIR) is refused
+mkdir -p $T/rpx/apimock $T/rpx/sub; : > $T/rpx/apimock/proxy-cert.pem
+echo '{"host": "host.docker.internal", "port": 8790, "hosts": ["api.example.invalid"], "cert": "'$T'/rpx/apimock/proxy-cert.pem"}' > $T/rpx/apimock/proxy.json
+rpx() { env WORKDIR=$1 APIMOCK_PROXY=$T/rpx/apimock/proxy.json python3 -c "import sys; sys.path.insert(0, '$B'); import runapp; a, p, n = runapp.standin_proxy(); print(' '.join(a)); print(p); print(n)"; }
+ctl runapp-standin-proxy-pass 0 'Dhttps\.proxyHost=host\.docker\.internal -Dhttps\.proxyPort=8790' 'Dhttp\.nonProxyHosts=localhost\|127\.0\.0\.1\|host\.docker\.internal' \
+  'Djavax\.net\.ssl\.trustStore=/tmp/upg-standin-trust' 'keytool -importcert .*-file "/w/apimock/proxy-cert\.pem"' \
+  '^HARNESS CONDITION: app: outside calls go through the stand-in.s proxy host\.docker\.internal:8790: it answers api\.example\.invalid and blocks every other host' -- rpx $T/rpx
+ctl runapp-standin-proxy-cert-outside-catch 1 'outside WORKDIR .*refused' -- rpx $T/rpx/sub
+ctl runapp-standin-proxy-unset-pass 0 '^\[\] None$' -- env -u APIMOCK_PROXY python3 -c "import sys; sys.path.insert(0, '$B'); import runapp; a, p, n = runapp.standin_proxy(); print(a, n)"
+# ... and the pipeline passes it only while the stand-in runs (state/heal-standin) and proxy.json exists
+awk '/^runenv\(\) \{/,/^}/' $B/cloud/upgrade-pipeline.sh > $T/runenv.sh
+mkdir -p $T/rpe/state $T/rpe/apimock; echo '{"A.B": "x"}' > $T/rpe/apimock/overrides.json; echo '{}' > $T/rpe/apimock/proxy.json
+rpe() { bash -c "nats_on() { return 1; }; . $T/runenv.sh; WORK=$T/rpe; runenv; printf '%s\n' \"\${RUNENV[@]}\""; }
+ctl pipeline-runenv-standin-off-no-proxy-pass 0 '^WORKDIR=' '!APIMOCK_PROXY' -- rpe
+: > $T/rpe/state/heal-standin
+ctl pipeline-runenv-standin-proxy-pass 0 "^APIMOCK_PROXY=$T/rpe/apimock/proxy.json\$" -- rpe
 # --- harness login override for SSO login pages (T2-7, N1-4): detection and replace, no Mendix started ---
 LO=$T/lo; mkdir -p $LO
 mklo() { rm -rf $LO/$1; mkdir -p $LO/$1/web; printf '%s' "$2" > $LO/$1/web/login.html; [ -z "${3:-}" ] || printf '%s' "$3" > $LO/$1/web/login.old; }
@@ -4394,12 +4411,57 @@ EOF
   rm -rf "$AM/st3z"; cp -r "$S3" "$AM/st3z"; : > "$AM/st3z/requests.jsonl"
   ctl gate-apis-zero-traffic-catch 2 '\| 12 \| apis \| INVALID \| 3 \| .*requests seen: 0' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
     -- gcase sizero GATE_BIN_DIR=$GB3 APIMOCK=$AM/st3z EXCLUDE_SYSTEMS=Teamcenter
+  # cold app: 7 of 32 outside calls had no stand-in (3 hard-coded https URLs, 2 URLs a Java action computes, 2 URL constants
+  # nothing calls), so every dashboard opened an error box and the stand-ins row said only "Needs your OK". Each endpoint now
+  # carries ONE recommendation and is resolved where the model allows it: a hard-coded URL through the stand-in's proxy (it
+  # ends TLS with its own certificate, any other host is BLOCKED), a Java-computed URL through the OpenID discovery document
+  # the module's constants name, an unread URL constant "not called". Synthetic spec, example.invalid hosts.
+  python3 "$here/lib/mkmodel.py" "$FX/apimock/standins-unknown.json" "$AM/su" > /dev/null; SU=$AM/su/App.mpr
+  ctl apimock-recommend-inventory-pass 3 '^MOCKED +rest:Shop\.POST_Token +POST +via URL https://api\.example\.invalid/oauth/token .*=> resolved automatically: the stand-in answers the hard-coded address' \
+    '^MOCKED +rest:Shop\.POST_Casebook .*stood in through the stand-in.s proxy' '^MOCKED +rest:Sso\.SUB_Refresh +POST /upg-oidc/token +via constant Sso\.Provider .*reads token_endpoint from the OpenID discovery document' \
+    '^MOCKED +oidc:Sso\.Provider +GET /\.well-known/openid-configuration' '^UNCALLED +const:Mod\.OldServiceUrl .*=> not called by the model: no stand-in needed$' \
+    '^UNKNOWN +rest:Ext\.GET_Computed .*=> needs a real test system: test this call in the customer.s test environment before go-live$' \
+    '^apis 8 found · mocked 6 · excluded 0 · unknown 1 · not called 1$' \
+    '^stand-ins: 1 stand-in \+ 6 resolved automatically, 1 needs a real test system before go-live \(recommended: test in the customer.s test environment\)$' \
+    -- python3 $B/apimock.py inventory $SU
+  # opt out: UPG_APIMOCK_PROXY=0 leaves a hard-coded URL UNKNOWN, as before
+  ctl apimock-recommend-proxy-off-catch 3 '^UNKNOWN +rest:Shop\.POST_Token .*no override reaches it' '· unknown 3 ·' '!proxy' -- env UPG_APIMOCK_PROXY=0 python3 $B/apimock.py inventory $SU
+  cat > "$AM/pfetch.py" <<'EOF'
+# pfetch.py STATE METHOD URL: one request through the stand-in's proxy (proxy.json), trusting only its certificate
+import json, ssl, sys, urllib.request
+st, meth, url = sys.argv[1:4]
+px = json.load(open(f"{st}/proxy.json"))
+proxy = f"http://127.0.0.1:{px['port']}"
+op = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+                                 urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=px["cert"])))
+try:
+    r = op.open(urllib.request.Request(url, method=meth, data=b"{}" if meth == "POST" else None), timeout=10); code, body = r.status, r.read()
+except urllib.error.HTTPError as e:
+    code, body = e.code, e.read()
+except OSError as e:
+    code, body = "refused", str(e).encode()
+print(f"status {code}"); print("body " + body.decode()[:300])
+EOF
+  SP=$AM/stp
+  ctl apimock-proxy-serve-pass 0 '^proxy: api\.example\.invalid answered through the stand-in' '^Sso\.Provider=http://127\.0\.0\.1:[0-9]+/c/Sso\.Provider$' '^Mod\.OldServiceUrl=http://127\.0\.0\.1:[0-9]+/c/Mod\.OldServiceUrl/$' \
+    -- python3 $B/apimock.py serve $SU --state $SP --port 0 --background
+  ctl apimock-proxy-tls-pass 0 '^status 200$' -- python3 $AM/pfetch.py $SP POST https://api.example.invalid/oauth/token
+  ctl apimock-proxy-other-host-blocked-catch 0 '^status refused$' '403' -- python3 $AM/pfetch.py $SP GET https://www.example.invalid/
+  ctl apimock-oidc-discovery-pass 0 '^status 200$' '"token_endpoint": "http://127\.0\.0\.1:[0-9]+/c/Sso\.Provider/upg-oidc/token"' -- python3 $AM/fetch.py $B $SP GET /c/Sso.Provider/.well-known/openid-configuration
+  ctl apimock-oidc-linked-pass 0 '^status 200$' -- python3 $AM/fetch.py $B $SP POST /c/Sso.Provider/upg-oidc/token
+  python3 $AM/fetch.py $B $SP GET /c/Mod.OldServiceUrl/x > /dev/null 2>&1
+  [ -f $SP/pid ] && python3 $B/apimock.py stop --state $SP > /dev/null
+  ctl apimock-proxy-log-pass 0 '"path": "/h/api\.example\.invalid/oauth/token", .*"status": "MOCKED"' '"method": "CONNECT", "path": "www\.example\.invalid", .*"status": "BLOCKED"' -- cat $SP/requests.jsonl
+  # a constant "not called" that IS called arrives as an UNKNOWN request: the rung goes INVALID, BLOCKED is info only
+  ctl apimock-uncalled-called-catch 3 '^  UNKNOWN request GET /c/Mod\.OldServiceUrl/x' '^  BLOCKED outside host www\.example\.invalid' 'verdict: INVALID: 1 endpoints UNKNOWN .*; 1 requests to UNKNOWN' \
+    '!NOT CALLED endpoint const:Mod' '!verdict: PASS' -- python3 $B/apimock.py check --state $SP
 else
   for c in inventory-pass unknown-invalid-catch no-exclude-catch classify-reason-catch classify-pass serve-pass rest-shape-pass odata-pass excluded-503-pass \
            log-pass check-unknown-catch check-except check-unnamed-system-catch check-unmatched-catch stop-pass standin-pass standin-uncalled-pass \
            addon-unknown-catch addon-unreadable-catch classify-mocked-no-route-catch classify-location-pass classify-location-data-pass \
            classify-location-syntax-catch serve-public-host-bind-pass check-zero-traffic-catch odata-prefix-pass check-unexercised-waived-pass \
-           check-unexercised-catch check-zero-traffic-waived-catch; do skip apimock-$c "no python bson"; done
+           check-unexercised-catch check-zero-traffic-waived-catch recommend-inventory-pass recommend-proxy-off-catch proxy-serve-pass proxy-tls-pass \
+           proxy-other-host-blocked-catch oidc-discovery-pass oidc-linked-pass proxy-log-pass uncalled-called-catch; do skip apimock-$c "no python bson"; done
   skip gate-standin-real-catch "no python bson"; skip gate-apis-zero-traffic-catch "no python bson"
 fi
 
@@ -7193,7 +7255,7 @@ ctl cockpit-render-accepted-reasons-pass 0 'Accepted, no loss: start noise; the 
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
 # what a finding MEANS, per item, from the run's own files (the owner, 2026-11-17: "not just what, but what it means")
-ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
+ctl cockpit-found-means-pass 0 '^means standins: 3 of 5 outside calls are covered in the tests\.$' '^item standins: Shop\.PostCase \| resolved automatically \| ok \| ' '^item standins: Mod\.OldUrl \| not called \| ok \| ' '^item standins: Sso\.Refresh \| address built in Java \| wait \| .*Recommended: test this call in the customer.s test environment' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
 # a decision's case file (work/cases/<id>.json): found by id, screenshots embedded, a missing shot shown as such, a broken file ignored
 ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^old shot: data:image/png;base64, \| new shot: .{2}$' '^html: tiles why=2 no-shot$' -- python3 $here/found_means_control.py $T/fmc cases
 # a regression without a case file gets one from the run's own files (no manual case writing): count, old and new shot of the failing
@@ -7389,6 +7451,7 @@ ctl steps-drow-unknown-step-catch 0 '^MISSING D71: the row names S-5, but there 
 ctl steps-drow-file-in-parent-folder-catch 0 '^MISSING D80: the agent decided "Drop the old theme"' '^rc=1$' -- $SC drow-in-parent
 ctl steps-phase-split-keeps-each-version-catch 0 '^found in 11\.12\.7: rc=1$' "^S-1 10\.24\.0 \['PASS', 'NOT RUN'\]$" "^S-2 11\.12\.7 \['PASS', 'PASS'\]$" '^S-1$' -- $SC phase-split
 ctl steps-standins-one-step-per-version-pass 0 "^S-1 10\.24\.0 approved \| The app makes 2 outside calls on Mendix 10\.24\.0\. 2 can be answered by a stand-in\.$" '^S-2 11\.12\.7 assumed \| .*1 gets its address from data.*Compared with the previous version: 1 new, 1 gone, 0 changed\.$' '!^S-3' -- $SC standins
+ctl steps-standins-grouped-ok-pass 0 "^S-1 assumed/unattended \| 1 stand-in \+ 3 resolved automatically, 2 need a real test system before go-live \(recommended: test in the customer's test environment\)\.$" -- $SC standins-grouped
 ctl cockpit-ladder-and-test-health-pass 0 "^ladder \[\('9\.24\.2\.1', 'done'\), \('10\.24\.13\.1', 'done'\), \('11\.12\.7', 'now'\)\]$" "^health \[\('10\.24\.13', \[41, 12\], \[135, 2, 38\], \[258, 224\], 1\)\]$" '^no ladder: \[\] True$' -- $SC cockpit-ladder
 ctl steps-find-topic-pass 0 '^found: S-1$' '^rc=1$' -- $SC find-topic
 # slice 6: the gate links its rungs to the steps; a missing test is a gap in plain words, never a pass

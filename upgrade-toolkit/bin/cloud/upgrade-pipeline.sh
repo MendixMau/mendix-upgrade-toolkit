@@ -365,6 +365,8 @@ runenv() { # env words for runapp.py
   # heal reruns: the apimock stand-in's and the NATS broker's constant overrides, merged under the person's env-values.json (theirs win)
   local src=()
   if [ -f "$WORK/state/heal-standin" ] && [ -s "$WORK/apimock/overrides.json" ]; then src+=("$WORK/apimock/overrides.json"); fi
+  # ... and its proxy for the model's hard-coded URLs (apimock.py writes proxy.json only when there are any)
+  if [ -f "$WORK/state/heal-standin" ] && [ -s "$WORK/apimock/proxy.json" ]; then RUNENV+=("APIMOCK_PROXY=$WORK/apimock/proxy.json"); fi
   if { [ -f "$WORK/state/heal-nats" ] || nats_on; } && [ -s "$WORK/natsfixture/overrides.json" ]; then src+=("$WORK/natsfixture/overrides.json"); fi
   if [ "${#src[@]}" -gt 0 ]; then
     [ -s "$WORK/env-values.json" ] && src+=("$WORK/env-values.json")

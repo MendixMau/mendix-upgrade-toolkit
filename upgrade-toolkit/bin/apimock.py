@@ -31,7 +31,12 @@ Inventory (per model; several models are merged by endpoint id):
                          expression, else the constants its ConfigurationMicroflow (and the flows it calls) reads.
   const:<Module.Const>   a URL constant (value http(s)://..., or a String constant named *Url/*Uri/*Endpoint/
                          *Location/*Host/*Address) that no modelled call above reads: a Java action or a string built
-                         at runtime may call it. Overridden like the others, UNKNOWN until classified.
+                         at runtime may call it. Overridden like the others, UNCALLED ("not called by the model: no
+                         stand-in needed"); a request to it is logged UNKNOWN, so the rung still says when it IS called.
+  oidc:<Module.Provider> the OpenID discovery document of a module whose Java action computes a URL (MendixSSO
+                         GetTokenEndpointURI): the module holds a '.well-known/...' path constant and one provider URL
+                         constant. The call is routed through that constant (template /upg-oidc/<key>, the key from the
+                         action's name: token, userinfo, ...) and the stand-in serves the document, its keys pointing back.
   addon:<Module>         an add-on module (<project>/modules/<Module>.mxmodule, B4T2-6, B4N1-9): its packed model is not
                          a sqlite MPR and its flows are protected, so its calls cannot be read, and a location it builds
                          at runtime from entity data (EXFN_ServiceLayer: ClientConfiguration.OpcenterEXFNUrl + '/...')
@@ -49,8 +54,13 @@ Classification, one per endpoint:
                      a reason), or a recorded response exists for a constant-only endpoint. A MOCKED line on an
                      endpoint with no constant and no data location is refused (stays UNKNOWN, B4N1-9): the app could
                      not reach the stand-in, so "mocked" would be a claim nothing can prove.
-  UNKNOWN            anything else (a location from data, a hard-coded URL no override reaches, a URL constant no
-                     modelled call reads, a shape this reader does not know). UNKNOWN stays INVALID until someone
+                     A hard-coded http(s) URL is MOCKED too (auto "proxy"): serve writes <state>/proxy.json and runapp.py
+                     (APIMOCK_PROXY) sends the app's outside calls to the stand-in, which answers those hosts (https: a
+                     TLS tunnel with its own certificate, trusted by the app container only) and BLOCKS every other host
+                     (403, logged status BLOCKED: info, no real call). UPG_APIMOCK_PROXY=0 turns this off (UNKNOWN).
+  UNCALLED           a URL constant no modelled call reads: nothing to stand in.
+  UNKNOWN            anything else (a location from data, a URL a Java action computes from nothing readable, a shape
+                     this reader does not know). UNKNOWN stays INVALID until someone
                      classifies it: --classify FILE lines "<fnmatch on endpoint id> MOCKED # reason" or
                      "<pattern> EXCLUDED <System> # reason" (reason required). A location from data is reachable by
                      setting that attribute to the printed /a/<Entity.Attr> URL in the seed data.
@@ -63,7 +73,10 @@ Classification, one per endpoint:
   It replaces the endpoint's unknown routes; a data location still needs a MOCKED line. An endpoint whose location can
   be neither declared nor redirected is not stood in: it stays UNKNOWN (INVALID), never MOCKED.
   "<pattern> UNEXERCISED # reason": a MOCKED endpoint no journey calls (check names it, waived, instead of INVALID).
-Output: one line per endpoint, then `apis E found · mocked M · excluded X (System, ...) · unknown U`.
+Every endpoint carries ONE recommendation ("recommend", printed after "=>"): resolved automatically, not called, set
+the data location, or "needs a real test system: test this call in the customer's test environment before go-live".
+Output: one line per endpoint, then `apis E found · mocked M · excluded X (System, ...) · unknown U[ · not called N]`
+and `stand-ins: S stand-ins + A resolved automatically, R need a real test system before go-live (recommended: ...)`.
 inventory exit: 0 = no UNKNOWN, 3 = UNKNOWN present (INVALID), 2 = input error.
 
 serve: prints the constant overrides (`Module.Constant=http://HOST:PORT/c/Module.Constant`) and writes
@@ -103,7 +116,7 @@ either way, so it never talked to the real system): `  STAND-IN (<system>) endpo
 system being the endpoint's module unless a classification named one; then `stand-in systems: A, B` and
 `stand-in endpoints E · requests answered R`. Exit 0 (whether or not anything was stood in), 2 = no state.
 """
-import argparse, fnmatch, glob, json, os, re, signal, socket, subprocess, sys, threading, time, zipfile
+import argparse, fnmatch, glob, json, os, re, signal, socket, ssl, subprocess, sys, threading, time, zipfile
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -127,6 +140,20 @@ CALL_TYPES = ("Microflows$SendRestRequestAction", "Microflows$RestOperationCallA
               "Microflows$WebServiceCallAction", "Microflows$CallExternalAction")
 FLOWS = ("Microflows$Microflow", "Microflows$Rule")
 EXIT_INVALID, EXIT_EXCEPT = 3, 4
+# a URL a Java action computes at runtime ("$X is computed by Java action Mod.Act at runtime") and the OpenID discovery
+# document key its name points at; the stand-in serves the discovery document, each key a path under /c/<provider>/OIDC_SEG/
+JAVA_URL = re.compile(r"^\$\w+ is computed by Java action (\S+) at runtime$")
+OIDC_KEYS = (("userinfo", "userinfo_endpoint"), ("introspect", "introspection_endpoint"), ("revoc", "revocation_endpoint"),
+             ("endsession", "end_session_endpoint"), ("logout", "end_session_endpoint"), ("jwks", "jwks_uri"),
+             ("authoriz", "authorization_endpoint"), ("token", "token_endpoint"))
+OIDC_SEG = "upg-oidc"
+REAL_TEST = "test this call in the customer's test environment before go-live"
+
+
+def proxy_on():
+    """A hard-coded http(s) URL is stood in through the stand-in's proxy (serve --> proxy.json, runapp.py APIMOCK_PROXY).
+    UPG_APIMOCK_PROXY=0 turns it off: such an endpoint stays UNKNOWN, as before."""
+    return os.environ.get("UPG_APIMOCK_PROXY", "1") != "0"
 
 
 def die(msg):
@@ -283,6 +310,13 @@ class Reader:
                 eps.append(self.send_ep(d, a, f"send:{qn}" + (f"#{i + 1}" if len(n_send) > 1 else "")))
         for d in sorted(self.m.of_type("Rest$ConsumedODataService"), key=lambda d: d.qn):
             eps.append(self.odata_ep(d))
+        for prov, dz in sorted(self.link_discovery(eps).items()):
+            eps.append({"id": f"oidc:{prov}", "kind": "oidc", "module": prov.split(".")[0], "doc": prov, "method": "GET",
+                        "template": "/" + dz["path"], "routes": [("const", prov)], "body": None, "auto": "discovery",
+                        "oidc_keys": sorted(dz["keys"]), "shape": "OpenID discovery document (the stand-in writes it)",
+                        "linked": f"OpenID discovery document of {prov} ({dz['path']}), read by Java action "
+                                  f"{', '.join(sorted(dz['actions']))}: the stand-in serves it, its "
+                                  f"{', '.join(sorted(dz['keys']))} point back at the stand-in"})
         for e in eps:
             used_consts |= {r[1] for r in e["routes"] if r[0] == "const"}
         for d in sorted(self.m.of_type("Constants$Constant"), key=lambda d: d.qn):
@@ -296,6 +330,39 @@ class Reader:
                             "why": "URL constant no modelled call reads (a Java action or a string built at runtime may "
                                    "call it): classify it"})
         return eps
+
+    def link_discovery(self, eps):
+        """A URL a Java action computes at runtime (MendixSSO.GetTokenEndpointURI) is read from an OpenID discovery
+        document when the action's module holds a discovery path constant ('.well-known/openid-configuration') and ONE
+        provider URL constant (by name: Provider, Issuer, OpenId, ...; else the only URL constant). The endpoint is routed
+        through that constant, its template the discovery key the action's name points at (token, userinfo, ...), so
+        the stand-in serves the discovery document and the key's address points back at it. Returns {provider: {path,
+        keys, actions}}; an action with no such constant stays UNKNOWN (a real test system)."""
+        out = {}
+        for e in eps:
+            unk = [r for k, r in e["routes"] if k == "unknown"]
+            m = JAVA_URL.match(unk[0]) if len(e["routes"]) == 1 and len(unk) == 1 else None
+            if not m:
+                continue
+            action = m.group(1)
+            key = next((v for k, v in OIDC_KEYS if k in action.split(".")[-1].lower()), None)
+            consts = {d.qn: str((self.m.constant(d.qn) or {}).get("default") or "") for d in self.m.of_type("Constants$Constant")
+                      if d.module == action.split(".")[0]}
+            path = next((v.strip().lstrip("/") for v in consts.values() if ".well-known/" in v and not URLISH.match(v)), None)
+            urls = [q for q, v in consts.items() if URLISH.match(v)]
+            named = [q for q in urls if re.search(r"provider|issuer|openid|oidc|authority|discovery", q.split(".")[-1], re.I)]
+            prov = named[0] if len(named) == 1 else urls[0] if len(urls) == 1 else None
+            if not (key and path and prov):
+                continue
+            e["routes"] = [("const", prov)]
+            e["template"] = f"/{OIDC_SEG}/{key.rsplit('_', 1)[0]}"
+            e["auto"] = "discovery"
+            e["linked"] = (f"{unk[0]}; the action reads {key} from the OpenID discovery document of {prov} ({path}): "
+                           f"the stand-in serves that document and its {key} points back at the stand-in")
+            dz = out.setdefault(prov, {"path": path, "keys": set(), "actions": set()})
+            dz["keys"].add(key)
+            dz["actions"].add(action)
+        return out
 
     def location(self, d, hc, text_key="CustomLocationTemplate"):
         """(routes, template suffix) of a HttpConfiguration."""
@@ -607,7 +674,7 @@ def classify(ep, model_consts, excludes, rules, recorded):
     for pat, st, system, reason in rules:
         if st in ("LOCATION", "UNEXERCISED") or not fnmatch.fnmatch(ep["id"], pat):
             continue
-        if st == "MOCKED" and not kinds & {"const", "attr"}:
+        if st == "MOCKED" and not kinds & ({"const", "attr", "literal"} if proxy_on() else {"const", "attr"}):
             # B4N1-9: MOCKED says the app talks to this stand-in; with no constant or data location the stand-in has no
             # route the app could reach (Opcenter: the URL is built by a protected add-on microflow), so the claim is
             # unprovable and the endpoint stays UNKNOWN until a LOCATION line names where the URL comes from.
@@ -624,10 +691,20 @@ def classify(ep, model_consts, excludes, rules, recorded):
         if recorded and (Path(recorded) / f"{safe(ep['id'])}.json").is_file():
             ep.update(status="MOCKED", system="", why="recorded response for this constant")
         else:
-            ep.update(status="UNKNOWN", system="", why=ep.get("why", ""))
+            # no modelled call reads it: nothing to stand in. The constant still points at the stand-in (overrides), so
+            # a call from Java or from a string built at runtime arrives as an UNKNOWN request and the rung says so.
+            ep.update(status="UNCALLED", system="", auto="uncalled",
+                      why="no modelled call reads this URL constant; it still points at the stand-in, so a call from "
+                          "Java code shows up as an UNKNOWN request")
         return
     if kinds == {"const"}:
-        ep.update(status="MOCKED", system="", why="every location is an overridden constant")
+        ep.update(status="MOCKED", system="", why=ep.get("linked") or "every location is an overridden constant")
+        return
+    lits = [ref for k, ref in ep["routes"] if k == "literal"]
+    if proxy_on() and lits and kinds <= {"const", "literal"} and all(re.match(r"https?://[^/]", u, re.I) for u in lits):
+        ep.update(status="MOCKED", system="", auto="proxy",
+                  why=f"hard-coded URL {', '.join(dict.fromkeys(lits))}: stood in through the stand-in's proxy (the app "
+                      f"container sends that host to the stand-in, which answers with a certificate the container trusts)")
         return
     whys = [ref if k == "unknown" else
             f"location from data {ref}: set it to the printed /a/{ref} URL in the seed data, then classify it" if k == "attr" else
@@ -743,8 +820,42 @@ def build_inventory(models, excludes, rules, recorded):
         classify(e, consts, excludes, rules, recorded)
         if e.get("declared"):
             e["why"] = f"{e['why']}; {e['declared']}"
+        if e["status"] not in ("MOCKED", "UNCALLED"):
+            e.pop("auto", None)
+        e["recommend"] = recommend(e)
     return {"models": mods, "endpoints": [eps[k] for k in sorted(eps)], "constants": consts, "metadata": metas,
             "excludes": [[s, p, r] for s, p, r in excludes]}
+
+
+def recommend(e):
+    """ONE recommendation per endpoint that is not a plain constant stand-in: what was done, or what a person does."""
+    st, auto = e["status"], e.get("auto")
+    if st == "UNCALLED":
+        return "not called by the model: no stand-in needed"
+    if st == "MOCKED" and auto == "proxy":
+        return "resolved automatically: the stand-in answers the hard-coded address (test side only, the app is unchanged)"
+    if st == "MOCKED" and auto == "discovery":
+        return ("resolved automatically: the stand-in serves the sign-in provider's discovery document, so the address the "
+                "Java action reads points at the stand-in")
+    if st == "EXCLUDED":
+        return f"cannot be stood in ({e.get('system')}): {REAL_TEST}"
+    if st == "UNKNOWN":
+        attr = next((r for k, r in e["routes"] if k == "attr"), None)
+        if attr:
+            return f"set {attr} to the stand-in address in the seed data (serve prints it), then classify it MOCKED"
+        return f"needs a real test system: {REAL_TEST}"
+    return ""
+
+
+def grouped(inv):
+    """(stand-ins, resolved automatically, need a real test system, the one-line grouped OK)."""
+    eps = inv["endpoints"]
+    stand = sum(1 for e in eps if e["status"] == "MOCKED" and not e.get("auto"))
+    auto = sum(1 for e in eps if e.get("auto") and e["status"] in ("MOCKED", "UNCALLED"))
+    real = sum(1 for e in eps if e["status"] in ("UNKNOWN", "EXCLUDED"))
+    return stand, auto, real, (f"{stand} stand-in{'' if stand == 1 else 's'} + {auto} resolved automatically, {real} "
+                               f"need{'s' if real == 1 else ''} a real test system before go-live"
+                               + (" (recommended: test in the customer's test environment)" if real else ""))
 
 
 def coverage_line(inv):
@@ -752,7 +863,8 @@ def coverage_line(inv):
     st = lambda s: [e for e in eps if e["status"] == s]
     systems = sorted({e["system"] for e in st("EXCLUDED")})
     return (f"apis {len(eps)} found · mocked {len(st('MOCKED'))} · excluded {len(st('EXCLUDED'))}"
-            + (f" ({', '.join(systems)})" if systems else "") + f" · unknown {len(st('UNKNOWN'))}")
+            + (f" ({', '.join(systems)})" if systems else "") + f" · unknown {len(st('UNKNOWN'))}"
+            + (f" · not called {len(st('UNCALLED'))}" if st("UNCALLED") else ""))
 
 
 def route_text(e):
@@ -764,9 +876,11 @@ def print_inventory(inv, out=sys.stdout):
     for e in inv["endpoints"]:
         st = e["status"] + (f" ({e['system']})" if e["status"] == "EXCLUDED" else "")
         print(f"{st:22} {e['id']}  {e['method']} {e['template'][:60]}  via {route_text(e)}  [{e['shape']}]"
-              + (f"  -- {e['why']}" if e["status"] != "MOCKED" or e["why"].startswith("classified") or e.get("declared") else ""),
-              file=out)
+              + (f"  -- {e['why']}" if e["status"] != "MOCKED" or e["why"].startswith("classified") or e.get("declared")
+                 or e.get("auto") else "")
+              + (f"  => {e['recommend']}" if e.get("recommend") else ""), file=out)
     print(coverage_line(inv), file=out)
+    print("stand-ins: " + grouped(inv)[3], file=out)
 
 
 def overrides(inv, base):
@@ -778,6 +892,35 @@ def overrides(inv, base):
                 dv = str((inv["constants"].get(r) or {}).get("default") or "")
                 o[r] = f"{base}/c/{r}" + ("/" if dv.endswith("/") else "")
     return dict(sorted(o.items()))
+
+
+def proxy_key(url):
+    """The stand-in path a hard-coded URL arrives on through the proxy: /h/<host><path>."""
+    u = urlsplit(url)
+    return f"/h/{(u.hostname or '').lower()}{u.path.rstrip('/')}"
+
+
+def proxy_hosts(inv):
+    """{host: scheme} of the hard-coded URLs of MOCKED endpoints: the hosts the stand-in's proxy answers for."""
+    return {urlsplit(r).hostname.lower(): urlsplit(r).scheme.lower() for e in inv["endpoints"] if e["status"] == "MOCKED"
+            for k, r in e["routes"] if k == "literal" and urlsplit(r).hostname}
+
+
+def make_cert(st, hosts):
+    """A self-signed certificate for the proxied https hosts (test side only: the app container trusts it through
+    runapp.py APIMOCK_PROXY; nothing else does). Returns an ssl context, or None (no openssl: https stays BLOCKED)."""
+    cert, key = st / "proxy-cert.pem", st / "proxy-key.pem"
+    san = ",".join(f"DNS:{h}" for h in sorted(hosts))
+    r = subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(cert),
+                        "-days", "30", "-subj", "/CN=upg-standin", "-addext", f"subjectAltName={san}"],
+                       capture_output=True, text=True)
+    if r.returncode or not cert.is_file():
+        print(f"apimock: no proxy certificate (openssl: {(r.stderr or 'not found').strip()[:200]}): hard-coded https "
+              f"hosts are BLOCKED, not answered", flush=True)
+        return None
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(cert), str(key))
+    return ctx
 
 
 # ------------------------------------------------------------------------------------------------ the stand-in
@@ -860,10 +1003,14 @@ class Stand:
         self.lock = threading.Lock()
         self.ctx = None   # direct API test (apidirect.py): {"call", "side", "mode"} while one call runs; None = normal answers
         self.by_route = {}
+        self.base, self.tls = "", None   # serve sets them: the address the app reaches, the proxy's TLS context
+        self.hosts = proxy_hosts(inv)
         for e in inv["endpoints"]:
             for k, r in e["routes"]:
                 if k in ("const", "attr"):
                     self.by_route.setdefault(f"/{'c' if k == 'const' else 'a'}/{r}", []).append(e)
+                elif k == "literal" and e["status"] == "MOCKED":
+                    self.by_route.setdefault(proxy_key(r), []).append(e)
         self.sets = {q: odata_sets(md) for q, md in inv["metadata"].items() if md}
 
     def log(self, rec):
@@ -910,6 +1057,15 @@ class Stand:
             return int(r.get("status", 200)), r.get("content_type", "application/json"), b if isinstance(b, str) else json.dumps(b)
         if e["kind"] == "odata":
             return self.odata(e, rest, query)
+        if e["kind"] == "oidc":   # the discovery document: every key the model's Java actions read points back here
+            iss = f"{self.base}/c/{e['doc']}"
+            doc = {"issuer": iss, **{k: f"{iss}/{OIDC_SEG}/{k.rsplit('_', 1)[0]}" for k in e["oidc_keys"]}}
+            doc.setdefault("authorization_endpoint", f"{iss}/{OIDC_SEG}/authorization")
+            doc.setdefault("token_endpoint", f"{iss}/{OIDC_SEG}/token")
+            doc.setdefault("jwks_uri", f"{iss}/{OIDC_SEG}/jwks")
+            doc.update(response_types_supported=["code"], subject_types_supported=["public"],
+                       id_token_signing_alg_values_supported=["RS256"])
+            return 200, "application/json", json.dumps(doc)
         b = e.get("body")
         return 200, e.get("content_type", "application/json"), b if isinstance(b, str) else json.dumps(b if b is not None else {})
 
@@ -953,6 +1109,32 @@ def make_handler(stand):
         def log_message(self, *a):
             pass
 
+        tunnel = None   # the host of a CONNECT this connection carries (the proxy): its requests map to /h/<host>
+
+        def do_CONNECT(self):
+            """The proxy for hard-coded https URLs (runapp.py APIMOCK_PROXY): a proxied host gets a TLS tunnel the
+            stand-in ends itself, with the certificate the app container trusts; any other host is BLOCKED (403, logged),
+            so a gate run never reaches a real outside system through it."""
+            host = self.path.rsplit(":", 1)[0].strip("[]").lower()
+            if host not in stand.hosts or not stand.tls:
+                return self.blocked(host, "CONNECT")
+            self.send_response(200, "Connection Established")
+            self.end_headers()
+            try:
+                conn = stand.tls.wrap_socket(self.connection, server_side=True)
+            except (ssl.SSLError, OSError):
+                self.close_connection = True
+                return
+            self.connection, self.tunnel = conn, host
+            self.rfile, self.wfile = conn.makefile("rb"), conn.makefile("wb")
+
+        def blocked(self, host, how):
+            stand.log({"t": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), "method": how, "path": host,
+                       "query": "", "endpoint": None, "status": "BLOCKED", "system": "", "code": 403,
+                       "match": "not a hard-coded address of the model"})
+            self.close_connection = True
+            return self.reply(403, {"error": f"apimock: BLOCKED {how} {host}: not an address of the model"})
+
         def handle_any(self):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
@@ -961,6 +1143,12 @@ def make_handler(stand):
             t = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
             if u.path.startswith("/__ad/"):   # control endpoint of apidirect.py: which call (and fault mode) is running
                 return self.control(u.path, raw)
+            if u.scheme in ("http", "https"):   # a proxied plain-http request carries the absolute URL
+                if (u.hostname or "").lower() not in stand.hosts:
+                    return self.blocked((u.hostname or "").lower(), self.command)
+                u = urlsplit(f"/h/{u.hostname.lower()}{u.path}" + (f"?{u.query}" if u.query else ""))
+            elif self.tunnel:
+                u = urlsplit(f"/h/{self.tunnel}{u.path}" + (f"?{u.query}" if u.query else ""))
             e, how, rest = stand.pick(self.command, u.path, raw.decode('utf-8', 'replace') if raw else None, u.query)
             rec = {"t": t, "method": self.command, "path": u.path, "query": u.query[:200], "endpoint": e["id"] if e else None,
                    "status": "UNMATCHED", "system": "", "code": 404, "match": how}
@@ -975,7 +1163,9 @@ def make_handler(stand):
                 rec.update(status="EXCLUDED", system=e["system"])
                 code, ct, body = 503, "application/json", json.dumps({"error": f"EXCLUDED: {e['system']} ({e['id']}): not stood in"})
             else:
-                rec["status"] = e["status"]   # MOCKED, or UNKNOWN (answered, but the gate stays INVALID)
+                # MOCKED, or UNKNOWN (answered, but the gate stays INVALID); a URL constant no modelled call reads
+                # (UNCALLED) that IS called arrives as UNKNOWN: it was called after all
+                rec["status"] = "UNKNOWN" if e["status"] == "UNCALLED" else e["status"]
                 code, ct, body = stand.answer(e, self.command, rest, q)
                 if ctx and ctx.get("mode") == "500":   # error path of a direct test: a server error for any call
                     code, ct, body = 500, "application/json", json.dumps({"error": "apimock: injected 500"})
@@ -1015,6 +1205,7 @@ def make_handler(stand):
             self.wfile.write(data)
 
         do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = handle_any
+    H.stand = stand
     return H
 
 
@@ -1136,7 +1327,16 @@ def cmd_serve(a):
     except OSError as e:
         die(f"cannot listen on {a.bind}:{a.port}: {e}")
     base = f"http://{a.public_host or ('127.0.0.1' if a.bind == '0.0.0.0' else a.bind)}:{srv.server_address[1]}"
+    stand = srv.RequestHandlerClass.stand
+    stand.base = base
     ov = overrides(inv, base)
+    (st / "proxy.json").unlink(missing_ok=True)
+    if stand.hosts:   # hard-coded URLs: runapp.py APIMOCK_PROXY=<state>/proxy.json sends the app's outside calls here
+        https = [h for h, sc in stand.hosts.items() if sc == "https"]
+        stand.tls = make_cert(st, https) if https else None
+        (st / "proxy.json").write_text(json.dumps({
+            "host": urlsplit(base).hostname, "port": srv.server_address[1], "hosts": sorted(stand.hosts),
+            "cert": str((st / "proxy-cert.pem").resolve()) if stand.tls else ""}, indent=1) + "\n")
     (st / "inventory.json").write_text(json.dumps(inv, indent=1, default=list) + "\n")
     (st / "overrides.json").write_text(json.dumps(ov, indent=1) + "\n")
     (st / "coverage.txt").write_text(coverage_line(inv) + "\n")
@@ -1148,6 +1348,9 @@ def cmd_serve(a):
         for k, r in e["routes"]:
             if k == "attr":
                 print(f"data: set {r} to {base}/a/{r} in the seed data ({e['id']})")
+    if stand.hosts:
+        print(f"proxy: {', '.join(sorted(stand.hosts))} answered through the stand-in (APIMOCK_PROXY={st / 'proxy.json'}; "
+              f"any other outside host is BLOCKED)")
     print(f"apimock: listening on {a.bind}:{srv.server_address[1]} as {base}; log {st / 'requests.jsonl'}; "
           f"CONST_OVERRIDES=$(cat {st / 'overrides.json'})", flush=True)
     (st / "ready").write_text(base + "\n")
@@ -1208,6 +1411,11 @@ def cmd_check(a):
           f" · unmatched {len(by('UNMATCHED'))}")
     for r in (by("UNKNOWN") + by("UNMATCHED"))[:10]:
         print(f"  {r['status']} request {r['method']} {r['path']} ({r.get('endpoint') or r.get('match')}) at {r['t']}")
+    for h in sorted({r["path"] for r in by("BLOCKED")})[:10]:   # info: the proxy refused it, no real system was reached
+        print(f"  BLOCKED outside host {h}: not an address of the model, the stand-in's proxy refused it (no real call)")
+    for e in eps:
+        if e["status"] == "UNCALLED" and not any(r.get("endpoint") == e["id"] for r in recs):
+            print(f"  NOT CALLED endpoint {e['id']}: not called by the model, no stand-in needed")
     for e in excl:
         if e.get("classified"):
             print(f"  INFO (excluded: {e['system']}) endpoint {e['id']}: check at deploy")
