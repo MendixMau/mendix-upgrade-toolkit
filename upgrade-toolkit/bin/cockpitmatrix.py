@@ -1446,7 +1446,7 @@ def band(model, rows, chips, g, tl, kpi=None):
 # open questions, the stop file, the running marker). Nothing here decides a verdict.
 PLAIN_WORDS = [(r"\s*\(exit \d+\)", ""), (r"(?:/[^\s/]+)+/([^\s/]+)", r"\1"), (r"\bREGRESSION/FAIL\b", "regression"),
                (r"\bINVALID\b", "could not be measured"), (r"\bPASS\*", "passed with accepted differences"), (r"\bPASS\b", "passed"),
-               (r"\bFAIL\b", "failed"), (r"\bREGRESSIONS?\b", "regression"), (r"\bgate\b", "final check"), (r"\bjourneys\b", "user paths"),
+               (r"\bFAIL\b", "failed"), (r"\bREGRESSIONS?\b", "regression"), (r"\bgate\b", "final check"), (r"\buser journeys\b", "user paths"), (r"\bjourneys\b", "user paths"),
                (r"\bjourney\b", "user path"), (r"\bNEW app\b", "upgraded app"), (r"\bOLD app\b", "old app"),
                (r"\bbaseline defects?\b", "problem the old app has too"), (r"\bidcheck\b", "data identity check"),
                (r"\bstepupdate(?:\.sh)?\b", "automatic module update"), (r"\bconvert-made\b", "made by the automatic converter"),

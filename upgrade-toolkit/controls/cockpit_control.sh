@@ -79,7 +79,7 @@ print("phone: one column and a full-width button" if ".brief .bl{grid-template-c
 PY
             ;;
   brief-stop-agent) minw plan-missing; ck >/dev/null && brief_text ;;
-  brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text ;;
+  brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text; grep -o 'The run stopped during this step: [^<]*' "$T/out.html" ;;
   brief-who) printf 'Progress: 5 of 10 checks closed (50%%). 1 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\nChanges: 30 (toolkit 5, agent 1, person 0, unlabelled 24)\n' >> "$W/gate-summary.md"; ck >/dev/null && brief_text ;;
   brief-approval) ck >/dev/null && brief_text | grep -A1 '^Who changed what'
             sed -i 's/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what'
