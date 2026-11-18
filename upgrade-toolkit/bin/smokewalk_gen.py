@@ -103,6 +103,9 @@ def module_of(uid, units):
     return None
 
 
+COND_WIDGETS = set()   # names of widgets with a ConditionalVisibilitySettings Expression/Attribute (shape captured from a real 10.3 model)
+
+
 def walk_actions(node, widget=None, out=None):
     """Yield (widget name, action dict) for every FormAction / MicroflowAction under node."""
     out = [] if out is None else out
@@ -111,6 +114,9 @@ def walk_actions(node, widget=None, out=None):
         if t in ("Forms$FormAction", "Forms$MicroflowAction") and widget:
             out.append((widget, node))
         name = node.get("Name") if isinstance(node.get("Name"), str) and t.startswith(("Forms$", "Pages$", "CustomWidgets$")) else None
+        cv = node.get("ConditionalVisibilitySettings")
+        if name and isinstance(cv, dict) and (cv.get("Expression") or cv.get("Attribute")):
+            COND_WIDGETS.add(name)
         for k, v in node.items():
             if k in ("$ID",):
                 continue
@@ -208,6 +214,8 @@ def plan_for_role(role, pages, microflows, prof, roles, home_buttons=True):
             seen.add((widget, pg))
             if pg not in pages:
                 skipped.append({"widget": widget, "page": pg, "why": "page not found"})
+            elif widget in COND_WIDGETS:
+                skipped.append({"widget": widget, "page": pg, "why": "not walked: conditionally visible (it is not on the page until data selects it)"})
             elif has_params(pages[pg]):
                 skipped.append({"widget": widget, "page": pg, "why": "page needs an object (parameter)"})
             elif not allowed(pages[pg], mroles):
@@ -249,6 +257,10 @@ def main():
         k = [s["kind"] for s in r["steps"]]
         print(f"{r['role']}: {k.count('page')} page steps, {k.count('microflow')} microflow steps, "
               f"{len(r['skipped'])} steps skipped (need an object, not allowed, or excluded)")
+        cond = [x for x in r["skipped"] if x["why"].startswith("not walked: conditionally visible")]
+        if cond:
+            print(f"{r['role']}: not walked: conditionally visible: {len(cond)} button(s): "
+                  + ", ".join(f"{x['widget']} -> {x['page']}" for x in cond))
         w = microflow_warning(r)
         if w:
             print(f"WARN {r['role']}: {w}")
