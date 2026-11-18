@@ -3337,6 +3337,17 @@ ctl gen-journeys-guard-generic-name-catch 0 '"ready": ".mx-name-label12"' '!time
 ctl gen-journeys-guard-visible-widget-pass 0 '"ready": ".mx-name-label9"' -- cat $GI/journeys/Inspector/login-Inspector.journey.json
 ctl gen-journeys-layout-signout-icon-catch 0 '^click menuBar2-1 None$' '^click menuBar2-1-1 Sign out$' '^from layout of Shop.Dashboard, menu widget menuBar2$' '!nav' -- python3 -c "import json; j=json.load(open('$G2/journeys/Desk/sign-out.journey.json')); [print(a['do'], a.get('widget'), a.get('label')) for a in j['steps'][0]['actions']]; print('from', j['_sign_out_from'])"
 ctl gen-journeys-layout-signout-icon-pass 0 "^\{'path': \['Account', 'Sign out'\], 'widget': 'menuBar2', 'clicks': \['menuBar2-0', 'menuBar2-0-1'\], 'by': 'action', 'detail': 'Forms\\\$SignOutClientAction'\}$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I, mprmodel; m=mprmodel.Model.load('$M/guard'); print(I.layout_sign_out(m, 'Shop.Inbox'))"
+# cold rfq: every role-menu item icon-only, caption " " (blank, not empty). The sign-out journey navigated to item " " and
+# checked textAbsent " ", so it FAILed on the healthy OLD app. Now: no caption path, the layout navigation tree's item
+# is clicked by index; blank captions are no menu text. Also from an impact file the old impact_map wrote.
+model iconnav > /dev/null
+IN=$T/iconnav; mkdir -p $IN; python3 $B/impact_map.py $M/iconnav/App.mpr $M/iconnav/App.mpr --out $IN/impact.json > /dev/null 2>&1
+python3 -c "import json; d=json.load(open('$IN/impact.json')); d['roles']['Desk'].update(menu_visible=[' '], sign_out_item=[' ']); json.dump(d, open('$IN/impact-old.json','w'))"
+(cd / && python3 $B/gen_journeys.py $IN/impact.json --out-dir $IN/gen --roles-with-users Desk > /dev/null 2>&1; python3 $B/gen_journeys.py $IN/impact-old.json --out-dir $IN/gen-old --roles-with-users Desk > /dev/null 2>&1)
+ISO="import json,sys; j=json.load(open(sys.argv[1])); s=j['steps'][0]; [print(a['do'], a.get('widget') or a.get('item'), a.get('label')) for a in s['actions']]; print('absent', s['ui'].get('textAbsent')); print('from', j.get('_sign_out_from'))"
+ctl impact-iconnav-blank-caption-catch 0 "^visible \[\] signout None$" -- python3 -c "import json; r=json.load(open('$IN/impact.json'))['roles']['Desk']; print('visible', r['menu_visible'], 'signout', r['sign_out_item'])"
+ctl gen-journeys-iconnav-signout-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' '^from layout of Shop.Home, menu widget navigationTree3$' '!^nav' -- python3 -c "$ISO" $IN/gen/journeys/Desk/sign-out.journey.json
+ctl gen-journeys-iconnav-old-impact-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' -- python3 -c "$ISO" $IN/gen-old/journeys/Desk/sign-out.journey.json
 ctl gen-journeys-home-texts-placeholder-catch 0 '"Find a work order"' '!Type search text' '!"Home"' -- cat $G2/journeys/Inspector/login-Inspector.journey.json
 ctl gen-journeys-home-texts-title-widget-pass 0 '"Orders overview"' '!Type search text' -- cat $G2/journeys/Clerk/login-Clerk.journey.json
 ctl gen-journeys-home-texts-popup-title-pass 0 "^Shop.Popup_Title \['Confirm your account', 'Enter the code'\]$" "^Shop.Search_Home \['Find a work order'\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import gen_journeys as G, mprmodel; m=mprmodel.Model.load('$M/guard2'); [print(q, G.home_texts(m, q)) for q in ('Shop.Popup_Title', 'Shop.Search_Home')]"
