@@ -1930,6 +1930,7 @@ SDEOF
 SD="env PIPE=${PIPE:-$B/cloud/upgrade-pipeline.sh} SDB=$V/sdm/bin SDW=$V/sdm/w SDA=$V/sdm/app"
 ctl pipeline-seed-demo-unmapped-falls-back-catch 0 '^rc=1$' 'demo data NOT loaded' -- $SD SD_RC=1 SD_OUT='nothing was loaded' bash $V/sdm/sd.sh
 ctl pipeline-seed-demo-loaded-pass 0 '^rc=0$' 'demo data loaded from data-snapshot.zip \(applied: 9 rows in 2 tables\)' '^00$' -- bash -c "rm -f $V/sdm/w/state/notes.txt; $SD SD_RC=0 SD_OUT='applied: 9 rows in 2 tables; every table' bash $V/sdm/sd.sh"
+ctl pipeline-seed-demo-empty-snapshot-falls-back-catch 0 '^rc=1$' 'demo data NOT loaded \(the snapshot holds no rows' -- bash -c "rm -f $V/sdm/w/state/notes.txt; $SD SD_RC=0 SD_OUT='applied: 0 rows in 4 tables; every table' bash $V/sdm/sd.sh"
 # F1: force-ui.txt reaches stepupdate as --force-ui (else --unattended keeps every edited module), replay/<Module>.mdl runs after the updates
 mkdir -p $V/pw3/replay; printf '# update anyway, replay\nMendixSSO\nAtlas_Core\n' > $V/pw3/force-ui.txt; echo 'alter entity X.Y drop validation rule;' > $V/pw3/replay/MendixSSO.mdl; : > $V/pw3/replay/Atlas_Core.patch
 ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-ui MendixSSO.?,Atlas_Core --saved-edits .*/pw3/saved-edits' 'exec .*/pw3/replay/MendixSSO\.mdl -p ' 'git -C .*/papp apply --check .*/pw3/replay/Atlas_Core\.patch' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw3 --only update --dry-run
