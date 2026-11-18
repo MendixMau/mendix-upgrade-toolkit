@@ -698,6 +698,17 @@ ctl missing-deps-target-pass 1 '!above target' -- python3 $B/repair/missing_deps
 # pipeline run 3 (T7-29): Charts 3.x widgets build on 11 but fail at runtime: DEPRECATED-11 before the 11 rung, quiet below 11
 ctl missing-deps-charts3-11-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.PieChart.PieChart: used 1x in Account_Overview' '!MISSING' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3)
 ctl missing-deps-charts3-10-pass 0 '!DEPRECATED-11' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $(model charts3)
+# issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
+MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
+ctl missing-module-stop-names-module-and-version-catch 0 '^Q	The update of Atlas_Core needs a module this app does not have: UserCommons\.' '^O	install\|Install UserCommons 2\.4\.0 from the Marketplace\|.*mxcli marketplace install 223053 --version 2\.4\.0' '^R	install$' '^exit 1$' -- $MMC update-introduced $MMA
+ctl missing-module-stop-offers-keep-old-version-catch 0 '^O	keep\|Keep the old version of Atlas_Core\|Revert its update \(git revert [0-9a-f]+\)' '^B	  UserCommons: Marketplace content 223053, version 2\.4\.0; introduced by Atlas_Core 4\.7\.0 \(' -- $MMC update-introduced $MMA
+ctl missing-module-stop-says-nothing-is-installed-pass 0 'Nothing is installed until you say so\.' -- $MMC update-introduced $MMA
+ctl missing-module-above-target-recommends-keep-catch 0 '^R	keep$' '^B	  UserCommons: .*NOT usable on the target' '!--version 2\.4\.0' -- $MMC above-target $MMA
+ctl missing-module-already-dangling-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC already-dangling $MMA
+ctl missing-module-acked-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC acked $MMA
+ctl missing-module-nothing-missing-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC nothing-missing $MMA
+ctl missing-module-no-git-history-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC no-git $MMA
+ctl cockpit-missing-module-stop-is-the-card-catch 0 '^The update of Atlas_Core needs a module this app does not have: UserCommons' '^We recommend: Install UserCommons 2\.4\.0 from the Marketplace$' '^question cards: 1$' '!Nothing you can answer here' -- bash $here/cockpit_control.sh p24-stop
 ctl widget-descriptor-catch 1 'BROKEN.*data descriptor missing' -- python3 $B/repair/missing_deps.py $M/widget-descriptor
 ctl widget-crc-catch 1 'BROKEN' -- python3 $B/repair/missing_deps.py $M/widget-crc
 
@@ -7346,7 +7357,7 @@ ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' '
 # stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
 ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
 ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
-ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the app model check found 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
 # round 3 (cockpit clarity): every stop site of upgrade-pipeline.sh says who it is for; a sample per exit code is rendered from the source's own nj_meta text
 ctl cockpit-stop-sites-all-marked-catch 0 '^unmarked sites: 0$' -- $CK site-unmarked
 printf '%s\n' 'nj_add 13 "x" "y"' 'nj_meta agent; nj_add 13 "z" "w"' 'foo || nj_file 10 "q" f' 'nj_meta info' 'nj_file 10 "r" f   # nj_file mentioned in a comment' > $T/unmarked-sites.sh
@@ -7362,7 +7373,7 @@ ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just 
 ctl cockpit-brief-testing-now-not-contradicted-catch 0 '^Testing now: running the user journeys on old and new\. Results appear here when they finish\.$' '^Nothing is known to be broken so far\. The tests are running now\.$' '!has not started' '!nothing has been measured' -- $CK chk-testing
 ctl cockpit-brief-tests-not-started-pass 0 '^The tests run in the Test step, which has not started\.$|^The old app is recorded as the reference\. The new app is tested against it after the conversion\.$|^Some tests have run\. The results are added up in the final check, which has not run yet\.$' '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Testing now' -- $CK chk-idle
 ctl cockpit-brief-tests-stopped-not-unstarted-catch 0 '^The tests stopped during this step: running the user paths on old and new\. Results appear here after it reruns\.$' '!has not started' -- $CK chk-stopped-test
-ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. The 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
+ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. Open this to see the 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
@@ -7913,6 +7924,30 @@ ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff
 ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
 ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
 
+# --- cockpit clarity, round 7 (SNOW, issue 25): a decision for a person is the top card, with its choices said in it ---
+ctl cockpit-person-stop-card-names-choices-catch 0 '^The update rerun finds replay commits already in the app\. What should we do\?$' '^Your choices: Rewind the app to the convert commit or Keep the replays\.$' '^The run is paused until you answer\. One click$' '^cards: 1$' '!Nothing you can answer' -- $CK p7-replay
+ctl cockpit-person-stop-three-choices-catch 0 '^Your choices: Update the kept module, Put the old widget back or Accept the skew\.$' '!Nothing you can answer' -- $CK p7-widgetskew
+ctl cockpit-one-option-question-no-choices-line-pass 0 '^Continue with the old jar\?$' '!Your choices' -- $CK p7-one-option
+ctl cockpit-agent-stop-headline-no-file-name-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the list of add-on updates that go before the Mendix 11 conversion is missing\) and rerun\.$' '!plan-pre' -- $CK p7-agent-file
+ctl cockpit-agent-stop-mxcheck-count-plain-catch 0 'The agent has to finish this \(the app model check found 1 error after convert' '!mx check' '!1 errors' -- $CK p7-agent-mxcheck
+ctl term-brief-person-stop-lists-choices-pass 0 '^Do this now: The update rerun finds replay commits already in the app\. What' '^    rewind: Rewind the app to the convert commit$' '^    keep: Keep the replays$' -- $CK p7-term-person
+
+
+# journeys progress line (issue 26): a long walk says how far it is, so a slow run is not taken for a hung one (SNOW: 435 user paths, no output for 90 min)
+JPC="python3 $here/journeys_progress_control.py"
+ctl journeys-progress-start-unknown-catch 0 '^progress: 435 user paths to walk\. Expected duration: unknown \(no earlier run here' -- $JPC start-unknown
+ctl journeys-progress-start-known-pass 0 'Expected duration: about 435 min \(earlier runs here: 60 s per path\)' '!unknown' -- $JPC start-known
+ctl journeys-progress-tiny-earlier-run-unknown-catch 0 'Expected duration: unknown' '!about' -- $JPC pace-ignores-tiny
+ctl journeys-progress-line-every-25-paths-pass 0 '^progress: 209 of 435 user paths done, about 15 min left$' '^log: progress: 209 of 435 user paths done, about 15 min left$' '^state: \{"done": 209, "total": 435, "left_min": 15, "finished": false\}$' '^lines: 15$' -- $JPC ticks
+ctl journeys-progress-line-every-minute-catch 0 '^lines after 160 s: 2$' -- $JPC by-minute
+ctl journeys-progress-pace-kept-for-next-run-pass 0 '^pace row: new	10	60$' '^finished: True$' '^next start: about 10 min$' -- $JPC finish-keeps-pace
+ctl journeys-progress-counts-markers-in-real-child-pass 0 '^batch 0 rc=0 journeys in output=3$' '^batch 1 rc=0 journeys in output=3$' '^done=6$' '^live files left: 0$' -- $JPC walk-counts
+ctl journeys-progress-read-line-pass 0 '^Testing now: 212 of 435 user paths done, about 40 min left$' -- $JPC read-line
+ctl journeys-progress-read-over-says-nothing-pass 0 '^\[\]$' -- $JPC read-over
+ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 212 of 435 user paths done, about 40 min left\. Results appear here when they finish\.$' '^terminal: Testing now: 212 of 435 user paths done, about 40 min left' -- $CK prog-box
+ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
+ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
+ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

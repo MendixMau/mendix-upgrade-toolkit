@@ -1438,6 +1438,19 @@ step_build() {
   rc=0; xo "$WORK/missing_deps.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?
   if [ "$DRY" != 1 ] && [ "$rc" = 1 ]; then
     note "missing_deps: $(grep -cE '^(MISSING|BROKEN)' "$WORK/missing_deps.txt" || true) missing or broken (see $WORK/missing_deps.txt)"
+    # issue 24 (SNOW, Atlas_Core 4.7.0 needs FeedbackModule): a module an UPDATE made necessary is a person's decision, said before the
+    # build goes on. Never installed here: it adds a module to the owner's app. missing_module_stop.py header has the design note.
+    if grep -q '^MISSING module' "$WORK/missing_deps.txt"; then
+      local msrc=0
+      python3 "$B/repair/missing_module_stop.py" "$WORK/missing_deps.txt" "$WORK/plan.txt" --app "$APP" --ack "$WORK/missing-module-ack.txt" > "$WORK/missing-module.out" 2> /dev/null || msrc=$?
+      if [ "$msrc" = 1 ]; then
+        local mq mr mo=() mb
+        mq=$(sed -n 's/^Q\t//p' "$WORK/missing-module.out"); mr=$(sed -n 's/^R\t//p' "$WORK/missing-module.out")
+        mapfile -t mo < <(sed -n 's/^O\t//p' "$WORK/missing-module.out"); mb=$(sed -n 's/^B\t//p' "$WORK/missing-module.out")
+        nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"
+        nj_flush
+      fi
+    fi
     if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then
       nj_meta agent; nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
     fi
@@ -2084,6 +2097,8 @@ run_step() { # run_step NAME
     *" $STEP "*) if [ "$DRY" != 1 ] && [ -f "$WORK/PROPOSAL.md" ]; then proposal_recheck; fi ;;
   esac
   printf '%-10s %s\n' "$STEP" "running (log: $LOG)"
+  # the journeys' progress line (bin/journeys_progress.py): into this step's log, a state file the page and the brief read, and the pace of earlier runs
+  export UPG_PROGRESS_LOG="$LOG" UPG_PROGRESS_FILE="$WORK/state/journeys-progress.json" UPG_PACE_FILE="$WORK/state/journeys-pace.tsv"
   LOG_START=0; [ ! -f "$LOG" ] || LOG_START=$(wc -l < "$LOG" | tr -d ' ')   # a step log keeps earlier runs: nj_file quotes only this run
   timing_open "$STEP"
   cockpit_regen   # the page shows the step as running from its start, not only after it
