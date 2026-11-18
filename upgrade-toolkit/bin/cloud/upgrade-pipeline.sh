@@ -2038,7 +2038,12 @@ main() {
     local ps=$FROM; case "$ps" in fetch) ps=triage ;; propose) ps=convert ;; esac
     mxcli_pin "$ps"
     local s found=0
-    for s in "${STEPS[@]}"; do [ "$s" != "$FROM" ] || found=1; [ "$found" = 0 ] || rm -f "$WORK/state/$s.done"; done
+    # cold rfq: --from triage --only triage cleared baseline..gate though only triage ran; a later --from build then redid
+    # baseline, basewalk, propose and convert (a convert over the update commits). With --only, nothing past it is cleared.
+    for s in "${STEPS[@]}"; do
+      [ "$s" != "$FROM" ] || found=1; [ "$found" = 0 ] || rm -f "$WORK/state/$s.done"
+      [ -z "$ONLY" ] || [ "$s" != "$ONLY" ] || break
+    done
   fi
   local s
   for s in "${STEPS[@]}"; do

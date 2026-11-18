@@ -3798,6 +3798,17 @@ FP=$T/frompin; mkdir -p $FP/w/state; for st in triage update build gate; do echo
     'mxcli_pin() { echo "pin refused at $1" >&2; exit 3; }' 'run_step() { mxcli_pin "$1"; }' \
     'STEPS=(fetch triage baseline update build gate); ONLY=""; TARGET2=""; DRY=0; main'; } > $FP/fn.sh
 ctl pipeline-from-pin-before-clear-catch 0 '^rc=3$' '^left: build\.done gate\.done triage\.done update\.done$' -- bash -c "WORK=$FP/w FROM=update bash $FP/fn.sh 2> /dev/null; echo rc=\$?; echo left: \$(cd $FP/w/state && ls | tr '\n' ' ')"
+# cold rfq: --from triage --only triage cleared every later marker though only triage ran; the next --from build redid
+# baseline..convert. --from X --only Y clears X..Y only; --from alone still clears X..gate
+FO=$T/fromonly; mkdir -p $FO
+{ awk '/^main\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
+    'mxcli_pin() { :; }' 'run_step() { :; }' 'STEPS=(fetch triage baseline convert update build gate); TARGET2=""; DRY=0; main'; } > $FO/fn.sh
+fo() { rm -rf "$FO/w"; mkdir -p $FO/w/state; for st in fetch triage baseline convert update; do echo t > $FO/w/state/$st.done; done; }
+fo
+ctl pipeline-from-only-keeps-later-catch 0 '^left: baseline\.done convert\.done fetch\.done update\.done$' -- bash -c "WORK=$FO/w FROM=triage ONLY=triage bash $FO/fn.sh; echo left: \$(cd $FO/w/state && ls | tr '\n' ' ')"
+fo
+ctl pipeline-from-alone-clears-later-pass 0 '^left: fetch\.done$' -- bash -c "WORK=$FO/w FROM=triage ONLY= bash $FO/fn.sh; echo left: \$(cd $FO/w/state && ls | tr '\n' ' ')"
 # cold WM1 gap 5: a rung-1 rerun on a rewound app kept rung2/state/{triage,baseline}.done, and rung 2 would skip its baseline
 # of the new rung-1 app; rung2_stale moves them aside when the recorded rung-1 HEAD left the app's history
 RS=$T/r2stale; mkdir -p $RS
