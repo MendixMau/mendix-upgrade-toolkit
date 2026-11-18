@@ -86,6 +86,14 @@ PY
             printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
   brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
             grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
+  pending-signed) sed -i 's/ASSUMED (unattended)/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
+            echo "chat: $(dec pending | grep -E '^[A-Za-z:0-9_-]+  ' | awk '{print $1}' | sort | paste -sd' ' -)"
+            python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp, cockpitmatrix as cm
+print("page: " + " ".join(sorted(i["id"] for i in cm.open_questions(cp.build_model(sys.argv[2])))))
+PY
+            ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;

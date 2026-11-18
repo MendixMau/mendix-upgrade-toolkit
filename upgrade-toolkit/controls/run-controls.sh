@@ -7225,6 +7225,8 @@ ctl cockpit-brief-nothing-measured-not-green-catch 0 '^Nothing is known to be br
 ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold closed$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
 ctl cockpit-brief-who-approved-catch 0 "No person has approved the plan\. Some choices are marked ASSUMED: the AI made them\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' -- $CK brief-approval
 ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' 'running bar detail: \.nowrun small\{display:none' 'tap opens it: nr\.addEventListener\("click"' -- $CK brief-live-bits
+# Q9 of the user test: the chat list (decisions.py pending) and the page list are one list; a plan item decided by the signed plan was open in chat only (run APPR)
+ctl decisions-pending-matches-page-catch 0 '^chat: confirm:D2 regression:Gridmod regression:overlay$' '^page: confirm:D2 regression:Gridmod regression:overlay$' -- $CK pending-signed
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
