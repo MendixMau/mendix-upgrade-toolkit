@@ -638,6 +638,19 @@ mkdir -p $T/cache-lay
 (cd $M/layout-edit-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-lay/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
 ctl localedits-layout-content-catch 0 'ui +CHANGED +layout +Administration\.Layout_Main +content differs from the package; local: .*RegionTopbar; package only: .*FeedbackCall' 'force-ui: Administration' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-edit-app/App.mpr --module Administration
 ctl localedits-layout-content-pass 0 'UI edits \(pages, layouts\): 0' 'force-ui: none' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-same-app/App.mpr --module Administration
+# cold rfq: Encryption snippets flagged "local: SnippetParameter PasswordData". The package (before conversion) has Entity,
+# the converted app a Forms$SnippetParameter for the same entity: no local edit. A real snippet widget still counts.
+SNIPSIG="import sys; sys.path.insert(0,'$B'); import localedits as L
+class D: pass
+class Mo: pass
+def doc(data): d=D(); d.data=data; return d
+pkg={'\$Type':'Forms\$Snippet','Entity':'Encryption.PasswordData','Widgets':[{'\$Type':'Forms\$TextBox','Name':'pw'}]}
+app={'\$Type':'Forms\$Snippet','Parameters':[{'\$Type':'Forms\$SnippetParameter','Name':'PasswordData','ParameterType':{'\$Type':'DataTypes\$ObjectType','Entity':'Encryption.PasswordData'}}],'Widgets':[{'\$Type':'Forms\$TextBox','Name':'pw'}]}
+m=Mo(); m.docs={'pkg':doc(pkg),'app':doc(app)}"
+ctl localedits-snippetparam-converted-catch 0 '^app-only: \[\]$' '^pkg-only: \[\]$' -- python3 -c "$SNIPSIG
+a=L.content_signature(m,'app'); p=L.content_signature(m,'pkg'); print('app-only:', sorted(a-p)); print('pkg-only:', sorted(p-a))"
+ctl localedits-snippetparam-widget-kept-pass 0 "widget TextBox pw" "ref Encryption.PasswordData" -- python3 -c "$SNIPSIG
+print(sorted(L.content_signature(m,'app')))"
 # PV-1: a constant that shares its qualified name with a page (MFAmodule.Shared) is found by type, not shadowed
 model const-shadowed > /dev/null
 ctl mprmodel-constant-shadowed-catch 0 "^\{'default': 'True', 'type': 'Boolean', 'exposed': False\}$" '^Forms\$Page$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import mprmodel; m=mprmodel.Model.load('$M/const-shadowed'); print(m.constant('MFAmodule.Shared')); print(m.docs['MFAmodule.Shared'].type)"
