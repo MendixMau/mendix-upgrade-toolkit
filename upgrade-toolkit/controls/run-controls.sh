@@ -7488,6 +7488,7 @@ ctl decisions-step-bad-choice-catch 0 'approve or reject' '^rc=2$' '^S-3: none b
 ctl decisions-step-signoff-still-refused-pass 0 'sign the plan with the page button' '^rc=2$' '^steps untouched$' '^ledger untouched$' -- $CK step-signoff-refused
 ctl decisions-step-apply-notes-step-pass 0 'S-3: a step, its approval is in steps.jsonl' '^S-3: approved by Ana via chat$' '^approvals after apply: 1$' -- $CK step-apply
 ctl decisions-pending-lists-ids-options-catch 0 'open items \(6\)' '^regression:overlay ' 'fix \(recommended\)' 'chat: decisions\.py add .*--source chat' 'sign the plan with the page button' -- $CK pending
+ctl decisions-pending-no-rec-names-keys-catch 0 '--item stop:update:2 --choice <update\|accept> --by NAME' '!--choice  --by' -- $CK pending-norec
 ctl decisions-pending-drops-decided-pass 0 'open items \(5\)' '!^P-2 ' -- $CK pending-after
 ctl cockpit-words-no-plural-marker-pass 0 'plural-marker count: 0' 'raw gate text count: 0' 'Testing found 2 real problems, 4 things need you' -- $CK words
 ctl decisions-signed-plan-leaves-needs-you-pass 0 '^0$' -- $CK signed-page

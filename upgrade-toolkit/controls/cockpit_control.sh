@@ -294,6 +294,13 @@ print(d['state']['text'])
 PY
 )" ;;
   pending)  dec pending ;;
+  pending-norec) python3 - "$B" "$W" <<'PY'
+import sys, argparse; sys.path.insert(0, sys.argv[1])
+import decisions
+decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "stop", "title": "Widget settings would be dropped", "meta": "stop", "rec": "", "options": [{"key": "update", "label": "Update the module"}, {"key": "accept", "label": "Accept the loss"}]}]
+decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
+PY
+            ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
