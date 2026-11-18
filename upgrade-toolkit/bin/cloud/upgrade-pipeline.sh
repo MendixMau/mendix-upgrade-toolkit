@@ -747,15 +747,24 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   rc=0; xo "$WORK/jarclash-before.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash-before.md" || rc=$?
   # impact map of the old app alone (always-on journey set, steps/journeys.md)
   must python3 "$B/impact_map.py" "$WORK/original.mpr" "$WORK/original.mpr" --out "$WORK/impact-base.json"
-  # release impact (V31-RI): needs the module jumps, which come from the plan
+  # release impact (V31-RI): needs the module jumps, which come from the plan. The brain is the company brain on top of
+  # the starter brain the toolkit ships (cold test: a fresh install had no brain, so the check never ran). --auto with the
+  # app's own model and javasource closes the rows the app cannot hit; the production database and OS come from
+  # UPG_DB_VENDOR, UPG_DB_VERSION, UPG_RUNTIME_OS when set (no file holds them).
   rc=0
-  if [ -f "$WORK/module-jumps.txt" ]; then
-    xo "$WORK/release-impact.out" python3 "$B/release_impact.py" --from "$SOURCE" --to "$TARGET" --plan "$WORK/module-jumps.txt" --out "$WORK/release-impact.md" || rc=$?
-  else
-    xo "$WORK/release-impact.out" python3 "$B/release_impact.py" --from "$SOURCE" --to "$TARGET" --out "$WORK/release-impact.md" || rc=$?
-    note "no module-jumps.txt: release-impact.md holds Studio Pro rows only; module rows NOT generated"
+  local riargs=(--from "$SOURCE" --to "$TARGET" --out "$WORK/release-impact.md")
+  if [ -f "$WORK/module-jumps.txt" ]; then riargs+=(--plan "$WORK/module-jumps.txt")
+  else note "no module-jumps.txt: release-impact.md holds Studio Pro rows only; module rows NOT generated"; fi
+  local riauto=(--auto --facts-from-mpr "$MPR")
+  [ -z "${UPG_DB_VENDOR:-}" ] || riauto+=(--db-vendor "$UPG_DB_VENDOR")
+  [ -z "${UPG_DB_VERSION:-}" ] || riauto+=(--db-version "$UPG_DB_VERSION")
+  [ -z "${UPG_RUNTIME_OS:-}" ] || riauto+=(--runtime-os "$UPG_RUNTIME_OS")
+  xo "$WORK/release-impact.out" python3 "$B/release_impact.py" "${riargs[@]}" "${riauto[@]}" || rc=$?
+  if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then   # the facts could not be counted: the rows without auto, all open
+    note "release_impact.py --auto exit $rc (facts not counted from $MPR): rows written without auto, see $WORK/release-impact.out"
+    rc=0; xo "$WORK/release-impact.out" python3 "$B/release_impact.py" "${riargs[@]}" || rc=$?
   fi
-  [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
+  [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a table is missing: a module or version the brain has no notes for, listed in release-impact.md), see $WORK/release-impact.out"
   dojo_report
   replacement_report
   # judgment: the plan

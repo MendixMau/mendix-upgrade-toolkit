@@ -54,7 +54,7 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                Database Connector), Core.addDevelopmentServlet (dev_servlet 0). T6R-5: requirement and deprecation rows of
                git-teamserver and mxbuild-cli (the developer's tools, the build host) under the same IDE_REACHES_APP test;
                the SVN removal when the project is under Git (vcs); with project_dir (written by --facts-from-mpr when a
-               javasource folder is next to the mpr, or given by hand) a java-actions removal whose every `affected` item
+               javasource folder is next to the mpr, or given by hand) a java-actions removal or deprecation whose every `affected` item
                is a Java symbol none of which occurs in javasource (proxies excluded) or in a userlib jar's class files
                (java-symbol-absent, the scope is cited), and a module requirement row that only bumps libraries of
                LIB_PKG which no Java outside javasource/<module>/ imports (module-library-bump). A prose item, a
@@ -84,7 +84,13 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                <out>.facts.json; --facts files given too win over it. One mpr alone gives facts, no module rows: a line
                "auto cannot use: ..." says each thing that is lost (module rows, kept/stranded, every fact not known).
   --types      default breaking,removal,requirement,deprecation (module rows also migration-step); also security, known-issue, improvement, feature, fix
-  --brain      default: bin/brainpath.py ($UPG_BRAIN, UPG_BRAIN= in local.env, else a ~/Mendix/*-brain with version tables)
+  --brain      read this brain alone. Default: bin/brainpath.py ($UPG_BRAIN, UPG_BRAIN= in local.env, else a ~/Mendix/*-brain
+               with version tables) on top of the starter brain the toolkit ships (data/starter-brain, the public Mendix
+               release notes): the company brain wins where both have a table, the starter fills a major's table, a module
+               file or the versions above the company table's newest row it lacks. No company brain: the starter alone.
+               The report's "Brain:" line says which brain was used. With the starter alone, a missing table (a module
+               with no file, a major or version it lacks) is a "Toolkit gaps" line, never a row for a person (cold test).
+               Open rows get one recommended action each under "Open rows: what to do".
   --out        default release-impact.md. A rerun keeps the handled entries of rows it finds again. An entry whose row is gone
                (the brain reworded it, T2F-4) is listed under "Entries that matched no row", kept until the row returns, and
                counted in the output. With --auto a rerun also says how many human entries auto would have decided and which
@@ -194,31 +200,62 @@ def slugify(name):
     return re.sub(r"-+", "-", s).lower().strip("-")
 
 
+# The starter brain the toolkit ships (data/starter-brain, brainpath.py): the public Mendix release-note tables. A company
+# brain adds its own lessons on top and wins where both have a table; the starter fills what it lacks (a major's table, a
+# module file, the versions above the company table's newest row). Cold test (fresh install): no brain, so no check ran.
+STARTER = Path(__file__).resolve().parent.parent / "data" / "starter-brain"
+
+
 class Brain:
-    def __init__(self, root):
+    def __init__(self, root, starter=STARTER):
         self.v = Path(root) / "baseline" / "versions"
+        sv = Path(starter) / "baseline" / "versions" if starter else None
+        self.layers = [self.v] + ([sv] if sv and sv.is_dir() and sv.resolve() != self.v.resolve() else [])
+        self.is_starter = self.v.resolve() == (STARTER / "baseline" / "versions").resolve()
+        self.used_starter = set()   # what the starter filled in for a company brain (said in the report header)
         self.mods = {}
-        for f in sorted((self.v / "modules").glob("*.md")):
-            first = f.read_text(errors="replace").split("\n", 1)[0]
-            m = re.match(r"^#\s*(.*?)\s*\(Marketplace component (\d+)\)", first)
-            title, cid = (m.group(1), m.group(2)) if m else (first.lstrip("# ").strip(), None)
-            self.mods[f.stem] = {"title": title, "cid": cid, "path": f}
+        for layer in reversed(self.layers):   # the company brain last, so its module files win
+            for f in sorted((layer / "modules").glob("*.md")):
+                first = f.read_text(errors="replace").split("\n", 1)[0]
+                m = re.match(r"^#\s*(.*?)\s*\(Marketplace component (\d+)\)", first)
+                title, cid = (m.group(1), m.group(2)) if m else (first.lstrip("# ").strip(), None)
+                self.mods[f.stem] = {"title": title, "cid": cid, "path": f, "starter": layer != self.v}
+
+    def has_tables(self):
+        return any(layer.glob("studio-pro-upgrade-*.md") for layer in self.layers)
+
+    def label(self):
+        """Which brain the rows come from, for the report header."""
+        if self.is_starter or self.layers[0] != self.v or not list(self.v.glob("studio-pro-upgrade-*.md")):
+            if not self.is_starter and self.v.is_dir():
+                return f"the toolkit's starter brain {STARTER} (public Mendix release notes; {self.v} has no version tables)"
+            return f"the toolkit's starter brain {STARTER} (public Mendix release notes; no company brain configured)"
+        extra = f"; the starter brain filled {', '.join(sorted(self.used_starter))}" if self.used_starter else ""
+        return f"company brain {self.v}{extra}"
 
     def find(self, name, cid=None, slug=None):
-        """(slug, how) or (None, why)."""
+        """(slug, how) or (None, why). The company brain's files are searched first, the starter's only when none fits."""
+        own = {k: v for k, v in self.mods.items() if not v["starter"]}
+        if len(own) < len(self.mods) and own:
+            hit, how = self._find(own, name, cid, slug)
+            if hit:
+                return hit, how
+        return self._find(self.mods, name, cid, slug)
+
+    def _find(self, mods, name, cid=None, slug=None):
         if slug:
-            return (slug, "given") if slug in self.mods else (None, f"no brain file modules/{slug}.md")
+            return (slug, "given") if slug in mods else (None, f"no brain file modules/{slug}.md")
         if cid:
-            hit = [s for s, m in self.mods.items() if m["cid"] == str(cid)]
+            hit = [s for s, m in mods.items() if m["cid"] == str(cid)]
             if len(hit) == 1:
                 return hit[0], f"content id {cid}"
         sl = slugify(name)
-        if sl in self.mods:
+        if sl in mods:
             return sl, "name"
         q = squash(name)
         tries = [q, q + "module", "mendix" + q, re.sub(r"\d+$", "", q), re.sub(r"module$", "", q)]
         for t in [t for t in dict.fromkeys(tries) if t]:
-            hit = sorted({s for s, m in self.mods.items() if t in (squash(s), squash(m["title"]))})
+            hit = sorted({s for s, m in mods.items() if t in (squash(s), squash(m["title"]))})
             if len(hit) == 1:
                 return hit[0], f"name ({t})"
             if len(hit) > 1:
@@ -228,23 +265,30 @@ class Brain:
     def studio(self, lo, hi, types):
         rows, missing = [], []
         for major in range(lo[0], hi[0] + 1):
-            f = self.v / f"studio-pro-upgrade-{major}.md"
-            if not f.exists():
-                missing.append(f"no Studio Pro table for Mendix {major} ({f})")
+            files = [layer / f"studio-pro-upgrade-{major}.md" for layer in self.layers]
+            files = [f for f in files if f.exists()]
+            if not files:
+                missing.append(f"no Studio Pro table for Mendix {major} ({self.v / f'studio-pro-upgrade-{major}.md'})")
                 continue
             newest = None
-            for head, body in tables(f.read_text(errors="replace")):
-                if "version" not in head or "change" not in head:
-                    continue
-                ix = {h: i for i, h in enumerate(head)}
-                for r in body:
-                    get = lambda k: r[ix[k]] if k in ix and ix[k] < len(r) else ""
-                    v = vt(get("version"))
-                    if v and v[0] == major and (newest is None or cmpv(v, newest) > 0):
-                        newest = v
-                    if get("type").lower() in types and in_range(vt(get("version")), lo, hi):
-                        rows.append({"version": get("version"), "type": get("type").lower(), "area": get("area"),
-                                     "change": get("change"), "affected": get("affected"), "source": get("source")})
+            for f in files:   # the company table first; a later (starter) table adds only versions above its newest row
+                above = newest
+                for head, body in tables(f.read_text(errors="replace")):
+                    if "version" not in head or "change" not in head:
+                        continue
+                    ix = {h: i for i, h in enumerate(head)}
+                    for r in body:
+                        get = lambda k: r[ix[k]] if k in ix and ix[k] < len(r) else ""
+                        v = vt(get("version"))
+                        if above is not None and not (v and cmpv(v[:3], above[:3]) > 0):
+                            continue
+                        if v and v[0] == major and (newest is None or cmpv(v, newest) > 0):
+                            newest = v
+                        if get("type").lower() in types and in_range(vt(get("version")), lo, hi):
+                            if f.parent != self.v:
+                                self.used_starter.add(f"Studio Pro {major}" + (f" above {'.'.join(map(str, above))}" if above else ""))
+                            rows.append({"version": get("version"), "type": get("type").lower(), "area": get("area"),
+                                         "change": get("change"), "affected": get("affected"), "source": get("source")})
             # T1-8, T2-19, T7-6: a table older than the target lists nothing for the newest versions, silently.
             # Compared on major.minor.patch: 10.24.25.12345 is in a table whose newest row is 10.24.25.
             if major == hi[0] and newest and cmpv(hi[:3], newest[:3]) > 0:
@@ -261,7 +305,9 @@ class Brain:
         m = self.mods[slug]
         text = m["path"].read_text(errors="replace")
         link = re.search(r"\[marketplace\]\((\S+?)\)", text)
-        src = f"[brain](modules/{slug}.md)" + (f", [marketplace]({link.group(1)})" if link else "")
+        if m["starter"] and not self.is_starter:
+            self.used_starter.add(f"module {slug}")
+        src = f"[{'starter brain' if m['starter'] else 'brain'}](modules/{slug}.md)" + (f", [marketplace]({link.group(1)})" if link else "")
         rows = []
         for head, body in tables(text):
             if "version" not in head or "change" not in head:
@@ -829,7 +875,8 @@ def auto_rule(section, cols, facts, lo, hi):
             return f"not relevant (auto): {area}: area {area} is {what}"
         # T6R-5: a removed Java API breaks only code that names it. Every `affected` item must be a Java symbol, and
         # none may occur in javasource (proxies excluded: regenerated) or in a userlib jar's class files.
-        if area == "java-actions" and typ == "removal" and "project_dir" in facts:
+        # Cold test: a deprecation of a Java symbol the app never names is as settled as a removal (26 rows stayed open).
+        if area == "java-actions" and typ in ("removal", "deprecation") and "project_dir" in facts:
             syms = java_symbols(affected)
             pdir = facts["project_dir"][0]
             rev = java_rev(pdir) if syms else None
@@ -906,6 +953,39 @@ def auto_rule(section, cols, facts, lo, hi):
     return f"not relevant (auto): feature-absent: row is about {', '.join(touched)}; {', '.join(dict.fromkeys(cite))}"
 
 
+def recommend(section, cols):
+    """One recommended action for a row the facts left open, in plain words (cold test: rows without a way to solve them)."""
+    if section == "Studio Pro":
+        typ, area, change, affected = cols[1], cols[2].lower(), cols[3], cols[4]
+    else:
+        typ, area, change, affected = cols[1], "module", cols[2], cols[3]
+    what = affected or "the part it names"
+    feat = next((name for name, rx, _ in FEATURES if re.search(rx, f"{change} {affected}", re.I)), None)
+    if section != "Studio Pro":
+        if typ == "migration-step":
+            return f"do the publisher's step after the module update ({what}), then walk the screens that use it; small effort."
+        if typ == "requirement":
+            return "check the plan's target version of this module fits the target Mendix version; keep the old one only with a reason."
+        if typ == "deprecation":
+            return f"nothing to do for this upgrade; replace {what} when the app is next changed there."
+        return f"search the app for uses of {what} and fix them in the update commit; a journey over that part proves it; small to medium effort."
+    if area == "data-storage":
+        return "confirm the production database against this row; give the run --db-vendor/--db-version and it closes itself when it does not apply."
+    if typ == "deprecation":
+        return f"nothing to do for this upgrade (it still works on the target); plan to replace {what} before the next major version."
+    if typ == "requirement":
+        return (f"confirm the deployment environment meets it ({what}) before go-live; the toolkit's build already uses the target tools."
+                if area in ("runtime", "deployment-cloud", "deployment", "mxbuild-cli") else
+                f"the target build brings it; a clean build log is the evidence ({what}).")
+    if area == "java-actions":
+        return f"the target build compiles the Java: where it fails on {what}, move the code to the replacement the notes name; small effort per call."
+    if area in ("studio-pro-ide", "modeling", "domain-model", "pages"):
+        return f"the convert and the consistency check show it: fix every error that names {what} in the model; small effort."
+    if feat:
+        return f"the app uses {feat}: after the upgrade, run a journey over that part and compare with before."
+    return f"after the upgrade, run a journey over the part that uses {what} and compare with before; fix only what differs."
+
+
 _PIPE_WARNED = set()
 
 
@@ -962,8 +1042,12 @@ def generate(a):
         sys.exit("release_impact: --from-mpr and --to-mpr go together (with --auto, one of them is read for facts only)")
     types = [t.strip().lower() for t in (a.types.split(",") if a.types else DEFAULT_TYPES) if t.strip()]
     mtypes = types if a.types else MODULE_DEFAULT_TYPES
-    br = Brain(a.brain)
-    if not (br.v / "modules").is_dir():
+    if a.brain:   # --brain DIR reads that brain alone
+        br = Brain(a.brain, starter=None)
+    else:         # the default brain (brainpath.py) on top of the starter brain, which fills what it lacks
+        import brainpath
+        br = Brain(brainpath.find()[0] or STARTER)
+    if not br.has_tables():
         print(f"release_impact: no brain version tables under {br.v}", file=sys.stderr)
         return 2
     out = Path(a.out)
@@ -1008,6 +1092,8 @@ def generate(a):
          f"Types: {', '.join(types)}" + ("" if a.types else f" (module rows also: {', '.join(t for t in mtypes if t not in types)})") + f". Source: {br.v} (official release notes in the brain). Every row needs a",
          "`handled: <evidence path or commit>` or `not relevant: <reason>` entry in the last column;",
          "`release_impact.py --check` exits 1 while one is empty. Gate rule: --check clean, or INVALID."]
+    brain_ix = len(L)
+    L += ["", ""]   # "Brain: ...", filled at the end (what the starter brain filled is known once the rows are read)
     hdr_ix = len(L)
     if a.auto:
         L += ["", ""]  # filled once the rows are known (T2F-5): how many entries are auto and how many are a person's
@@ -1015,6 +1101,8 @@ def generate(a):
     n = 0
     counts = {}
     nauto = nhuman = 0
+
+    open_rows = []
 
     def row(section, cols):
         nonlocal n, nauto, nhuman
@@ -1031,6 +1119,8 @@ def generate(a):
             elif rule:
                 would.append((n, cols[0], h, rule))
         nhuman += bool(h) and not AUTO.match(h) and bool(HANDLED.match(h))
+        if not HANDLED.match(h or "") and section != "Not covered":
+            open_rows.append((n, cols[0], section, cols))
         return f"| {n} | " + " | ".join(esc(c) for c in cols) + f" | {esc(h)} |"
 
     L += [f"## Studio Pro ({len(srows)} rows)", ""]
@@ -1090,7 +1180,25 @@ def generate(a):
             L.append("No row of these types in the jump (the brain file exists; read its improvement rows too when the jump is large).")
         mod_total += len(rows)
         L.append("")
-    if unknown or gaps:
+    # open rows: one recommended action each, so a person decides with one look (never a bare list of release notes)
+    recs = [(num, ver, recommend(sec, cols)) for num, ver, sec, cols in open_rows]
+    if recs:
+        L += [f"## Open rows: what to do ({len(recs)})", "",
+              "These rows touch something the app holds (or a fact the run could not count). One recommended action each;",
+              "write `handled: <evidence>` in the row once done, or `not relevant: <reason>` when it does not apply.", ""]
+        L += [f"- row {num} ({ver}): {r}" for num, ver, r in recs]
+        L.append("")
+    # Cold test (fresh install): a table the toolkit lacks is the toolkit's gap, never a question for the person. With the
+    # starter brain alone a missing table is listed here, not as a row: --check does not count it. A company brain's
+    # missing table stays a "Not covered" row (its owner fills it).
+    if br.is_starter and (unknown or gaps):
+        L += [f"## Toolkit gaps ({len(unknown) + len(gaps)})", "",
+              "The starter brain has no release-note table for these. Not a decision for you: the toolkit's tables need a data",
+              "refresh (or configure a company brain that has them). Until then, the module's release notes on the Marketplace",
+              "are the source.", ""]
+        L += [f"- {mname}: {why}" for mname, why in unknown] + [f"- Studio Pro: {g}" for g in gaps]
+        L.append("")
+    elif unknown or gaps:
         L += [f"## Not covered ({len(unknown) + len(gaps)})", "",
               "Read these release notes by hand and record what you found.", "",
               "| # | module or source | why | change | handled |", "|---|---|---|---|---|"]
@@ -1110,6 +1218,7 @@ def generate(a):
         for i, ((sec, ver, chg), v) in enumerate(sorted(lost_entries), 1):
             L.append(f"| o{i} | {esc(sec)} | {esc(ver)} | {esc(chg)} | {esc(v)} |")
         L.append("")
+    L[brain_ix:brain_ix + 2] = ["", f"Brain: {br.label()}."]
     if a.auto:
         L[hdr_ix:hdr_ix + 2] = [
             "`not relevant (auto): <rule>: <fact>` entries were written by --auto from the facts "
@@ -1117,6 +1226,7 @@ def generate(a):
             f"when the fact is wrong for that row (a human entry is never overwritten). This run: {nauto} auto, "
             f"{nhuman} kept from a person, {n - nauto - nhuman} open."]
     out.write_text("\n".join(L) + "\n")
+    print(f"brain: {br.label()}")
     print(f"release-impact: Studio Pro {len(srows)} rows (" + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none") +
           f"), modules {mod_total} rows, not covered {len(unknown) + len(gaps)} -> {out}")
     if a.auto:
@@ -1130,10 +1240,11 @@ def generate(a):
               "(auto says not relevant, the person says handled)")
         for num, ver, h, rule in differ[:10]:
             print(f"  row {num} ({ver}): human `{h[:70]}` vs {rule[:110]}")
+    word = "TOOLKIT GAP" if br.is_starter else "UNKNOWN"
     for mname, why in unknown:
-        print(f"UNKNOWN {mname}: {why}")
+        print(f"{word} {mname}: {why}")
     for g in gaps:
-        print(f"UNKNOWN {g}")
+        print(f"{word} {g}")
     return 2 if unknown or gaps else 0
 
 
@@ -1164,6 +1275,9 @@ def check(path):
                 unsound.append(label)
             elif AUTO.match(c[-1]):
                 nauto += 1
+    gaps = re.search(r"^## Toolkit gaps \((\d+)\)", p.read_text(errors="replace"), re.M)
+    if gaps:   # cold test: a table the toolkit lacks is listed, never a row a person must close
+        print(f"toolkit gaps: {gaps.group(1)} (the starter brain lacks these tables; listed in {p.name}, not rows to close)")
     if total == 0 and "No row of these types" not in p.read_text(errors="replace"):
         print(f"release_impact: {p} holds no release-impact rows", file=sys.stderr)
         return 2
@@ -1203,8 +1317,7 @@ def main():
     ap.add_argument("--facts", action="append")
     ap.add_argument("--types")
     ap.add_argument("--out", default="release-impact.md")
-    import brainpath
-    ap.add_argument("--brain", default=brainpath.find()[0] or os.environ.get("UPG_BRAIN") or str(Path("~/Mendix/<company>-brain").expanduser()))
+    ap.add_argument("--brain", help="read this brain alone; default: brainpath.py's brain on top of the starter brain")
     ap.add_argument("--facts-from-mpr", dest="facts_from_mpr", help="count facts from this project (model + javasource), T2F-2")
     ap.add_argument("--facts-out", dest="facts_out")
     ap.add_argument("--db-vendor", dest="db_vendor")
