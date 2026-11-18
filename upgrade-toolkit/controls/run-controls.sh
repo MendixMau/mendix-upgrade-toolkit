@@ -2909,6 +2909,13 @@ ctl journeys-coverage-closed-row-defect-pass 0 'FAIL +plan-row .*\[BASELINE DEFE
 ctl journeys-coverage-closed-row-no-evidence-catch 1 'FAIL +plan-row ' '!plan-row .*BASELINE DEFECT' 'coverage INVALID: 1 baseline defects without evidence' -- $RJC --work $CV/d3c "${CVD[@]}"
 ctl journeys-coverage-defect-old-app-line-catch 3 'OLD-APP .*old-app.log:9: the file has 3 lines' 'coverage INVALID: 1 baseline defects' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-old9.txt
 ctl journeys-coverage-defect-old-app-file-catch 3 'OLD-APP .*gone.log: no such file' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-oldgone.txt
+# basewalk (run PMNT): the baseline walk judges its own FAILs by the same checked evidence, never on a line's word
+RJB="python3 $B/run_journeys.py $CV/gen --label before --rejudge --work $CV/d3"
+ctl journeys-basewalk-evidence-no-line-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- $RJB
+ctl journeys-basewalk-evidence-old-app-pass 0 'FAIL +j3-Administrator .*\[BASELINE DEFECT OLD-APP \(OLD-APP: old-app.log:2' '1 PASS\* \(baseline defect\)' -- $RJB --baseline-evidence $CV/ev-old.txt
+ctl journeys-basewalk-evidence-bad-line-catch 1 'evidence refused, evidence line 1: OLD-APP .*old-app.log:9: the file has 3 lines' '!BASELINE DEFECT' -- $RJB --baseline-evidence $CV/ev-old9.txt
+ctl journeys-basewalk-evidence-no-file-catch 1 'evidence refused, evidence line 1: OLD-APP .*gone.log: no such file' -- $RJB --baseline-evidence $CV/ev-oldgone.txt
+ctl journeys-basewalk-evidence-after-label-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- python3 $B/run_journeys.py $CV/gen --label after --rejudge --work $CV/d3n --baseline-evidence $CV/ev-old.txt
 # Field run: a rerun reorders the old-app output, so a cited line can drift onto another journey's row. One line naming
 # this journey elsewhere in the file is accepted (with the new line); none, or a cited line naming another journey, is not
 printf '  FAIL    j4-Administrator x\n  FAIL    j3-Administrator y\n' > $CV/jout.txt; printf '  FAIL    j4-Administrator x\n' > $CV/jout4.txt
