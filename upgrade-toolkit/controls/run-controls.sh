@@ -3141,6 +3141,13 @@ ctl mx10-no-toolset-bare-catch 2 'no .*mxbuild-9\.9\.9/modeler/check' -- env "PA
 ctl mx10-preload-arm64-catch 0 '^docker run .* sh -c .*libuuid\.so\.1.*libfreetype\.so\.6.*libfontconfig\.so\.1.*LD_PRELOAD.*exec "\$@" sh .*mxbuild-11\.12\.2/modeler/mx check x\.mpr' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 zsh $B/mx10.sh 11.12.2 mx check x.mpr
 ctl mx10-preload-amd64-pass 0 '^docker run .*mxbuild-11\.12\.2/modeler/mx check x\.mpr' '!LD_PRELOAD' '!sh -c' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=x86_64 zsh $B/mx10.sh 11.12.2 mx check x.mpr
 ctl mx10-preload-10x-arm64-pass 0 '^docker run .*mxbuild-10\.24\.16/modeler/mx check x\.mpr' '!LD_PRELOAD' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 zsh $B/mx10.sh 10.24.16 mx check x.mpr
+# CHK-1: mxbuild 10.6 ships Gradle 7.6, which dies on JDK 21 ("Unsupported class file major version 65"): a 10.x below 10.24 builds in the JDK 17 image
+mkdir -p $TS/ok/mxbuild-10.6.3/modeler/runtemplates/deployment $TS/ok/mxbuild-10.6.3/modeler/tools/node/node_modules
+for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.6.3/modeler/$x; chmod +x $TS/ok/mxbuild-10.6.3/modeler/$x; done
+ctl mx10-old10-jdk17-image-catch 0 '^docker run .* mig-mx10-j17 .*mxbuild-10\.6\.3/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
+ctl mx10-old10-image-env-wins-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.6\.3/modeler/mx check' '!j17' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-mx10 zsh $B/mx10.sh 10.6.3 mx check x.mpr
+ctl mx10-24-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.24\.16/modeler/mx check' '!j17' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
+ctl mx10-11-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-11\.12\.2/modeler/mx check' '!j17' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 11.12.2 mx check x.mpr
 ctl mx10-preload-caller-wins-pass 0 'LD_PRELOAD=/x\.so' '!sh -c' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 UPG_EXTRA="-e LD_PRELOAD=/x.so" zsh $B/mx10.sh 11.12.2 mx check x.mpr
 # NR2-15: mxbuild 11.12 segfaults (rc 139) about one call in three: mx10.sh retries a crash before it counts. A fake docker
 # crashes the first N calls (counter file), then succeeds; the retry sleep is 0.

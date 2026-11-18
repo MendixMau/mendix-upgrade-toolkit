@@ -97,10 +97,11 @@ need_mx9() { [ "$SRC_MAJOR" = 9 ]; }
 # BT-1: the Mendix 9 mxbuild before 9.20 is Mono-era (modeler/mxbuild.exe): it needs the e5-mx9-mono image (Dockerfile.mx9-mono)
 # and bin/mono-shim.sh on its toolset (step toolsets).
 need_mono() { [ "$SRC_MAJOR" = 9 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -lt 20 ]; }
-# Java 17 variant: no worker built one (T7 used mig-mx10 / JDK 21 for 10.6 sources), so nothing to add.
-# If a 10.x source below 10.24 ever needs it, add it here: [ "$SRC_MAJOR" = 10 ] && [ "$SRC_MINOR" -lt 24 ].
+# Java 17 variant (mig-mx10-j17, CHK-1): a 10.x source below 10.24 has Gradle 7.6 in its mxbuild, which dies on JDK 21; mx10.sh picks the image.
+need_j17() { [ "$SRC_MAJOR" = 10 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -lt 24 ]; }
 base_images() {
   echo "eclipse-temurin:21-jdk postgres:16"
+  if need_j17; then echo "eclipse-temurin:17-jdk"; fi
   if need_mx9; then echo "eclipse-temurin:11-jdk"; fi
 }
 
@@ -170,6 +171,7 @@ chk_build() {
   docker info >/dev/null 2>&1 || return 1
   docker image inspect mig-mx10 >/dev/null 2>&1 || return 1
   if need_mx9; then docker image inspect e5-mx9 >/dev/null 2>&1 || return 1; fi
+  if need_j17; then docker image inspect mig-mx10-j17 >/dev/null 2>&1 || return 1; fi
   if need_mono; then docker image inspect e5-mx9-mono >/dev/null 2>&1 || return 1; fi
 }
 step_build() {
@@ -179,6 +181,10 @@ step_build() {
   if need_mx9; then
     docker image inspect e5-mx9 >/dev/null 2>&1 ||
       retry docker build -q --network host -t e5-mx9 -f "$TK/bin/docker/Dockerfile.mx9" "$TK/bin/docker"
+  fi
+  if need_j17; then
+    docker image inspect mig-mx10-j17 >/dev/null 2>&1 ||
+      retry docker build -q --network host -t mig-mx10-j17 -f "$TK/bin/docker/Dockerfile.mx10-j17" "$TK/bin/docker"
   fi
   if need_mono; then
     docker image inspect e5-mx9-mono >/dev/null 2>&1 ||
