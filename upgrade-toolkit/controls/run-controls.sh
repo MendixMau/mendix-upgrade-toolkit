@@ -965,6 +965,23 @@ ctl jarclash-owner-catch 1 'userlib/pdfreader-1\.0\.0\.jar \[no maven metadata; 
 ctl jarclash-shaded-pass 0 '^no clash' -- python3 $B/repair/jarclash.py $T/jarclean
 ctl jarclash-input-catch 2 -- python3 $B/repair/jarclash.py $T/empty-nothing
 
+# --- repair: add-on cache folder case on Linux (LDMS, row 34) ------------------------------------------------------------
+MC=$T/mxmc; mkdir -p $MC/modules $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource
+touch $MC/modules/ExampleTwinConnector.mxmodule $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource/A.java
+ctl mxmodulecase-check-catch 1 'WOULD LINK .*modules/ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' 'summary: 1 ' -- python3 $B/repair/mxmodulecase.py $MC --check
+ctl mxmodulecase-check-wrote-nothing 0 -- test ! -e $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-link 0 'LINK .*ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC
+ctl mxmodulecase-link-resolves 0 -- test -f $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule/javasource/A.java
+ctl mxmodulecase-idempotent 0 'summary: 0 ' '!LINK' -- python3 $B/repair/mxmodulecase.py $MC
+# the name from the build log alone (no modules/ file), the golden log of the failure
+MC2=$T/mxmc2; mkdir -p $MC2/.mendix-cache/modules/exampletwinconnector.mxmodule
+ctl mxmodulecase-log-catch 1 'WOULD LINK .*ExampleTwinConnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC2 --log $here/fixtures/mxmodulecase/build-9.24.log --check
+# no cache folder in any case yet (the build makes it): nothing is invented
+MC3=$T/mxmc3; mkdir -p $MC3/modules $MC3/.mendix-cache/modules; touch $MC3/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-no-folder-pass 0 'summary: 0 ' -- python3 $B/repair/mxmodulecase.py $MC3
+ctl mxmodulecase-input-catch 2 -- python3 $B/repair/mxmodulecase.py $T/empty-nothing
+ctl pipeline-mxmodulecase-wired-pass 0 -- bash -c "[ \$(grep -c 'modcase_fix \"' $B/cloud/upgrade-pipeline.sh) = 2 ]"
+
 # --- repair: backslash paths (E5 F14, E1 17) --------------------------------------------------------------------------
 P=$T/bs; mkdir -p $P/javasource/oql/actions
 printf 'class A {}\n' > "$P/javasource\\oql\\actions\\AddBooleanParameter.java"
