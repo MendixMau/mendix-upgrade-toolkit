@@ -45,27 +45,48 @@ else fail mxcli "no mxcli (neither \$UPG_TOOLS/mxcli-linux nor mxcli on PATH)" "
 if [ -n "${MENDIX_PAT:-}" ] || [ -s "$HOME/.mxcli/auth.json" ]; then ok login "Marketplace token present (not shown)"
 else fail login "no MENDIX_PAT and no ~/.mxcli/auth.json: module updates (marketplace update) cannot download" "export MENDIX_PAT=<personal access token> and rerun setup (step auth)"; fi
 
-# docker
-if ! have docker; then fail docker "no docker CLI" "install Docker Desktop or colima (brew install colima docker && colima start)"
-elif ! bounded 8 docker info > /dev/null 2>&1; then
-  fail docker "the docker daemon does not answer within 8 s (DOCKER_HOST=${DOCKER_HOST:-unset})" "start it: Apple Silicon colima with Rosetta (colima start -p upgrade --vm-type vz --vz-rosetta, then export DOCKER_HOST=unix://\$HOME/.colima/upgrade/docker.sock), or Docker Desktop"
+# container runtime: docker OR podman. Podman is docker-CLI compatible (same `info`,
+# `image inspect` syntax), so every check below runs through $RT instead of a hardcoded
+# `docker` — a Podman-only machine (no licence for Docker Desktop) used to be told "no docker
+# CLI" even though the pipeline's own images and commands work unchanged under podman.
+# UPG_CONTAINER_RUNTIME=<name> forces one; default is docker first (incl. when it IS a podman
+# shim, which is transparent and correct), else podman.
+RT=${UPG_CONTAINER_RUNTIME:-}
+if [ -z "$RT" ]; then
+  if have docker; then RT=docker; elif have podman; then RT=podman; fi
+fi
+if [ -z "$RT" ]; then
+  fail docker "no docker or podman CLI" "install Docker Desktop, colima (brew install colima docker && colima start), or Podman (brew install podman && podman machine init && podman machine start)"
+elif ! bounded 8 "$RT" info > /dev/null 2>&1; then
+  if [ "$RT" = podman ]; then
+    fail docker "podman is installed but not answering within 8 s" "podman machine init (first time only), then podman machine start"
+  else
+    fail docker "the docker daemon does not answer within 8 s (DOCKER_HOST=${DOCKER_HOST:-unset})" "start it: Apple Silicon colima with Rosetta (colima start -p upgrade --vm-type vz --vz-rosetta, then export DOCKER_HOST=unix://\$HOME/.colima/upgrade/docker.sock), or Docker Desktop"
+  fi
 else
-  ok docker "daemon up ($(bounded 8 docker info --format '{{.ServerVersion}} {{.Architecture}}' 2> /dev/null))"
+  ok docker "$RT daemon up ($(bounded 8 "$RT" info --format '{{.ServerVersion}} {{.Architecture}}' 2> /dev/null))"
   # Apple Silicon: the amd64 tools need Rosetta in the VM. Under qemu the Linux mxcli dies with SIGSEGV in triage
   # (cold test WM1: "unexpected fault address" in modelsdk decoding; the same commit built natively reads the app fine).
+  # Podman's own VM (podman machine) runs amd64 under qemu with no Rosetta option on Apple Silicon at all, so this
+  # check only applies to docker/colima; a podman user on Apple Silicon gets the SIGSEGV risk noted instead.
   if [ "$(uname -sm)" = "Darwin arm64" ]; then
-    sock=${DOCKER_HOST#unix://}; [ -n "${DOCKER_HOST:-}" ] || sock=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2> /dev/null); sock=${sock#unix://}
-    case $sock in
-      */.colima/*/docker.sock)
-        prof=$(basename "$(dirname "$sock")"); y=$(dirname "$sock")/colima.yaml
-        if grep -q '^rosetta: true' "$y" 2> /dev/null; then ok rosetta "colima profile $prof runs amd64 through Rosetta"
-        else fail rosetta "colima profile $prof has no Rosetta: amd64 runs under qemu and the Linux mxcli crashes (SIGSEGV)" \
-          "use a Rosetta profile (colima start -p upgrade --vm-type vz --vz-rosetta) and point DOCKER_HOST at it"; fi ;;
-      *) warn rosetta "cannot tell whether amd64 runs through Rosetta ($sock)" "Docker Desktop: Settings > General > Use Rosetta for x86_64/amd64 emulation" ;;
-    esac
+    if [ "$RT" = podman ]; then
+      warn rosetta "podman machine has no Rosetta profile on Apple Silicon: the Linux mxcli can crash (SIGSEGV) under qemu" \
+        "prefer docker + colima with --vz-rosetta on Apple Silicon for this pipeline, or run natively (no container) where that's supported"
+    else
+      sock=${DOCKER_HOST:-}; [ -n "$sock" ] || sock=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2> /dev/null); sock=${sock#unix://}
+      case $sock in
+        */.colima/*/docker.sock)
+          prof=$(basename "$(dirname "$sock")"); y=$(dirname "$sock")/colima.yaml
+          if grep -q '^rosetta: true' "$y" 2> /dev/null; then ok rosetta "colima profile $prof runs amd64 through Rosetta"
+          else fail rosetta "colima profile $prof has no Rosetta: amd64 runs under qemu and the Linux mxcli crashes (SIGSEGV)" \
+            "use a Rosetta profile (colima start -p upgrade --vm-type vz --vz-rosetta) and point DOCKER_HOST at it"; fi ;;
+        *) warn rosetta "cannot tell whether amd64 runs through Rosetta ($sock)" "Docker Desktop: Settings > General > Use Rosetta for x86_64/amd64 emulation" ;;
+      esac
+    fi
   fi
-  miss=(); for img in mig-mx10 e5-mx9 postgres:16 eclipse-temurin:21-jdk; do docker image inspect "$img" > /dev/null 2>&1 || miss+=("$img"); done
-  if [ ${#miss[@]} = 0 ]; then ok images "mig-mx10 e5-mx9 postgres:16 eclipse-temurin:21-jdk"
+  miss=(); for img in mig-mx10 e5-mx9 postgres:16 eclipse-temurin:21-jdk; do "$RT" image inspect "$img" > /dev/null 2>&1 || miss+=("$img"); done
+  if [ ${#miss[@]} = 0 ]; then ok images "mig-mx10 e5-mx9 postgres:16 eclipse-temurin:21-jdk ($RT)"
   else fail images "missing: ${miss[*]}" "UPG_SETUP_STEPS=images bash bin/setup-container.sh <run dir> <versions>"; fi
 fi
 
