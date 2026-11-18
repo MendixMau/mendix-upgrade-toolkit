@@ -1963,6 +1963,9 @@ ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
+# a rung-2 hint carries the env rung 1 gave it (cold rfq: without RUN the run folder became <work>, the app outside it, exit 3)
+ctl pipeline-nj-rung2-env-catch 0 'needs judgment \(exit 13\)' "^    env RUN=$NJ UPG_PHASE=11\.15\.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT\.html .*upgrade-pipeline\.sh .*--work $NJ/work/rung2 .*--from update\$" -- bash -c "env RUN=$NJ UPG_PHASE=11.15.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT.html MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work/rung2 --only update; cat $NJ/work/rung2/NEEDS-JUDGMENT.md"
+ctl pipeline-nj-rung1-no-env-pass 0 '^    /.*upgrade-pipeline\.sh .*--from update$' '!^    env ' -- cat $NJ/work/NEEDS-JUDGMENT.md
 # a step log keeps earlier runs: the stop quotes only the lines this run wrote (cold test WM1: an afterwalk stop quoted yesterday's
 # failed walk under today's 9 of 9 PASS); any other file is quoted whole
 printf 'FAIL old walk\nINVALID old role\n' > $T/nj-step.log; printf 'FAIL in another file\n' > $T/nj-other.log
