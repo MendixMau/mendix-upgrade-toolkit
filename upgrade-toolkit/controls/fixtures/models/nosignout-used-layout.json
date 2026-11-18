@@ -156,5 +156,20 @@
    "com.mendix.widget.web.markdown.Markdown"
   ]
  },
- "_why": "BT-4 / run SNOW: a sign-out button sits in a layout no page uses (an add-on's spare desktop layout). Page Home renders in Shop.Layout_Spare; Layout_Spare is used."
+ "_why": "BT-4 / run SNOW: a sign-out button sits in a layout no reachable page renders in (an add-on's spare desktop layout). Page Home renders in Shop.Layout_Spare; Layout_Spare is used.",
+ "navigation": {
+  "homes": [
+   {
+    "role": "*",
+    "page": "Shop.Home"
+   }
+  ],
+  "menu": [
+   {
+    "caption": "Home",
+    "page": "Shop.Home"
+   }
+  ],
+  "login_page": ""
+ }
 }

@@ -328,10 +328,13 @@ def any_sign_out(m, limit=5):
     and a button / link / card widget with an Action, on any page, layout or snippet. [(where, by, detail)], at most
     `limit`. Empty is the proof run_journeys.py's NO-SIGNOUT evidence needs: the app has no sign-out UI at all."""
     hits = []
-    # A layout no page renders inside (an add-on's spare desktop layout) is no UI a user can reach: its sign-out button
-    # is not "the app has a sign-out" (run SNOW: an Encryption add-on layout, used by 0 of 116 pages).
-    used = {q for d in m.all_docs if d.type == "Forms$Page" for q in layout_closure(m, d.qn)}
-    unused = {d.qn for d in m.all_docs if d.type == "Forms$Layout" and d.qn not in used}
+    # A page, layout or snippet no entry point reaches (an add-on's spare layout, or a page only such a layout's pages
+    # use) is no UI a user can open: its sign-out button is not "the app has a sign-out" (run SNOW: an Encryption
+    # add-on layout, 0 of its pages in any menu or link). The reach is gen_journeys.entry_reach, the same one the
+    # inventory uses for no-click-path; imported here, not at the top, because gen_journeys imports this module.
+    from gen_journeys import entry_reach
+    reach = entry_reach(m)
+    unused = {d.qn for d in m.all_docs if d.type in ("Forms$Layout", "Forms$Page", "Forms$Snippet") and d.qn not in reach}
     nav = [("navigation", m.singletons[t]) for t in m.singletons if "Navigation" in t]
     for qn, data in nav + [(d.qn, d.data) for d in m.all_docs if d.type.startswith(("Forms$", "Pages$", "Menus$")) and d.qn not in unused]:
         for p, kind, idx, a in _menu_items(data):
