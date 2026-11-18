@@ -337,7 +337,8 @@ def cmd_pending(a):
     w = a.work
     model = cockpitpage.build_model(w)
     last = lastmap(load(w))
-    open_items = [i for i in model["items"] if not (i["id"] in last) and i["kind"] != "confirmgroup"]   # the group row is only a page heading; its changes are the items
+    # the page asks only what is neither in the ledger nor already decided by the signed plan (i["decided"]); chat asks the same list
+    open_items = [i for i in model["items"] if not (i["id"] in last) and not i.get("decided") and i["kind"] != "confirmgroup"]   # the group row is only a page heading; its changes are the items
     if a.json:
         print(json.dumps([{k: i[k] for k in ("id", "kind", "title", "meta", "rec", "options")} for i in open_items], indent=1))
         return 0

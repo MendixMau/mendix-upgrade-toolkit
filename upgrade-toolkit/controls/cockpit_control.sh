@@ -91,6 +91,14 @@ PY
             printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
   brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
             grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
+  pending-signed) sed -i 's/ASSUMED (unattended)/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
+            echo "chat: $(dec pending | grep -E '^[A-Za-z:0-9_-]+  ' | awk '{print $1}' | sort | paste -sd' ' -)"
+            python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp, cockpitmatrix as cm
+print("page: " + " ".join(sorted(i["id"] for i in cm.open_questions(cp.build_model(sys.argv[2])))))
+PY
+            ;;
   brief-owner-person) mkstop 'nj_meta info; nj_add 13 "Widget list" "file: x"; nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update or accept."'
             ck >/dev/null && brief_text && cards ;;
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'

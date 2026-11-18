@@ -7234,6 +7234,8 @@ ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. Th
 ctl cockpit-hero-not-runs-on-with-regressions-catch 0 'hero: → The app builds, but not everything works yet 2 regressions to fix: it worked on the old app and fails on the new one\.' '!The app runs on' -- $CK hero-regression
 ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just started\. The agent is working: building the new app\.$' '^Nothing is blocked: the run goes on\. 1 choice is open for your review; the run does not wait for it \(optional\)\.$' '!waiting for' -- $CK brief-optional
 ctl cockpit-plan-item-counted-once-catch 0 "^step rows: 3 \\| not already a card: \\['R99 A rule with no card'\\]$" -- $CK own-asks
+# Q9 of the user test: the chat list (decisions.py pending) and the page list are one list; a plan item decided by the signed plan was open in chat only (run APPR)
+ctl decisions-pending-matches-page-catch 0 '^chat: confirm:D2 regression:Gridmod regression:overlay$' '^page: confirm:D2 regression:Gridmod regression:overlay$' -- $CK pending-signed
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
