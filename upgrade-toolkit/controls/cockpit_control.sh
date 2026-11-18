@@ -75,6 +75,21 @@ print(f"lines: {len(ls)} widest: {max(map(len, ls))} ok: {len(ls) <= 8 and max(m
 PY
 }
 case $case_ in
+  term-brief-count) tbc() { python3 "$B/brief.py" --work "$1" | python3 -c "
+import re,sys
+t=sys.stdin.read(); a=re.search(r'waiting for (\d+) answer',t.replace('\n  ',' ')); b=re.search(r'Open questions: (\d+)',t)
+print('status', a.group(1) if a else '-', 'footer', b.group(1) if b else '-', 'same' if (a.group(1) if a else None)==(b.group(1) if b else None) or not a else 'DIFFERENT')"; }
+            ck >/dev/null; tbc "$W"; chkw; tbc "$W"; minw journeys-fail; tbc "$W" ;;
+  term-brief-count-extra) ck >/dev/null; python3 - "$B" "$W" <<'PY'
+import sys, re; sys.path.insert(0, sys.argv[1])
+import brief, decisions
+real = decisions.open_items
+decisions.open_items = lambda w, model=None: real(w, model) + [{"id": "x%d" % k, "kind": "plan-choice", "unattended": True, "title": "t", "meta": "m", "rec": "a", "options": [{"key": "a", "label": "A"}]} for k in (1, 2)]
+t = brief.render(sys.argv[2]).replace("\n  ", " ")
+a = re.search(r"waiting for (\d+) answer", t); b = re.search(r"Open questions: (\d+)", t)
+print("status", a and a.group(1), "footer", b and b.group(1), "same" if a and b and a.group(1) == b.group(1) else "DIFFERENT", "| 2 more named:", "2 more are the AI" in t)
+PY
+ ;;
   term-brief-cli) python3 "$B/brief.py" --work "$W" > "$T/a.txt"; bash "$B/cloud/upgrade-pipeline.sh" --work "$W" --brief > "$T/b.txt"; echo "rc=$?"
             cmp -s "$T/a.txt" "$T/b.txt" && echo "the --brief flag prints the same text as brief.py"; head -1 "$T/b.txt" | cut -c1-30 ;;
   term-brief-at-stops) P="$B/cloud/upgrade-pipeline.sh"   # the brief is printed after the STOP line of nj_flush and park_finish, and before the run ends

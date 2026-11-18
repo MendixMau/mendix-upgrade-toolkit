@@ -347,7 +347,9 @@ def cmd_pending(a):
     if a.json:
         print(json.dumps([{k: i[k] for k in ("id", "kind", "title", "meta", "rec", "options")} for i in open_items_], indent=1))
         return 0
-    print(f"open items ({len(open_items_)}):")
+    open_items_.sort(key=lambda i: bool(i.get("unattended")))   # the ones that need a person first
+    own = sum(1 for i in open_items_ if i.get("unattended"))
+    print(f"open items ({len(open_items_)}):" + (f" {len(open_items_) - own} need you, {own} the AI chose on its own (review is optional)" if own else ""))
     for i in open_items_:
         print(f"\n{i['id']}  {i['title']}")
         print(f"    {i['meta']}")

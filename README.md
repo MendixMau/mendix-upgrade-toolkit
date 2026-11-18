@@ -10,7 +10,7 @@ Machine setup, once: [upgrade-toolkit/SETUP.md](upgrade-toolkit/SETUP.md).
 ```bash
 upgrade-toolkit/bin/cloud/upgrade-pipeline.sh --app-zip app.mpk --source <current full version> --target <new full version> --work run/work
 ```
-**You will see** a page in your browser (`COCKPIT.html`, refreshes itself) and the same five-line brief in the terminal
+**You will see** a page in your browser (`COCKPIT.html`, refreshes itself) and the same short brief in the terminal
 at every stop: where the upgrade stands, what is broken for your users, what is not measured yet, what to do now,
 who changed what. Print it any time with `--work run/work --brief`.
 

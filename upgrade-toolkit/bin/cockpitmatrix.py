@@ -1732,7 +1732,7 @@ def h_brief(b, qlist):
     return ('<section class="brief" aria-label="Where the upgrade stands">\n'
             f'<p class="status">{E(b["status"])}</p>\n'
             f'<div class="bl"><div class="bk {b["broken"]["s"]}"><b>Broken for your users</b><span>{E(b["broken"]["text"])}</span></div>'
-            f'<div class="bk"><b>Not measured yet</b><span>{E(b["unmeasured"] or "Nothing pending.")}</span></div></div>\n'
+            f'<div class="bk"><b>Not measured yet</b><span>{E(b["unmeasured"] or "nothing; every check has run.")}</span></div></div>\n'
             f'<div class="act {a["kind"]}"><b class="at">Do this now</b><div class="ab"><div><p class="atext">{E(a["text"])}</p>{rec}{tm}</div>{btn}</div>{more}</div>\n{chosen}'
             f'<p class="who"><b>Who changed what:</b> {E(b["who"])}</p>\n</section>')
 

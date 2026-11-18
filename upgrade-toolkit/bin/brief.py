@@ -27,7 +27,7 @@ def fields(work):
     b = cockpitmatrix.build(work, model)["brief"]
     a = b["act"]
     act = " ".join(x for x in (a["text"], a.get("rec"), a.get("time")) if x)
-    return {"act_parts": [x for x in (a["text"], a.get("rec")) if x], "status": b["status"], "broken": b["broken"]["text"], "unmeasured": b["unmeasured"] or "Nothing pending.", "act": act,
+    return {"act_parts": [x for x in (a["text"], a.get("rec")) if x], "status": b["status"], "broken": b["broken"]["text"], "unmeasured": b["unmeasured"] or "nothing; every check has run.", "act": act,
             "who": b["who"], "n": b["n"]}
 
 
@@ -90,7 +90,10 @@ def render(work):
                    f"cockpit page, or list them with: decisions.py pending --work {work}")
         out = out[:-1] + textwrap.wrap(out[-1], WIDTH, subsequent_indent="  ", break_long_words=False)
     else:
-        out.append(f"Open questions: {n}. Answer them here or on the cockpit page.")
+        own = sum(1 for i in decisions.open_items(work) if i.get("unattended"))
+        # the same number as the status sentence above (the questions that wait for a person); the AI's own choices are counted apart
+        out.append(f"Open questions: {f['n']}. Answer them here or on the cockpit page."
+                   + (f" {n - f['n']} more are the AI's own choices, or confirmations; review is optional." if n > f["n"] else ""))
         out.append("\n".join(pending(work).splitlines()[1:]).strip())   # the first line is its own count
     return "\n".join(out)
 

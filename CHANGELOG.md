@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Brief: the status sentence and the "Open questions" footer now give the same number (the questions that wait for a person); the AI's own choices are counted apart; "Not measured yet" reads "nothing; every check has run."
 - Terminal brief: `upgrade-pipeline.sh --brief` prints the same plain brief as the cockpit page (8 lines at most), at every stop and at the end of a run, followed by the open questions.
 - SKILL.md: a short "Driving the run" block (print the brief, ask each open decision in chat, record it, rerun) and a current status line in place of the version history.
 - README.md and PUBLIC-README.md: the top of the page says what it does, what you need, the one start command, what you will see and where a person decides; the detail moved below.

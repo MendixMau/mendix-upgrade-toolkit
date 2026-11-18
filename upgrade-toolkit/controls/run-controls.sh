@@ -7831,6 +7831,8 @@ ctl term-brief-equals-cockpit-pass 0 'fields on the page: 5 of 5' 'printed parag
 ctl term-brief-differs-from-stale-page-catch 0 'not on the page: status, unmeasured' 'off the page: [1-9]' -- $CK term-brief-stale
 ctl term-brief-size-pass 0 '!ok: False' 'ok: True' -- $CK term-brief-size
 ctl term-brief-size-cap-catch 0 'uncapped lines: (9|1[0-9])' -- $CK term-brief-size-uncapped
+ctl term-brief-count-equal-pass 0 'status 6 footer 6 same' '!DIFFERENT' -- $CK term-brief-count
+ctl term-brief-count-split-catch 0 'status 6 footer 6 same' '2 more named: True' '!DIFFERENT' -- $CK term-brief-count-extra
 ctl term-brief-open-questions-pass 0 '^Open questions: 6\. Answer them here or on the cockpit page\.' 'fix \(recommended\): Fix the app' 'pending: open items \(6\)' -- $CK term-brief-pending
 ctl term-brief-flag-pass 0 'rc=0' 'same text as brief.py' -- $CK term-brief-cli
 ctl term-brief-printed-at-stops-pass 0 '^nj_flush: 1$' '^park_finish: 1$' '^main: [12]$' -- $CK term-brief-at-stops
