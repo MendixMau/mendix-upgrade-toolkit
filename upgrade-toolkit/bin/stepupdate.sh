@@ -600,7 +600,13 @@ if [ $dry = 0 ] && [ $nrun -gt 0 ] && [ -z "${UPG_NO_JARCLEAN:-}" ] && [ -d "$ap
     # NOTHING, the jar deletions stayed uncommitted and the routed pass refused (TLT, 9.24 to 10.24). Name only what exists.
     jpaths=(); for jd in userlib vendorlib; do [ -d "$app/$jd" ] && jpaths+=("$jd"); done
     git -C "$app" add -A -- "${jpaths[@]}" >/dev/null 2>&1
-    git -C "$app" diff --cached --quiet -- "${jpaths[@]}" || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3'; steptrailer repair)" -- "${jpaths[@]}"
+    # a folder that EXISTS but git knows nothing in (an empty userlib/ on a 10.x app whose jars all live in vendorlib/) is
+    # a pathspec error for `git commit -- userlib`: the whole commit failed and the vendorlib deletions stayed staged, so
+    # the routed pass refused (SNOW, 10.24 to 11.12). Commit only the folders git has a file or a staged change in.
+    cpaths=(); for jd in "${jpaths[@]}"; do
+      [ -z "$(git -C "$app" ls-files -- "$jd")$(git -C "$app" diff --cached --name-only -- "$jd")" ] || cpaths+=("$jd")
+    done
+    [ ${#cpaths[@]} = 0 ] || git -C "$app" diff --cached --quiet -- "${cpaths[@]}" || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3'; steptrailer repair)" -- "${cpaths[@]}"
   else
     if [ $jrc = 2 ]; then   # T5-16: vendorlib is not proven current; the module updates just changed the module set
       echo "stepupdate: jar cleanup REFUSED, vendorlib is stale (nothing removed): run mx sync-java-dependencies (repair row 2), then repair/jardedupe.py --apply (repair row 3)"

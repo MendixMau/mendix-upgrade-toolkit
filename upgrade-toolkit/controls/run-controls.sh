@@ -1756,6 +1756,13 @@ mkdir -p $S/jc5/userlib; : > $S/jc5/userlib/lucene-core-8.9.0.jar; : > $S/jc5/us
 (cd $S/jc5 && git add userlib && git commit -qm "base jars")
 ctl jarclean-stepupdate-no-vendorlib-commit 0 'jar cleanup \(jardedupe --apply\)' 'REMOVE +userlib/lucene-core-8\.9\.0\.jar' -- bash $B/stepupdate.sh $S/jc5 $S/jc5.plan
 ctl jarclean-stepupdate-no-vendorlib-clean-tree 0 'jar: jardedupe --apply' '!^ D userlib' -- bash -c "git -C $S/jc5 log --format=%s; git -C $S/jc5 status --short"
+# SNOW (10.24 to 11.12): userlib/ exists but is EMPTY (git tracks nothing in it), the duplicates are in vendorlib/. `git commit -- userlib`
+# was a pathspec error, the commit failed, the vendorlib deletions stayed staged and the routed pass refused (exit 4).
+newapp jc6 '1 1.0 Fine\n'
+mkdir -p $S/jc6/userlib $S/jc6/vendorlib; : > $S/jc6/vendorlib/pdfbox-3.0.6.jar; : > $S/jc6/vendorlib/pdfbox-3.0.7.jar
+(cd $S/jc6 && git add vendorlib && git commit -qm "base jars")
+ctl jarclean-stepupdate-empty-userlib-commit 0 'jar cleanup \(jardedupe --apply\)' 'REMOVE +vendorlib/pdfbox-3\.0\.6\.jar' -- env UPG_VENDORLIB_SYNCED=1 bash $B/stepupdate.sh $S/jc6 $S/jc6.plan
+ctl jarclean-stepupdate-empty-userlib-clean-tree 0 'jar: jardedupe --apply' '!^D  vendorlib' -- bash -c "git -C $S/jc6 log --format=%s; git -C $S/jc6 status --short"
 # NS-6: the Email Connector import swapped shared widgets (notification-service cdd62cc5: Datagrid 2.28.3 -> 2.30.6)
 python3 $here/lib/mkwidgetmpk.py $S/widgets-new/com.mendix.widget.web.Datagrid.mpk Datagrid 2.30.6
 for k in wg wgok; do newapp $k "1 1.0 $([ $k = wg ] && echo Widg || echo Fine)\n"
