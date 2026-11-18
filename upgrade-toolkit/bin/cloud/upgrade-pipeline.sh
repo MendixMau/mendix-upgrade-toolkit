@@ -821,6 +821,18 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
   fi
 }
 
+# LDMS (repair row 34): mxbuild on Linux unpacks an add-on into .mendix-cache/modules/<lower case>.mxmodule, Gradle asks for the
+# case of modules/<Name>.mxmodule. After a build that failed with that message, link the other case; true when a link was made.
+modcase_fix() { # modcase_fix BUILD_LOG
+  [ "$DRY" != 1 ] || return 1
+  tail -n 2000 "$1" 2> /dev/null | grep -q "mendix-cache/modules/.*\.mxmodule/javasource.*not found" || return 1
+  local out="$WORK/mxmodulecase.out"
+  xo "$out" python3 "$B/repair/mxmodulecase.py" "$APP" --log "$1" || return 1
+  grep -q '^LINK ' "$out" || return 1
+  note "add-on cache folder case fixed (repair row 34): $(grep -c '^LINK ' "$out") link(s), building once more"
+  return 0
+}
+
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.
 # Scripts: heavy-lock.sh + mx9/mx10.sh mxbuild, runapp.py, seed_pg.py, snapshot.py, diff.py
 step_baseline() {
@@ -833,6 +845,9 @@ step_baseline() {
     x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
     commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
+    if [ "$rc" != 0 ] && modcase_fix "$LOG"; then   # LDMS: add-on cache folder case on Linux (repair row 34): link, build once more
+      rc=0; x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
+    fi
     if [ "$rc" != 0 ]; then
       disk_cause
       nj_meta agent; nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
@@ -1458,6 +1473,9 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   # mxbuild
   disk_gate build
   rc=0; xo "$WORK/build-$TARGET.log" heavy build "$TARGET" mxbuild --target=package -o "$(mda_new)" "$MPR" || rc=$?
+  if [ "$rc" != 0 ] && modcase_fix "$WORK/build-$TARGET.log"; then   # LDMS: add-on cache folder case on Linux (repair row 34)
+    rc=0; xo "$WORK/build-$TARGET.log" heavy build "$TARGET" mxbuild --target=package -o "$(mda_new)" "$MPR" || rc=$?
+  fi
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"

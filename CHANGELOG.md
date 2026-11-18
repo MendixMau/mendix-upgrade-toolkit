@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Linux build: an add-on `modules/<Name>.mxmodule` that mxbuild unpacks in lower case no longer fails the build ("mxmodule/javasource not found"): the pipeline links the other case in the cache and builds once more, old and new app; repair row 34 (issue 06; run LDMS).
 - NO-SIGNOUT evidence: a sign-out button in a layout no reachable page renders in is not sign-out UI (#62; run SNOW).
 - Baseline: a demo snapshot with no rows for the app's tables falls back to synthetic seed rows (#63; run STOR).
 - Baseline: wrong-case SCSS imports of the old app are fixed before its Linux build, repair row 11 (#64; run LDMS).
