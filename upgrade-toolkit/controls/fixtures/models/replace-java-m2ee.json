@@ -1,0 +1,5 @@
+{"from": "replace-clean.json", "ops": [["set", "files", {
+  "javasource/myown/actions/Clean.java": "package myown.actions;\nimport com.mendix.core.Core;\npublic class Clean { void run() { Core.getLogger(\"MyOwn\").info(\"ok\"); } }\n",
+  "javascriptsource/myown/actions/Clean.js": "export async function Clean() { console.log(\"ok\"); }\n",
+  "theme/web/main.scss": ".my-card { color: red; }\n",
+  "javasource/shopsso/implementation/Handler.java": "package shopsso.implementation;\nimport com.mendix.m2ee.api.IMxRuntimeRequest;\nimport com.mendix.m2ee.api.IMxRuntimeResponse;\npublic class Handler { void serve(IMxRuntimeRequest q, IMxRuntimeResponse r) { } }\n"}]]}

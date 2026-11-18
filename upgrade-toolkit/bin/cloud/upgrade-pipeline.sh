@@ -953,7 +953,7 @@ dojo_report() {
 # agent's triage item 10 ran replacement_check.py, so the unattended proposal said "not measured: replacements.md" and
 # the wizard steps never rendered (TypeError reading 'debug').
 replacement_report() {
-  [ "$DRY" != 1 ] || { say "+ replacement_check.py $APP --to ${TARGET2:-$TARGET} --out $WORK/replacements.md"; return 0; }
+  [ "$DRY" != 1 ] || { say "+ replacement_check.py $APP --to ${TARGET2:-$TARGET} --out $WORK/replacements.md"; say "+ javaapi.py $APP --json $WORK/java-api.json --md $WORK/java-api.md"; return 0; }
   [ -d "${APP:-/nonexistent}" ] || return 0
   local rc=0
   xo "$WORK/replacements.out" python3 "$B/replacement_check.py" "$APP" --to "${TARGET2:-$TARGET}" --out "$WORK/replacements.md" || rc=$?
@@ -962,6 +962,10 @@ replacement_report() {
     1) note "replacement_check.py: $(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) for ${TARGET2:-$TARGET} (open in the proposal), see $WORK/replacements.md" ;;
     *) note "replacement_check.py exit $rc, see $WORK/replacements.out" ;;
   esac
+  # the Java rows (R18 removed API, R30 changedDate/changedBy) per call site: removed API -> replacement call, effort, release note
+  # row; the proposal closes a row with no call site ("checked: not used in this app") and names the fix on the others (cold run)
+  rc=0; xo "$WORK/java-api.out" python3 "$B/javaapi.py" "$APP" --json "$WORK/java-api.json" --md "$WORK/java-api.md" || rc=$?
+  [ "$rc" -le 1 ] || note "javaapi.py exit $rc: the Java rows have no per-call fix (see $WORK/java-api.out)"
 }
 
 step_propose() {
@@ -1371,6 +1375,22 @@ step_build() {
   if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
   if [ "$DRY" = 1 ] || has_code CE6087; then
     try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
+  fi
+  # removed Java API, 1:1 rewrites (javaapi.py, steps/repair.md row 34): on an 11 target, after the convert and the module updates.
+  # Always the dry-run diff first. Written and committed as one change of its own (the test build is a copy, the commit reverts) in
+  # Interview mode unattended/auto (the proposal lists it as "fixed by the toolkit"), on UPG_JAVA_REWRITE=1, or in interview mode
+  # once the proposal is signed (its Java item recommends the rewrite); before that the diff waits for a person.
+  if [ "$(major "$TARGET")" -ge 11 ]; then
+    rc=0; xo "$WORK/java-rewrite.diff" python3 "$B/javaapi.py" "$APP" --rewrite || rc=$?
+    [ "$DRY" != 1 ] || rc=1
+    if [ "$rc" = 1 ]; then
+      if [ "${UPG_JAVA_REWRITE:-0}" = 1 ] || interview_unattended || { [ "$DRY" != 1 ] && [ "$(python3 "$B/proposal.py" --status --work "$WORK" 2> /dev/null)" = signed ]; }; then
+        x python3 "$B/javaapi.py" "$APP" --rewrite --apply || true
+        commit_app "repair: Java API rewrites (javaapi.py)" repair repair-row-34
+        [ "$DRY" = 1 ] || note "fixed by the toolkit: $(sed -n 's/^javaapi: \([0-9]*\) mechanical rewrites.*/\1/p' "$WORK/java-rewrite.diff") Java calls rewritten, one commit of its own (see $WORK/java-rewrite.diff)"
+      elif [ "$DRY" = 1 ]; then say "  (the 1:1 Java rewrite waits for the signed proposal; Interview mode unattended/auto writes it)"
+      else note "javaapi.py: mechanical Java API rewrites waiting for approval (sign the proposal or UPG_JAVA_REWRITE=1), see $WORK/java-rewrite.diff"; fi
+    fi
   fi
   # all fixed rows done: where do we stand
   [ "$DRY" = 1 ] || { mxcheck; n=$(open_errors "$CHECK_LOG"); }
