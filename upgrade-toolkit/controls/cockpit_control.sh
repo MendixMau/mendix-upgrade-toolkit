@@ -33,6 +33,11 @@ cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc
 chkw() { W=$T/chk/work; mkdir -p "$W/state" "$W/logs"; for f in PROPOSAL.md DECISIONS.md localedits.md edit-routes.json; do cp "$here/fixtures/cockpit/chk-unattended/$f" "$W/"; done
   cp "$here/fixtures/cockpit/chk-unattended/timing.tsv" "$W/state/timing.tsv"; for s in fetch triage baseline basewalk propose convert update build after; do echo done > "$W/state/$s.done"; done
   [ -z "${1:-}" ] || printf '%s\t%s\t%s\n' "$1" "$(( $(date +%s) - 120 ))" "$$" > "$W/state/running"; }
+# the second rung of a two-rung run: the first rung's gate summary (a real one, fixtures/cockpit/tlt-rung1) at the top of the run, the page of <run>/rung2
+r2w() { local B2=$T/r2/work; mkdir -p "$B2/rung2/state"; W=$B2/rung2; cp "$here/fixtures/cockpit/tlt-rung1/gate-summary.md" "$B2/gate-summary.md"
+  printf '{"route": ["9.24.23.37735", "10.24.0.73019", "11.12.5"]}\n' > "$B2/ladder.json"
+  for s in fetch triage baseline basewalk propose convert update build after; do echo done > "$W/state/$s.done"; done
+  printf 'afterwalk\t%s\t%s\n' "$(( $(date +%s) - 120 ))" "$$" > "$W/state/running"; }
 # the brief on top of the page (cockpit clarity): its text, one element per line
 brief_text() { python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -154,6 +159,16 @@ PY
   chk-cards) chkw; ck >/dev/null; cards; brief_text | sed -n '/^Do this/,/^Who/p' | head -4
             sed -i 's/ASSUMED (unattended)/ASSUMED/' "$W/DECISIONS.md"; ck >/dev/null; echo "attended:"; cards ;;
   chk-who) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Who changed/,$p' | head -2 ;;
+  # round 5 (lead user test on PSOP, issue drafts 15 and 17): the stop's owner decides the top card; recording is not testing; the first rung stays visible on the second
+  chk-agent-stop) chkw; rm -f "$W/state/build.done" "$W/state/after.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^The AI made/p'; cards ;;
+  chk-person-stop) chkw; rm -f "$W/state/build.done" "$W/state/after.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## The disk is full, so the step cannot go on (exit 10)\n\nowner: person\nquestion: The disk is full, so the step cannot go on. What should we do?\nwhy: Only you know what else lives on this disk.\noption: free|Free space, then rerun|Delete old runs.\n\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Do this/,/^The AI made/p' ;;
+  chk-recording) chkw basewalk; rm -f "$W"/state/{propose,convert,update,build,after}.done "$W/state/basewalk.done" "$W/PROPOSAL.md" "$W/DECISIONS.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p;/^Who/,$p' ;;
+  chk-recording-stopped) chkw; rm -f "$W"/state/{propose,convert,update,build,after}.done "$W/PROPOSAL.md" "$W/DECISIONS.md"; printf '# NEEDS JUDGMENT: step basewalk, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from basewalk\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; rm -f "$W/state/basewalk.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-recorded-idle) chkw; rm -f "$W"/state/{propose,convert,update,build,after}.done "$W/PROPOSAL.md" "$W/DECISIONS.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p;/^Who/,$p' ;;
+  rung2-first-rung) r2w ; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  rung2-own-gate) r2w; printf 'Overall: **INVALID** (exit 2): 1 PASS.\nProgress: 1 of 3 checks closed (33%%). 2 with REGRESSIONS to fix, 0 need a decision, 1 not measured yet.\n' > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  rung2-no-first-gate) r2w; rm -f "$W/../gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  charset) chkw; ck >/dev/null; echo "metas: $(grep -c '<meta charset="utf-8">' "$T/out.html")"; head -c 120 "$T/out.html" | head -2 ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
