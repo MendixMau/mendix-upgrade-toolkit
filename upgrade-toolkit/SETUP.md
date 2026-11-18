@@ -39,11 +39,21 @@ last lines say what is missing (B4T2-1, B4N1-3). Add a 10.24.x version to the li
 
 ## What to expect, the first time
 
-How long: it varies a lot by app size, and the journey walk is almost always what dominates, not the build. The
-shipped example (`examples/fsm/rung1-9.24-to-10.24/steps/test/gate-summary.md`) ran 16h2m of machine time on one
-rung (journeys alone: 11h59m), with 59m of person wait at the gate. Smaller apps with fewer journeys finish in
-closer to 1-2 hours machine time. Either way: don't expect it in a coffee break the first time, and don't assume
-something's stuck just because journeys are still running hours in — check the step it's actually on before you worry.
+How long, build vs test: it varies a lot by app size, but test time (the journey walk) is consistently what
+dominates, not the build. The shipped example (`examples/fsm/rung1-9.24-to-10.24/steps/test/gate-summary.md`) ran
+16h2m of machine time on one rung: build itself was 26m, basewalk (mapping journeys) was 2h24m, and the journey
+walk was 11h59m by itself — test time outweighs build time by roughly 30 to 1 here. 59m of person wait at the gate
+on top. Smaller apps with fewer journeys finish in closer to 1-2 hours machine time end to end. Either way: don't
+expect it in a coffee break the first time, and don't assume something's stuck just because journeys are still
+running hours in — check the step it's actually on before you worry.
+
+Cost: the toolkit has a cost ledger (`bin/cost_ledger.py`, reported at the gate) for wall time, tokens and review
+minutes per layer, but no field run has filled it in yet, so there's no real token-cost figure to give here. What we
+do know from the wall-clock split above: the journey walk and basewalk are driven by deterministic browser scripts,
+not the agent thinking per click, so that 12+ hours is machine time, not token spend. The steps where the agent is
+actually reasoning over code (triage, propose, repair, heal) are the ones that would show up in a token bill, and
+they're minutes each, not hours. Fill in `cost_ledger.py add` on your own run if you want a real number; until
+someone does, don't repeat "16 hours" as if it were 16 hours of agent cost.
 
 Permissions: the agent runs dozens of scripted steps in a row (shell commands, container builds, file edits), all
 inside the run folder and your app's own git checkout. If your coding agent asks you to approve every command, turn
