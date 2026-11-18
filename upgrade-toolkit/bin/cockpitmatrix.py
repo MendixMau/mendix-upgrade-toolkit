@@ -1240,7 +1240,8 @@ def build(work, model):
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work, model),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
-            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work)}
+            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work),
+            "allowUnmatched": [x for x in (cp.rd(os.path.join(work, "allow-unmatched.txt")) or "").splitlines() if x.strip()]}
 
 
 def _count_line(txt):
@@ -2394,6 +2395,15 @@ def h_health(H):
     return '<section class="card health" aria-label="How the tests improved"><h2>How the tests improved</h2>' + "".join(out) + "</section>"
 
 
+def h_allow_unmatched(lines_):
+    """A written accept that matched no row (diff.py writes allow-unmatched.txt): the person believes it applied, the row is still open."""
+    if not lines_:
+        return ""
+    return ('<section class="card health" aria-label="Accepts that matched nothing"><h2>Accepts that matched nothing</h2>'
+            '<p class="m">These lines in allow.txt did not match any row, so they accepted nothing. The row they were meant for is still open. No verdict changed.</p><ul>'
+            + "".join(f"<li>{E(x)}</li>" for x in lines_) + "</ul></section>")
+
+
 def h_band(b):
     tick = {"ok": "✓", "bad": "!", "warn": "→"}.get(b["state"], "…")
     reg = ""
@@ -2779,7 +2789,7 @@ def render(model, matrix):
             f'  <div class="legend">{h_legend(matrix)}</div>\n'
             f'  <section class="card scroll" aria-label="Items per stage"><div class="pbar" id="phases" hidden></div><div class="grid" id="matrix">{h_matrix(matrix)}</div></section>\n'
             '  <p class="note">Click a stage name to see how that stage works. Click any cell for that item, step by step.</p>\n'
-            f"  {h_health(matrix.get('health'))}\n"
+            f"  {h_health(matrix.get('health'))}{h_allow_unmatched(matrix.get('allowUnmatched'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
             f'  <aside class="side">{h_band(matrix["band"])}'

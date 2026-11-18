@@ -47,7 +47,65 @@ b = re.sub(r'</(p|div|b|span|li|summary|button)>', '\n', b)
 print(html.unescape("\n".join(x.strip() for x in re.sub(r'<[^>]+>', '', b).splitlines() if x.strip())))
 PY
 }
+# term-brief: every field of `brief.py --json` (cut to what the terminal shows: whole sentences) is a substring of the page's brief text
+termcmp() { python3 "$B/brief.py" --work "$W" > "$T/b.out"; python3 - "$T/b.json" "$T/b.txt" "$T/b.out" <<'PY'
+import json, re, sys
+f = json.load(open(sys.argv[1])); page = " ".join(open(sys.argv[2]).read().split())
+miss = [k for k in ("status", "broken", "unmeasured", "who") if " ".join(f[k].split()) not in page]
+act = " ".join(f["act_parts"]); miss += [] if " ".join(act.split()) in page or all(" ".join(x.split()) in page for x in f["act_parts"]) else ["act"]
+print(f"fields on the page: {5 - len(miss)} of 5" + (f" | not on the page: {', '.join(miss)}" if miss else ""))
+# what the terminal really printed: each labelled paragraph above the blank line, label removed, must be on the page
+paras, cur = [], []
+for l in open(sys.argv[3]).read().split("\n\n")[0].splitlines():
+    if l.startswith("  ") and cur: cur.append(l.strip())
+    else:
+        if cur: paras.append(" ".join(cur))
+        cur = [l.strip()]
+paras.append(" ".join(cur))
+body = [re.sub(r"^(Broken for your users|Not measured yet|Do this now|Who changed what): ", "", p).removesuffix(" ...") for p in paras]
+off = [b for b in body if b not in page and not all(x.rstrip(".") in page for x in re.split(r"(?<=[.!?]) ", b))]
+print(f"printed paragraphs: {len(body)}, off the page: {len(off)}" + (f" | {off[0][:60]}" if off else ""))
+PY
+}
+termsize() { python3 - "$B" "$1" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import brief
+ls = brief.lines(brief.fields(sys.argv[2]))
+print(f"lines: {len(ls)} widest: {max(map(len, ls))} ok: {len(ls) <= 8 and max(map(len, ls)) <= 80}")
+PY
+}
 case $case_ in
+  term-brief-cli) python3 "$B/brief.py" --work "$W" > "$T/a.txt"; bash "$B/cloud/upgrade-pipeline.sh" --work "$W" --brief > "$T/b.txt"; echo "rc=$?"
+            cmp -s "$T/a.txt" "$T/b.txt" && echo "the --brief flag prints the same text as brief.py"; head -1 "$T/b.txt" | cut -c1-30 ;;
+  term-brief-at-stops) P="$B/cloud/upgrade-pipeline.sh"   # the brief is printed after the STOP line of nj_flush and park_finish, and before the run ends
+            for f in nj_flush park_finish main; do echo "$f: $(sed -n "/^$f() {/,/^}/p" "$P" | grep -c 'brief_say')"; done ;;
+  # issue 20: the final check's stop says what is open. 0 regressions: nothing failed, hand the open rows to the owner; otherwise repair first
+  gate-open-0) mkstop 'eval "$(sed -n "/^gate_open_nj_meta() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; rc=2; gate_open_nj_meta 0 4 57; nj_add 12 "$GATE_OPEN_TITLE" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  gate-open-3) mkstop 'eval "$(sed -n "/^gate_open_nj_meta() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; rc=1; gate_open_nj_meta 3; nj_add 12 "$GATE_OPEN_TITLE" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  gate-open-none) mkstop 'eval "$(sed -n "/^gate_open_nj_meta() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; rc=1; gate_open_nj_meta ""; nj_add 12 "$GATE_OPEN_TITLE" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  # issue 21: an allow line that matched no row is named in the fold of the page, never silent
+  allow-unmatched) printf 'allow line 1 matched nothing: data db.attr.X.Y *\n' > "$W/allow-unmatched.txt"; ck >/dev/null
+            echo "fold section: $(cnt 'Accepts that matched nothing' "$T/out.html")"; grep -o 'allow line 1 matched nothing[^<]*' "$T/out.html" ;;
+  allow-all-matched) ck >/dev/null; echo "fold section: $(cnt 'Accepts that matched nothing' "$T/out.html")" ;;
+  # the terminal brief (bin/brief.py) is the cockpit's top, same model, same words: each field is on the page; at most 8 lines of 80 columns
+  term-brief-equal) ck >/dev/null; python3 "$B/brief.py" --work "$W" --json > "$T/b.json"; brief_text > "$T/b.txt"; termcmp ;;
+  term-brief-stale) ck >/dev/null; brief_text > "$T/b.txt"   # the page was drawn before the run moved on: the terminal reads the files now
+            printf 'Progress: 5 of 10 checks closed (50%%). 2 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\n' >> "$W/gate-summary.md"
+            python3 "$B/brief.py" --work "$W" --json > "$T/b.json"; termcmp ;;
+  term-brief-size) chkw; termsize "$W"; termsize "$here/fixtures/cockpit/run/work"
+            minw journeys-fail; termsize "$W"; minw plan-missing; termsize "$W"; r2w; termsize "$W" ;;
+  term-brief-size-uncapped) chkw; python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import brief
+brief.MAX_LINES = 99   # the cap removed: what the same run would print
+print("uncapped lines:", len(brief.lines(brief.fields(sys.argv[2]))), "| capped limit:", 8)
+PY
+            ;;
+  term-brief-pending) ck >/dev/null; python3 "$B/brief.py" --work "$W" | sed -n '/^Open questions/,$p' | head -8
+            echo "pending: $(python3 "$B/decisions.py" pending --work "$W" | head -1)" ;;
   confirm-covered) mkst; st propose --id S-1 --say "Update the grid." --decision D3 >/dev/null
             printf 'D3: Gridmod 2.0.0 rework, please confirm it looks right. D9: Cart banner moved, please confirm.\n' > "$W/gate-notes.txt"
             python3 - "$B" "$W" <<'PY'
