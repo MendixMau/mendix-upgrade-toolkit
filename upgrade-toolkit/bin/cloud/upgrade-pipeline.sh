@@ -1214,7 +1214,9 @@ step_update() {
   # stayed in the menu after the rerun, the Local Users tab showed nothing. Rewind to the convert commit first.
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/replay-keep.txt" ]; then
     local conv reps
-    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s { print $1; exit }')
+    # awk reads the whole log: an awk that quit at the match made git log die of SIGPIPE, and under pipefail the step with it
+    # (cold rfq rung 2, the convert the newest commit: exit 4 at this line, 29 of 40 tries)
+    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s && c == "" { c = $1 } END { print c }')
     reps=$([ -z "$conv" ] || git_app log --format='%h %s' "$conv..HEAD" 2> /dev/null | grep -E '^[0-9a-f]+ replay: ' | head -5 | tr '\n' ';' || true)
     if [ -n "$reps" ]; then
       nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
