@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- decisions.py pending: a stop with no recommended option prints `--choice <update|accept>` in its chat line, not a blank `--choice` (run DVS).
 - Cockpit and terminal brief: the "Broken for your users" box names a regression a stop reports (not only the final gate); a stop the agent cannot resolve says "The agent cannot get past this alone" and what it needs; the same stop returning says "Stopped here N times" (new `state/stops.tsv`, one row per stop); a screens REVIEW count shows as "N screens changed and wait for your look" next to "0 regressions" (gate and verdict unchanged; lane B final findings, issue 22; runs PSOP, PMNT, LDMS, CHK).
 - Linux build: an add-on `modules/<Name>.mxmodule` that mxbuild unpacks in lower case no longer fails the build ("mxmodule/javasource not found"): the pipeline links the other case in the cache and builds once more, old and new app; repair row 34 (issue 06; run LDMS).
 - Basewalk: the baseline walk applies the same checked `baseline-evidence.txt` lines (FIXTURE / OLD-APP / FLAKY, same checks as the journeys step) to its own FAILs, so a journey the old app fails with a logged error is PASS* instead of a stop with no way past (issue 05; run PMNT).

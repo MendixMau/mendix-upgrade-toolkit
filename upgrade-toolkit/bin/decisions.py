@@ -358,7 +358,8 @@ def cmd_pending(a):
             continue
         for o in sorted(i["options"], key=lambda o: o["key"] != i["rec"]):   # the recommended option first
             print(f"    {o['key']}{' (recommended)' if o['key'] == i['rec'] else ''}: {o['label']}")
-        print(f"    chat: decisions.py add --work {w} --item {i['id']} --choice {i['rec']} --by NAME --source chat")
+        choice = i["rec"] or "<" + "|".join(o["key"] for o in i["options"]) + ">"   # a stop with no recommended option: name the keys, never a blank --choice (run DVS)
+        print(f"    chat: decisions.py add --work {w} --item {i['id']} --choice {choice} --by NAME --source chat")
     return 0
 
 
