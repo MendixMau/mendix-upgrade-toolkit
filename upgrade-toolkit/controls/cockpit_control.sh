@@ -128,6 +128,8 @@ PY
          echo "cards: $(grep -o '<div class="qcard" data-item="[^"]*"' "$T/out.html" | sed 's/.*data-item="//;s/"//' | paste -sd ' ' -)"
          echo "keep twice: $(grep -o '<div class="qcard" data-item="P-1".*' "$T/out.html" | sed 's/<div class="qcard" data-item="P-2".*//' | grep -o 'data-choice="[^"]*"' | paste -sd ' ' -)"
          d=$T/srv; mkdir -p "$d"; echo "$W" > "$d/.cockpit-work"
+         # the sign-off without a name takes git config user.name: a fixed one here, never the host's (CI has none)
+         export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0="Cleo Vos"
          python3 "$B/cockpitserve.py" --dir "$d" --idle-exit 60 > /dev/null 2>&1 & sp=$!
          for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done; u=http://127.0.0.1:$(cat "$d/.cockpit-port")/decide
          post() { curl -s -X POST -H 'Content-Type: application/json' -d "$1" "$u"; echo; }
@@ -138,7 +140,7 @@ PY
          echo "answer: $(post '{"item":"P-2","choice":"o1","by":"Ana"}')"
          echo "ledger: $(python3 -c 'import json,sys; print(*[r["item"]+"="+r["choice"]+" by "+r["by"]+" via "+r["source"] for r in json.load(open(sys.argv[1]))])' "$W/decisions.json")"
          echo "sign: $(post '{"item":"signoff"}')"
-         echo "signed: $(grep -c "^Signed-off: $(git config user.name) " "$W/PROPOSAL.md")"
+         echo "signed: $(grep -c "^Signed-off: Cleo Vos " "$W/PROPOSAL.md")"
          echo "page cards: $(grep -o '<div class="qcard" data-item="[^"]*"' "$d/COCKPIT-view.html" | sed 's/.*data-item="//;s/"//' | paste -sd ' ' -)"
          echo "decided log: $(wc -l < "$d/.cockpit-decided" | tr -d ' ')"
          kill $sp 2> /dev/null ;;

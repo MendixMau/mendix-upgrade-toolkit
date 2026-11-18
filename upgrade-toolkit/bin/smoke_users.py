@@ -230,11 +230,11 @@ def main():
               f"must list it: snapshot.py --ledger $W/db-ledger.txt --mark-used {a.db} --use journeys, then "
               f"--ledger $W/db-ledger.txt here; --any-db to force)" + (f"; {a.ledger} does not list it" if a.ledger else ""),
               file=sys.stderr); sys.exit(2)
-    pw_hash = bcrypt_hash(a.password)
-    cmd = a.psql or f"docker exec -i {a.container} psql -U mendix -d {a.db}"
     entity = a.entity
     if entity and not re.match(r"^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$", entity):
         print(f"smoke_users: bad --entity {entity!r} (want Module.Entity)", file=sys.stderr); sys.exit(2)
+    pw_hash = bcrypt_hash(a.password)  # after the argument checks: a bad argument is exit 2 also without bcrypt
+    cmd = a.psql or f"docker exec -i {a.container} psql -U mendix -d {a.db}"
     if not entity:
         er = psql_rows(cmd, 'select id, entity_name, table_name, superentity_id from "mendixsystem$entity" where not coalesce(remote,false)')
         cr = psql_rows(cmd, 'select submetaobjectname, count(*) from "system$user" group by 1')
