@@ -1878,6 +1878,7 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 # and a frozen database whose owner stamp names another run (or that has no stamp and no ledger line here) is refused
 mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
 ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
+ctl pipeline-baseline-scsscase-before-old-build-catch 0 'scsscase\.py .*/papp' 'repair-row-11' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.1.1 --target 10.24.0.1 --work $V/pwsc --only baseline --dry-run
 ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
 # cold WM1: a wrapper's RUN=13 in the environment became the run folder (13/tools/..., exit 3); an inherited RUN counts
 # only when --work lies inside it, the RUN setup.sh exports still does

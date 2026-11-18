@@ -801,6 +801,10 @@ step_baseline() {
   old=$(mda_old)
   if [ -z "$OLD_MDA" ] && [ ! -f "$old" ]; then
     disk_gate baseline
+    # LDMS: a publisher SCSS import with the wrong letter case (components/ for Components/) fails the theme compile of the OLD app on
+    # Linux too, and repair row 11 only ran for the new one: fix it before the old build, one commit
+    x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
+    commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
     if [ "$rc" != 0 ]; then
       disk_cause
