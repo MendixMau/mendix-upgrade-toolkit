@@ -222,9 +222,21 @@ need_path() { # need_path PATH WHAT
 }
 
 # ---- judgment stops ----
+# Who the section is for (cockpit clarity): nj_meta agent|info|person ["question" "recommended-key" "key|label|what it does"...] before the
+# NEXT nj_add/nj_file. The cockpit shows an agent or info section as no question for the person, and a person section as its real
+# question with the options and the recommended one. A section without nj_meta is read as before.
+NJ_META=""
+nj_meta() {
+  NJ_META="owner: $1"; shift
+  [ $# -gt 0 ] || return 0
+  NJ_META="$NJ_META"$'\n'"question: $1"; local rec=$2; shift 2
+  [ -z "$rec" ] || NJ_META="$NJ_META"$'\n'"recommended: $rec"
+  local o; for o in "$@"; do NJ_META="$NJ_META"$'\n'"option: $o"; done
+}
 nj_add() { # nj_add CODE "title" "text"
   [ "$NJ_CODE" != 0 ] || NJ_CODE=$1
-  { printf '\n## %s (exit %s)\n\n%s\n' "$2" "$1" "$3"; } >> "$NJ_TMP"
+  { printf '\n## %s (exit %s)\n\n' "$2" "$1"; [ -z "${NJ_META:-}" ] || printf '%s\n\n' "$NJ_META"; printf '%s\n' "$3"; } >> "$NJ_TMP"
+  NJ_META=""
 }
 nj_file() { # nj_file CODE "title" FILE [lines] [grep-pattern]: first lines of a file (optionally only lines matching)
   local body="(file not found: $3)"
@@ -252,6 +264,7 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
     printf '    %s\n' "$(rerun_cmd)"
     cat "$NJ_TMP"
   } > "$WORK/NEEDS-JUDGMENT.md"
+  rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
   exit "$NJ_CODE"
@@ -277,6 +290,7 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   { printf '%s\n' "$out" | sed '$d'
     printf '\nRerun once, after the answers, from the first parked step (%s; a rung-1 step: the rung-1 command with --from %s):\n\n    %s\n' "$step" "$step" "$(rerun_cmd)"
   } > "$WORK/NEEDS-JUDGMENT.md"
+  rm -f "$WORK/state/running"
   cockpit_regen
   say "STOP    auto: $(grep -c '^<!-- parked at' "$WORK/NEEDS-JUDGMENT.md") parked item(s) to answer in one round (exit $code), see $WORK/NEEDS-JUDGMENT.md"
   exit "$code"
@@ -760,11 +774,11 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
-    nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
+    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
 Write \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, cross-module association targets (idcheck --xmod) LAST. An empty plan (comments only) is allowed and means no module updates.
 Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
-    nj_file 13 "localedits result" "$WORK/localedits.md" 40
-    nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
+    nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
+    nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
     nj_flush
   fi
 }
@@ -779,7 +793,7 @@ step_baseline() {
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
     if [ "$rc" != 0 ]; then
       disk_cause
-      nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
+      nj_meta agent; nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
       nj_flush
     fi
     commit_app "build: regenerated stubs" config build-stubs
@@ -886,8 +900,8 @@ step_basewalk() {
   app_down oldj
   mark_used "$db" journeys
   if [ "$rc" != 0 ]; then
-    nj_file 11 "Always-on journeys are not all PASS on the OLD app (exit $rc): fix the journey, drop it, or write the todo" "$WORK/journeys-base.out" 40 'FAIL|INVALID|todo|skipped|INFO'
-    nj_add 11 "Plan items" "plan: $WORK/journeys-base/plan.json (skipped, todo, not_browser). An MFA journey needs a user with an MFA type (users.json \`_mfa\`); this script cannot create one."
+    nj_meta agent; nj_file 11 "Always-on journeys are not all PASS on the OLD app (exit $rc): fix the journey, drop it, or write the todo" "$WORK/journeys-base.out" 40 'FAIL|INVALID|todo|skipped|INFO'
+    nj_meta info; nj_add 11 "Plan items" "plan: $WORK/journeys-base/plan.json (skipped, todo, not_browser). An MFA journey needs a user with an MFA type (users.json \`_mfa\`); this script cannot create one."
     nj_park
   fi
 }
@@ -1020,7 +1034,7 @@ step_convert() {
   # refused every package (made before Studio Pro 10.21). A 10.x to 11 run states its pre-convert plan, even an empty one.
   if [ "$DRY" != 1 ] && [ "$(major "$SOURCE")" = 10 ] && [ "$(major "$TARGET")" -ge 11 ] && [ ! -e "$WORK/plan-pre.txt" ] \
      && [ -f "$WORK/plan.txt" ] && grep -qvE '^[[:space:]]*(#|$)' "$WORK/plan.txt"; then
-    nj_add 13 "plan-pre.txt missing on a 10.x to 11 run" "Mendix 11 imports no package made before Studio Pro 10.21, so those updates must run before the convert. Split $WORK/plan.txt: lines whose package was made before 10.21 go to $WORK/plan-pre.txt (steps/triage.md, ORDER). Nothing to run before the convert: write $WORK/plan-pre.txt with only a comment."
+    nj_meta agent; nj_add 13 "plan-pre.txt missing on a 10.x to 11 run" "Mendix 11 imports no package made before Studio Pro 10.21, so those updates must run before the convert. Split $WORK/plan.txt: lines whose package was made before 10.21 go to $WORK/plan-pre.txt (steps/triage.md, ORDER). Nothing to run before the convert: write $WORK/plan-pre.txt with only a comment."
     nj_flush
   fi
   if [ "$(major "$SOURCE")" -ge 10 ] && [ -s "$WORK/plan-pre.txt" ]; then
@@ -1217,8 +1231,8 @@ step_update() {
     conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s { print $1; exit }')
     reps=$([ -z "$conv" ] || git_app log --format='%h %s' "$conv..HEAD" 2> /dev/null | grep -E '^[0-9a-f]+ replay: ' | head -5 | tr '\n' ';' || true)
     if [ -n "$reps" ]; then
-      nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
-      nj_add 12 "Decision" "Tag a backup, then rewind the app to $conv (git -C $APP tag backup/<name>; git -C $APP reset --hard $conv) and rerun --from update; to keep the replays, create $WORK/replay-keep.txt."
+      nj_meta info; nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
+      nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup, rewind, rerun from update." "keep|Keep the replays|Create replay-keep.txt; the rerun keeps their documents and menu changes."; nj_add 12 "Decision" "Tag a backup, then rewind the app to $conv (git -C $APP tag backup/<name>; git -C $APP reset --hard $conv) and rerun --from update; to keep the replays, create $WORK/replay-keep.txt."
       nj_flush
     fi
   fi
@@ -1258,8 +1272,8 @@ step_update() {
     rc=0
     xo "$WORK/widgetskew.out" python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetskew-ack.txt" ]; then
-      nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
-      nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
+      nj_meta info; nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
+      nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
       nj_park
     fi
     # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
@@ -1267,8 +1281,8 @@ step_update() {
     rc=0
     xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetdrop-ack.txt" ]; then
-      nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
-      nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
+      nj_meta info; nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+      nj_meta person "Widget settings would be dropped: the installed widget package is older than the pages. What should we do?" "" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
       nj_park
     fi
   else
@@ -1388,13 +1402,13 @@ step_build() {
     done
   fi
   if [ "$DRY" != 1 ] && [ "$n" != 0 ]; then
-    nj_add 10 "mx check: $n errors after convert + updates + the fixed repair rows" "Summary file: $CHECK_LOG
+    nj_meta agent; nj_add 10 "mx check: $n errors after convert + updates + the fixed repair rows" "Summary file: $CHECK_LOG
 Codes: $(grep -oE '^\[error\] *\[C[EW][0-9]+\]' "$CHECK_LOG" | grep -oE 'C[EW][0-9]+' | sort | uniq -c | sort -rn | head -n 15 | tr '\n' ';')
 Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one commit per fix; checkdiff.py after each)."
-    nj_file 10 "First 20 error lines" "$CHECK_LOG" 20 '^\[error\]'
+    nj_meta info; nj_file 10 "First 20 error lines" "$CHECK_LOG" 20 '^\[error\]'
     grep -q '^\[where\]' "$CHECK_LOG" 2> /dev/null && nj_file 10 "Where they are (first 20)" "$CHECK_LOG" 20 '^\[where\]'
     if has_code CE1613 && grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
-      nj_file 10 "Own documents use targets the module update dropped (CE1613; steps/repair.md row 28)" "$WORK/owngone.out" 20 '^(OWN|  GONE)'
+      nj_meta info; nj_file 10 "Own documents use targets the module update dropped (CE1613; steps/repair.md row 28)" "$WORK/owngone.out" 20 '^(OWN|  GONE)'
     fi
     nj_flush
   fi
@@ -1404,8 +1418,8 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
-    nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
-    nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
+    nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
+    nj_meta info; nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
     # cold CMM: a userlib fat jar's older Netty hid the class MendixSSO 10.6.2 needs; name the jar, not only the error
     if grep -q 'error: cannot find symbol' "$WORK/build-$TARGET.log" 2> /dev/null; then
       xo "$WORK/javacjar.out" python3 "$B/repair/javacjar.py" "$APP" "$WORK/build-$TARGET.log" || true
@@ -1423,8 +1437,8 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   mark_used "$q" quickstart
   infra_rc "$rc" quick
   if [ "$rc" != 0 ]; then
-    nj_add 10 "QUICK START FAIL" "The new app does not start. Fix before the gate (after-startup contract, constants, missing jars). Start log: $WORK/logs/runtime-new.log"
-    nj_file 10 "First 20 error lines" "$WORK/logs/runtime-new.log" 20 'ERROR|CRITICAL|Exception'
+    nj_meta agent; nj_add 10 "QUICK START FAIL" "The new app does not start. Fix before the gate (after-startup contract, constants, missing jars). Start log: $WORK/logs/runtime-new.log"
+    nj_meta info; nj_file 10 "First 20 error lines" "$WORK/logs/runtime-new.log" 20 'ERROR|CRITICAL|Exception'
     nj_flush
   fi
 }
@@ -1564,7 +1578,7 @@ step_journeys() {
     # a count, not `| grep -vq`: under pipefail an early-quitting grep -q made the first grep die of SIGPIPE, and `!` turned
     # that into "only SCREEN REVIEW lines" (stop 12) for a run that had FAIL lines
     nj_file "$code" "Journeys on the NEW app (exit $rc): REGRESSION/FAIL is a gate FAIL, INVALID blocks DONE, SCREEN REVIEW needs both images opened and a reason in shot-accept.txt" "$WORK/journeys-after.out" 60 'REGRESSION|NOT IN BASELINE|INVALID|FAIL|SCREEN|todo|skipped|journeys:'
-    nj_add "$code" "Evidence" "summary: $WORK/e2e-after/after/summary.json ; plan: $WORK/journeys/plan.json ; screens: $WORK/e2e-after"
+    nj_meta info; nj_add "$code" "Evidence" "summary: $WORK/e2e-after/after/summary.json ; plan: $WORK/journeys/plan.json ; screens: $WORK/e2e-after"
     nj_park
   fi
 }
@@ -1872,20 +1886,20 @@ step_gate() {
   [ "$rc" = 0 ] || nj_file 12 "release_impact.py --check: open rows (exit $rc). Every row needs 'handled: <evidence>' or 'not relevant: <reason>' (INVALID until then)" "$WORK/release-impact.check" 30
   # NOT RUN items (mutant control, demo data replay) are never a pass: stop until a person ran them or wrote why not
   if [ "$DRY" != 1 ] && grep -q 'NOT RUN\|NOT replayed' "$WORK/state/notes.txt" 2> /dev/null && [ ! -f "$WORK/notrun-ack.txt" ]; then
-    nj_file 12 "Gate items NOT RUN by the pipeline (steps/baseline.md item 4: the mutant control must FAIL)" "$WORK/state/notes.txt" 20 'NOT RUN|NOT replayed'
-    nj_add 12 "Decision" "Run each item by hand and record the result, or write the reason it does not apply, in $WORK/notrun-ack.txt; then rerun --from gate."
+    nj_meta info; nj_file 12 "Gate items NOT RUN by the pipeline (steps/baseline.md item 4: the mutant control must FAIL)" "$WORK/state/notes.txt" 20 'NOT RUN|NOT replayed'
+    nj_meta person "Some final-check items were not run by the pipeline. What should we do?" "" "run|Run each item by hand|Record the result of each." "reason|Write why each does not apply|In notrun-ack.txt."; nj_add 12 "Decision" "Run each item by hand and record the result, or write the reason it does not apply, in $WORK/notrun-ack.txt; then rerun --from gate."
   fi
   nj_park
   # kept modules: complete except kept, unless a person acknowledged the list
   if [ "$DRY" != 1 ] && [ -s "$WORK/kept.txt" ] && [ ! -f "$WORK/kept-ack.txt" ]; then
-    nj_file 13 "upgrade complete except kept modules (never reported as upgraded)" "$WORK/kept.txt" 40
-    nj_add 13 "Decision" "Update them by hand (steps/upgrade.md, playbooks/edited-modules.md), or acknowledge the list: copy $WORK/kept.txt to $WORK/kept-ack.txt (then the verdict says 'complete except kept modules')."
+    nj_meta info; nj_file 13 "upgrade complete except kept modules (never reported as upgraded)" "$WORK/kept.txt" 40
+    nj_meta person "The upgrade is complete except the kept modules. What should we do?" "" "update|Update them by hand|steps/upgrade.md, playbooks/edited-modules.md." "ack|Acknowledge the list|Copy kept.txt to kept-ack.txt; the verdict then says complete except kept modules."; nj_add 13 "Decision" "Update them by hand (steps/upgrade.md, playbooks/edited-modules.md), or acknowledge the list: copy $WORK/kept.txt to $WORK/kept-ack.txt (then the verdict says 'complete except kept modules')."
     nj_park
   fi
   # held replays: the module is updated but its local edits are not back (replay_edits)
   if [ "$DRY" != 1 ] && [ -s "$WORK/replay-held.txt" ] && [ ! -f "$WORK/replay-held-ack.txt" ]; then
-    nj_file 13 "upgrade complete except held replays (the local edits of these modules are NOT in the app)" "$WORK/replay-held.txt" 40
-    nj_add 13 "Decision" "Fix the replay (its log is named per line) and rerun --from upgrade, or acknowledge the loss in writing: copy $WORK/replay-held.txt to $WORK/replay-held-ack.txt with a reason per line."
+    nj_meta info; nj_file 13 "upgrade complete except held replays (the local edits of these modules are NOT in the app)" "$WORK/replay-held.txt" 40
+    nj_meta person "The upgrade is complete except held replays: their local edits are NOT in the app. What should we do?" "" "fix|Fix the replay and rerun from upgrade|Its log is named per line." "ack|Acknowledge the loss in writing|Copy replay-held.txt to replay-held-ack.txt with a reason per line."; nj_add 13 "Decision" "Fix the replay (its log is named per line) and rerun --from upgrade, or acknowledge the loss in writing: copy $WORK/replay-held.txt to $WORK/replay-held-ack.txt with a reason per line."
     nj_park
   fi
   parked_any || write_summary   # auto: a parked item is never a PASS; park_finish asks them at the end
