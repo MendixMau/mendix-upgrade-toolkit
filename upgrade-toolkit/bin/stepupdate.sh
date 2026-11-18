@@ -596,8 +596,11 @@ if [ $dry = 0 ] && [ $nrun -gt 0 ] && [ -z "${UPG_NO_JARCLEAN:-}" ] && [ -d "$ap
     ${jcids[@]+"${jcids[@]}"} --log "$st/jardedupe.log" > /dev/null 2>&1; jrc=$?
   if [ $jrc = 0 ]; then
     echo "stepupdate: jar cleanup (jardedupe --apply), list in $st/jardedupe.log:"; grep -E '^(REMOVE|UNMATCHED|SHADOWED|summary|shadowed)' "$st/jardedupe.log" | sed 's/^/   /'
-    git -C "$app" add -A userlib vendorlib >/dev/null 2>&1
-    git -C "$app" diff --cached --quiet -- userlib vendorlib || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3'; steptrailer repair)" -- userlib vendorlib
+    # a 9.x source has no vendorlib/ before the first sync-java-dependencies: `git add` with a missing pathspec stages
+    # NOTHING, the jar deletions stayed uncommitted and the routed pass refused (TLT, 9.24 to 10.24). Name only what exists.
+    jpaths=(); for jd in userlib vendorlib; do [ -d "$app/$jd" ] && jpaths+=("$jd"); done
+    git -C "$app" add -A -- "${jpaths[@]}" >/dev/null 2>&1
+    git -C "$app" diff --cached --quiet -- "${jpaths[@]}" || git -C "$app" commit -qm "jar: jardedupe --apply after module updates" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair repair-row-3'; steptrailer repair)" -- "${jpaths[@]}"
   else
     if [ $jrc = 2 ]; then   # T5-16: vendorlib is not proven current; the module updates just changed the module set
       echo "stepupdate: jar cleanup REFUSED, vendorlib is stale (nothing removed): run mx sync-java-dependencies (repair row 2), then repair/jardedupe.py --apply (repair row 3)"

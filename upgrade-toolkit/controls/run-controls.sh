@@ -1749,6 +1749,13 @@ ctl jarclean-stepupdate-earlier-pass-removed 0 'jar cleanup \(jardedupe --apply\
 ctl jarclean-stepupdate-earlier-pass-result 0 -- bash -c "[ ! -f $S/jc3/userlib/pdfbox-2.0.30.jar ] && [ -f $S/jc3/vendorlib/pdfbox-3.0.7.jar ]"
 ctl jarclean-stepupdate-no-step-commit-kept 0 '!REMOVE +userlib/pdfbox' -- bash -c "env UPG_VENDORLIB_SYNCED=1 bash $B/stepupdate.sh $S/jc4 $S/jc4.plan; grep -E 'KEEP +userlib/pdfbox-2\.0\.30\.jar +CONFLICT' $S/jc4/.stepupdate/jardedupe.log && [ -f $S/jc4/userlib/pdfbox-2.0.30.jar ]"
 ctl jarclean-stepupdate-stale-names-jars 0 "jars marked 'rests on vendorlib' in .*jardedupe\.log" -- bash $B/stepupdate.sh $S/jc2 $S/jc2.plan --from 1
+# TLT (9.24 to 10.24): a 9.x app has no vendorlib/ yet. `git add -A userlib vendorlib` staged nothing, the removed jars stayed
+# uncommitted and the routed pass refused ("uncommitted changes", exit 4). The jar commit must name only folders that exist.
+newapp jc5 '1 1.0 Fine\n'
+mkdir -p $S/jc5/userlib; : > $S/jc5/userlib/lucene-core-8.9.0.jar; : > $S/jc5/userlib/lucene-core-8.9.0.jar.GoneMod.RequiredLib
+(cd $S/jc5 && git add userlib && git commit -qm "base jars")
+ctl jarclean-stepupdate-no-vendorlib-commit 0 'jar cleanup \(jardedupe --apply\)' 'REMOVE +userlib/lucene-core-8\.9\.0\.jar' -- bash $B/stepupdate.sh $S/jc5 $S/jc5.plan
+ctl jarclean-stepupdate-no-vendorlib-clean-tree 0 'jar: jardedupe --apply' '!^ D userlib' -- bash -c "git -C $S/jc5 log --format=%s; git -C $S/jc5 status --short"
 # NS-6: the Email Connector import swapped shared widgets (notification-service cdd62cc5: Datagrid 2.28.3 -> 2.30.6)
 python3 $here/lib/mkwidgetmpk.py $S/widgets-new/com.mendix.widget.web.Datagrid.mpk Datagrid 2.30.6
 for k in wg wgok; do newapp $k "1 1.0 $([ $k = wg ] && echo Widg || echo Fine)\n"
