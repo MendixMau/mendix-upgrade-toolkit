@@ -1477,6 +1477,19 @@ def plainwords(t):
     return " ".join(t.split())
 
 
+# a file name is the script's word, not the reader's (SNOW review 02: "The agent has to finish this (plan-pre.txt missing on a 10.x to 11 run)")
+FILE_WORDS = [(r"\bplan-pre\.txt missing on a 10\.x to 11 run\b", "the list of add-on updates that go before the Mendix 11 conversion is missing"),
+              (r"\bplan\.txt missing\b", "the module update plan is missing"),
+              (r"\bmx check: (\d+) errors?\b", lambda m: f"the app model check found {m.group(1)} {'error' if m.group(1) == '1' else 'errors'}"),
+              (r"\b[\w.-]+\.(?:txt|json|md|tsv|out|log)\b", "a work file")]
+
+
+def unfile(t):
+    for pat, r in FILE_WORDS:
+        t = re.sub(pat, r, t or "")
+    return t
+
+
 AGENT_TASK = re.compile(r"\bwrite\s+\S+\.(?:txt|json|md|tsv)\b", re.I)   # "Module plan missing: write plan.txt": a file the agent writes, not a person's answer
 
 
@@ -1555,6 +1568,18 @@ def rung1_say(work, gs):
     return ("ok" if not left else "none", f"On Mendix {v1}: nothing broke" + (f" ({left})" if left else "") + f". Mendix {v2} is not tested yet.")
 
 
+def _journeys_line(work):
+    """"Testing now: 212 of 435 user paths done, about 40 min left" from state/journeys-progress.json; "" when there is none or it is over."""
+    try:
+        d = json.load(open(os.path.join(work, "state", "journeys-progress.json")))
+        if d.get("finished"):
+            return ""
+        import journeys_progress as jp
+        return "Testing now: " + jp.say_line(int(d["done"]), int(d["total"]), d.get("left_min"))
+    except Exception:
+        return ""
+
+
 def brief(work, model, rows, g, tl):
     """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
     what. Returns plain strings and numbers; h_brief draws them."""
@@ -1596,8 +1621,13 @@ def brief(work, model, rows, g, tl):
         n = _steps_done(work)
         prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
     ov = cp.parse_gate(gs)["overall"]
+    sinfo = model.get("stopped") or {}
+    rep_n = sinfo.get("repeats") or 0
+    stuck = f"Stopped here {rep_n} times in a row, each time for the same reason." if rep_n >= 2 else ""   # the run is stuck (lane B, PMNT)
     if stopped and nask:
-        now = f"Paused, waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
+        now = f"Paused, waiting for {nask} {'answer' if nask == 1 else 'answers'} from you." + (f" {stuck}" if stuck else "")
+    elif stopped and sinfo.get("handoff"):
+        now = "Paused: the agent cannot get past this alone." + (f" {stuck}" if stuck else "")
     elif stopped:
         now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
     elif running:
@@ -1637,6 +1667,19 @@ def brief(work, model, rows, g, tl):
         broken = ("bad", f"{reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one.")
     else:
         broken = ("ok", "Nothing found broken so far.")
+    # a step that stopped on a regression found it before the final check ran (lane B, PSOP afterwalk: "nothing is known to be broken" over
+    # three regressions): the box names it, and the final check's count stays what it is
+    sregs = [r for r in (sinfo.get("regs") or [])]
+    if sregs and (reg or 0) < len(sregs):
+        nm = ", ".join(f"{w} (for {k} {'role' if k == 1 else 'roles'})" if k > 1 else w for w, k in sregs[:3]) + (", ..." if len(sregs) > 3 else "")
+        broken = ("bad", f"{len(sregs)} {'thing' if len(sregs) == 1 else 'things'} worked on the old app and {'fails' if len(sregs) == 1 else 'fail'} on the new one: {nm}.")
+    # screens that changed wait for a person's look; the final check counts them apart from regressions (the owner's call, public PR 41),
+    # but "0 regressions" must not read as "all fine" (lane B, CHK: the Employees table rendered as a list)
+    scr = next((int(m.group(1)) for r in cp.parse_gate(gs)["rungs"] if r["rung"] == "screens" and r["verdict"] not in ("PASS", "PASS*")
+                for m in [re.search(r"(\d+) REVIEW", r["detail"])] if m), 0)
+    if scr:
+        sc = f"{scr} {'screen' if scr == 1 else 'screens'} changed and {'waits' if scr == 1 else 'wait'} for your look."
+        broken = ("bad" if broken[0] == "bad" else "wait", ("Nothing counted as broken. " if broken[0] != "bad" else broken[1] + " ") + sc)
     if unm is None:
         if reg is not None:
             unmeasured = ""
@@ -1646,6 +1689,10 @@ def brief(work, model, rows, g, tl):
             unmeasured = f"Recording the old app stopped during this step: {low(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. It goes on after it reruns; nothing is tested yet."
         elif testing:
             unmeasured = f"Testing now: {running['text'][:1].lower() + running['text'][1:]}. Results appear here when they finish."
+            if running.get("step") == "journeys":   # a long walk says how far it is (journeys_progress.py), so slow is not read as hung
+                pl = _journeys_line(work)
+                if pl:
+                    unmeasured = pl + ". Results appear here when they finish."
         elif stopped_test:
             unmeasured = f"The tests stopped during this step: {(lambda t: t[:1].lower() + t[1:])(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. Results appear here after it reruns."
         elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS if s not in RECORD_STEPS):
@@ -1666,6 +1713,10 @@ def brief(work, model, rows, g, tl):
             i = qs[0]
             act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
             rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
+            if len(i["options"]) > 1:   # the choices are said in the card: behind the button they were invisible (SNOW review 03: "Nothing you can answer here" for a keep-or-rewind question)
+                act["opts"] = [plainwords(plain(o["label"])).rstrip(".") for o in i["options"]]
+            if i.get("asked") and i["id"].startswith("stop:"):   # a stop section written for a person: say the run waits and that nobody else can answer
+                act["time"] = "The run is paused until you answer. " + act["time"]
             act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call." + (f" {i['norec_why']}" if i.get("norec_why") else "")
             if i["kind"] == "signoff":
                 act["rec"] = "We recommend: approve, once the other answers are in."
@@ -1674,9 +1725,13 @@ def brief(work, model, rows, g, tl):
     elif stopped:
         owned = stopped.get("agent_titles") or []
         what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
-        what = re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip()   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
+        what = unfile(re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip())   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
+        if sinfo.get("handoff"):   # an agent-owned stop with no route the agent can take is a hand-off, not "the agent will finish this" (lane B, PMNT, LDMS, PSOP)
+            why, needs = sinfo["handoff"]
+            act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
+                   "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
     elif running:
         act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
@@ -1715,6 +1770,9 @@ def h_brief(b, qlist):
     btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
     rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
     tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    if a.get("opts"):
+        o = a["opts"]
+        rec += f'<p class="aopts">Your choices: {", ".join(E(x) for x in o[:-1])} or {E(o[-1])}.</p>'
     if a.get("later"):   # the sign-off stays one click away, quietly: it is not what the run waits for
         tm += f'<p class="atime">{E(a["later"])} <button type="button" class="resolve" data-q="{a["later_q"]}">Review the plan →</button></p>'
     c = b.get("chosen") or {}
@@ -1724,7 +1782,7 @@ def h_brief(b, qlist):
         rest = c["routine"] if c["top"] else c["n"]
         tail = (f"The other {rest} {'is a' if rest == 1 else 'are'} routine {'version update or rule' if rest == 1 else 'version updates and rules'}. " if c["top"] else
                 (f"None of the {c['n']} changes how the app behaves; they are routine version updates and rules. " if c["n"] > 1 else "It does not change how the app behaves. ")) if rest else ""
-        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. The {len(c['top'])} with the most impact"
+        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. Open this to see the {len(c['top'])} with the most impact"
                 if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
         chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
                   f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
@@ -2032,6 +2090,8 @@ details.more[open]>summary{margin-bottom:10px}
 .brief .bk span{font-size:15px}
 .brief .bk.bad{background:var(--badbg)} .brief .bk.bad b{color:var(--bad)} .brief .bk.bad span{font-weight:650}
 .brief .bk.ok{background:var(--okbg)} .brief .bk.ok b{color:var(--ok)}
+.brief .bk.wait{background:var(--waitbg)} .brief .bk.wait b{color:var(--wait)} .brief .bk.wait span{font-weight:650}
+.brief .act.handoff{border-color:var(--wait);background:var(--waitbg)} .brief .act.handoff .at{color:var(--wait)}
 .brief .act{padding:14px 16px;border-radius:12px;border:2px solid var(--line);display:grid;gap:8px}
 .brief .act.ask{border-color:var(--you);background:var(--youbg)}
 .brief .at{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
@@ -2039,7 +2099,7 @@ details.more[open]>summary{margin-bottom:10px}
 .brief .ab{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .brief .ab>div{flex:1 1 260px;min-width:0}
 .brief p{margin:0}.brief .atext{font-size:18px;font-weight:600;overflow-wrap:anywhere}
-.brief .arec{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
+.brief .arec{margin-top:4px;font-size:15px}.brief .aopts{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
 .resolve.big{font-size:16px;padding:12px 20px;min-height:44px;border-radius:12px}
 .brief .allq summary,.brief .chosen summary{cursor:pointer;font-size:13px;color:var(--muted)}.brief .chosen{margin-top:10px}.brief .chosen ol{margin:8px 0 0;padding-left:20px;font-size:14px}.brief .chosen .m{margin:6px 0 0;font-size:13px;color:var(--muted)}
 .brief .allq ol{margin:8px 0 0;padding:0;list-style:none}.brief .allq li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
@@ -2518,7 +2578,7 @@ def h_stopped(s):
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
     # the headline answers "is it stuck?"; what stopped it and the rerun command are for the agent, so they fold (cockpit clarity)
     own = [o for o in (s.get("owners") or []) if o != "info"]
-    cls = "stopbar agent" if own and all(o == "agent" for o in own) else "stopbar"   # the agent's own task is amber, not the red of a real block
+    cls = "stopbar agent" if own and all(o == "agent" for o in own) and not s.get("handoff") else "stopbar"   # the agent's own task is amber, not the red of a real block
     return (f'<div class="{cls}" role="alert"><b>The run stopped during this step: {E(plainwords(cp.STEP_TEXT.get(s["step"], s["step"])))}.</b>'
             '<details><summary>What stopped it, technical (for the agent)</summary>'
             f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder (stop code {s["code"]}).</small>{cmd}</details></div>')

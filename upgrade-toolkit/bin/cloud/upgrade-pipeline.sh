@@ -291,6 +291,9 @@ nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
     cat "$NJ_TMP"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
+  # one row per stop (step, exit code, a fingerprint of what it said with the digits left out): the brief counts "stopped here N times
+  # in a row" from the rows that agree, so a stop with a new cause is never called stuck (lane B, PMNT: three reruns, the same two FAILs)
+  { mkdir -p "$WORK/state"; printf '%s\t%s\t%s\n' "$STEP" "$NJ_CODE" "$(tr -d '0-9' < "$NJ_TMP" | cksum | cut -d' ' -f1)" >> "$WORK/state/stops.tsv"; } 2> /dev/null || true
   cockpit_regen
   say "STOP    $STEP: needs judgment (exit $NJ_CODE), see $WORK/NEEDS-JUDGMENT.md"
   brief_say || true   # the brief is information: it never changes a stop's exit code
@@ -821,6 +824,18 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
   fi
 }
 
+# LDMS (repair row 34): mxbuild on Linux unpacks an add-on into .mendix-cache/modules/<lower case>.mxmodule, Gradle asks for the
+# case of modules/<Name>.mxmodule. After a build that failed with that message, link the other case; true when a link was made.
+modcase_fix() { # modcase_fix BUILD_LOG
+  [ "$DRY" != 1 ] || return 1
+  tail -n 2000 "$1" 2> /dev/null | grep -q "mendix-cache/modules/.*\.mxmodule/javasource.*not found" || return 1
+  local out="$WORK/mxmodulecase.out"
+  xo "$out" python3 "$B/repair/mxmodulecase.py" "$APP" --log "$1" || return 1
+  grep -q '^LINK ' "$out" || return 1
+  note "add-on cache folder case fixed (repair row 34): $(grep -c '^LINK ' "$out") link(s), building once more"
+  return 0
+}
+
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.
 # Scripts: heavy-lock.sh + mx9/mx10.sh mxbuild, runapp.py, seed_pg.py, snapshot.py, diff.py
 step_baseline() {
@@ -833,6 +848,9 @@ step_baseline() {
     x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
     commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
+    if [ "$rc" != 0 ] && modcase_fix "$LOG"; then   # LDMS: add-on cache folder case on Linux (repair row 34): link, build once more
+      rc=0; x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
+    fi
     if [ "$rc" != 0 ]; then
       disk_cause
       nj_meta agent; nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
@@ -1420,6 +1438,19 @@ step_build() {
   rc=0; xo "$WORK/missing_deps.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?
   if [ "$DRY" != 1 ] && [ "$rc" = 1 ]; then
     note "missing_deps: $(grep -cE '^(MISSING|BROKEN)' "$WORK/missing_deps.txt" || true) missing or broken (see $WORK/missing_deps.txt)"
+    # issue 24 (SNOW, Atlas_Core 4.7.0 needs FeedbackModule): a module an UPDATE made necessary is a person's decision, said before the
+    # build goes on. Never installed here: it adds a module to the owner's app. missing_module_stop.py header has the design note.
+    if grep -q '^MISSING module' "$WORK/missing_deps.txt"; then
+      local msrc=0
+      python3 "$B/repair/missing_module_stop.py" "$WORK/missing_deps.txt" "$WORK/plan.txt" --app "$APP" --ack "$WORK/missing-module-ack.txt" > "$WORK/missing-module.out" 2> /dev/null || msrc=$?
+      if [ "$msrc" = 1 ]; then
+        local mq mr mo=() mb
+        mq=$(sed -n 's/^Q\t//p' "$WORK/missing-module.out"); mr=$(sed -n 's/^R\t//p' "$WORK/missing-module.out")
+        mapfile -t mo < <(sed -n 's/^O\t//p' "$WORK/missing-module.out"); mb=$(sed -n 's/^B\t//p' "$WORK/missing-module.out")
+        nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"
+        nj_flush
+      fi
+    fi
     if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then
       nj_meta agent; nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
     fi
@@ -1458,6 +1489,9 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   # mxbuild
   disk_gate build
   rc=0; xo "$WORK/build-$TARGET.log" heavy build "$TARGET" mxbuild --target=package -o "$(mda_new)" "$MPR" || rc=$?
+  if [ "$rc" != 0 ] && modcase_fix "$WORK/build-$TARGET.log"; then   # LDMS: add-on cache folder case on Linux (repair row 34)
+    rc=0; xo "$WORK/build-$TARGET.log" heavy build "$TARGET" mxbuild --target=package -o "$(mda_new)" "$MPR" || rc=$?
+  fi
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
@@ -2063,6 +2097,8 @@ run_step() { # run_step NAME
     *" $STEP "*) if [ "$DRY" != 1 ] && [ -f "$WORK/PROPOSAL.md" ]; then proposal_recheck; fi ;;
   esac
   printf '%-10s %s\n' "$STEP" "running (log: $LOG)"
+  # the journeys' progress line (bin/journeys_progress.py): into this step's log, a state file the page and the brief read, and the pace of earlier runs
+  export UPG_PROGRESS_LOG="$LOG" UPG_PROGRESS_FILE="$WORK/state/journeys-progress.json" UPG_PACE_FILE="$WORK/state/journeys-pace.tsv"
   LOG_START=0; [ ! -f "$LOG" ] || LOG_START=$(wc -l < "$LOG" | tr -d ' ')   # a step log keeps earlier runs: nj_file quotes only this run
   timing_open "$STEP"
   cockpit_regen   # the page shows the step as running from its start, not only after it

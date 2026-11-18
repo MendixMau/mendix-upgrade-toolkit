@@ -254,7 +254,17 @@ def build(spec, out):
                     for k, vs in p.get("refs", {}).items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])]
             page = {"$ID": pid, "$Type": "Forms$Page", "Name": p["name"], "Excluded": p.get("excluded", False),
                     "Widgets": lst(widgets + refs + named(f"{mn}.{p['name']}", p.get("named", [])))}
-            if p.get("layout"):
+            if p.get("home_buttons"):  # buttons in the layout call's arguments, as a real page holds them; "when": a
+                # ConditionalVisibilitySettings Expression (shape of a real 10.3 ActionButton)
+                page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p.get("layout", ""),
+                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([
+                    {"$ID": gid(f"hb:{mn}.{p['name']}.{i}"), "$Type": "Forms$ActionButton", "Name": b["name"],
+                     "ConditionalVisibilitySettings": ({"$ID": gid(f"hv:{mn}.{p['name']}.{i}"), "$Type": "Forms$ConditionalVisibilitySettings",
+                                                        "Expression": b["when"]} if b.get("when") else None),
+                     "Action": {"$ID": gid(f"ha:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormAction",
+                                "FormSettings": {"$ID": gid(f"hs:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormSettings", "Form": b["page"]}}}
+                    for i, b in enumerate(p["home_buttons"])])}])}
+            elif p.get("layout"):
                 page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p["layout"]}
             if p.get("allowed"):
                 page["AllowedModuleRoles"] = lst(p["allowed"])

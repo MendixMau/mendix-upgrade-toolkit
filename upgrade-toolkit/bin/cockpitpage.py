@@ -443,6 +443,63 @@ def running(work, now=None):
             "mins": max(0, int(((now or datetime.datetime.now().timestamp()) - since) // 60)), "tool": tool, "said": said}
 
 
+def stop_regressions(secs):
+    """The regressions a stop's own sections list ("  REGRESSION <role> | <kind> | <page> | <target>: old PASS 3 of 3, new not PASS ..." from a
+    walk of the new app), as [(what, n)]: one entry per page, n the roles it fails for. The final check has not run at such a stop, so
+    the page's broken box would say "nothing known broken" over a red stop (lane B, PSOP afterwalk). Only a line that STARTS with
+    REGRESSION counts: the preamble of every stop file says "a REGRESSION is fixed" and is not one."""
+    seen = {}
+    for _t, _c, body in secs:
+        for ln in body.splitlines():
+            m = re.match(r"^\s*[-*]?\s*REGRESSION\s+(.+?)(?::\s|$)", ln)
+            if not m:
+                continue
+            parts = [x.strip() for x in m.group(1).split(" | ")]
+            what, who = (parts[2], parts[0]) if len(parts) >= 4 else (re.sub(r"\s+", " ", m.group(1))[:60], "")
+            seen.setdefault(what, set()).add(who or ln)
+    return [(w, len(r)) for w, r in seen.items()]
+
+
+def stop_repeats(work, step, code):
+    """How many stops in a row, the latest included, said the same thing (state/stops.tsv: step, exit code, a fingerprint of the stop's text
+    without digits; one row per stop, written by nj_flush before the page is built). 1 = the first time, 0 = no record of this stop
+    (a run from before the file, or a parked end-of-run stop): never a claim. A new cause has a new fingerprint, so it is never called stuck."""
+    rows = [ln.split("\t") for ln in (rd(os.path.join(work, "state", "stops.tsv")) or "").splitlines()]
+    rows = [r for r in rows if len(r) >= 3]
+    if not rows or rows[-1][0] != step or rows[-1][1] != str(code):
+        return 0
+    n = 0
+    for r in reversed(rows):
+        if r[:3] != rows[-1][:3]:
+            break
+        n += 1
+    return n
+
+
+def stop_handoff(secs, meta, repeats):
+    """An agent-owned stop the agent cannot close alone: (why, needs), else None. Two shapes: (1) the always-on user paths FAIL on the OLD app
+    itself: the pipeline has no route past a baseline that does not pass (lane B, PMNT and LDMS basewalk), and no step the agent can
+    take changes how the old app behaves; (2) the same stop came back after a rerun, so the agent's own try did not close it."""
+    mine = [(s, m) for s, m in zip(secs, meta) if m["owner"] == "agent"]
+    if not mine:
+        return None
+    for (title, _c, body), _m in mine:
+        if "OLD app" not in title:
+            continue
+        names = [m.group(1) for m in (re.match(r"^\s*FAIL\s+(\S+)", ln) for ln in body.splitlines()) if m]
+        t = re.search(r"journeys: (\d+) PASS, (\d+) FAIL(?:, (\d+) INVALID)?", body)
+        if names and t:
+            tot = sum(int(x or 0) for x in t.groups())
+            k = len(names)
+            return (f"{k} of {tot} user paths {'fails' if k == 1 else 'fail'} on the old app itself ({', '.join(names[:3])}{', ...' if k > 3 else ''})",
+                    f"a person to confirm {'it is' if k == 1 else 'each is'} an old-app defect, or fix the old app")
+    if repeats >= 2:
+        t = re.split(r"\s*[:(]", mine[0][0][0])[0].strip()   # "mxbuild failed (exit 1, 7 ERROR at lines)" -> "mxbuild failed"
+        return (f"the same stop{f' ({t})' if t else ''} has come back {repeats} times in a row",
+                "a person to look at it, or a toolkit change")
+    return None
+
+
 def stop_meta(body):
     """The lines nj_meta writes under a stop section's heading: owner, question, recommended, option (key|label|what it does).
     A section without them is owner "" and is read as before."""
@@ -555,7 +612,9 @@ def build_model(work):
         secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
         meta = [stop_meta(s[2]) for s in secs]   # who each section is for (owner: agent|info|person), see nj_meta in upgrade-pipeline.sh
         stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun,
-                    "owners": [m["owner"] for m in meta], "agent_titles": [s[0] for s, m in zip(secs, meta) if m["owner"] == "agent"]}
+                    "owners": [m["owner"] for m in meta], "agent_titles": [s[0] for s, m in zip(secs, meta) if m["owner"] == "agent"],
+                    "regs": stop_regressions(secs), "repeats": stop_repeats(work, stopped[0], stopped[1]), "handoff": None}
+        stopinfo["handoff"] = stop_handoff(secs, meta, stopinfo["repeats"])
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
     if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
         for k, ((title, code, body), mt) in enumerate(zip(secs, meta), 1):

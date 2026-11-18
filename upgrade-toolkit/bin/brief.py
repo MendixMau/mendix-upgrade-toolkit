@@ -28,7 +28,7 @@ def fields(work):
     a = b["act"]
     act = " ".join(x for x in (a["text"], a.get("rec"), a.get("time")) if x)
     return {"act_parts": [x for x in (a["text"], a.get("rec")) if x], "status": b["status"], "broken": b["broken"]["text"], "unmeasured": b["unmeasured"] or "nothing; every check has run.", "act": act,
-            "who": b["who"], "n": b["n"]}
+            "who": b["who"], "n": b["n"], "kind": a["kind"]}
 
 
 def sentences(t):
@@ -57,8 +57,8 @@ MAX_LINES = 8
 def lines(f):
     """Each field in its own labelled line(s); about 8 lines in all: the status and the action keep their room, the rest shrinks first."""
     texts = {"status": f["status"], "broken": f["broken"], "unmeasured": f["unmeasured"], "act": " ".join(x if x[-1] in ".!?" else x + "." for x in f["act_parts"]), "who": f["who"]}
-    room = {"status": 2, "broken": 2, "unmeasured": 2, "act": 2, "who": 2}
-    for shrink in (None, "unmeasured", "broken", "who"):
+    room = {"status": 2, "broken": 2, "unmeasured": 2, "act": 3 if f.get("kind") == "handoff" else 2, "who": 2}   # a hand-off says why and what it needs: no room for one without the other
+    for shrink in (None, "unmeasured", "who", "broken"):
         if shrink:
             room[shrink] = 1
         out = [l for key, label in LABELS for l in fit(label, texts[key], room[key], tail=(key == "who"))]

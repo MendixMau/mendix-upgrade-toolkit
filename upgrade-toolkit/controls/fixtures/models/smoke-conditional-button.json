@@ -1,0 +1,72 @@
+{
+ "version": "11.12.6.1",
+ "_why": "home-page buttons: an always-visible one that opens Overview and one shown only after a row is selected (Expression), captured shape from a real 10.3 ActionButton",
+ "security": {
+  "user_roles": {
+   "Admin": [
+    "Shop.Admin"
+   ]
+  },
+  "admin": "Admin"
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "pages": [
+    {
+     "name": "Home",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": [],
+     "home_buttons": [
+      {
+       "name": "openOverview",
+       "page": "Shop.Overview"
+      },
+      {
+       "name": "closePreview",
+       "page": "Shop.Overview",
+       "when": "$currentObject != empty"
+      }
+     ]
+    },
+    {
+     "name": "Overview",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    },
+    {
+     "name": "DemoData_CreateByAdmin",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    }
+   ]
+  }
+ ],
+ "navigation": {
+  "homes": [
+   {
+    "role": "*",
+    "page": "Shop.Home"
+   }
+  ],
+  "menu": [
+   {
+    "caption": "Overview",
+    "page": "Shop.Overview"
+   },
+   {
+    "caption": "Demo data Reset",
+    "page": "Shop.DemoData_CreateByAdmin"
+   }
+  ]
+ }
+}

@@ -623,6 +623,10 @@ ctl smokewalk-gen-demodata-excluded-catch 0 '^Admin: 2 page steps' '1 steps skip
 ctl smokewalk-gen-demodata-skipped-reason-pass 0 'excluded by pattern DemoData\*' '^Overview$' '!^DemoData_CreateByAdmin$' -- python3 -c "import json; p=json.load(open('$T/smoke-excl-plan.json'))['roles'][0]; print(p['skipped'][0]['why']); [print(s['caption']) for s in p['steps'] if s['via']=='menu']"
 ctl smokewalk-gen-no-default-excludes-pass 0 '^Admin: 3 page steps' '0 steps skipped' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-excl-plan2.json --no-default-excludes
 ctl smokewalk-gen-exclude-option-catch 0 '^Admin: 1 page steps' '2 steps skipped' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-excl-plan3.json --exclude 'Overview'
+# a home-page button shown only after a row is selected (Expression) is not on the page for the walk: LISTED as not walked, never silently dropped
+ctl smokewalk-gen-conditional-button-listed-catch 0 '^Admin: not walked: conditionally visible: 1 button\(s\): closePreview -> Shop\.Overview$' '^Admin: 3 page steps' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-button)/App.mpr -o $T/smoke-cond-plan.json
+ctl smokewalk-gen-visible-button-kept-pass 0 '^Admin: 2 page steps' '!not walked' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-cond-plan2.json
+ctl smokewalk-gen-same-name-visible-button-walked-pass 0 '^User: 2 page steps' '!^User: not walked' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-samename)/App.mpr -o $T/smoke-cond-plan3.json
 ctl smokewalk-gen-excluded-widget-pass 0 '^DemoData\*$' '^$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import smokewalk_gen as g; print(g.excluded('Shop.DemoData_X','w')); print(g.excluded('Shop.Orders','actionButton1'))"
 ctl localedits-proxy-catch 1 'PROXY: compared with 4\.0\.0' -- python3 $B/localedits.py $M/local-edit/App.mpr --module Administration --proxy Administration=4.0.0
 # E5b-5: a proxy a major version away says so; a proxy in the same major does not
@@ -698,6 +702,17 @@ ctl missing-deps-target-pass 1 '!above target' -- python3 $B/repair/missing_deps
 # pipeline run 3 (T7-29): Charts 3.x widgets build on 11 but fail at runtime: DEPRECATED-11 before the 11 rung, quiet below 11
 ctl missing-deps-charts3-11-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.PieChart.PieChart: used 1x in Account_Overview' '!MISSING' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3)
 ctl missing-deps-charts3-10-pass 0 '!DEPRECATED-11' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $(model charts3)
+# issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
+MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
+ctl missing-module-stop-names-module-and-version-catch 0 '^Q	The update of Atlas_Core needs a module this app does not have: UserCommons\.' '^O	install\|Install UserCommons 2\.4\.0 from the Marketplace\|.*mxcli marketplace install 223053 --version 2\.4\.0' '^R	install$' '^exit 1$' -- $MMC update-introduced $MMA
+ctl missing-module-stop-offers-keep-old-version-catch 0 '^O	keep\|Keep the old version of Atlas_Core\|Revert its update \(git revert [0-9a-f]+\)' '^B	  UserCommons: Marketplace content 223053, version 2\.4\.0; introduced by Atlas_Core 4\.7\.0 \(' -- $MMC update-introduced $MMA
+ctl missing-module-stop-says-nothing-is-installed-pass 0 'Nothing is installed until you say so\.' -- $MMC update-introduced $MMA
+ctl missing-module-above-target-recommends-keep-catch 0 '^R	keep$' '^B	  UserCommons: .*NOT usable on the target' '!--version 2\.4\.0' -- $MMC above-target $MMA
+ctl missing-module-already-dangling-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC already-dangling $MMA
+ctl missing-module-acked-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC acked $MMA
+ctl missing-module-nothing-missing-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC nothing-missing $MMA
+ctl missing-module-no-git-history-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC no-git $MMA
+ctl cockpit-missing-module-stop-is-the-card-catch 0 '^The update of Atlas_Core needs a module this app does not have: UserCommons' '^We recommend: Install UserCommons 2\.4\.0 from the Marketplace$' '^question cards: 1$' '!Nothing you can answer here' -- bash $here/cockpit_control.sh p24-stop
 ctl widget-descriptor-catch 1 'BROKEN.*data descriptor missing' -- python3 $B/repair/missing_deps.py $M/widget-descriptor
 ctl widget-crc-catch 1 'BROKEN' -- python3 $B/repair/missing_deps.py $M/widget-crc
 
@@ -964,6 +979,23 @@ ctl jarclash-hidden-catch 1 'hidden copy: userlib/markdown-all-0\.50\.jar!lib/pd
 ctl jarclash-owner-catch 1 'userlib/pdfreader-1\.0\.0\.jar \[no maven metadata; modules: PDFReader\]' -- python3 $B/repair/jarclash.py $T/jarclash
 ctl jarclash-shaded-pass 0 '^no clash' -- python3 $B/repair/jarclash.py $T/jarclean
 ctl jarclash-input-catch 2 -- python3 $B/repair/jarclash.py $T/empty-nothing
+
+# --- repair: add-on cache folder case on Linux (LDMS, row 34) ------------------------------------------------------------
+MC=$T/mxmc; mkdir -p $MC/modules $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource
+touch $MC/modules/ExampleTwinConnector.mxmodule $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource/A.java
+ctl mxmodulecase-check-catch 1 'WOULD LINK .*modules/ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' 'summary: 1 ' -- python3 $B/repair/mxmodulecase.py $MC --check
+ctl mxmodulecase-check-wrote-nothing 0 -- test ! -e $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-link 0 'LINK .*ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC
+ctl mxmodulecase-link-resolves 0 -- test -f $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule/javasource/A.java
+ctl mxmodulecase-idempotent 0 'summary: 0 ' '!LINK' -- python3 $B/repair/mxmodulecase.py $MC
+# the name from the build log alone (no modules/ file), the golden log of the failure
+MC2=$T/mxmc2; mkdir -p $MC2/.mendix-cache/modules/exampletwinconnector.mxmodule
+ctl mxmodulecase-log-catch 1 'WOULD LINK .*ExampleTwinConnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC2 --log $here/fixtures/mxmodulecase/build-9.24.log --check
+# no cache folder in any case yet (the build makes it): nothing is invented
+MC3=$T/mxmc3; mkdir -p $MC3/modules $MC3/.mendix-cache/modules; touch $MC3/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-no-folder-pass 0 'summary: 0 ' -- python3 $B/repair/mxmodulecase.py $MC3
+ctl mxmodulecase-input-catch 2 -- python3 $B/repair/mxmodulecase.py $T/empty-nothing
+ctl pipeline-mxmodulecase-wired-pass 0 -- bash -c "[ \$(grep -c 'modcase_fix \"' $B/cloud/upgrade-pipeline.sh) = 2 ]"
 
 # --- repair: backslash paths (E5 F14, E1 17) --------------------------------------------------------------------------
 P=$T/bs; mkdir -p $P/javasource/oql/actions
@@ -2927,6 +2959,13 @@ ctl journeys-coverage-closed-row-defect-pass 0 'FAIL +plan-row .*\[BASELINE DEFE
 ctl journeys-coverage-closed-row-no-evidence-catch 1 'FAIL +plan-row ' '!plan-row .*BASELINE DEFECT' 'coverage INVALID: 1 baseline defects without evidence' -- $RJC --work $CV/d3c "${CVD[@]}"
 ctl journeys-coverage-defect-old-app-line-catch 3 'OLD-APP .*old-app.log:9: the file has 3 lines' 'coverage INVALID: 1 baseline defects' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-old9.txt
 ctl journeys-coverage-defect-old-app-file-catch 3 'OLD-APP .*gone.log: no such file' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-oldgone.txt
+# basewalk (run PMNT): the baseline walk judges its own FAILs by the same checked evidence, never on a line's word
+RJB="python3 $B/run_journeys.py $CV/gen --label before --rejudge --work $CV/d3"
+ctl journeys-basewalk-evidence-no-line-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- $RJB
+ctl journeys-basewalk-evidence-old-app-pass 0 'FAIL +j3-Administrator .*\[BASELINE DEFECT OLD-APP \(OLD-APP: old-app.log:2' '1 PASS\* \(baseline defect\)' -- $RJB --baseline-evidence $CV/ev-old.txt
+ctl journeys-basewalk-evidence-bad-line-catch 1 'evidence refused, evidence line 1: OLD-APP .*old-app.log:9: the file has 3 lines' '!BASELINE DEFECT' -- $RJB --baseline-evidence $CV/ev-old9.txt
+ctl journeys-basewalk-evidence-no-file-catch 1 'evidence refused, evidence line 1: OLD-APP .*gone.log: no such file' -- $RJB --baseline-evidence $CV/ev-oldgone.txt
+ctl journeys-basewalk-evidence-after-label-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- python3 $B/run_journeys.py $CV/gen --label after --rejudge --work $CV/d3n --baseline-evidence $CV/ev-old.txt
 # Field run: a rerun reorders the old-app output, so a cited line can drift onto another journey's row. One line naming
 # this journey elsewhere in the file is accepted (with the new line); none, or a cited line naming another journey, is not
 printf '  FAIL    j4-Administrator x\n  FAIL    j3-Administrator y\n' > $CV/jout.txt; printf '  FAIL    j4-Administrator x\n' > $CV/jout4.txt
@@ -7327,7 +7366,7 @@ ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' '
 # stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
 ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
 ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
-ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(mx check: 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the app model check found 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
 # round 3 (cockpit clarity): every stop site of upgrade-pipeline.sh says who it is for; a sample per exit code is rendered from the source's own nj_meta text
 ctl cockpit-stop-sites-all-marked-catch 0 '^unmarked sites: 0$' -- $CK site-unmarked
 printf '%s\n' 'nj_add 13 "x" "y"' 'nj_meta agent; nj_add 13 "z" "w"' 'foo || nj_file 10 "q" f' 'nj_meta info' 'nj_file 10 "r" f   # nj_file mentioned in a comment' > $T/unmarked-sites.sh
@@ -7343,7 +7382,7 @@ ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just 
 ctl cockpit-brief-testing-now-not-contradicted-catch 0 '^Testing now: running the user journeys on old and new\. Results appear here when they finish\.$' '^Nothing is known to be broken so far\. The tests are running now\.$' '!has not started' '!nothing has been measured' -- $CK chk-testing
 ctl cockpit-brief-tests-not-started-pass 0 '^The tests run in the Test step, which has not started\.$|^The old app is recorded as the reference\. The new app is tested against it after the conversion\.$|^Some tests have run\. The results are added up in the final check, which has not run yet\.$' '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Testing now' -- $CK chk-idle
 ctl cockpit-brief-tests-stopped-not-unstarted-catch 0 '^The tests stopped during this step: running the user paths on old and new\. Results appear here after it reruns\.$' '!has not started' -- $CK chk-stopped-test
-ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. The 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
+ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. Open this to see the 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
@@ -7469,6 +7508,7 @@ ctl decisions-step-bad-choice-catch 0 'approve or reject' '^rc=2$' '^S-3: none b
 ctl decisions-step-signoff-still-refused-pass 0 'sign the plan with the page button' '^rc=2$' '^steps untouched$' '^ledger untouched$' -- $CK step-signoff-refused
 ctl decisions-step-apply-notes-step-pass 0 'S-3: a step, its approval is in steps.jsonl' '^S-3: approved by Ana via chat$' '^approvals after apply: 1$' -- $CK step-apply
 ctl decisions-pending-lists-ids-options-catch 0 'open items \(6\)' '^regression:overlay ' 'fix \(recommended\)' 'chat: decisions\.py add .*--source chat' 'sign the plan with the page button' -- $CK pending
+ctl decisions-pending-no-rec-names-keys-catch 0 '--item stop:update:2 --choice <update\|accept> --by NAME' '!--choice  --by' -- $CK pending-norec
 ctl decisions-pending-drops-decided-pass 0 'open items \(5\)' '!^P-2 ' -- $CK pending-after
 ctl cockpit-words-no-plural-marker-pass 0 'plural-marker count: 0' 'raw gate text count: 0' 'Testing found 2 real problems, 4 things need you' -- $CK words
 ctl decisions-signed-plan-leaves-needs-you-pass 0 '^0$' -- $CK signed-page
@@ -7848,6 +7888,28 @@ ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- py
 ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
 
 
+# --- cockpit clarity, round 6: lane B's final findings (fixtures/cockpit/lane-b: captured stop files and a final check, paths replaced) ---
+# 1. the broken box reads a regression a step found before the final check ran (PSOP afterwalk: "nothing is known to be broken" over 3 regressions)
+ctl cockpit-broken-box-names-stop-regression-catch 0 '^1 thing worked on the old app and fails on the new one: Production \(for 3 roles\)\.$' '!Nothing is known to be broken' -- $CK lb-box psop-afterwalk-stop.md
+ctl cockpit-broken-box-rule-line-is-no-regression-pass 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!worked on the old app' -- $CK lb-norun
+ctl term-brief-names-stop-regression-catch 0 '^Broken for your users: 1 thing worked on the old app and fails on the new one: Production' -- $CK lb-term psop-afterwalk-stop.md
+# 2. an agent-owned stop with no route the agent can take is a hand-off, said as one (PMNT, LDMS: user paths that fail on the OLD app)
+ctl cockpit-agent-stop-no-route-handoff-catch 0 '^Upgrade: just started\. Paused: the agent cannot get past this alone\.$' '^The agent cannot get past this alone: 2 of 6 user paths fail on the old app itself \(sign-out, login-WebServiceUser\)\.$' '^It needs: a person to confirm each is an old-app defect, or fix the old app\.$' '^<div class="stopbar"$' '!Nothing you can answer here' '!stopbar agent' -- $CK lb-brief pmnt-basewalk-stop.md
+ctl cockpit-agent-stop-no-route-one-path-catch 0 '^The agent cannot get past this alone: 1 of 3 user paths fails on the old app itself \(login-User\)\.$' '^It needs: a person to confirm it is an old-app defect, or fix the old app\.$' -- $CK lb-brief ldms-basewalk-stop.md
+ctl cockpit-agent-stop-with-a-route-stays-agents-pass 0 '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!cannot get past' -- $CK brief-stop-agent
+ctl term-brief-handoff-keeps-what-it-needs-catch 0 'It needs: a person to confirm each is an old-app defect' -- $CK lb-term pmnt-basewalk-stop.md
+ctl term-brief-handoff-size-pass 0 'ok: True' -- $CK lb-term-size pmnt-basewalk-stop.md
+# 3. the same stop again after a rerun is called stuck; a stop with a new cause is not (stops.tsv is written by the pipeline's own nj_flush)
+ctl cockpit-same-stop-three-times-says-stuck-catch 0 'Paused: the agent cannot get past this alone\. Stopped here 3 times in a row, each time for the same reason\.' '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+ctl cockpit-repeated-plain-agent-stop-handoff-catch 0 '^The agent cannot get past this alone: the same stop \(mxbuild failed\) has come back 3 times in a row\.$' '^It needs: a person to look at it, or a toolkit change\.$' -- $CK lb-stuck-agent
+ctl cockpit-repeated-person-stop-says-stuck-catch 0 'Paused, waiting for 1 answer from you\. Stopped here 3 times in a row' '^A step that passed on the old app fails or breaks on the new one\. What should we do\?$' -- $CK lb-stuck-person
+ctl cockpit-stop-new-cause-is-not-stuck-pass 0 '^Paused: the agent has to do something and rerun\. Nothing for you to answer\.$|^Upgrade: just started\. Paused: the agent has to do something and rerun' '!Stopped here' '!cannot get past' -- $CK lb-stuck-new-cause
+ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
+ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+# 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
+ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
+ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
+ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
 # --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
 # terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end
 ctl term-brief-equals-cockpit-pass 0 'fields on the page: 5 of 5' 'printed paragraphs: 5, off the page: 0' -- $CK term-brief-equal
@@ -7871,6 +7933,30 @@ ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff
 ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
 ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
 
+# --- cockpit clarity, round 7 (SNOW, issue 25): a decision for a person is the top card, with its choices said in it ---
+ctl cockpit-person-stop-card-names-choices-catch 0 '^The update rerun finds replay commits already in the app\. What should we do\?$' '^Your choices: Rewind the app to the convert commit or Keep the replays\.$' '^The run is paused until you answer\. One click$' '^cards: 1$' '!Nothing you can answer' -- $CK p7-replay
+ctl cockpit-person-stop-three-choices-catch 0 '^Your choices: Update the kept module, Put the old widget back or Accept the skew\.$' '!Nothing you can answer' -- $CK p7-widgetskew
+ctl cockpit-one-option-question-no-choices-line-pass 0 '^Continue with the old jar\?$' '!Your choices' -- $CK p7-one-option
+ctl cockpit-agent-stop-headline-no-file-name-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the list of add-on updates that go before the Mendix 11 conversion is missing\) and rerun\.$' '!plan-pre' -- $CK p7-agent-file
+ctl cockpit-agent-stop-mxcheck-count-plain-catch 0 'The agent has to finish this \(the app model check found 1 error after convert' '!mx check' '!1 errors' -- $CK p7-agent-mxcheck
+ctl term-brief-person-stop-lists-choices-pass 0 '^Do this now: The update rerun finds replay commits already in the app\. What' '^    rewind: Rewind the app to the convert commit$' '^    keep: Keep the replays$' -- $CK p7-term-person
+
+
+# journeys progress line (issue 26): a long walk says how far it is, so a slow run is not taken for a hung one (SNOW: 435 user paths, no output for 90 min)
+JPC="python3 $here/journeys_progress_control.py"
+ctl journeys-progress-start-unknown-catch 0 '^progress: 435 user paths to walk\. Expected duration: unknown \(no earlier run here' -- $JPC start-unknown
+ctl journeys-progress-start-known-pass 0 'Expected duration: about 435 min \(earlier runs here: 60 s per path\)' '!unknown' -- $JPC start-known
+ctl journeys-progress-tiny-earlier-run-unknown-catch 0 'Expected duration: unknown' '!about' -- $JPC pace-ignores-tiny
+ctl journeys-progress-line-every-25-paths-pass 0 '^progress: 209 of 435 user paths done, about 15 min left$' '^log: progress: 209 of 435 user paths done, about 15 min left$' '^state: \{"done": 209, "total": 435, "left_min": 15, "finished": false\}$' '^lines: 15$' -- $JPC ticks
+ctl journeys-progress-line-every-minute-catch 0 '^lines after 160 s: 2$' -- $JPC by-minute
+ctl journeys-progress-pace-kept-for-next-run-pass 0 '^pace row: new	10	60$' '^finished: True$' '^next start: about 10 min$' -- $JPC finish-keeps-pace
+ctl journeys-progress-counts-markers-in-real-child-pass 0 '^batch 0 rc=0 journeys in output=3$' '^batch 1 rc=0 journeys in output=3$' '^done=6$' '^live files left: 0$' -- $JPC walk-counts
+ctl journeys-progress-read-line-pass 0 '^Testing now: 212 of 435 user paths done, about 40 min left$' -- $JPC read-line
+ctl journeys-progress-read-over-says-nothing-pass 0 '^\[\]$' -- $JPC read-over
+ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 212 of 435 user paths done, about 40 min left\. Results appear here when they finish\.$' '^terminal: Testing now: 212 of 435 user paths done, about 40 min left' -- $CK prog-box
+ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
+ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
+ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

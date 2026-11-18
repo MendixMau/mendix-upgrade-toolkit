@@ -74,7 +74,29 @@ ls = brief.lines(brief.fields(sys.argv[2]))
 print(f"lines: {len(ls)} widest: {max(map(len, ls))} ok: {len(ls) <= 8 and max(map(len, ls)) <= 80}")
 PY
 }
+# lane B's final findings (cockpit clarity round 6): captured stops in fixtures/cockpit/lane-b (real files, paths replaced)
+LB=$here/fixtures/cockpit/lane-b
+lbw() { W=$T/lb/work; mkdir -p "$W/state" "$W/logs"; cp "$LB/$1" "$W/NEEDS-JUDGMENT.md"; }   # lbw <captured stop file>
+# njrun STEP CODE SECTIONS: the pipeline's own nj_flush (extracted from upgrade-pipeline.sh) writes a stop, so state/stops.tsv is the real one
+njrun() { W=$T/lb/work; mkdir -p "$W/state" "$W/logs"
+  ( WORK=$W; STEP=$1; NJ_CODE=$2; RUN=x; SOURCE=a; TARGET=b; DRY=0; NJ_TMP=$T/lb/nj.tmp; mkdir -p "$T/lb"; printf '%s\n' "$3" > "$NJ_TMP"
+    eval "$(sed -n '/^now_utc() {/p;/^nj_flush() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; rerun_cmd() { echo rerun; }; cockpit_regen() { :; }; say() { :; }; brief_say() { :; }; nj_flush ) >/dev/null; }
+sections_of() { sed -n '/^## /,$p' "$LB/$1"; }   # the captured stop's own sections, as nj_flush would have collected them
 case $case_ in
+  # --- lane B final findings ---
+  lb-box)   lbw "$2"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-brief) lbw "$2"; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; grep -o '<div class="stopbar[^"]*"' "$T/out.html" ;;
+  lb-term)  lbw "$2"; python3 "$B/brief.py" --work "$W" | sed -n '1,/^$/p' | sed -e :a -e '$!N;s/\n  / /;ta' -e 'P;D' ;;
+  lb-term-size) lbw "$2"; termsize "$W" ;;
+  lb-norun) lbw psop-afterwalk-stop.md; sed -i '/^  REGRESSION/d' "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-stuck) W=$T/lb/work; shift_=0; for sec in "${@:2}"; do njrun basewalk 11 "$(sections_of $sec)"; done; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; echo "stops: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')" ;;
+  lb-stuck-agent) W=$T/lb/work; for k in 1 2 3; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, %s ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\n' "$k")"; done; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-stuck-new-cause) W=$T/lb/work; for k in 1 2; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\nCE0463 in the widget\n')"; done
+            njrun build 10 "$(printf '\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\nOut of memory\n')"; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-stuck-person) W=$T/lb/work; for k in 1 2 3; do njrun afterwalk 12 "$(sections_of psop-afterwalk-stop.md)"; done; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
+  lb-screens) W=$T/lb/work; mkdir -p "$W"; cp "$LB/chk-gate-summary.md" "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-screens-pass) W=$T/lb/work; mkdir -p "$W"; sed 's/REVIEW 3 | PASS\* 0 | PASS 8;screens: 8 PASS, 0 PASS\*, 3 REVIEW/REVIEW 0 | PASS* 0 | PASS 11;screens: 11 PASS, 0 PASS*, 0 REVIEW/;s/^| 10 | screens | FAIL | 1 /| 10 | screens | PASS | 0 /' "$LB/chk-gate-summary.md" > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-screens-and-reg) W=$T/lb/work; mkdir -p "$W"; { printf 'Overall: **FAIL** (exit 1): 3 PASS.\nProgress: 3 of 5 checks closed (60%%). 2 with REGRESSIONS to fix, 1 need a decision, 0 not measured yet.\n\n| # | rung | verdict | rc | one line |\n|---|---|---|---|---|\n'; grep '^| 10 | screens' "$LB/chk-gate-summary.md"; } > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
   term-brief-count) tbc() { python3 "$B/brief.py" --work "$1" | python3 -c "
 import re,sys
 t=sys.stdin.read(); a=re.search(r'waiting for (\d+) answer',t.replace('\n  ',' ')); b=re.search(r'Open questions: (\d+)',t)
@@ -182,6 +204,21 @@ import cockpitpage as cp, cockpitmatrix as cm
 print("page: " + " ".join(sorted(i["id"] for i in cm.open_questions(cp.build_model(sys.argv[2])))))
 PY
             ;;
+  # round 7 (SNOW, issue 25): the stop strings are the pipeline's own (replay-commits and widget-skew sites of upgrade-pipeline.sh), written by its nj_meta / nj_add
+  p7-replay) mkstop 'nj_meta info; nj_add 12 "Update rerun on an app that holds replay commits" "Since convert 1a2b3c4: 5d6e7f8 replay: Administration; an update rerun keeps their documents and menu changes."
+                     nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup, rewind, rerun from update." "keep|Keep the replays|Create replay-keep.txt; the rerun keeps their documents and menu changes."; nj_add 12 "Decision" "Tag a backup, then rewind."'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p'; cards ;;
+  p7-widgetskew) mkstop 'nj_meta agent; nj_add 13 "Module plan missing: write plan.txt" "x"; nj_meta info; nj_add 13 "A module update replaced a widget" "WIDGET-SKEW Datagrid"
+                     nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-one-option) mkstop 'nj_meta person "Continue with the old jar?" "" "ok|Continue|Nothing else is possible."; nj_add 13 "Decision" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-agent-file) mkstop 'nj_meta agent; nj_add 13 "plan-pre.txt missing on a 10.x to 11 run" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-agent-mxcheck) mkstop 'nj_meta agent; nj_add 10 "mx check: 1 errors after convert + updates + the fixed repair rows" "x"'
+            ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
+  p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
+            python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
   brief-owner-person) mkstop 'nj_meta info; nj_add 13 "Widget list" "file: x"; nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update or accept."'
             ck >/dev/null && brief_text && cards ;;
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'
@@ -216,6 +253,25 @@ print("step rows:", len(asks), "| not already a card:", [r["name"] for r in cm.o
 PY
             ;;
   chk-testing) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  # journeys progress (issue 26): state/journeys-progress.json is what bin/journeys_progress.py writes while the runner walks (a real SNOW shape: 212 of 435 paths)
+  prog-box) chkw journeys; printf '{"label":"new","done":212,"total":435,"left_min":40,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p'; python3 "$B/brief.py" --work "$W" | grep -m1 'Testing now' | sed 's/^.*Testing now/terminal: Testing now/' ;;
+  prog-unknown) chkw journeys; printf '{"label":"new","done":3,"total":435,"left_min":null,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  prog-over) chkw journeys; printf '{"label":"new","done":435,"total":435,"left_min":0,"started":1,"updated":2,"finished":true}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  prog-other-step) chkw heal; printf '{"label":"new","done":212,"total":435,"left_min":40,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  # issue 24: the stop the pipeline writes for a module an update needs and the app lacks (the stop text is missing_module_stop.py's real output)
+  p24-stop) mkdir -p "$T/p24"; git -C "$T/p24" init -q; git -C "$T/p24" config user.email t@t; git -C "$T/p24" config user.name t
+            printf 'binary page' > "$T/p24/u"; git -C "$T/p24" add -A; git -C "$T/p24" commit -qm init; printf 'x UserCommons.SNIP_Header y' > "$T/p24/u"; git -C "$T/p24" commit -qam "step: Atlas_Core 4.7.0 (x)"
+            python3 "$here/lib/mkmodel.py" "$here/fixtures/models/missing-deps.json" "$T/p24/m" > /dev/null
+            python3 "$B/repair/missing_deps.py" --catalog "$here/fixtures/catalog/catalog.json" "$T/p24/m" > "$T/p24/deps.txt" 2>/dev/null
+            printf '1 4.7.0 Atlas_Core\n' > "$T/p24/plan.txt"
+            python3 "$B/repair/missing_module_stop.py" "$T/p24/deps.txt" "$T/p24/plan.txt" --app "$T/p24" > "$T/p24/out.txt"
+            mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
+            sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
+            ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
@@ -272,6 +328,13 @@ print(d['state']['text'])
 PY
 )" ;;
   pending)  dec pending ;;
+  pending-norec) python3 - "$B" "$W" <<'PY'
+import sys, argparse; sys.path.insert(0, sys.argv[1])
+import decisions
+decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "stop", "title": "Widget settings would be dropped", "meta": "stop", "rec": "", "options": [{"key": "update", "label": "Update the module"}, {"key": "accept", "label": "Accept the loss"}]}]
+decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
+PY
+            ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
