@@ -253,6 +253,15 @@ print("step rows:", len(asks), "| not already a card:", [r["name"] for r in cm.o
 PY
             ;;
   chk-testing) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  # journeys progress (issue 26): state/journeys-progress.json is what bin/journeys_progress.py writes while the runner walks (a real SNOW shape: 212 of 435 paths)
+  prog-box) chkw journeys; printf '{"label":"new","done":212,"total":435,"left_min":40,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p'; python3 "$B/brief.py" --work "$W" | grep -m1 'Testing now' | sed 's/^.*Testing now/terminal: Testing now/' ;;
+  prog-unknown) chkw journeys; printf '{"label":"new","done":3,"total":435,"left_min":null,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  prog-over) chkw journeys; printf '{"label":"new","done":435,"total":435,"left_min":0,"started":1,"updated":2,"finished":true}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
+  prog-other-step) chkw heal; printf '{"label":"new","done":212,"total":435,"left_min":40,"started":1,"updated":2,"finished":false}\n' > "$W/state/journeys-progress.json"
+            ck >/dev/null && brief_text | grep -m1 '^Testing now' ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'

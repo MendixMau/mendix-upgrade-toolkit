@@ -1568,6 +1568,18 @@ def rung1_say(work, gs):
     return ("ok" if not left else "none", f"On Mendix {v1}: nothing broke" + (f" ({left})" if left else "") + f". Mendix {v2} is not tested yet.")
 
 
+def _journeys_line(work):
+    """"Testing now: 212 of 435 user paths done, about 40 min left" from state/journeys-progress.json; "" when there is none or it is over."""
+    try:
+        d = json.load(open(os.path.join(work, "state", "journeys-progress.json")))
+        if d.get("finished"):
+            return ""
+        import journeys_progress as jp
+        return "Testing now: " + jp.say_line(int(d["done"]), int(d["total"]), d.get("left_min"))
+    except Exception:
+        return ""
+
+
 def brief(work, model, rows, g, tl):
     """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
     what. Returns plain strings and numbers; h_brief draws them."""
@@ -1677,6 +1689,10 @@ def brief(work, model, rows, g, tl):
             unmeasured = f"Recording the old app stopped during this step: {low(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. It goes on after it reruns; nothing is tested yet."
         elif testing:
             unmeasured = f"Testing now: {running['text'][:1].lower() + running['text'][1:]}. Results appear here when they finish."
+            if running.get("step") == "journeys":   # a long walk says how far it is (journeys_progress.py), so slow is not read as hung
+                pl = _journeys_line(work)
+                if pl:
+                    unmeasured = pl + ". Results appear here when they finish."
         elif stopped_test:
             unmeasured = f"The tests stopped during this step: {(lambda t: t[:1].lower() + t[1:])(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. Results appear here after it reruns."
         elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS if s not in RECORD_STEPS):

@@ -2084,6 +2084,8 @@ run_step() { # run_step NAME
     *" $STEP "*) if [ "$DRY" != 1 ] && [ -f "$WORK/PROPOSAL.md" ]; then proposal_recheck; fi ;;
   esac
   printf '%-10s %s\n' "$STEP" "running (log: $LOG)"
+  # the journeys' progress line (bin/journeys_progress.py): into this step's log, a state file the page and the brief read, and the pace of earlier runs
+  export UPG_PROGRESS_LOG="$LOG" UPG_PROGRESS_FILE="$WORK/state/journeys-progress.json" UPG_PACE_FILE="$WORK/state/journeys-pace.tsv"
   LOG_START=0; [ ! -f "$LOG" ] || LOG_START=$(wc -l < "$LOG" | tr -d ' ')   # a step log keeps earlier runs: nj_file quotes only this run
   timing_open "$STEP"
   cockpit_regen   # the page shows the step as running from its start, not only after it

@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time
+import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -1548,7 +1548,15 @@ def main():
                                         "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
-        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)):
+        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        # issue 26 (SNOW, 435 user paths): a progress line while the runner walks them, and the expected duration before the first; said only, no verdict
+        prog = None
+        if not a.positive_control and waves:
+            import journeys_progress
+            prog = journeys_progress.Progress(a.label, sum(len(w[3]) for w in waves), os.environ.get("UPG_PROGRESS_FILE") or str(out / "progress.json"),
+                                              os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
+            prog.start()
+        for key, role, role_dir, files in waves:
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
@@ -1602,7 +1610,11 @@ def main():
             while True:
                 if art.exists():
                     shutil.rmtree(art)
-                p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
+                if prog:
+                    p = types.SimpleNamespace()
+                    p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
+                else:
+                    p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
                 (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
@@ -1681,6 +1693,8 @@ def main():
                         s.update(verdict="INVALID", why=DOWN_WHY, app_down=True, before_down=s.get("not_pass", [])[:2]); n += 1
                 summary["roles"][key]["app_down"] = True
                 print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
+        if prog:
+            prog.finish(prog.base)
         # a hand-written journey may close plan items: "closes": ["menu:Wizard", ...] (E7-3)
         for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
             d = read_journey(f)
