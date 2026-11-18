@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Basewalk: the baseline walk applies the same checked `baseline-evidence.txt` lines (FIXTURE / OLD-APP / FLAKY, same checks as the journeys step) to its own FAILs, so a journey the old app fails with a logged error is PASS* instead of a stop with no way past (issue 05; run PMNT).
 - NO-SIGNOUT evidence: a sign-out button in a layout no reachable page renders in is not sign-out UI (#62; run SNOW).
 - Baseline: a demo snapshot with no rows for the app's tables falls back to synthetic seed rows (#63; run STOR).
 - Baseline: wrong-case SCSS imports of the old app are fixed before its Linux build, repair row 11 (#64; run LDMS).
