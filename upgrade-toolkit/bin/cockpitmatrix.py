@@ -1502,6 +1502,8 @@ def _steps_done(work):
 
 
 TEST_STEPS = ("basewalk", "afterwalk", "journeys", "heal", "apidirect", "diff", "gate")
+# steps that only RECORD the old app as the reference: nothing is tested yet (lead user test on PSOP: "Testing now" while recording)
+RECORD_STEPS = ("baseline", "basewalk")
 # what a choice the AI made on its own does to the app, most impact first (lead user test on CHK: 20 choices, which matter?).
 # Matched on the evidence the plan item carries, never on the generic recommendation text every module shares.
 IMPACT = [("held back at its old version, a person has to look", re.compile(r"held for a person", re.I)),
@@ -1534,6 +1536,24 @@ def chosen_by_ai(items, rows):
     return len(out), top, sum(1 for k, _, _ in out if k == 3)
 
 
+def rung1_say(work, gs):
+    """On the second rung's page, before its own final check exists: what the first rung measured, from its gate summary and the ladder
+    (the page said "nothing has been measured yet" over 37 passed journeys; issue 17). None when this is not a second rung or it has a gate."""
+    if gs or os.path.basename(os.path.normpath(work)) != "rung2":
+        return None
+    base = run_base(work)
+    m = GATE_COUNTS.search(cp.rd(os.path.join(base, "gate-summary.md")) or "")
+    route = (cp.rj(os.path.join(base, "ladder.json")) or {}).get("route") or []
+    if not m or len(route) < 3:
+        return None
+    reg, dec, unm = (int(x) for x in m.groups())
+    v1, v2 = vshort(route[1]), vshort(route[2])
+    left = ", ".join(x for x in ((f"{dec} to decide" if dec else ""), (f"{unm} not measured" if unm else "")) if x)
+    if reg:
+        return ("bad", f"On Mendix {v1}: {reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one. Mendix {v2} is not tested yet.")
+    return ("ok" if not left else "none", f"On Mendix {v1}: nothing broke" + (f" ({left})" if left else "") + f". Mendix {v2} is not tested yet.")
+
+
 def brief(work, model, rows, g, tl):
     """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
     what. Returns plain strings and numbers; h_brief draws them."""
@@ -1548,6 +1568,16 @@ def brief(work, model, rows, g, tl):
     qs = [i for i in allq if not (agent_task and i["id"].startswith("stop:"))]
     asks = own_asks([r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"], qs)
     stopped, running = model.get("stopped"), model.get("running")
+    # a stop that is the agent's own task comes first, and after the conversion no run waits for the plan: the unsigned plan of an unattended run is no ask above
+    # the agent's stop (lead user test on PSOP: "Approve the plan?" on top while the stop was the agent's own build, Q9 page/stop mismatch)
+    later = later_q = ""
+    own_stop = [o for o in ((stopped or {}).get("owners") or []) if o != "info"]
+    agent_stop = stopped and ((own_stop and all(o == "agent" for o in own_stop)) or agent_task)
+    past_plan = bool(cp.rd(os.path.join(work, "state", "convert.done")))   # the conversion ran: nothing waits for the plan's sign-off any more
+    if str(stopped.get("code") if stopped else "") not in ("14", "15") and (agent_stop or (past_plan and not stopped)):
+        held = [i for i in qs if i["kind"] == "signoff"]
+        if held and len(qs) == len(held) and not asks:
+            qs, later, later_q = [], "The plan still waits for your sign-off; the run does not wait for it.", f"q{allq.index(held[0]) + 1}"
     # choices the AI made on its own while the run goes on are an optional review, not something the run waits for (lane review 03)
     # a run that is running waits for nobody: every open question is then a review, not a block (lane review 03: "Blocked on you: 21"
     # next to "Running now", in an unattended run)
@@ -1584,9 +1614,21 @@ def brief(work, model, rows, g, tl):
     if reg == 0 and not gs:   # no final-check file yet: "0" would be a claim nobody measured
         reg = None
     # the tests ARE the journeys / page walks: a step that runs or stopped among them is testing, not "not started" (lead user test, CHK)
-    testing = running and running.get("step") in TEST_STEPS
-    stopped_test = stopped and stopped.get("step") in TEST_STEPS
-    if reg is None and testing:
+    testing = running and running.get("step") in TEST_STEPS and running.get("step") not in RECORD_STEPS
+    stopped_test = stopped and stopped.get("step") in TEST_STEPS and stopped.get("step") not in RECORD_STEPS
+    recording = running and running.get("step") in RECORD_STEPS
+    stopped_rec = stopped and stopped.get("step") in RECORD_STEPS
+    base_done = bool(cp.rd(os.path.join(work, "state", "basewalk.done")))
+    low = lambda t: t[:1].lower() + t[1:]
+    # the closed first rung of a two-rung run: the second rung's page must not say "nothing measured" over a measured rung
+    r1 = rung1_say(work, gs)
+    if reg is None and r1:
+        broken = r1
+    elif reg is None and stopped and stopped.get("step") == "build":
+        broken = ("none", "Nothing is broken for your users: the old app is unchanged. The new app does not build yet.")
+    elif reg is None and (recording or stopped_rec):
+        broken = ("none", "Nothing is known to be broken so far. The old app is only being recorded; nothing is tested yet.")
+    elif reg is None and testing:
         broken = ("none", "Nothing is known to be broken so far. The tests are running now.")
     elif reg is None:
         broken = ("none", "Nothing is known to be broken, because nothing has been measured yet.")
@@ -1597,12 +1639,18 @@ def brief(work, model, rows, g, tl):
     if unm is None:
         if reg is not None:
             unmeasured = ""
+        elif recording:
+            unmeasured = f"Recording the old app as the reference: {low(running['text'])}. The new app is compared against it later; nothing is tested yet."
+        elif stopped_rec:
+            unmeasured = f"Recording the old app stopped during this step: {low(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. It goes on after it reruns; nothing is tested yet."
         elif testing:
             unmeasured = f"Testing now: {running['text'][:1].lower() + running['text'][1:]}. Results appear here when they finish."
         elif stopped_test:
             unmeasured = f"The tests stopped during this step: {(lambda t: t[:1].lower() + t[1:])(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. Results appear here after it reruns."
-        elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS):
+        elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS if s not in RECORD_STEPS):
             unmeasured = "Some tests have run. The results are added up in the final check, which has not run yet."
+        elif base_done:
+            unmeasured = "The old app is recorded as the reference. The new app is tested against it after the conversion."
         else:
             unmeasured = "The tests run in the Test step, which has not started."
     elif unm:
@@ -1625,6 +1673,7 @@ def brief(work, model, rows, g, tl):
     elif stopped:
         owned = stopped.get("agent_titles") or []
         what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
+        what = re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip()   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
         act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
                "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
     elif running:
@@ -1634,11 +1683,15 @@ def brief(work, model, rows, g, tl):
         act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
     else:
         act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing to do now.", "rec": "", "q": "", "time": ""}
+    if later:
+        act["later"], act["later_q"] = later, later_q
     mch = GATE_CHANGES.search(gs)
     if mch:
         n, tk, ag, pe, un = (int(x or 0) for x in mch.groups())
         who = f"{n} changes to the app so far: {tk} by the toolkit's automatic tools, {ag} by the AI agent, {pe} by a person"
         who += f", {un} not labelled (nobody has said who made them)." if un else "."
+    elif not cp.rd(os.path.join(work, "state", "convert.done")):
+        who = "No changes to the app yet."
     else:
         who = "Shown after the final check. So far every change is a commit you can review."
     # who approved: a person's sign-off line, or the plain fact that nobody has (an unattended run lets the AI take the recommendations)
@@ -1661,6 +1714,8 @@ def h_brief(b, qlist):
     btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
     rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
     tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    if a.get("later"):   # the sign-off stays one click away, quietly: it is not what the run waits for
+        tm += f'<p class="atime">{E(a["later"])} <button type="button" class="resolve" data-q="{a["later_q"]}">Review the plan →</button></p>'
     c = b.get("chosen") or {}
     chosen = ""
     if c.get("n"):
@@ -2704,6 +2759,7 @@ def render(model, matrix):
     cases_ = matrix.pop("cases", None) or {}   # kept out of the page data: the screenshots are embedded once, in the dialog
     qside, qdlgs, qlist = h_questions(model, matrix, cases_)
     return (f"<title>{e(model['title'])}</title>\n"
+            '<meta charset="utf-8">\n'   # the fragment is written to disk by the pipeline: opened from the folder, the arrows and dots are mojibake without it
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
             f"<style>{CSS}</style>\n"
