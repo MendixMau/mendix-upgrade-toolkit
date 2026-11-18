@@ -1402,6 +1402,9 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   disk_gate build
   rc=0; xo "$WORK/build-$TARGET.log" heavy build "$TARGET" mxbuild --target=package -o "$(mda_new)" "$MPR" || rc=$?
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
+  # the stubs come from the model, built or not: committed before a stop too. Cold rfq rung 2: a javac stop left 18 stub files
+  # uncommitted, and the rerun from update died in stepupdate ("uncommitted changes; commit or stash first", exit 4)
+  commit_app "build: regenerated stubs" config build-stubs
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
     nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
@@ -1415,7 +1418,6 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     fi
     nj_flush
   fi
-  commit_app "build: regenerated stubs" config build-stubs
   # quick start (mandatory before the gate)
   local q
   q=$(fresh_name "${X}_quick"); copy_db "$X_FROZEN" "$q"

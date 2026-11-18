@@ -407,6 +407,9 @@ ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that hol
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
+# step_build commits the regenerated stubs before a build stop (cold rfq rung 2: a javac stop left them uncommitted, the rerun
+# from update died in stepupdate's clean-tree check)
+ctl pipeline-build-stubs-before-stop-catch 0 '^stubs stop$' -- bash -c "awk '/^step_build\\(\\) \\{/{p=1} p&&/commit_app \"build: regenerated stubs\"/{printf \"stubs \"} p&&/nj_add 10 \"mxbuild failed/{print \"stop\"} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
