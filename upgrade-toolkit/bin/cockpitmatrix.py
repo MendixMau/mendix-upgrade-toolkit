@@ -1578,6 +1578,12 @@ def brief(work, model, rows, g, tl):
         who += f", {un} not labelled (nobody has said who made them)." if un else "."
     else:
         who = "Counted from the final check on. Until then, every change is a Git commit you can review."
+    # who approved: a person's sign-off line, or the plain fact that nobody has (an unattended run marks the AI's choices ASSUMED)
+    if model.get("signed"):
+        who += f" The plan was approved by {model['signed'][0]} on {model['signed'][1]}."
+    elif cp.rd(os.path.join(work, "PROPOSAL.md")):
+        who += (" No person has approved the plan. Some choices are marked ASSUMED: the AI made them."
+                if "ASSUMED" in (cp.rd(os.path.join(work, "DECISIONS.md")) or "") else " The plan is not approved by a person yet.")
     return {"status": status, "broken": {"s": broken[0], "text": broken[1]}, "unmeasured": unmeasured, "act": act, "who": who, "n": nask}
 
 
@@ -1840,7 +1846,8 @@ details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bot
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
 @keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.nowrun .pulse{animation:none}}
-.nowrun b{font-weight:600}.nowrun small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
+.nowrun b{font-weight:600}.nowrun small{display:none;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
+.nowrun{cursor:pointer}.nowrun.open small{display:block}.nowrun b::after{content:" (tap for technical detail)";font-weight:400;font-size:12px;color:var(--muted)}.nowrun.open b::after{content:""}
 .hero{display:grid;gap:18px;padding:20px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
 .hmsg{display:flex;gap:14px;align-items:center}
 .hmsg .tick{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--ok);color:#fff;font-size:24px;font-weight:700}
@@ -2196,6 +2203,9 @@ async function decide(it,btn){
     if(msg)msg.textContent="Saved.";
   }catch(e){btn.disabled=false;if(msg)msg.textContent="Could not save: "+(e&&e.message?e.message:e)}
 }
+// the Resolve buttons open their question on a copy of the page too (the live page wires the same click; an open dialog is left alone)
+document.querySelectorAll(".resolve[data-q]").forEach(b=>b.addEventListener("click",()=>{const d=document.getElementById(b.dataset.q);if(d&&d.showModal&&!d.open)d.showModal()}));
+const nr=document.getElementById("nowrun");if(nr)nr.addEventListener("click",()=>nr.classList.toggle("open"));
 (async()=>{
   try{ if(window.claude&&claude.use){db=await claude.use("db");user=await claude.use("user")} }catch(_){db=null;user=null}
   if(!db||!user){NEED.forEach(ctrl);return}
@@ -2602,7 +2612,7 @@ def render(model, matrix):
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
             f"<style>{CSS}</style>\n"
             '<div class="wrap">\n  <header class="head">\n    <div>\n      <div class="eyebrow">Upgrade cockpit</div>\n'
-            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
+            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(re.sub(r"\btriage\b", "triage (reading the app)", plainwords(model['sub'])))}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
             f"  {h_brief(matrix['brief'], qlist)}\n"

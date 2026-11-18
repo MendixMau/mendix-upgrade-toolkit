@@ -81,6 +81,11 @@ PY
   brief-stop-agent) minw plan-missing; ck >/dev/null && brief_text ;;
   brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text ;;
   brief-who) printf 'Progress: 5 of 10 checks closed (50%%). 1 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\nChanges: 30 (toolkit 5, agent 1, person 0, unlabelled 24)\n' >> "$W/gate-summary.md"; ck >/dev/null && brief_text ;;
+  brief-approval) ck >/dev/null && brief_text | grep -A1 '^Who changed what'
+            sed -i 's/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what'
+            printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
+  brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
+            grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
