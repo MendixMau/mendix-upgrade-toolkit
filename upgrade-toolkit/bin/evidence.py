@@ -13,6 +13,9 @@ A plan item that is no module has its own source (cold CMM, 2026-11-17: the "Rel
 edits" cards were flagged ask-no-evidence on every run, because only module names were looked up):
   kind check, Release notes   W/release-impact.out (why the release-note check did not run)
   kind theme, "<M> themesource edits"   the theme and JavaScript file rows of <M> in W/localedits.json
+A replacement card "R<n> <pattern>" (any kind) shows its row's evidence column in W/replacements.md, one line per hit, and a module
+card also lists the file rows of the module in W/localedits.json (cold rfq, 2026-11-18: 14 "R18 Runtime Java API removals"-style
+cards and the "SAPODataConnector (Java)" card, whose only edit is a Java file, were ask-no-evidence).
 
 Sources, per module (app = state/app-dir, S = app/.stepupdate):
   S/step*-<M>.log        the elements mxcli refused to overwrite, or why it could not read the module
@@ -54,19 +57,38 @@ def _refused(text):
     return out
 
 
+def _recipe(work, rid):
+    """The evidence column of row rid in W/replacements.md, one line per hit (cells escape | as \\|)."""
+    p = os.path.join(work, "replacements.md")
+    for ln in (_rd(p) or "").splitlines():
+        cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", ln)]
+        if len(cells) > 6 and cells[1] == rid:
+            hits = [re.sub(r"^/.*?/ in ", "found in ", h.strip()) for h in re.split(r"; (?=\S)", cells[5]) if h.strip()]
+            what = [f"replacements.md row {rid}: {cells[2]}"] + [h if len(h) <= 240 else h[:237] + "..." for h in hits[:6]]
+            return {"what": what, "files": [_rel(work, p)]}
+    return {"what": [], "files": []}
+
+
+def _files(work, mod):
+    """The file rows (theme, JavaScript, Java) of module mod in W/localedits.json."""
+    try:
+        rep = json.loads(_rd(os.path.join(work, "localedits.json")) or "[]")
+    except ValueError:
+        rep = []
+    return [f"{f.get('path')}: {(f.get('change') or '').lower()} ({f.get('detail')})"
+            for e in rep if isinstance(e, dict) and e.get("name") == mod for f in e.get("files") or []]
+
+
 def _other(work, name, kind):
+    r = re.match(r"R\d+(?= )", name)
+    if r:
+        return _recipe(work, r.group(0))
     if kind == "check" and name == "Release notes":
         p = os.path.join(work, "release-impact.out")
         what = [ln.strip() for ln in (_rd(p) or "").splitlines() if ln.strip()][:5]
         return {"what": what, "files": [_rel(work, p)] if what else []}
     if kind == "theme" and name.endswith(" themesource edits"):
-        mod = name[:-len(" themesource edits")]
-        try:
-            rep = json.loads(_rd(os.path.join(work, "localedits.json")) or "[]")
-        except ValueError:
-            rep = []
-        what = [f"{f.get('path')}: {(f.get('change') or '').lower()} ({f.get('detail')})"
-                for e in rep if isinstance(e, dict) and e.get("name") == mod for f in e.get("files") or []]
+        what = _files(work, name[:-len(" themesource edits")])
         return {"what": what, "files": [_rel(work, os.path.join(work, "localedits.json"))] if what else []}
     return None
 
@@ -122,6 +144,10 @@ def for_item(work, name, kind=None):
         if rows:
             what += rows
             files.append(_rel(work, os.path.join(work, "localedits.md")))
+    rows = [r for r in _files(work, name) if r.split(":")[0] not in " ".join(what)]
+    if rows:
+        what += rows
+        files.append(_rel(work, os.path.join(work, "localedits.json")))
     inv = json.loads(_rd(os.path.join(work, "apimock-inventory.json")) or "{}").get("endpoints", [])
     rows = [f"outside call {e['doc']} ({(e.get('method') or '').strip()} {e.get('template') or ''}".rstrip() + f"): "
             + ("a stand-in answers it in the test" if e.get("status") == "MOCKED" else "no stand-in yet, " + (e.get("why") or "not classified"))
