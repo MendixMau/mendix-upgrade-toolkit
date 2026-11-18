@@ -21,6 +21,17 @@ mkst() {
 }
 stapp() { st show "$1" --json | python3 -c 'import json,sys; a=json.load(sys.stdin)[0].get("approval") or {}; print(a.get("state","none"), "by", a.get("by","-"), "via", a.get("source","-"))'; }
 nev() { grep -c "\"id\": \"$1\", \"field\": \"approval\"" "$W/steps.jsonl" || true; }
+# a work folder holding only a captured stop file (stops/<name>.md, a real NEEDS-JUDGMENT.md with paths replaced): nothing else asks anything
+minw() { W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/cockpit/stops/$1.md" "$W/NEEDS-JUDGMENT.md"; }
+# the brief on top of the page (cockpit clarity): its text, one element per line
+brief_text() { python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+b = re.search(r'<section class="brief".*?</section>', h, re.S).group(0)
+b = re.sub(r'</(p|div|b|span|li|summary|button)>', '\n', b)
+print(html.unescape("\n".join(x.strip() for x in re.sub(r'<[^>]+>', '', b).splitlines() if x.strip())))
+PY
+}
 case $case_ in
   confirm-covered) mkst; st propose --id S-1 --say "Update the grid." --decision D3 >/dev/null
             printf 'D3: Gridmod 2.0.0 rework, please confirm it looks right. D9: Cart banner moved, please confirm.\n' > "$W/gate-notes.txt"
@@ -54,6 +65,22 @@ PY
             cmp "$T/before" "$W/steps.jsonl" && echo "steps untouched"; test ! -f "$W/decisions.json" && echo "ledger untouched" ;;
   step-apply) mkst; dec add --item S-3 --choice approve --by Ana --source chat >/dev/null; dec apply; echo "S-3: $(stapp S-3)"; echo "approvals after apply: $(nev S-3)" ;;
   no-rung-out) rm -f "$W/data.out"; ck > /dev/null && echo "rendered with a PASS* rung and no data.out" ;;
+  brief)    ck >/dev/null && brief_text ;;
+  brief-order) minw journeys-fail; ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import re, sys
+h = open(sys.argv[1]).read()
+a, b, c = h.find('class="brief"'), h.find('class="stopbar"'), h.find('id="fold"')
+print("order: brief, stop bar, fold" if 0 < a < b < c else f"order wrong: {a} {b} {c}")
+print("fold closed" if re.search(r'<details class="card fold" id="fold">', h) else "fold open or missing")
+sb = re.search(r'<div class="stopbar".*?</div>', h, re.S).group(0)
+print("rerun command folded" if sb.find("<details>") != -1 and sb.find("<details>") < sb.find("Then rerun") else "rerun command shown")
+css = h[h.find("@media (max-width:560px){.brief"):][:260]
+print("phone: one column and a full-width button" if ".brief .bl{grid-template-columns:1fr}" in css and ".resolve.big{width:100%}" in css else "phone rules missing")
+PY
+            ;;
+  brief-stop-agent) minw plan-missing; ck >/dev/null && brief_text ;;
+  brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text ;;
+  brief-who) printf 'Progress: 5 of 10 checks closed (50%%). 1 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\nChanges: 30 (toolkit 5, agent 1, person 0, unlabelled 24)\n' >> "$W/gate-summary.md"; ck >/dev/null && brief_text ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;

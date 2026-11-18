@@ -1234,7 +1234,7 @@ def build(work, model):
     tl = tiles(rows, chips, g.get("open_reg"))
     return {"stages": stage_texts(rl, per), "groups": [{"key": k, "name": n} for k, n in groups], "rows": rows, "ready": chips,
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
-            "band": band(model, rows, chips, g, tl, kpi),
+            "band": band(model, rows, chips, g, tl, kpi), "brief": brief(work, model, rows, g, tl),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work, model),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
@@ -1439,6 +1439,165 @@ def band(model, rows, chips, g, tl, kpi=None):
     opens = [o for o in opens if not any(h in (o["text"] + " " + o["group"]).lower() for h in hide)]
     return {"state": st, "head": head, "sub": sub, "reg": reg, "closed": {"n": sum(c["n"] for c in closed), "chips": closed},
             "open": {"n": len(opens), "items": opens}}
+
+
+# ---- the brief: the answer on top, the detail folded (cockpit clarity, 10-second test) ----
+# Wording, order and emphasis only: every number is copied from the run's files (gate-summary.md Progress / Changes lines, the
+# open questions, the stop file, the running marker). Nothing here decides a verdict.
+PLAIN_WORDS = [(r"\s*\(exit \d+\)", ""), (r"(?:/[^\s/]+)+/([^\s/]+)", r"\1"), (r"\bREGRESSION/FAIL\b", "regression"),
+               (r"\bINVALID\b", "could not be measured"), (r"\bPASS\*", "passed with accepted differences"), (r"\bPASS\b", "passed"),
+               (r"\bFAIL\b", "failed"), (r"\bREGRESSIONS?\b", "regression"), (r"\bgate\b", "final check"), (r"\bjourneys\b", "user paths"),
+               (r"\bjourney\b", "user path"), (r"\bNEW app\b", "upgraded app"), (r"\bOLD app\b", "old app"),
+               (r"\bbaseline defects?\b", "problem the old app has too"), (r"\bidcheck\b", "data identity check"),
+               (r"\bstepupdate(?:\.sh)?\b", "automatic module update"), (r"\bconvert-made\b", "made by the automatic converter"),
+               (r"\brungs?\b", "check"), (r"\bthemesource\b", "theme files")]
+GLOSSARY = [("Regression", "Something that worked on the old app and fails on the new one. This is the only kind of problem that harms your users."),
+            ("Not measured yet", "A check that has not run, or could not run yet. It is not a failure. It only means nobody knows yet."),
+            ("Check", "One kind of proof that the new app behaves like the old one (build, data, settings, pages, user paths). Also called a rung or gate in the files."),
+            ("Passed with accepted differences", "The check found differences and each one is explained in writing as harmless (shown as PASS*)."),
+            ("User path", "A recorded click path through the app, run on the old and the new app (called a journey in the files)."),
+            ("Data identity check", "Proves the data keeps its identity when the model changes, so stored data is not lost (idcheck)."),
+            ("Triage", "The first step: the toolkit reads the app and lists what an upgrade would change."),
+            ("Automatic module update", "The toolkit's own way of moving a Marketplace module to a newer version (stepupdate)."),
+            ("Stand-in", "A fake copy of an outside system, used so tests can run without calling the real one.")]
+GATE_PROGRESS = re.compile(r"^Progress: (\d+) of (\d+) checks closed \((\d+)%\)", re.M)
+GATE_COUNTS = re.compile(r"(\d+) with REGRESSIONS to fix, (\d+) need a decision, (\d+) not measured yet")
+GATE_CHANGES = re.compile(r"^Changes: (\d+) \(toolkit (\d+), agent (\d+), person (\d+)(?:, unlabelled (\d+))?\)", re.M)
+
+
+def plainwords(t):
+    for pat, rep in PLAIN_WORDS:
+        t = re.sub(pat, rep, t or "")
+    return " ".join(t.split())
+
+
+AGENT_TASK = re.compile(r"\bwrite\s+\S+\.(?:txt|json|md|tsv)\b", re.I)   # "Module plan missing: write plan.txt": a file the agent writes, not a person's answer
+
+
+def clip_ask(t, n=120, head=False):
+    """One short line for a question title: the first sentence or line, in plain words (the full text stays in the dialog).
+    head=True keeps only what comes before the first ": " (an agent-written stop title is "<what>: <long raw verdict text>")."""
+    t = re.sub(r"^#+\s*", "", (t or "").strip()).split(" ## ")[0]
+    if head and ": " in t and len(t.split(": ", 1)[0]) >= 10:
+        t = t.split(": ", 1)[0]
+    return cp.short(plainwords(t), n)
+
+
+def ask_line(i, n=120):
+    """The line for a question card in the brief: plan choices, sign-off and confirmations are already worded for a person."""
+    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm"))
+
+
+def vshort(v):
+    return ".".join(v.split(".")[:3])
+
+
+def _steps_done(work):
+    return sum(1 for s in cp.STEP_ORDER if cp.rd(os.path.join(work, "state", s + ".done")))
+
+
+def brief(work, model, rows, g, tl):
+    """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
+    what. Returns plain strings and numbers; h_brief draws them."""
+    gs = cp.rd(os.path.join(work, "gate-summary.md")) or ""
+    mp = GATE_PROGRESS.search(gs)
+    mc = GATE_COUNTS.search(gs)
+    vm = re.search(r"(\d+(?:\.\d+)+) → (\d+(?:\.\d+)+)", model.get("sub", ""))
+    route = f"Upgrade from Mendix {vshort(vm.group(1))} to {vshort(vm.group(2))}" if vm else "Upgrade"
+    allq = open_questions(model)
+    # a stop whose first instruction is "write <file>" is the agent's task; the other sections of that stop file are its context
+    agent_task = [i for i in allq if i["id"].startswith("stop:") and AGENT_TASK.search(i["title"])]
+    qs = [i for i in allq if not (agent_task and i["id"].startswith("stop:"))]
+    asks = [r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
+    nask = len(qs) + len(asks)
+    stopped, running = model.get("stopped"), model.get("running")
+    if mp:
+        prog = f"{mp.group(1)} of {mp.group(2)} checks closed ({mp.group(3)}%)"
+    else:
+        n = _steps_done(work)
+        prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
+    ov = cp.parse_gate(gs)["overall"]
+    if stopped and nask:
+        now = f"Paused, waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
+    elif stopped:
+        now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
+    elif running:
+        now = f"The agent is working: {running['text'][:1].lower() + running['text'][1:]}."
+    elif nask:
+        now = f"Waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
+    elif ov == "PASS":
+        now = "Finished: every required check passed."
+    else:
+        now = "No step is running right now."
+    status = f"{route}: {prog}. {now}"
+    # broken vs not measured: kept apart on purpose (a grey "not measured" is not a failure)
+    reg = tl.get("reg") if tl.get("reg") is not None else (int(mc.group(1)) if mc else None)
+    unm, dec = (int(mc.group(3)), int(mc.group(2))) if mc else (None, None)
+    if reg == 0 and not gs:   # no final-check file yet: "0" would be a claim nobody measured
+        reg = None
+    if reg is None:
+        broken = ("none", "Nothing is known to be broken, because nothing has been measured yet.")
+    elif reg:
+        broken = ("bad", f"{reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one.")
+    else:
+        broken = ("ok", "Nothing found broken so far.")
+    if unm is None:
+        unmeasured = "The tests run in the Test step, which has not started." if reg is None else ""
+    elif unm:
+        unmeasured = f"{unm} {'check has' if unm == 1 else 'checks have'} not run yet. That is not a failure: nobody knows yet."
+    else:
+        unmeasured = "Everything planned has been measured."
+    if dec:
+        unmeasured += f" {dec} {'needs' if dec == 1 else 'need'} a decision."
+    # the one thing to do now
+    if qs or asks:
+        if qs:
+            i = qs[0]
+            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
+            rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
+            act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call."
+            if i["kind"] == "signoff":
+                act["rec"] = "We recommend: approve, once the other answers are in."
+        else:
+            act = {"kind": "ask", "text": f"Check what the agent chose on its own: {asks[0]['name']}", "q": "", "rec": "", "time": "One click"}
+    elif stopped:
+        what = clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
+        act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
+               "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
+    elif running:
+        act = {"kind": "wait", "text": "Nothing. Come back later.", "rec": "", "q": "",
+               "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
+    elif reg:
+        act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
+    else:
+        act = {"kind": "wait", "text": "Nothing to do now.", "rec": "", "q": "", "time": ""}
+    mch = GATE_CHANGES.search(gs)
+    if mch:
+        n, tk, ag, pe, un = (int(x or 0) for x in mch.groups())
+        who = f"{n} changes to the app so far: {tk} by the toolkit's automatic tools, {ag} by the AI agent, {pe} by a person"
+        who += f", {un} not labelled (nobody has said who made them)." if un else "."
+    else:
+        who = "Counted from the final check on. Until then, every change is a Git commit you can review."
+    return {"status": status, "broken": {"s": broken[0], "text": broken[1]}, "unmeasured": unmeasured, "act": act, "who": who, "n": nask}
+
+
+def h_brief(b, qlist):
+    a = b["act"]
+    btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
+    rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
+    tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    more = f'<details class="allq"><summary>All {b["n"]} questions waiting for you</summary>{qlist}</details>' if b["n"] > 1 and qlist else ""
+    return ('<section class="brief" aria-label="Where the upgrade stands">\n'
+            f'<p class="status">{E(b["status"])}</p>\n'
+            f'<div class="bl"><div class="bk {b["broken"]["s"]}"><b>Broken for your users</b><span>{E(b["broken"]["text"])}</span></div>'
+            f'<div class="bk"><b>Not measured yet</b><span>{E(b["unmeasured"] or "Nothing pending.")}</span></div></div>\n'
+            f'<div class="act {a["kind"]}"><b class="at">Do this now</b><div class="ab"><div><p class="atext">{E(a["text"])}</p>{rec}{tm}</div>{btn}</div>{more}</div>\n'
+            f'<p class="who"><b>Who changed what.</b> {E(b["who"])}</p>\n</section>')
+
+
+def h_glossary():
+    return ('<details class="card gloss"><summary>Words used on this page, in plain language</summary><dl>'
+            + "".join(f"<dt>{E(t)}</dt><dd>{E(d)}</dd>" for t, d in GLOSSARY) + "</dl></details>")
 
 
 # ---- page ----
@@ -1721,6 +1880,36 @@ details.more[open]>summary{margin-bottom:10px}
   .ns span{grid-column:1/-1;order:3}
   .ns em{white-space:nowrap}
 }
+.brief{display:grid;gap:14px;padding:20px 22px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
+.brief .status{margin:0;font-size:22px;line-height:1.3;font-weight:650;text-wrap:balance}
+.brief .bl{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.brief .bk{padding:10px 12px;border-radius:10px;background:var(--nonebg);display:grid;gap:2px;align-content:start}
+.brief .bk b{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.brief .bk span{font-size:15px}
+.brief .bk.bad{background:var(--badbg)} .brief .bk.bad b{color:var(--bad)} .brief .bk.bad span{font-weight:650}
+.brief .bk.ok{background:var(--okbg)} .brief .bk.ok b{color:var(--ok)}
+.brief .act{padding:14px 16px;border-radius:12px;border:2px solid var(--line);display:grid;gap:8px}
+.brief .act.ask{border-color:var(--you);background:var(--youbg)}
+.brief .at{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.brief .act.ask .at{color:var(--you)}
+.brief .ab{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brief .ab>div{flex:1 1 260px;min-width:0}
+.brief p{margin:0}.brief .atext{font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.brief .arec{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
+.resolve.big{font-size:16px;padding:12px 20px;min-height:44px;border-radius:12px}
+.brief .allq summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.brief .allq ol{margin:8px 0 0;padding:0;list-style:none}.brief .allq li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.brief .who{font-size:14px;color:var(--muted)}.brief .who b{color:var(--fg)}
+details.fold{padding:0;overflow:visible}
+details.fold>summary{cursor:pointer;padding:14px 18px;font-size:14px;color:var(--muted)}
+details.fold>summary b{color:var(--fg);font-size:16px}
+details.fold>.layout{padding:0 16px 16px}
+details.gloss{margin:14px 16px 16px;padding:10px 16px}
+details.gloss>summary{cursor:pointer;font-size:13px;color:var(--muted)}
+details.gloss dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px;margin:10px 0 0}
+details.gloss dt{font-weight:600}details.gloss dd{margin:0}
+.stopbar details summary{cursor:pointer;font-size:13px;color:var(--muted)}
+@media (max-width:560px){.brief{padding:16px}.brief .status{font-size:19px}.brief .bl{grid-template-columns:1fr}.resolve.big{width:100%}details.gloss dl{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){.drawer{animation:in .18s ease-out}@keyframes in{from{transform:translateX(24px);opacity:.6}}}
 """
 
@@ -2169,10 +2358,12 @@ def h_stopped(s):
     if str(s["code"]) in ("14", "15"):   # the plan waits for sign-off: the Decide now cards are the questions, no paths or commands
         return ('<div class="stopbar" role="alert"><b>The run stopped before changing anything: the plan waits for your answers and '
                 'your approval.</b><small>Open <b>Blocked on you</b> on the right to answer. The run goes on after you approve.</small></div>')
-    li = "".join(f"<li>{E(t)}</li>" for t in s["titles"])
+    li = "".join(f"<li>{E(clip_ask(t, 160, head=True))}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
-    return (f'<div class="stopbar" role="alert"><b>The run stopped at {E(s["step"])} (exit {s["code"]}) and waits for you.</b>'
-            f'{"<ul>" + li + "</ul>" if li else ""}<small>Answer under <b>Blocked on you</b> on the right. Details: NEEDS-JUDGMENT.md in the work folder.</small>{cmd}</div>')
+    # the headline answers "is it stuck?"; what stopped it and the rerun command are for the agent, so they fold (cockpit clarity)
+    return (f'<div class="stopbar" role="alert"><b>The run stopped during this step: {E(plainwords(cp.STEP_TEXT.get(s["step"], s["step"])))}.</b>'
+            '<details><summary>What stopped it, technical (for the agent)</summary>'
+            f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder (stop code {s["code"]}).</small>{cmd}</details></div>')
 
 
 def open_questions(model):
@@ -2352,13 +2543,13 @@ def h_questions(model, matrix=None, cases_=None):
     # a choice the agent made on its own (a step with an assumed approval) blocks too; Resolve opens its plan cell, where its buttons are
     asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
     if not qs and not asks:
-        return "", ""
+        return "", "", ""
     rows, dlgs = [], []
     for n, r in asks:
         rows.append(f'<li><span>The agent chose this on its own: {E(r["name"])}. OK?</span>'
                     f'<button type="button" class="resolve" data-i="{n}" data-s="plan">Resolve →</button></li>')
     for n, i in enumerate(qs, 1):
-        rows.append(f'<li><span>{E(question_of(i))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
+        rows.append(f'<li><span>{E(ask_line(i, 140))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
         btns = []
         cs = (cases_ or {}).get(case_id(i["id"])) or {}
         for o in i["options"]:
@@ -2393,9 +2584,10 @@ def h_questions(model, matrix=None, cases_=None):
                     f'blocks step {E(i.get("step") or "")}</div><h3>{E(question_of(i))}</h3>{ctx}{rec}<div class="qopts">{btns and "".join(btns)}</div>'
                     '<div class="qmsg" data-qmsg aria-live="polite"></div><p class="qhint">The buttons work in the live cockpit. On a copy, answer in chat.</p>'
                     '<button type="button" class="qclose">Close</button></div></dialog>')
+    lst = "<ol>" + "".join(rows) + "</ol>"
     side = (f'<section class="blocked" aria-label="Blocked on you"><h2>Blocked on you: {len(qs) + len(asks)}</h2>'
-            '<p>The run waits for these answers. Click Resolve for the full question.</p><ol>' + "".join(rows) + "</ol></section>")
-    return side, "".join(dlgs)
+            '<p>The run waits for these answers. Click Resolve for the full question.</p>' + lst + "</section>")
+    return side, "".join(dlgs), lst
 
 
 def render(model, matrix):
@@ -2404,7 +2596,7 @@ def render(model, matrix):
     e = html.escape
     head_, tiles_ = h_tiles(matrix)
     cases_ = matrix.pop("cases", None) or {}   # kept out of the page data: the screenshots are embedded once, in the dialog
-    qside, qdlgs = h_questions(model, matrix, cases_)
+    qside, qdlgs, qlist = h_questions(model, matrix, cases_)
     return (f"<title>{e(model['title'])}</title>\n"
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
@@ -2413,7 +2605,9 @@ def render(model, matrix):
             f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
+            f"  {h_brief(matrix['brief'], qlist)}\n"
             f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n"
+            '  <details class="card fold" id="fold"><summary><b>Everything else</b> <span>the readiness checks, every item by stage, test results and history. Open it only if you want the proof.</span></summary>\n'
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'
@@ -2426,10 +2620,10 @@ def render(model, matrix):
             f"  {h_health(matrix.get('health'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
-            f'  <aside class="side">{qside}{h_band(matrix["band"])}'
+            f'  <aside class="side">{h_band(matrix["band"])}'
             # the page can lag the run; the session that drives it always knows (cold test WM1)
             '<p class="agentnote">Page not up to date, or stuck? Talk to your agent in the chat. It is easier.</p>'
-            f'</aside>\n  </div>\n</div>\n{qdlgs}\n'
+            f'</aside>\n  </div>\n  {h_glossary()}\n  </details>\n</div>\n{qdlgs}\n'
             '<div class="shade" id="shade" hidden></div>\n'
             '<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Details">\n'
             '  <button class="x" id="dClose" type="button" aria-label="Close">×</button>\n  <div id="dBody"></div>\n</aside>\n\n'
