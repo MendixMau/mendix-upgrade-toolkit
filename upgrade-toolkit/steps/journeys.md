@@ -388,6 +388,9 @@ Every run of run_journeys.py prints, under `journeys:`, and stores in summary.js
   | OLD-APP | `<journey> OLD-APP <log or screenshot>[:line] # note` | the file exists, and the line when given (the old app's error) |
   | FLAKY | `<journey> FLAKY <rerun1> <rerun2> # note` | two reruns of the baseline: the journey PASSed on one and not on the other |
 
+  The same lines, with the same checks, are applied by the baseline walk (`--label before`, no `--compare`): a FAIL there
+  whose line holds is listed `BASELINE DEFECT <class>` and counts PASS*; a line whose check fails is printed `evidence refused` and the FAIL stands.
+
   | UNREACHABLE | `<plan row> UNREACHABLE actions.json [<Module>=<add-on file or folder> ...] [model=<old .mpr>] # note` | for a `skipped`/`todo` plan row only (B4T2-14): the file is the `--actions` file itself; its action has `no-click-path (no entry point reaches it` (a `non-click caller` is reachable: refused); every protected module its `unknown` says "may open it" is given, contains its own name, and names none of the documents on the way to the page: host, via_pages and their whole readable caller chain in the OLD model (`model=`, else actions.json `model`) |
 
   A line with another class or no evidence exits 2. Evidenced: `BASELINE DEFECT <CLASS> (<detail>)`, PASS*, and

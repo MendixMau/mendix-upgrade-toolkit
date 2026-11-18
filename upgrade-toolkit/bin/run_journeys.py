@@ -1765,6 +1765,22 @@ def main():
             if not erows:
                 eline += " (INVALID: no journey PASSes on both runs)"
             summary["effects"] = dict(ec, line=eline, rows=erows)
+    if not a.compare and not a.positive_control and a.label.startswith("before") and evidence:
+        # the baseline walk judges its own FAILs by the SAME checked evidence the compare run applies (check_evidence:
+        # file+line, fixture JSON, two reruns), never on the line's word: a journey that fails on the old app for a reason
+        # the old app's own log shows is a listed baseline defect (PASS*), not a stop with no way past (run PMNT)
+        import fnmatch
+        for j, s in summary["journeys"].items():
+            if s["verdict"] != "FAIL" or s.get("scope_class"):
+                continue
+            hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
+            if hit is None:
+                continue
+            good, detail = check_evidence(j, hit[1], hit[2])
+            if good:
+                s["compare"] = f"BASELINE DEFECT {hit[1]} ({detail})"
+            else:
+                s["evidence_refused"] = f"evidence line {hit[4]}: {detail}"
     cov = None
     if not a.positive_control:   # E2E-11: the coverage line, and with --compare the rules that keep INVALID honest
         cur_set = (summary.get("journey_set") if a.rejudge else None) or journey_set(a.gen_dir)
@@ -1839,6 +1855,7 @@ def main():
         tag += f" effect {s['effect'][:120]}" if s.get("effect", "PASS").split()[0] not in ("PASS",) else ""
         tag += f" [UNREACHABLE refused, {s['unreachable_refused'][:300]}]" if s.get("unreachable_refused") else ""
         what = s.get("unreachable") or ('; '.join(s.get('not_pass', [])) or s.get('why', ''))[:150]
+        tag += f" [evidence refused, {s['evidence_refused'][:300]}]" if s.get("evidence_refused") else ""
         tag += shown_tag(s)
         tag += f" [DESTRUCTIVE({s['destructive']})]" if s.get("destructive") else ""
         print(f"  {s['verdict']:7} {j:55} {what}{tag}")
@@ -1854,7 +1871,8 @@ def main():
         fail = any(s.get("compare") in ("REGRESSION", "NOT IN BASELINE (run it on the old app too)", "SCREEN REVIEW", "EFFECT REVIEW")
                    for s in summary["journeys"].values())   # SCREEN / EFFECT INVALID is INVALID, never FAIL (N1R2-8)
     else:
-        fail = "FAIL" in vs
+        fail = any(s["verdict"] == "FAIL" and not re.match(r"BASELINE DEFECT (FIXTURE|OLD-APP|FLAKY)\b", str(s.get("compare", "")))
+                   for s in summary["journeys"].values())
     counts = {v: vs.count(v) for v in ("PASS", "FAIL", "INVALID", "INFO", "NOT CHECKED", "UNREACHABLE", "CONTAMINATED", "SKIPPED")}
     # E2E-11: a baseline defect with checked evidence is PASS* (listed), not INVALID; without evidence it stays INVALID.
     # B4N1-13: the headline counts it as PASS* (baseline defect), not as FAIL next to "= N PASS*" two lines down;
