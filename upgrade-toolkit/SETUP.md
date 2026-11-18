@@ -37,6 +37,21 @@ the mxcli build (Maven Central 429: mirror fallback; `UPG_MAVEN_MIRROR` adds you
 in the URL), installs pymongo, bcrypt and rsync, and ends with `toolcheck.sh --host`: exit non-zero = not ready, the
 last lines say what is missing (B4T2-1, B4N1-3). Add a 10.24.x version to the list for the controls.
 
+## What to expect, the first time
+
+How long: it varies a lot by app size, and the journey walk is almost always what dominates, not the build. The
+shipped example (`examples/fsm/rung1-9.24-to-10.24/steps/test/gate-summary.md`) ran 16h2m of machine time on one
+rung (journeys alone: 11h59m), with 59m of person wait at the gate. Smaller apps with fewer journeys finish in
+closer to 1-2 hours machine time. Either way: don't expect it in a coffee break the first time, and don't assume
+something's stuck just because journeys are still running hours in — check the step it's actually on before you worry.
+
+Permissions: the agent runs dozens of scripted steps in a row (shell commands, container builds, file edits), all
+inside the run folder and your app's own git checkout. If your coding agent asks you to approve every command, turn
+that off for this session before you start (Claude Code: run with permissions bypassed, e.g. `--dangerously-skip-permissions`,
+or the equivalent "accept all" setting) — otherwise it stalls on the first prompt and never gets going. It still only
+touches the run folder, the app's own repo, and this toolkit's own checkout; it doesn't need access to anything else
+on your machine.
+
 ## The mxcli version
 
 `MXCLI_REF` (environment, default the full commit id of `78bdfa5`, the build every pipeline run so far used) is the mxcli tag, branch or commit that `bin/setup-container.sh` (step 5) and
