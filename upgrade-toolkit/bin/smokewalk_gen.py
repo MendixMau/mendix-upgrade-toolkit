@@ -103,9 +103,17 @@ def module_of(uid, units):
     return None
 
 
+def repeats_per_row(wo):
+    """True when this CustomWidgets$WidgetObject holds a data source: one of its property values carries a DataSource
+    (XPath, microflow, ... source), as a Data grid 2 / Gallery / Timeline does in a real 10.x/11.x model. A container
+    plug-in widget (Accordion, Popup menu, tab container) has none, so its buttons are always on the page."""
+    return any(isinstance(p, dict) and isinstance((p.get("Value") or {}).get("DataSource"), dict) for p in items(wo.get("Properties")))
+
+
 def walk_actions(node, widget=None, out=None, cond=False):
     """Yield (widget name, action dict, conditional) for every FormAction / MicroflowAction under node.
-    conditional is decided on the enclosing node path itself (a ConditionalVisibilitySettings Expression/Attribute on the
+    conditional is "row" for content of a widget that has a data source (drawn once per data row, so absent while it has
+    no rows), decided by repeats_per_row on the model, never by widget name; else decided on the enclosing node path itself (a ConditionalVisibilitySettings Expression/Attribute on the
     widget or an ancestor; shape captured from a real 10.3 model), never by widget name: default names repeat across pages."""
     out = [] if out is None else out
     if isinstance(node, dict):
@@ -115,7 +123,9 @@ def walk_actions(node, widget=None, out=None, cond=False):
         name = node.get("Name") if isinstance(node.get("Name"), str) and t.startswith(("Forms$", "Pages$", "CustomWidgets$")) else None
         cv = node.get("ConditionalVisibilitySettings")
         if name and isinstance(cv, dict) and (cv.get("Expression") or cv.get("Attribute")):
-            cond = True
+            cond = cond or True
+        if t == "CustomWidgets$WidgetObject" and repeats_per_row(node):
+            cond = cond or "row"
         for k, v in node.items():
             if k in ("$ID",):
                 continue
@@ -213,6 +223,8 @@ def plan_for_role(role, pages, microflows, prof, roles, home_buttons=True):
             seen.add((widget, pg))
             if pg not in pages:
                 skipped.append({"widget": widget, "page": pg, "why": "page not found"})
+            elif is_cond == "row":
+                skipped.append({"widget": widget, "page": pg, "why": "not walked: per-row widget content (it is not on the page until the grid has a row)"})
             elif is_cond:
                 skipped.append({"widget": widget, "page": pg, "why": "not walked: conditionally visible (it is not on the page until data selects it)"})
             elif has_params(pages[pg]):
@@ -260,6 +272,10 @@ def main():
         if cond:
             print(f"{r['role']}: not walked: conditionally visible: {len(cond)} button(s): "
                   + ", ".join(f"{x['widget']} -> {x['page']}" for x in cond))
+        row = [x for x in r["skipped"] if x["why"].startswith("not walked: per-row widget content")]
+        if row:
+            print(f"{r['role']}: not walked: per-row widget content: {len(row)} button(s): "
+                  + ", ".join(f"{x['widget']} -> {x['page']}" for x in row))
         w = microflow_warning(r)
         if w:
             print(f"WARN {r['role']}: {w}")
