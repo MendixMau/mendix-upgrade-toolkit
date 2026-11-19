@@ -351,7 +351,8 @@ def mpr_plan(old_path, new_path):
 
 FACT_KEYS = {"db_vendor", "db_version", "odata_published", "odata_consumed", "odata_consumed_connector", "rest_published", "rest_consumed",
              "web_services", "workflows", "own_java", "native_profile", "oql", "document_templates", "kept", "stranded",
-             "runtime_os", "languages", "own_jdbc", "dev_servlet", "database_connector", "project_dir", "vcs"}
+             "runtime_os", "languages", "own_jdbc", "dev_servlet", "database_connector", "project_dir", "vcs", "file_documents",
+             "file_document_entities"}
 
 
 def load_facts(paths):
@@ -417,6 +418,9 @@ FEATURES = [
     ("workflows", r"\bworkflows?\b|\buser tasks?\b", ("workflows",)),
     ("OQL", r"\boql\b", ("oql",)),
     ("document templates", r"document templates?|document generation", ("document_templates",)),
+    # GM-42: Mendix 11.0.0 refuses to start while a pre-5.12 file document is on the local file system. The row is about data,
+    # not code; the model says only whether FileDocument entities exist (absent: no file can be there; present or unknown: open)
+    ("file documents", r"file documents?\b.*\b5\.12\b|\b5\.12\b.*\bfile documents?", ("file_documents",)),
 ]
 # A module requirement row that only raises the module's minimum Mendix version (T3, T4 rule scripts): met when the
 # target is at least that version, version arithmetic only. A minimum ABOVE the target stays open (a real blocker).
@@ -710,6 +714,13 @@ def facts_from_project(mpr, db_vendor=None, db_version=None, runtime_os=None):
     for k, rx in TYPE_FAMILIES.items():
         facts[k] = count(rx)
     native_profile(m, facts, notes)
+    fds = mprmodel.file_document_entities(m)   # GM-42: whether a database check for pre-5.12 file documents is owed
+    facts["file_documents"] = len(fds)
+    if fds:
+        facts["file_document_entities"] = fds
+        print(f"release_impact: file_documents: {len(fds)} FileDocument entities ({', '.join(fds[:4])}{' ...' if len(fds) > 4 else ''}); the "
+                     "model cannot say whether an environment's database holds pre-5.12 file documents: ask which databases "
+                     "the environments run on and check each (the proposal raises it as a BLOCKER)", file=sys.stderr)
     ls = [i.get("Code") for part in (m.singletons.get("Settings$ProjectSettings") or {}).get("Settings", [])
           if isinstance(part, dict) and part.get("$Type") == "Settings$LanguageSettings"
           for i in part.get("Languages", []) if isinstance(i, dict)]
@@ -1034,7 +1045,8 @@ FEATURE_TYPES = {"published OData": r"PublishedODataService", "consumed OData": 
                  "consumed REST": r"ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
                  "REST": r"PublishedRestService$|ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
                  "web services": r"WebService|WebServiceCallAction", "workflows": r"^Workflows\$Workflow$",
-                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile"}
+                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile",
+                 "file documents": r"(?!x)x"}   # no element type shows it: ELEMENTS (file_document_labels) reads the entities
 
 
 def legacy_events(ev):
@@ -1046,8 +1058,15 @@ def legacy_events(ev):
     return out
 
 
+def file_document_labels(ev):
+    """GM-42: the app's own entities that specialise System.FileDocument (a row about pre-5.12 file documents is open when any exists)."""
+    import mprmodel
+    return [f"{qn} (FileDocument entity)" for qn in mprmodel.file_document_entities(ev.m, own_only=True)]
+
+
 # model elements a row is about, by its words (Studio Pro rows): (row regex, finder)
 ELEMENTS = [
+    (r"file documents?\b.*\b5\.12\b|\b5\.12\b.*\bfile documents?", file_document_labels),
     (r"legacy scheduled events?|scheduled events?\b.*\b(?:non-repeating|start time)", legacy_events),
     (r"\b(?:before|after) commit\b", lambda ev: ev.of_types(r"DomainModels\$EntityEvent$|DomainModels\$EventHandler$")),
 ]

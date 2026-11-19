@@ -203,7 +203,7 @@ def main():
           + ("" if a.mpr else ": pass --mpr <App.mpr>") if enum_null else ""), file=sys.stderr)
     if fd_skipped:
         print(f"FileDocument entities NOT seeded (no file in the file store; --with-filedocuments to seed rows anyway): "
-              f"{len(fd_skipped)} ({', '.join(sorted(fd_skipped))})", file=sys.stderr)
+              f"{len(fd_skipped)} ({', '.join(sorted(fd_skipped))}); file storage not exercised by this data", file=sys.stderr)
     if a.dry_run: print(sql); return
     q(psql, sql)
     print("seed committed", file=sys.stderr)

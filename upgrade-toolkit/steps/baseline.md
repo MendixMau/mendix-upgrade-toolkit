@@ -28,7 +28,8 @@ copy's converted model.
    with the app STOPPED (values are unique per entity, so two System.User specializations no longer collide). `--mpr`
    gives every enum column its enumeration's first value; the summary names any enum left NULL. FileDocument and Image
    specializations are not seeded (a row without a file throws FileNotFoundInStorageException on the page that shows
-   it); `--with-filedocuments` seeds them anyway (T6R-13). Set key
+   it); the seed summary and the readiness data rung then say "file storage not exercised" (GM-42: a green data rung proves nothing
+   about files on the new version); `--with-filedocuments` seeds them anyway (T6R-13). Set key
    values by hand for every RED element from localedits. A Marketplace template that ships `data-snapshot.zip` (the
    publisher's demo data, HSQLDB) is loaded with `seed_snapshot.py` instead, never a hand-written loader (T5-10, T3-11):
    start the app ONCE on the empty X (it creates the schema), stop it, then
