@@ -7452,7 +7452,10 @@ ctl setup-mxcli-own-current-not-built-pass 1 -- test -e $SC/ref5/make.log
 # bin/cloud/setup.sh: --check says NOT done for a binary of another ref, done for the pinned one; the run builds at the ref
 CS=$T/cloudsetup; mkdir -p $CS/h1/.local/bin $CS/h2/.local/bin $CS/run1/tools/mxcli-bin $CS/run2/tools/mxcli-bin
 for k in 1 2; do v=$([ $k = 1 ] && echo 'mxcli version v0.27.0' || echo 'mxcli version 78bdfa5 (2026-10-14T00:13:40Z)'); printf '#!/bin/sh\necho "%s"\n' "$v" > $CS/run$k/tools/mxcli-bin/mxcli; chmod +x $CS/run$k/tools/mxcli-bin/mxcli
-  ln -s $CS/run$k/tools/mxcli-bin/mxcli $CS/run$k/tools/mxcli-linux; ln -s $CS/run$k/tools/mxcli-bin/mxcli $CS/h$k/.local/bin/mxcli; done
+  # off Linux --check wants mxcli-linux an ELF stamped with the ref (#34): a link to the script said NOT done on every Mac (2026-11-19)
+  if [ "$(uname -s)" = Linux ]; then ln -s $CS/run$k/tools/mxcli-bin/mxcli $CS/run$k/tools/mxcli-linux
+  else printf '\177ELF %s\n' "$v" > $CS/run$k/tools/mxcli-linux.elf; ln -s $CS/run$k/tools/mxcli-linux.elf $CS/run$k/tools/mxcli-linux; fi
+  ln -s $CS/run$k/tools/mxcli-bin/mxcli $CS/h$k/.local/bin/mxcli; done
 csetup() { local k=$1; shift; env HOME=$CS/h$k bash $B/cloud/setup.sh --run-dir $CS/run$k --source 10.24.26.1 --target 11.15.0.1 "$@"; }
 ctl cloud-setup-mxcli-old-ref-not-done-catch 3 'check mxcli: NOT done' -- csetup 1 --check --only mxcli
 ctl cloud-setup-mxcli-pinned-ref-done-pass 0 'check mxcli: done' -- csetup 2 --check --only mxcli
