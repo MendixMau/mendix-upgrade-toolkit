@@ -6703,6 +6703,24 @@ ctl gate-changes-after-progress-pass 0 '^Progress: ' '^Changes: 4 ' -- sh -c "gr
 ctl gate-changes-unlabelled-catch 0 'Overall: \*\*PASS\*\*' '^Changes: 5 \(toolkit 2, agent 1, person 1, unlabelled 1\)$' '^- changes: needs a decision: 1 commit\(s\) in the app repo carry no Changed-By' -- gcase chun APP_REPO=$CL/lg
 ctl gate-changes-unlabelled-keeps-rungs-pass 0 '\| 1 \| build \| PASS \|' '!\| FAIL \|' -- cat $GI/w/gatechun/gate-summary.md
 ctl gate-changes-no-repo-pass 0 'Overall: \*\*PASS\*\*' '!Changes:' -- gcase chno
+# DV-3: which brain was found is one line from brainpath.py --describe, at triage and in the gate summary
+BPH=$T/bph; mkdir -p $BPH/empty
+BPD() { env -u UPG_BRAIN HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix
+ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
+ctl brainpath-describe-upg-brain-pass 0 "^brain: $RB \(from UPG_BRAIN\)\$" '!none found' -- env HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
+ctl brainpath-describe-bad-upg-brain-catch 0 '^brain: none found \(looked: UPG_BRAIN /nowhere/x has no baseline/versions tables' -- env HOME="$BPH/empty" UPG_BRAIN=/nowhere/x python3 $B/brainpath.py --describe
+mkdir -p $BPH/h2/.config/upgrade-toolkit; echo "UPG_BRAIN=$RB" > $BPH/h2/.config/upgrade-toolkit/local.env
+ctl brainpath-describe-local-env-pass 0 "^brain: $RB \(from local\.env\)\$" -- env -u UPG_BRAIN HOME="$BPH/h2" python3 $B/brainpath.py --describe
+mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
+ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
+ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
+gbr() ( export HOME="$BPH/empty"; unset UPG_BRAIN; gcase "$@" )
+gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
+ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
+ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
+# a brainpath.py that crashes must not stop triage (the pipeline runs under set -Eeuo pipefail)
+TKB=$B; mkdir -p $BPH/crash; printf 'import sys\nsys.exit(3)\n' > $BPH/crash/brainpath.py
+ctl pipeline-triage-brain-crash-continues-catch 0 '^continued$' 'brain: not reported' -- bash -c "set -Eeuo pipefail; B=$BPH/crash; WORK=\$(mktemp -d); DRY=0; say() { printf '%s\n' \"\$*\"; }; eval \"\$(sed -n '/# DV-3: which company brain/,/brain.txt/p' \${PIPE:-$TKB/cloud/upgrade-pipeline.sh})\"; echo continued"
 ctl gate-changes-ledger-written-pass 0 '^Changes: 5 ' -- sh -c "head -3 $GI/w/CHANGES.md | tail -1"
 ctl gate-changes-accept-files-pass 0 '\| ALLOW \| x \| \(no reason written\)' '\| SMOKE_SHOT_ACCEPT \| x \|' '\| LOG_ALLOW \| x \|' '!\| JOURNEY_SHOT_ACCEPT' -- sh -c "grep -E 'ALLOW|ACCEPT' $GI/w/CHANGES.md"
 # stepupdate and the pipeline: the toolkit's own commits carry the trailers

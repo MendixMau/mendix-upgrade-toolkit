@@ -667,6 +667,7 @@ mkdir -p "$G" 2>/dev/null
   echo "$PROGRESS"
   [ -z "$CHANGES_LINE" ] || { echo "$CHANGES_LINE"; echo "Change ledger: \`$V_WORK/CHANGES.md\`"; }
   [ -z "$HEAL_LINE" ] || echo "$HEAL_LINE (details: \`$(dirname "$V_HEAL_JSON")/heal.md\`)"
+  "$PY" "$here/brainpath.py" --describe 2>/dev/null || echo "brain: not reported (brainpath.py failed)"   # DV-3
   # machine line for grade.py (read anywhere in the file): after the two lines people read first
   echo "Classes:$CLASSES"
   echo "Work: \`$V_WORK\`, evidence: \`$G\`, instruments: \`$B\`, run $V_RUN. $(date -u +%Y-%m-%dT%H:%MZ)"; echo
