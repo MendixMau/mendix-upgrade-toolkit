@@ -8377,7 +8377,8 @@ ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-c
 
 # apidirect names its database copy so smoke_users accepts it (the old name _apid_<side> was refused: "not a copy")
 ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- python3 $B/smoke_users.py upg_t_apid_old --roles Administrator --container no-such-ctr
-ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
+# the name gate runs before the hash: without bcrypt (the CI runner, 2026-11-19) smoke_users exits 1 after accepting the name, a refusal is exit 2
+ctl apidirect-db-name-accepted-pass 0 '^rc=[01]$' '!not a copy' '!REFUSED' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr; echo rc=\$?"
 
 
 # --- cockpit clarity, round 6: lane B's final findings (fixtures/cockpit/lane-b: captured stop files and a final check, paths replaced) ---
