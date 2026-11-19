@@ -50,7 +50,11 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    `python3 $B/diff.py $W/before.json $W/after.json --allow $W/allow.txt --log-allow $W/log-allow.txt --md $W/diff.md`:
    0 FAIL, 0 INVALID, 0 open REVIEW, 0 NEW_ENDPOINT open. allow.txt: `<check pattern> [detail pattern] # reason`; it
    accepts FAIL, INVALID, REVIEW and NEW_ENDPOINT lines (for example `http./rest-doc/*/openapi.json` on 9 to 10). An
-   accepted line prints as PASS*, with its reason, and the report lists it (E4-23). `--log-allow` applies the logdiff
+   accepted line prints as PASS*, with its reason, and the report lists it (E4-23).
+   The line is split on the FIRST space: `<check pattern>` up to it, the rest (up to `#`) is the detail pattern, so wrap a
+   detail in wildcards: `log.new_error *MigrateOldFiles* # known queued-task error` (a bare `ClusterManagement-MigrateOldFiles`
+   after the space does not match a detail that starts with other text). The diff step rebuilds `allow-effective.txt`
+   from `allow.txt` plus `heal-allow.txt` itself, so `--from diff` picks up a line you just wrote. `--log-allow` applies the logdiff
    allow file to the `log.start` rows.
 5. REST contract: part of diff.py (lost operation, response code or parameter, or a new required parameter is FAIL).
    For saved documents: `python3 $B/restcontract.py before/ after/`.
