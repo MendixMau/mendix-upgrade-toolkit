@@ -6987,6 +6987,24 @@ for l in open('$FX/proposal-ra16/items.tsv'):
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
+# GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
+mkdir -p $PR/unk/state; cp $PR/plain/versions.txt $PR/unk/
+printf '# plan\n66876 3.1.0 TaskQueueHelpers\n99 2.0.0 FakeModuleXyz\n' > $PR/unk/plan.txt
+printf 'TaskQueueHelpers 2.0.2 -> 3.1.0\nFakeModuleXyz 1.0.0 -> 2.0.0\n' > $PR/unk/module-jumps.txt
+python3 $B/release_impact.py --brain $RB --from 10.24.16 --to 11.12.2 --plan $FX/release-impact/plan-unknown.txt --out $PR/unk/release-impact.md > /dev/null || true
+# extra Not covered rows (appended like release_impact writes them): a Studio Pro gap, a row with a handled entry, a held module, another cause
+cp $PR/kept/kept.txt $PR/unk/kept.txt
+sed -i '/^| [0-9]* | FakeModuleXyz | UNKNOWN /a\
+| 90 | Studio Pro | UNKNOWN | no release-note rows above the brain version | |\
+| 91 | HandledMod | UNKNOWN | no brain file for HandledMod | not relevant: read by hand, nothing applies |\
+| 92 | DataWidgets | UNKNOWN | no brain file for DataWidgets | |\
+| 93 | OddWhyMod | UNKNOWN | plan line 7 not understood | |' $PR/unk/release-impact.md
+bash $PR/prop.sh $PR/unk > /dev/null
+ctl proposal-release-unknown-module-catch 0 '^- \[P-[0-9]+\] check: FakeModuleXyz: release notes not read$' 'FakeModuleXyz \(1\.0\.0 -> 2\.0\.0\) under Not covered' 'read the release notes of every version in the range' 'add a brain file for the module' -- bash $PR/sec.sh $PR/unk 3
+ctl proposal-release-known-module-pass 0 '!TaskQueueHelpers: release notes not read' '!Studio Pro: release notes not read' -- bash $PR/sec.sh $PR/unk 3
+ctl proposal-release-handled-row-pass 0 '!HandledMod' -- bash $PR/sec.sh $PR/unk 3
+ctl proposal-release-held-module-pass 0 '!DataWidgets: release notes not read' '^- \[P-[0-9]+\] module: DataWidgets$' -- bash $PR/sec.sh $PR/unk 3
+ctl proposal-release-why-text-catch 0 '^- \[P-[0-9]+\] check: OddWhyMod: release notes not read$' 'OddWhyMod \(version range not known\) under Not covered: UNKNOWN, plan line 7 not understood; no release-note row' '!no brain file, so' -- bash $PR/sec.sh $PR/unk 3
 ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the toolkit\|## 3\. Needs your decision before we start\|## 4\. Needs a person anyway\|## 5\. Human effort\|## Testing plan\|## 6\. Sign-off\|$' -- sh -c "grep -E '^## ' $PR/kept/PROPOSAL.md | tr '\n' '|'; echo"
 # DV-11: the agent's notes live in W/AGENT-NOTES.md, which propose only reads: a rerun keeps them, PROPOSAL.md and the cockpit show them
 mkw notes; printf 'Checked the widget list by hand.\n\n- the old theme is unused\n' > $PR/notes/AGENT-NOTES.md; bash $PR/prop.sh $PR/notes > /dev/null; bash $PR/prop.sh $PR/notes > /dev/null
