@@ -755,10 +755,12 @@ step_fetch() {
   if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
     must git -C "$APP" init -q
     ensure_gitignore
+    must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
   elif [ "$DRY" != 1 ]; then
     ensure_gitignore
+    must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before the commit_app calls below (git add -A)
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
   else say "+ git init + commit original (when $APP has no .git)"; fi
@@ -960,7 +962,6 @@ step_baseline() {
     # Linux too, and repair row 11 only ran for the new one: fix it before the old build, one commit
     x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
     commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
-    x python3 "$B/buildout.py" exclude "$APP" || note "buildout.py exclude failed: the build output may show as dirty (DV-6)"   # .classpath, .project, *.launch stay out of the tree and out of "build: regenerated stubs"
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
     if [ "$rc" != 0 ] && modcase_fix "$LOG"; then   # LDMS: add-on cache folder case on Linux (repair row 34): link, build once more
       rc=0; x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?

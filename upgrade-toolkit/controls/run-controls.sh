@@ -2192,6 +2192,17 @@ ctl convertpre-build-output-pass 0 '^ACCEPTED: 1 baseline build-output' 'convert
 python3 $B/buildout.py exclude $S/bosrc > /dev/null
 ctl convertpre-source-edit-catch 1 '^ACCEPTED: 1 baseline' '^REFUSE: 1 uncommitted path\(s\)' 'javasource/ \(1 path\)' '!\.classpath' -- python3 $B/convertpre.py $S/bosrc
 ctl buildout-check-source-edit-catch 1 '^OTHER    M javasource/m/A\.java' '1 other dirty path' -- python3 $B/buildout.py check $S/bosrc
+# DV-6 review: look-alike and hand-moved paths are never accepted (each control goes red under its mutant)
+for k in bomine boren bonest boproj; do rm -rf $S/$k; mkdir -p $S/$k/theme-cache/w $S/$k/theme-cache-mine $S/$k/userlib; (cd $S/$k && git init -q && echo v1 > App.mpr && echo c1 > theme-cache/w/m.css && echo m1 > theme-cache-mine/x && echo p1 > .project
+  git add -A && $G commit -qm "original 10.12"); done
+(cd $S/bomine && echo m2 > theme-cache-mine/x)
+(cd $S/boren && git mv theme-cache/w/m.css userlib/m.css)
+(cd $S/bonest && mkdir sub && echo x > sub/.classpath && echo x > sub/app.launch)
+(cd $S/boproj && echo p2 > .project)
+ctl buildout-lookalike-prefix-catch 1 '^OTHER    M theme-cache-mine/x' '1 other dirty path' -- python3 $B/buildout.py check $S/bomine
+ctl buildout-rename-out-of-cache-catch 1 '^OTHER    R userlib/m\.css' '^ACCEPTED theme-cache/w/m\.css' -- python3 $B/buildout.py check $S/boren
+ctl buildout-nested-classpath-catch 1 '^OTHER    \?\? sub/\.classpath' '^OTHER    \?\? sub/app\.launch' -- python3 $B/buildout.py check $S/bonest
+ctl buildout-tracked-project-catch 1 '^OTHER    M .project' '1 other dirty path' -- python3 $B/buildout.py check $S/boproj
 # MC-19: widgetcover.py lists a used widget package that no smoke step or journey page renders (Viewer on Shop.Viewer_Panel; the
 # smoke fixture walks Home_Overview, Orders_Overview, Inbox_Overview only; Spare is used only on an excluded page: not a gap)
 WC="python3 $B/widgetcover.py"

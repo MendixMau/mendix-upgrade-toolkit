@@ -41,13 +41,16 @@ def dirty(app):
         return None
     prefix = git(app, "rev-parse", "--show-prefix").stdout.strip()
     out = []
-    for ln in git(app, "status", "--porcelain", "--untracked-files=all", "--", ".").stdout.splitlines():
+    for ln in git(app, "-c", "core.quotepath=false", "status", "--porcelain", "--untracked-files=all", "--", ".").stdout.splitlines():
         if not ln.strip():
             continue
-        p = ln[3:].strip().strip('"')
-        if prefix and p.startswith(prefix):
-            p = p[len(prefix):]
-        out.append((ln[:2], p))
+        # a rename or copy is two paths: both are kept, so it is accepted only when BOTH are (a move out of theme-cache/ is OTHER)
+        parts = ln[3:].split(" -> ") if ln[0] in "RC" or ln[1] in "RC" else [ln[3:]]
+        for p in parts:
+            p = p.strip().strip('"')
+            if prefix and p.startswith(prefix):
+                p = p[len(prefix):]
+            out.append((ln[:2], p))
     return prefix, out
 
 
