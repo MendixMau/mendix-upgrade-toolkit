@@ -93,22 +93,33 @@ def _lit(name):
     return "".join("[" + ch + "]" if ch in "*?[" else ch for ch in name)
 
 
-def derive_idcheck_allows(path):
+def derive_idcheck_allows(path, want_old=None, want_new=None):
     """GM-35: allow rows from the removals idcheck approved. Reads idcheck.py --json; only a REMOVED finding that carries data and
     an explicit "approved: <reason>" (an approved.txt line, never the "transient" or "restores" auto-approvals) is used.
     ASSUMED: an unreadable or unexpected file derives nothing (a WARNING on stderr): fewer allows is the safe direction."""
     try:
-        findings = json.load(open(path))["findings"]
+        doc = json.load(open(path)); findings = doc["findings"]
     except (OSError, ValueError, KeyError, TypeError) as e:
         print(f"WARNING --idcheck-json {path}: not read ({e.__class__.__name__}); no allow rows derived from idcheck", file=sys.stderr)
-        return []
-    out = []
+        return [], []
+    for key, want in (("old", want_old), ("new", want_new)):
+        have = doc.get(key)
+        if want and have and os.path.realpath(str(have)) != os.path.realpath(want):
+            print(f"WARNING --idcheck-json {path}: it was made for {key} = {have}, this run's is {want}; no allow rows derived from idcheck", file=sys.stderr)
+            return [], []
+    out, notes = [], []
     for f in findings:
         if not isinstance(f, dict) or f.get("finding") != "REMOVED" or not f.get("data"): continue
         ap_ = str(f.get("approved") or "")
         if not ap_.startswith("approved:"): continue
         qn, kind = str(f.get("name") or ""), f.get("kind")
         if not qn: continue
+        pat = f.get("pattern")
+        if not isinstance(pat, str) or any(c in pat for c in "*?["):
+            # ASSUMED: a glob (or a JSON that does not say which pattern approved) is read as "this approval was not about data"
+            notes.append(f"approval '{pat if isinstance(pat, str) else '?'}' is a glob; data rows not auto-allowed; add a literal approval or a hand allow row"
+                         f" ({kind} {qn})" if isinstance(pat, str) else f"approval of {kind} {qn} does not record its pattern; data rows not auto-allowed; rerun idcheck or add a hand allow row")
+            continue
         why = f"{kind} {qn} removal approved in idcheck ({ap_[len('approved:'):].strip() or 'no reason written'})"
         if kind == "entity":
             out.append((f"db.entity.{_lit(qn)}", "*entity not in after model", why))
@@ -117,7 +128,7 @@ def derive_idcheck_allows(path):
             out.append((f"db.assoc.{_lit(qn)}", "association gone*", why))
         elif kind == "attribute":
             out.append((f"db.attr.{_lit(qn)}", "column gone*", why))
-    return out
+    return out, notes
 
 
 def main():
@@ -127,6 +138,8 @@ def main():
     ap.add_argument("--log-allow", help="logdiff allow file for the log.start rows")
     ap.add_argument("--idcheck-json", dest="idcheck_json",
                     help="idcheck.py --json output: removals idcheck approved become allow rows for that element's data rows (GM-35)")
+    ap.add_argument("--idcheck-old", dest="idcheck_old", help="the OLD path idcheck was run on; the JSON is refused when it records another")
+    ap.add_argument("--idcheck-new", dest="idcheck_new", help="the NEW path idcheck was run on; the JSON is refused when it records another")
     ap.add_argument("--db-only", action="store_true",
                     help="compare the db section only (the mutant control: a db-only snapshot of a copy; E6-11, E7-18)")
     ap.add_argument("--emit-allow", dest="emit_allow",
@@ -149,7 +162,7 @@ def main():
                 cpat, _, dpat = pat.strip().partition(" ")
                 allow.append((cpat, dpat.strip(), why.strip())); allow_at.append((n, l.strip()))
     n_hand = len(allow)
-    derived = derive_idcheck_allows(a.idcheck_json) if a.idcheck_json else []
+    derived, dnotes = derive_idcheck_allows(a.idcheck_json, a.idcheck_old, a.idcheck_new) if a.idcheck_json else ([], [])
     allow += derived
     dcount = {}
     rows = []
@@ -330,9 +343,11 @@ def main():
         open(a.emit_allow, "w").write("".join(noise))
         print(f"--emit-allow: {len(noise)} check(s) written to {a.emit_allow}; read each one before the gate uses the file"
               + (f"; {refused} row(s) with no detail to match were NOT written (accept them by hand)" if refused else ""))
-    if derived:
+    if derived or dnotes:
         table += f"\n## Allow rows derived from idcheck approvals ({a.idcheck_json})\n\n"
-        table += "\n".join(f"- allowed: {w}: {c} [{d}], accepted {dcount.get(n_hand + i, 0)} row(s)" for i, (c, d, w) in enumerate(derived)) + "\n"
+        table += "\n".join(f"- allowed: {w}: {c} [{d}], accepted {dcount.get(n_hand + i, 0)} row(s)" for i, (c, d, w) in enumerate(derived)) + ("\n" if derived else "")
+        table += "".join(f"- NOT allowed: {n}\n" for n in dnotes)
+        for n in dnotes: print(f"diff: {n}")
         print(f"diff: {len(derived)} allow row(s) derived from idcheck approvals, accepting {sum(dcount.values())} row(s); each is named in the report")
     if unmatched:
         table += "\n## Allow lines that matched nothing\n\n" + "\n".join(f"- {u}" for u in unmatched) + "\n"

@@ -286,6 +286,17 @@ mask() {
   done
   printf '%s' "$s" | sed -E 's/(PGPASSWORD=|password=)[^ ]*/\1***/g'   # E2E-9: a JOURNEY_PSQL with its password
 }
+# GM-35: the data rung reads idcheck.json only when it is newer than every input idcheck read (approved list, old and new MDA)
+# and records the same old and new paths; otherwise a WARNING and no allow rows are derived from it.
+idcheck_json_args() {
+  local j="$G/idcheck.json" f
+  [ -f "$j" ] || return 0
+  for f in "$V_APPROVED" "$V_OLD_MDA" "$V_NEW_MDA"; do
+    [ -n "$f" ] && [ -e "$f" ] || continue
+    [ "$j" -nt "$f" ] || { echo "gate: WARNING $j is not newer than $f: stale, no allow rows derived from idcheck (rerun the idcheck rung)" >&2; return 0; }
+  done
+  CMD+=(--idcheck-json "$j" --idcheck-old "$V_OLD_MDA" --idcheck-new "$V_NEW_MDA")
+}
 opt() { [ -n "$2" ] && CMD+=("$1" "$2"); }   # opt FLAG VALUE: only when VALUE is set
 cmd_rung() {
   CMD=()
@@ -293,7 +304,7 @@ cmd_rung() {
     build) CMD=(bash -c 'grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG");;
     idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md" --json "$G/idcheck.json");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
-    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); [ -f "$G/idcheck.json" ] && CMD+=(--idcheck-json "$G/idcheck.json"); CMD+=(--md "$G/diff.md");;
+    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); idcheck_json_args; CMD+=(--md "$G/diff.md");;
     rest) CMD=("$PY" "$B/restcontract.py" "$V_REST_BEFORE" "$V_REST_AFTER");;
     logdiff) CMD=("$PY" "$B/logdiff.py" "$V_OLD_LOG" "$V_NEW_LOG"); opt --allow "$V_LOG_ALLOW"; CMD+=(--md "$G/logdiff.md");;
     smoke)
@@ -439,6 +450,7 @@ run_pre() { # RUNG ; returns 0 when absent or ok
 [ $FAILED_INPUT = 0 ] && for r in $RUNGS; do
   eval "s=\$ST_$r"; [ "$s" = WANTED ] || continue
   [ $dry = 1 ] || mkdir -p "$G"
+  [ $r = idcheck ] && [ $dry = 0 ] && rm -f "$G/idcheck.json"   # GM-35: a skipped or exit-2 idcheck must not leave an old JSON for the data rung
   if [ $r = smoke ] && [ -z "$V_SMOKE_PLAN" ] && [ -z "$V_SMOKE_REJUDGE" ] && [ -n "$V_SMOKE_APP_DIR" ]; then
     if [ $dry = 1 ]; then echo "[smoke] GEN: $PY $B/smokewalk_gen.py $V_SMOKE_APP_DIR -o $G/plan.json"; fi
   fi

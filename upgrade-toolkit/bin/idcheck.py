@@ -308,6 +308,7 @@ def apply_approvals(findings, approved, base):
         for pat, why in approved:
             if fnmatch.fnmatch(key, pat) or (not keyed_only and fnmatch.fnmatch(x["name"], pat)):
                 x["approved"] = f"approved: {why}"
+                x["pattern"] = pat   # GM-35: diff.py derives data allows from literal patterns only; a glob is never widened into data
                 break
         if base is not None and "approved" not in x:
             orig = base[x["kind"]].get(x["name"])
