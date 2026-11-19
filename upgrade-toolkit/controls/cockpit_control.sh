@@ -315,6 +315,37 @@ PY
   rung2-own-gate) r2w; printf 'Overall: **INVALID** (exit 2): 1 PASS.\nProgress: 1 of 3 checks closed (33%%). 2 with REGRESSIONS to fix, 0 need a decision, 1 not measured yet.\n' > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   rung2-no-first-gate) r2w; rm -f "$W/../gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   charset) chkw; ck >/dev/null; echo "metas: $(grep -c '<meta charset="utf-8">' "$T/out.html")"; head -c 120 "$T/out.html" | head -2 ;;
+  # DV-13: the sign-off card lists the rows the "n choices were assumed" count is made of (one list, one count)
+  assumed-list-d-only|assumed-list-mixed|assumed-list-many)
+    if [ "$case_" = assumed-list-d-only ]; then
+      python3 - "$W/PROPOSAL.md" <<'PY'
+import re, sys
+t = open(sys.argv[1]).read()
+a = t.index("## 3."); b = t.index("## 4.")
+open(sys.argv[1], "w").write(t[:a] + "## 3. Needs your decision before we start\n\n" + t[b:])
+PY
+      rm -f "$W/DECISIONS.md"
+      printf '# Agent decisions\n\n| # | Decision | Choice | Why |\n|---|---|---|---|\n| D7 (agent) | Dropped the <b>unused</b> export job | Removed with mxcli | Nothing calls it. |\n' > "$W/AGENT-DECISIONS.md"
+    elif [ "$case_" = assumed-list-many ]; then
+      for n in 3 4 5 6 7 8; do echo "| D$n (agent) | Extra decision $n | Chose $n | Because. |" >> "$W/AGENT-DECISIONS.md"; done
+    fi
+    ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+m = re.search(r'id="assumed-list">(.*?)</div>', h, re.S)
+box = m.group(1) if m else ""
+li = [html.unescape(re.sub(r"<[^>]+>", "", x)) for x in re.findall(r"<li>(.*?)</li>", box, re.S)]
+meta = re.search(r'"meta": "(\d+) choices? w(?:as|ere) assumed by the agent', h)
+head = html.unescape(re.sub(r"<[^>]+>", "", re.search(r"<b>(.*?)</b>", box).group(1))) if m else "none"
+print("card heading:", head)
+for x in li: print("listed:", x)
+rows = [x for x in li if re.match(r"^(D|P-|S-)\d*", x)]
+named = len([x for x in li if not x.startswith("+") and not re.match(r"^\+\d+", x)])
+more = next((int(re.match(r"\+(\d+)", x).group(1)) for x in li if re.match(r"\+\d+", x)), 0)
+print("count in brief:", meta.group(1) if meta else "none", "| listed + more:", named + more)
+print("raw tag escaped:", "<b>unused</b>" not in box)
+PY
+    ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;

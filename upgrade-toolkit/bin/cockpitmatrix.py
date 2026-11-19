@@ -2812,6 +2812,11 @@ def h_questions(model, matrix=None, cases_=None):
                         f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:320]) + "</small>" if say else ""}'
                         f'{"<small class=" + chr(34) + "catch" + chr(34) + ">The catch: " + E(co["catch"]) + "</small>" if co.get("catch") else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
+        ar = i.get("assumed_rows") or []   # the rows the "n choices were assumed" count is made of (same list, DV-13)
+        if ar:
+            ctx += ('<div class="qev" id="assumed-list"><b>' + E(f"{len(ar)} {'choice' if len(ar) == 1 else 'choices'} assumed by the agent") + '</b><ul>'
+                    + "".join(f"<li>{E(x['id'])}: {E(x['text'])}</li>" for x in ar[:5])
+                    + (f'<li><a href="#matrix">+{len(ar) - 5} more, see the matrix</a></li>' if len(ar) > 5 else "") + "</ul></div>")
         # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
         ev = i.get("evidence") or {}
         if ev.get("what"):
