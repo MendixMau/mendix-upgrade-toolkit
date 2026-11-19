@@ -21,6 +21,8 @@ if [ "$MODE" != fallback ] && [ "$MODE" != orphans ]; then for c in timeout gtim
 [ "$MODE" != fallback ] && [ "$MODE" != orphans ] || { [ ! -e "$W/path/timeout" ] && [ ! -e "$W/path/gtimeout" ] || { echo "control error: timeout on PATH"; exit 9; }; }
 if [ "$MODE" = orphans ]; then
   # upg_timeout (the real function, cut out of SETUP) on fast commands, no timeout on PATH: no `sleep 7919` may outlive the calls, and rc stays honest
+  # no pkill on the PATH: the old watchdog's `pkill -P` cleaned its sleep up when a pkill existed, the leak only shows without one
+  rm -f "$W/path/pkill"
   sed -n '/^upg_timeout()/,/^}/p' "$SETUP" > "$W/fn.sh"
   [ -s "$W/fn.sh" ] || { echo "control error: upg_timeout not found"; exit 0; }
   out=$(env -i PATH="$W/path" bash -c ". '$W/fn.sh'; for i in 1 2 3 4 5; do upg_timeout 7919 true || echo BAD-true-\$?; done; upg_timeout 7919 sh -c 'exit 3'; echo rc3=\$?; upg_timeout 2 sleep 1000; echo rc124=\$?; sleep 1" 2>&1)
