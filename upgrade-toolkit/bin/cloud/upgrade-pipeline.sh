@@ -289,13 +289,19 @@ gate_open_nj_meta() { # gate_open_nj_meta REGRESSIONS [NEED_A_DECISION NOT_MEASU
   fi
 }
 rerun_cmd() { # the command that resumes at the current step: the run's own --from is dropped so the hint carries exactly one
-  local a=() skip=0 v
+  # Cold rfq: rung 2 gets RUN, UPG_PHASE and UPG_COCKPIT_OUT from rung 1's exec; a hint without them made the run folder
+  # <work> (dirname of rung2), the app outside it, exit 3. A rung-2 hint carries them as an env prefix.
+  local a=() skip=0 v pre="" e
+  if [ "$(basename "$WORK")" = rung2 ]; then
+    for e in RUN UPG_PHASE UPG_COCKPIT_OUT; do [ -z "${!e:-}" ] || pre+="$e=$(printf %q "${!e}") "; done
+    [ -z "$pre" ] || pre="env $pre"
+  fi
   for v in ${ARGS_ORIG[@]+"${ARGS_ORIG[@]}"}; do
     if [ "$skip" = 1 ]; then skip=0; continue; fi
     case "$v" in --from) skip=1; continue ;; --from=*) continue ;; esac
     a+=("$v")
   done
-  printf '%s%s --from %s' "$SELF" "$(quoted ${a[@]+"${a[@]}"})" "$STEP"
+  printf '%s%s%s --from %s' "$pre" "$SELF" "$(quoted ${a[@]+"${a[@]}"})" "$STEP"
 }
 nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   [ "$NJ_CODE" != 0 ] || return 0
