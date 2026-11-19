@@ -1674,6 +1674,7 @@ ctl smokewalk-login-path-catch 0 '^loginPath /login-without-sso.html url http://
 ctl smokewalk-login-path-default-pass 0 '^loginPath /login.html url http://h:1/login.html$' -- lp ""
 ctl smokewalk-login-path-bad-catch 2 'needs a path starting with /' -- lp ",'--login-path','login.html'"
 ctl smoke-rejudge-needs-compare-catch 2 'rejudge needs --compare' -- $SW --rejudge $SF/new-pass.json
+ctl smokewalk-home-failed-catch 0 '^ok +sessionUser dojo' '^ok +loginFailure session and server error' '^ok +loginFailure no session' '^ok +loginFailure license limit wins' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-api-only-pass 0 '^ok +apiOnlyHome login page home: got true' '^ok +apiOnlyHome ordinary home: got null' '^ok +apiOnlyHome menu step to the login page: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass menu-copy-same-step-pass other-page-gone-catch; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; fi
 
@@ -1695,7 +1696,7 @@ if python3 -c "import bcrypt" 2> /dev/null; then
   ctl smoke-users-ambiguous-catch 2 'AMBIGUOUS' 'CustomAdminModule.UserAccount, Other.PartnerAccount' '--entity Module.Entity' '!DO \$\$' \
     -- python3 $B/smoke_users.py fx_t --psql "$SU/user-two-below-account.json" 
   ctl smoke-users-auto-one-pass 0 'user entity CustomAdminModule.UserAccount \(the only specialization' "given text := 'CustomAdminModule.UserAccount'" \
-    'short_id .*FROM "mendixsystem\$entity" e JOIN "mendixsystem\$entityidentifier"' 'sid << 48' "VALUES \\(uid, 'smoke_' .*, leaf\\)" 'INSERT INTO %I \(id\)' '!AMBIGUOUS' \
+    'short_id .*FROM "mendixsystem\$entity" e JOIN "mendixsystem\$entityidentifier"' 'sid << 48' "VALUES \\(uid, 'smoke_' .*, leaf\\)" 'INSERT INTO %I \(%s\) VALUES' '!AMBIGUOUS' \
     -- python3 $B/smoke_users.py fx_t --psql "$SU/user-one-below-account.json"
   ctl smoke-users-entity-flag-pass 0 "given text := 'Other.PartnerAccount'" 'user entity Other.PartnerAccount \(--entity\)' '!AMBIGUOUS' '!REFUSED' \
     -- python3 $B/smoke_users.py fx_t --entity Other.PartnerAccount --psql "$SU/user-two-below-account.json"
@@ -1703,6 +1704,10 @@ if python3 -c "import bcrypt" 2> /dev/null; then
     -- python3 $B/smoke_users.py fx_t --entity CustomAdminModule.UserAccount --psql "$SU/user-two-below-account.json"
   ctl smoke-users-generic-guard-pass 0 'given text := NULL' 'rerun with --entity Module.Entity' 'NOTE database not reachable' \
     -- python3 $B/smoke_users.py fx_t --psql false
+  # GM-30: a specialization row carries every column (model default, Boolean false, required column its zero), never the id alone
+  ctl smoke-users-spec-defaults-sql-pass 0 'GM-30: every column of this level gets a value' 'FROM "mendixsystem\$attribute" at' "IF dflt IS NULL AND a.ty = 10 THEN dflt := 'false'" \
+    'ic.is_nullable = .NO. AND ic.column_default IS NULL' "EXECUTE format\('INSERT INTO %I \(%s\) VALUES \(%s\)', t, cols, vals\) USING uid" '!INSERT INTO %I \(id\) VALUES' \
+    -- python3 $B/smoke_users.py fx_t --entity CustomAdminModule.UserAccount --psql "$SU/user-one-below-account.json"
 else skip smoke-users-ambiguous-catch "no python bcrypt"; skip smoke-users-auto-one-pass "no python bcrypt"; skip smoke-users-entity-flag-pass "no python bcrypt"; fi
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to
 # MendixSSO.MendixSSOUser by role); real Postgres, because the choice is made inside the DO block
@@ -1712,6 +1717,20 @@ select 'holders ' || string_agg(r.name || '=' || u.name, ',' order by r.name, u.
   join "system$user" u on u.id = ur."system$userid" join "system$userrole" r on r.id = ur."system$userroleid";
 SQL
 }
+# GM-30: real Postgres: the specialization row has every column filled; the pre-fix script died on the required column
+if [ $fast = 1 ]; then skip smoke-users-spec-defaults-pass "--fast"
+elif [ -n "$only" ] && ! printf '%s\n' smoke-users-spec-defaults-pass smoke-users-spec-defaults-row-pass | grep -Eq "$only"; then :
+elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then
+  skip smoke-users-spec-defaults-pass "no running mig-pg or no python bcrypt"
+else
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 && docker exec mig-pg createdb -U mendix fx_ctl_gm30 \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30 -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
+  ctl smoke-users-spec-defaults-pass 0 'smoke user smoke_clerk -> role Clerk \(Spec\.Staff\)' '!ERROR' \
+    -- python3 $B/smoke_users.py fx_ctl_gm30 --entity Spec.Staff --apply
+  ctl smoke-users-spec-defaults-row-pass 0 '^row f\|t\|0\|North\|$' '^acct Smoke Clerk\|t\|f$' \
+    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30 -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 > /dev/null
+fi
 if [ $fast = 1 ]; then skip smoke-users-per-role-pass "--fast"
 elif [ -n "$only" ] && ! printf '%s\n' smoke-users-per-role-pass smoke-users-shared-roles-catch smoke-users-sole-target-pass | grep -Eq "$only"; then :
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then

@@ -1,7 +1,7 @@
 // Control for E5 F9: the smokewalk wait predicates must return false (not throw) while the Mendix session is not
 // available yet, and true once it is. Playwright's waitForFunction rejects on the first throw, which made every role
 // INVALID one second after a login that worked. Runs in plain node with a fake window/mx; exit 0 = pass.
-const { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome } = require('../bin/smokewalk.js');
+const { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
 let fail = 0;
 const check = (name, got, want) => {
   const ok = got === want;
@@ -122,5 +122,17 @@ function pwLoad() {
   check('apiOnlyHome menu step to the login page', apiOnlyHome(lp, { via: 'menu', page: 'General.Login_Web' }), null);
   check('apiOnlyHome no model login page', apiOnlyHome({ login_page: '' }, { via: 'home', page: 'General.Login_Web' }), null);
   // T7R-12, T8R-8: --repeat never clears a FAIL by luck: FAIL then PASS is FLAKY, FAIL on every attempt stays FAIL
+  // GM-30: a live session with a home page that errors is "home failed for this user", not "login failed"
+  global.mx = { session: { getUserName: () => 'smoke_user' } };
+  check('sessionUser dojo', sessionUser(), 'smoke_user');
+  global.mx = { session: { sessionData: { user: { guid: '1', name: 'smoke_user' } } } };
+  check('sessionUser react', sessionUser(), 'smoke_user');
+  global.mx = { session: { getUserName() { throw new Error('Session is not available'); } } };
+  check('sessionUser while session throws', sessionUser(), null);
+  check('loginFailure session and server error', loginFailure({ status: 200, url: 'http://h/login3.html', user: 'smoke_user', error: 'NullPointerException in Home' }),
+    'home failed for this user: NullPointerException in Home (session exists, HTTP 200, on http://h/login3.html)');
+  check('loginFailure session without error text', /^home failed for this user: the home page did not render/.test(loginFailure({ status: 200, url: 'u', user: 'x' })), true);
+  check('loginFailure no session', loginFailure({ status: 200, url: 'http://h/login3.html', user: null, error: 'x' }), 'login failed (HTTP 200, still on http://h/login3.html)');
+  check('loginFailure license limit wins', /^login refused: license session limit/.test(loginFailure({ status: 402, url: 'u', user: 'x' })), true);
   process.exit(fail ? 1 : 0);
 })();
