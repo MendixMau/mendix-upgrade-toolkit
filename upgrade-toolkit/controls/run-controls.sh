@@ -8652,6 +8652,16 @@ ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the 
 ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 # DV-2: the target text names no patch number (a number written in the text goes stale; triage reads it from the notes)
 ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -c "grep -nE 'newest patch,? \\(?[0-9]+\\.[0-9]+\\.[0-9]+|Mendix [0-9]+\\.[0-9]+ \\([0-9]+\\.[0-9]+\\.[0-9]+\\)' '$TK/SKILL.md' '$TK/SETUP-PROMPT.md' '$TK/playbooks/10-to-11.md' '$TK/steps/triage.md'; [ \$? = 1 ] && echo 'no target patch in the text'"
+# DV-1: the docs derive the toolkit folder from SKILL.md's own location (no sibling checkout or home path), and setup
+# prints what it writes outside the run folder; --plan prints only that and changes nothing.
+DV1=$T/dv1; mkdir -p $DV1
+ctl docs-no-sibling-toolkit-path-catch 0 '^none$' -- sh -c "cd $TK && grep -nE 'Mendix/mxcli-project-toolkit|mxcli-project-toolkit/upgrade-toolkit' SKILL.md SETUP.md SETUP-PROMPT.md steps/*.md playbooks/*.md READING-THE-VERDICT.md || echo none"
+ctl docs-toolkit-path-from-skill-folder-pass 0 'TK. = the folder that holds this SKILL\.md' 'B=\$TK/bin' -- sh -c "cd $TK && grep -h 'Paths:' SKILL.md steps/triage.md"
+ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mxcli-project-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
+ctl setup-plan-changes-nothing-pass 0 '^nothing$' -- sh -c "ls -A $DV1 | grep -vx nopw | grep . || echo nothing"
+ctl setup-plan-follows-variables-pass 0 "$DV1/src2" -- env HOME=$DV1/h MXCLI_SRC=$DV1/src2 bash $B/setup-container.sh --plan $DV1/run 11.6.3
+ctl setup-plan-no-args-refused-pass 2 'run folder' -- bash $B/setup-container.sh --plan
+
 # DV-7: SETUP-PROMPT.md keeps the unattended default and carries a marked attended variant; every file, variable and flag it names exists
 ctl setup-prompt-attended-variant-pass 0 '^setup-prompt: ok$' -- bash $TK/controls/setup_prompt_control.sh
 ctl setup-prompt-attended-variant-catch 1 '^FAIL: no marked attended block$' -- bash -c "sed '/^<!-- ATTENDED-START -->\$/,/^<!-- ATTENDED-END -->\$/d' '$TK/SETUP-PROMPT.md' > $T/sp-noblock.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-noblock.md"
