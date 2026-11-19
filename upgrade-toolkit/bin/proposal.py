@@ -135,6 +135,7 @@ class Facts:
         self.nendpoints = None; self.api_mocked = 0; self.api_unknown = []; self.api_excluded = 0
         self.release_open = None
         self.release_total = None
+        self.release_unread = []  # planned modules whose release impact is UNKNOWN (GM-18)
         self.actions = None
         self.scope = None       # journey_scope.py output: line, testability_line, counts
         self.effort = {}        # S/M/L -> count (section 3 items)
@@ -275,6 +276,14 @@ class Facts:
                 if not col(head, r, "handled").strip():
                     opn += 1
         self.release_total, self.release_open = tot, opn
+        # GM-18: "Not covered" rows are modules release_impact had no brain file for (UNKNOWN): their release notes were not read
+        for head, rows in tables(t):
+            if "module or source" not in head:
+                continue
+            for r in rows:
+                mod = col(head, r, "module or source")
+                if mod and mod != "Studio Pro" and mod not in self.release_unread:
+                    self.release_unread.append(mod)
 
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
@@ -469,6 +478,15 @@ class Facts:
             if mod in held:
                 continue
             self.items2.append({"key": f"module:{mod}", "text": f"module update {mod} {fr} -> {to} ({when})"})
+        for mod in self.release_unread:
+            rng = [(fr, to) for m, fr, to, _w in self.plan if m == mod]
+            vr = f"{rng[0][0]} -> {rng[-1][1]}" if rng else "version range not known"
+            self.add3("check", f"{mod}: release notes not read",
+                      f"release-impact.md lists {mod} ({vr}) under Not covered: UNKNOWN, no brain file, so no release-note row was checked",
+                      "read the release notes of every version in the range, record what you found in release-impact.md | "
+                      "add a brain file for the module, then rerun triage | hand to a named person",
+                      f"read the release notes of {mod} for {vr}, or add a brain file for it", "S",
+                      "a breaking change in the module is only found at the build or the test")
         self.items2.sort(key=lambda x: x["key"])
         self.items3.sort(key=lambda x: (x["kind"], x["name"]))
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
