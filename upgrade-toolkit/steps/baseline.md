@@ -26,7 +26,7 @@ copy's converted model.
 
 0. Build output (DV-6): before the first build of the old app run `python3 $B/buildout.py exclude app/` (appends `.classpath`,
    `.project`, `<name>.launch` to the repo's `.git/info/exclude`, idempotent, the app's `.gitignore` untouched; upgrade-pipeline.sh
-   baseline does it itself). The compiled `theme-cache/` is TRACKED in some apps, so an exclude cannot hide it: triage item 9 and
+   does it at run start and again at the start of the baseline step, so a resumed run gets it too). The compiled `theme-cache/` is TRACKED in some apps, so an exclude cannot hide it: triage item 9 and
    `convertpre.py` accept exactly that path as build output and list it ACCEPTED; any other dirty path still refuses (hand edits under `theme-cache/` are accepted as build output too).
 
 1. Database with realistic data. If it has none: `seed_pg.py --psql "docker exec -i mig-pg psql -U mendix -d X" --mpr app/<app>.mpr`

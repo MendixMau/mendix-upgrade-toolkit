@@ -956,6 +956,8 @@ modcase_fix() { # modcase_fix BUILD_LOG
 step_baseline() {
   local old rc=0 base probe keep line p code
   old=$(mda_old)
+  # DV-6: idempotent again here, because a run resumed (--from/--only baseline) on an app whose run start predates the exclude never passed it
+  x python3 "$B/buildout.py" exclude "$APP" || note "buildout.py exclude failed: .classpath, .project, *.launch may show as dirty (DV-6)"
   if [ -z "$OLD_MDA" ] && [ ! -f "$old" ]; then
     disk_gate baseline
     # LDMS: a publisher SCSS import with the wrong letter case (components/ for Components/) fails the theme compile of the OLD app on
