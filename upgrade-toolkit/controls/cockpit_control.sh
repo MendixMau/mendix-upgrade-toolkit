@@ -10,6 +10,8 @@ mkdir -p "$T/run/app"; (cd "$T/run/app" && git init -q && git config user.email 
        echo "$m" >> f.txt; git add f.txt; git commit -q -m "$m"; done)
 HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 cnt() { grep -c "$@" || true; }
+# BSD sed (macOS) takes the script after a bare -i as the backup suffix: 5 cockpit controls FAILed on every Mac (2026-11-19)
+sedi() { sed -i.sedi "$1" "$2" && rm -f "$2.sedi"; }
 ck() { python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html"; }
 dec() { python3 "$B/decisions.py" "$@" --work "$W"; }
 st() { python3 "$B/steps.py" "$@" --work "$W"; }
@@ -88,7 +90,7 @@ case $case_ in
   lb-brief) lbw "$2"; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; grep -o '<div class="stopbar[^"]*"' "$T/out.html" ;;
   lb-term)  lbw "$2"; python3 "$B/brief.py" --work "$W" | sed -n '1,/^$/p' | sed -e :a -e '$!N;s/\n  / /;ta' -e 'P;D' ;;
   lb-term-size) lbw "$2"; termsize "$W" ;;
-  lb-norun) lbw psop-afterwalk-stop.md; sed -i '/^  REGRESSION/d' "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
+  lb-norun) lbw psop-afterwalk-stop.md; sedi '/^  REGRESSION/d' "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Not measured/p' ;;
   lb-stuck) W=$T/lb/work; shift_=0; for sec in "${@:2}"; do njrun basewalk 11 "$(sections_of $sec)"; done; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^Who/p'; echo "stops: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')" ;;
   lb-stuck-agent) W=$T/lb/work; for k in 1 2 3; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, %s ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\n' "$k")"; done; ck >/dev/null && brief_text | sed -n '1p;/^Do this/,/^Who/p' ;;
   lb-stuck-new-cause) W=$T/lb/work; for k in 1 2; do njrun build 10 "$(printf '\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\nCE0463 in the widget\n')"; done
@@ -192,11 +194,11 @@ PY
   brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text; grep -o 'The run stopped during this step: [^<]*' "$T/out.html" ;;
   brief-who) printf 'Progress: 5 of 10 checks closed (50%%). 1 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\nChanges: 30 (toolkit 5, agent 1, person 0, unlabelled 24)\n' >> "$W/gate-summary.md"; ck >/dev/null && brief_text ;;
   brief-approval) ck >/dev/null && brief_text | grep -A1 '^Who changed what'
-            sed -i 's/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what'
+            sedi 's/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what'
             printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"; ck >/dev/null && brief_text | grep -A1 '^Who changed what' ;;
   brief-live-bits) ck >/dev/null; grep -c 'resolve\[data-q\]' "$T/out.html" | sed 's/^/resolve wired on a copy: /'
             grep -o '.nowrun small{display:none' "$T/out.html" | head -1 | sed 's/^/running bar detail: /'; grep -o 'nr.addEventListener("click"' "$T/out.html" | head -1 | sed 's/^/tap opens it: /' ;;
-  pending-signed) sed -i 's/ASSUMED (unattended)/CONFIRMED/g;s/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
+  pending-signed) sedi 's/ASSUMED (unattended)/CONFIRMED/g;s/ASSUMED/CONFIRMED/g' "$W/DECISIONS.md"; printf '\nSigned-off: Ana 2026-01-02\n' >> "$W/PROPOSAL.md"
             echo "chat: $(dec pending | grep -E '^[A-Za-z:0-9_-]+  ' | awk '{print $1}' | sort | paste -sd' ' -)"
             python3 - "$B" "$W" <<'PY'
 import sys; sys.path.insert(0, sys.argv[1])
@@ -299,11 +301,11 @@ d = re.search(r'<details class="chosen">.*?</details>', h, re.S).group(0)
 print("ranked:", " | ".join(html.unescape(re.sub(r"<[^>]+>", "", x)) for x in re.findall(r"<li>(.*?)</li>", d)))
 PY
             ;;
-  chk-routine-only) chkw journeys; rm -f "$W/edit-routes.json" "$W/localedits.md"; sed -i 's/held for a person/waiting/g;s/local edit/own change/g;s/changed in this app/new/g;s/changed by this app/new/g;s/would overwrite/replace/g;s/edits refuse/updates refuse/g' "$W/PROPOSAL.md"; ck >/dev/null && brief_text | sed -n '/^Do this/,$p' ;;
-  chk-header) chkw journeys; ck >/dev/null; grep -o '<div class="ver">[^<]*' "$T/out.html" | head -1; sed -i '/^journeys/d' "$W/state/running" 2>/dev/null; rm -f "$W/state/running"
+  chk-routine-only) chkw journeys; rm -f "$W/edit-routes.json" "$W/localedits.md"; sedi 's/held for a person/waiting/g;s/local edit/own change/g;s/changed in this app/new/g;s/changed by this app/new/g;s/would overwrite/replace/g;s/edits refuse/updates refuse/g' "$W/PROPOSAL.md"; ck >/dev/null && brief_text | sed -n '/^Do this/,$p' ;;
+  chk-header) chkw journeys; ck >/dev/null; grep -o '<div class="ver">[^<]*' "$T/out.html" | head -1; sedi '/^journeys/d' "$W/state/running" 2>/dev/null; rm -f "$W/state/running"
             for s in afterwalk journeys heal diff gate; do echo done > "$W/state/$s.done"; done; printf 'gate\t2026-11-18T11:50:00Z\t2026-11-18T11:51:00Z\t0\n' >> "$W/state/timing.tsv"; printf 'Overall: **PASS** (exit 0): 5 PASS.\n' > "$W/gate-summary.md"; ck >/dev/null; grep -o '<div class="ver">[^<]*' "$T/out.html" | head -1 ;;
   chk-cards) chkw; ck >/dev/null; cards; brief_text | sed -n '/^Do this/,/^Who/p' | head -4
-            sed -i 's/ASSUMED (unattended)/ASSUMED/' "$W/DECISIONS.md"; ck >/dev/null; echo "attended:"; cards ;;
+            sedi 's/ASSUMED (unattended)/ASSUMED/' "$W/DECISIONS.md"; ck >/dev/null; echo "attended:"; cards ;;
   chk-who) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Who changed/,$p' | head -2 ;;
   # round 5 (lead user test on PSOP, issue drafts 15 and 17): the stop's owner decides the top card; recording is not testing; the first rung stays visible on the second
   chk-agent-stop) chkw; rm -f "$W/state/build.done" "$W/state/after.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## mxbuild failed (exit 1, 7 ERROR at lines) (exit 10)\n\nowner: agent\n\nSummary file: build.log\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '1p;/^Broken/,/^The AI made/p'; cards ;;

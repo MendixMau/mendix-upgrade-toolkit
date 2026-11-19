@@ -7805,6 +7805,8 @@ ctl pipeline-smoke-users-on-smoke-copy-catch 0 '^ok \$\{X\}_smoke_apid_\$side$' 
 
 # --- cockpit page (bin/cockpitpage.py) and the decision ledger (bin/decisions.py) on fixtures/cockpit (a made-up shop app) -------------
 CK="bash $here/cockpit_control.sh"
+# no GNU-only in-place sed (a bare -i before the script) in the control scripts: BSD sed on a Mac takes the script as a backup suffix
+ctl controls-sed-inplace-portable-pass 0 '^gnu-only 0$' -- sh -c "grep -E \"sed -[i] '\" '$here'/*.sh | wc -l | tr -d ' ' | sed 's/^/gnu-only /'"
 ctl cockpit-render-five-phases-catch 0 '"id": "find"' '"id": "plan"' '"id": "upgrade"' '"id": "test"' '"id": "golive"' -- $CK render
 ctl cockpit-render-versions-from-run-pass 0 '10\.24\.1\.1 \\u2192 11\.1\.0|10\.24\.1\.1 .{1,3} 11\.1\.0' '!HTMLSnippet' -- $CK render
 ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id": "regression:Gridmod"' '"id": "confirm:D2"' '"id": "signoff"' '"id": "P-1"' -- $CK render
