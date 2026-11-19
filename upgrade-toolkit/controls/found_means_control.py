@@ -10,7 +10,9 @@ os.makedirs(w, exist_ok=True)
 json.dump({"endpoints": [
     {"doc": "Shop.GetRates", "kind": "rest", "status": "MOCKED", "why": "every location is an overridden constant"},
     {"doc": "Mail.GetToken", "kind": "rest", "status": "UNKNOWN", "why": "location from data Mail.Provider.TokenUrl: set it to the printed URL"},
-    {"doc": "Sso.Refresh", "kind": "rest", "status": "UNKNOWN", "why": "$Uri is computed by Java action Sso.GetUri at runtime"}]},
+    {"doc": "Sso.Refresh", "kind": "rest", "status": "UNKNOWN", "why": "$Uri is computed by Java action Sso.GetUri at runtime"},
+    {"doc": "Shop.PostCase", "kind": "rest", "status": "MOCKED", "auto": "proxy", "why": "hard-coded URL https://api.example.invalid/v1/case: stood in"},
+    {"doc": "Mod.OldUrl", "kind": "const", "status": "UNCALLED", "auto": "uncalled", "why": "no modelled call reads this URL constant"}]},
     open(os.path.join(w, "apimock-inventory.json"), "w"))
 json.dump([{"name": "Theme", "ui": [{"change": "CHANGED", "kind": "layout", "name": "Theme.Default", "detail": "content differs from the package"}]},
            {"name": "Plain", "ui": []}, {"name": "Odd", "domain_error": ["not found"]},

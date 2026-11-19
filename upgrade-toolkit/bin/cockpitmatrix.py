@@ -439,7 +439,7 @@ def derive(work, model):
                         story={"found": t["steps"],
                                "means": ["The test must not call real outside systems. A call with no stand-in is not tested."],
                                "plan": [f"Answer {len(mocked)} calls with a stand-in during the test.",
-                                        f"The other {len(eps) - len(mocked)} are checked on the real test systems by a person before go-live."]}))
+                                        f"The other {sum(1 for e in eps if e.get('status') in ('UNKNOWN', 'EXCLUDED'))} are checked on the real test systems by a person before go-live."]}))
 
     # Release notes
     ri = cp.rd(os.path.join(work, "release-impact.md"))
@@ -932,22 +932,28 @@ def found_detail(rec, work):
         items = []
         for e in eps:
             why = e.get("why") or ""
-            if e.get("status") == "MOCKED":
+            if e.get("status") == "MOCKED" and e.get("auto") == "proxy":
+                items.append([e["doc"], "resolved automatically", "ok", "The address is written into the app. During the tests the stand-in answers it instead of the real system; the app itself is unchanged."])
+            elif e.get("status") == "MOCKED" and e.get("auto") == "discovery":
+                items.append([e["doc"], "resolved automatically", "ok", "A Java action reads this address from the sign-in provider's settings. The stand-in serves those settings, so the call reaches the stand-in."])
+            elif e.get("status") == "MOCKED":
                 items.append([e["doc"], "stand-in ready", "ok", "The tests answer this call with a stand-in, so the screens that use it can be checked."])
+            elif e.get("status") == "UNCALLED":
+                items.append([e["doc"], "not called", "ok", "A web address setting that nothing in the model calls. No stand-in is needed; if Java code calls it after all, the test says so."])
             elif why.startswith("location from data"):
                 fld = why.split(":")[0].replace("location from data", "").strip()
                 items.append([e["doc"], "address from data", "wait", f"The address is read from the database ({fld}) while the app runs. The tests cannot know where it goes; a person names the real test system."])
             elif "computed by Java action" in why:
-                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs. The toolkit cannot see it, so a person says which system this is."])
+                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs, from nothing the toolkit can read. Recommended: test this call in the customer's test environment before go-live."])
             elif e.get("kind") == "const":
                 items.append([e["doc"], "unused address?", "wait", "A web address setting that nothing in the model reads. Either it is unused, or a Java action reads it. A person checks."])
             else:
                 items.append([e["doc"], e.get("status", "").lower() or "open", "wait", why])
         ok = sum(1 for i in items if i[2] == "ok")
-        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") != "MOCKED"})
-        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests.",
-                          f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
-                          f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."], "items": items}
+        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") not in ("MOCKED", "UNCALLED")})
+        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests."]
+                + ([f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
+                    f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."] if mods else []), "items": items}
     if t in ("modules", "module-edits"):
         edits = {m["name"]: m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)}
         items, clean, touched, unknown = [], 0, [], 0

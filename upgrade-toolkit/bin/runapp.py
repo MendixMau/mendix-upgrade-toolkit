@@ -34,6 +34,10 @@ Env:
                    none. When the app has MendixSSOClient.PushAppDeploymentEnabled and CONST_OVERRIDES does not name it, runapp sets
                    it to false for every start (T9: the LaMa push backs off 525 s) and prints a HARNESS CONDITION. Anything else (bad JSON, a missing file, not an object) stops the start before anything runs.
   (MC-20: with work/const-overrides.json present and CONST_OVERRIDES unset, start prints a WARN naming the file and the prefix)
+  APIMOCK_PROXY    <apimock state>/proxy.json (the pipeline sets it only while the stand-in runs): the app's outside calls
+                   go through the stand-in (-Dhttp(s).proxyHost/Port, the stand-in's own host direct), which answers the
+                   model's hard-coded URLs and BLOCKS every other host; its certificate (under WORKDIR) is added to a copy
+                   of the container's Java truststore. Test side only, same for old and new; prints a HARNESS CONDITION.
   UPG_NAME         container name prefix (default mig): container <prefix>-<name>, so you can tell your own apart
   UPG_DB_PREFIX    when set, refuse any database name that does not start with it (controls: fx_)
   UPG_SESSION_TIMEOUT  SessionTimeout in ms (also sets ClusterManagerActionInterval to half of it). Journeys need 30000:
@@ -311,6 +315,32 @@ def const_overrides():
     return v
 
 
+def standin_proxy(name="app"):
+    """APIMOCK_PROXY (apimock.py serve writes proxy.json when the model holds hard-coded URLs): (java args, shell prefix
+    that builds the truststore, HARNESS CONDITION text), or ([], "", None) when unset. Exits on an unreadable file or a
+    certificate the container cannot see (outside WORKDIR), before anything runs."""
+    raw = os.environ.get("APIMOCK_PROXY", "").strip()
+    if not raw:
+        return [], "", None
+    try:
+        px = json.loads(Path(raw).read_text())
+        host, port = str(px["host"]), int(px["port"])
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"runapp: APIMOCK_PROXY={raw!r} is not a stand-in proxy.json ({e}); refused (nothing started)")
+    args = [f"-D{s}.{k}={v}" for s in ("http", "https") for k, v in (("proxyHost", host), ("proxyPort", port))]
+    args.append("-Dhttp.nonProxyHosts=" + "|".join(dict.fromkeys(["localhost", "127.0.0.1", host])))
+    prep = ""
+    if px.get("cert"):
+        c = Path(px["cert"]).resolve()
+        if not c.is_relative_to(WORK):
+            sys.exit(f"runapp: APIMOCK_PROXY certificate {c} is outside WORKDIR {WORK} (the container sees only /w); refused")
+        prep = ('cp "$JAVA_HOME/lib/security/cacerts" /tmp/upg-standin-trust && keytool -importcert -noprompt -alias upg-standin '
+                f'-file "/w/{c.relative_to(WORK)}" -keystore /tmp/upg-standin-trust -storepass changeit > /dev/null && ')
+        args += ["-Djavax.net.ssl.trustStore=/tmp/upg-standin-trust", "-Djavax.net.ssl.trustStorePassword=changeit"]
+    return args, prep, (f"HARNESS CONDITION: {name}: outside calls go through the stand-in's proxy {host}:{port}: it answers "
+                        f"{', '.join(px.get('hosts') or []) or 'no host'} and blocks every other host; same for old and new")
+
+
 HARNESS_AUTO = ["model\\metadata.json"]
 
 
@@ -401,6 +431,9 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     if pnote:
         print("runapp: " + pnote)
         consts.update(extra)
+    pargs, prep, xnote = standin_proxy(name)
+    if xnote:
+        print("runapp: " + xnote)
     aport, rport = 8090 + port_off, 8080 + port_off
     cname = f"{PREFIX}-{name}"
     sh("docker", "rm", "-f", cname, check=False)  # only our own name: <prefix>-<name>
@@ -414,7 +447,8 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     sh("docker", "run", "-d", "--name", cname, "--network", NET, "-v", f"{WORK}:/w", "-v", f"{rt}:/rt:ro",
        "-p", f"{aport}:8090", "-p", f"{rport}:8080", "-e", "M2EE_ADMIN_PORT=8090", "-e", "M2EE_ADMIN_LISTEN_ADDRESSES=*",
        "-e", f"M2EE_ADMIN_PASS={PASS}", "-e", "MX_INSTALL_PATH=/rt",
-       img, "java", "-Dfile.encoding=UTF-8", f"-Xmx{XMX}", "-jar", "/rt/runtime/launcher/runtimelauncher.jar", f"/w/run/{name}")
+       img, *(["sh", "-c", prep + 'exec java "$@"', "java"] if prep else ["java"]), "-Dfile.encoding=UTF-8", f"-Xmx{XMX}",
+       *pargs, "-jar", "/rt/runtime/launcher/runtimelauncher.jar", f"/w/run/{name}")
     for _ in range(180):
         try:
             admin(aport, "echo", {"echo": "ping"}); break

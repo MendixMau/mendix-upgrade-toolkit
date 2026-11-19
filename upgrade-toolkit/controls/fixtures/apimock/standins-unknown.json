@@ -1,0 +1,254 @@
+{
+ "version": "10.24.16.96987",
+ "languages": [
+  "en_US"
+ ],
+ "navigation": {
+  "login_page": ""
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "constants": [
+    {
+     "name": "ApiLocation",
+     "type": "String",
+     "default": "https://shop.example.invalid/api"
+    }
+   ],
+   "docs": [
+    {
+     "type": "Microflows$Microflow",
+     "name": "GET_Items",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Get",
+           "CustomLocationTemplate": {
+            "Text": "{1}/items",
+            "Parameters": [
+             {
+              "Expression": "@Shop.ApiLocation"
+             }
+            ]
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    },
+    {
+     "type": "Microflows$Microflow",
+     "name": "POST_Token",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$CreateVariableAction",
+          "VariableName": "URL",
+          "InitialValue": "'https://api.example.invalid/oauth/token'"
+         }
+        },
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Post",
+           "CustomLocationTemplate": {
+            "Text": "{1}",
+            "Parameters": [
+             {
+              "Expression": "$URL"
+             }
+            ]
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    },
+    {
+     "type": "Microflows$Microflow",
+     "name": "POST_Casebook",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Post",
+           "CustomLocationTemplate": {
+            "Text": "https://api.example.invalid/v1/casebook",
+            "Parameters": []
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sso",
+   "constants": [
+    {
+     "name": "Provider",
+     "type": "String",
+     "default": "https://idp.example.invalid"
+    },
+    {
+     "name": "DiscoveryPath",
+     "type": "String",
+     "default": ".well-known/openid-configuration"
+    }
+   ],
+   "docs": [
+    {
+     "type": "Microflows$Microflow",
+     "name": "SUB_Refresh",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$JavaActionCallAction",
+          "ResultVariableName": "TokenEndpointURI",
+          "JavaAction": "Sso.GetTokenEndpointURI",
+          "ParameterMappings": []
+         }
+        },
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Post",
+           "CustomLocationTemplate": {
+            "Text": "{1}",
+            "Parameters": [
+             {
+              "Expression": "$TokenEndpointURI"
+             }
+            ]
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    },
+    {
+     "type": "Microflows$Microflow",
+     "name": "SUB_UserInfo",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$JavaActionCallAction",
+          "ResultVariableName": "UserInfoURI",
+          "JavaAction": "Sso.GetUserInfoEndpointURI",
+          "ParameterMappings": []
+         }
+        },
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Get",
+           "CustomLocationTemplate": {
+            "Text": "{1}",
+            "Parameters": [
+             {
+              "Expression": "$UserInfoURI"
+             }
+            ]
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "Mod",
+   "constants": [
+    {
+     "name": "OldServiceUrl",
+     "type": "String",
+     "default": "http://localhost:8081/odata/x/"
+    }
+   ]
+  },
+  {
+   "name": "Ext",
+   "docs": [
+    {
+     "type": "Microflows$Microflow",
+     "name": "GET_Computed",
+     "data": {
+      "ObjectCollection": {
+       "$Type": "Microflows$MicroflowObjectCollection",
+       "Objects": [
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$JavaActionCallAction",
+          "ResultVariableName": "Address",
+          "JavaAction": "Ext.BuildUrl",
+          "ParameterMappings": []
+         }
+        },
+        {
+         "$Type": "Microflows$ActionActivity",
+         "Action": {
+          "$Type": "Microflows$RestCallAction",
+          "HttpConfiguration": {
+           "HttpMethod": "Get",
+           "CustomLocationTemplate": {
+            "Text": "{1}",
+            "Parameters": [
+             {
+              "Expression": "$Address"
+             }
+            ]
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
