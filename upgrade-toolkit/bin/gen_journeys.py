@@ -1086,9 +1086,14 @@ class ActionGen:
         if not (e.get("profile_kind") or "").lower().startswith("responsive"):
             return ["profile"], f"the path enters through navigation profile {e.get('profile') or '?'}: the engine runs the Responsive profile"
         # a blank caption (" ", cold run 4: every item of the role menu) is as icon-only as an empty one; the nav verb
-        # looked for item " " and the journey failed on both apps as a baseline defect, not as this skip
-        if e.get("via") == "menu" and not all((c or "").strip() for c in e.get("menu") or [None]):
-            return ["icon-menu"], "the path starts at a menu item without a caption (icon only): the nav verb finds items by caption"
+        # looked for item " " and the journey failed on both apps as a baseline defect, not as this skip. An icon item
+        # with its position (menu_nth, cold pdm) is clicked by position (#65); a blank group above it is not
+        m = e.get("menu") or [None]
+        if e.get("via") == "menu" and not all((c or "").strip() for c in m[:-1]):
+            return ["icon-menu"], "the path starts under a menu group without a caption (icon only): the nav verb opens groups by caption"
+        if e.get("via") == "menu" and not (m[-1] or "").strip() and e.get("menu_nth") is None:
+            return ["icon-menu"], ("the path starts at a menu item without a caption (icon only) and no position in "
+                                   "actions.json: rerun action_inventory.py")
         return None
 
     def ready_after(self, x, hops):
@@ -1149,11 +1154,15 @@ class ActionGen:
         if e.get("via") == "menu":
             m = e["menu"]
             first = [{"do": "nav", "group": m[0] if len(m) > 1 else None, "item": m[-1], "settleMs": 3000}]
+            if e.get("menu_nth") is not None:
+                first[0]["nth"] = e["menu_nth"]
         pages = [h["page"] for h in path if "page" in h]
         # one step per page on the way: the step's guard is the widget the next click needs (fails where it breaks)
         pending, tab_notes, guard_notes = first, [], []
         for i, h in enumerate(clicks):
-            label = f"open {pages[i] if i < len(pages) else '?'}" + (f" via {' > '.join(e['menu'])}" if i == 0 and e.get("via") == "menu" else "")
+            label = f"open {pages[i] if i < len(pages) else '?'}" + (f" via {' > '.join(c if (c or '').strip() else '(icon)' for c in e['menu'])}"
+                                                                   + ("" if e.get("menu_nth") is None else f" #{e['menu_nth'] + 1}")
+                                                                   if i == 0 and e.get("via") == "menu" else "")
             if i == 0 and e.get("via") == "home":
                 label = f"role home {pages[0] if pages else '?'}"
             tacts, tnotes = self.tab_acts(h, pages[i] if i < len(pages) else h.get("on"))
