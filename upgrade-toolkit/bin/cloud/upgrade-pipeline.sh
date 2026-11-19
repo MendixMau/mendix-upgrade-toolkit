@@ -592,6 +592,18 @@ heavy() { # heavy LABEL VER tool args...: a mx/mxbuild call under the heavy lock
   "$B/heavy-lock.sh" "$label" "$(mxw "$ver")" "$ver" "$@"
 }
 mxcli_run() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then "$MXCLI" "$@"; else "$B/mxcli-container.sh" "$@"; fi; }
+# GM-8 / NR2-7: the original is a git ARCHIVE of the .mpr and its mprcontents/, never `git show rev:App.mpr`: on an MPR v2 app the bare
+# .mpr has no units, and impact_map, crosscalls --own, action_inventory and journey_scope would read nothing. mprcontents/ lands
+# beside original.mpr ($WORK/mprcontents), where mprmodel.py looks for it.
+write_original() { # write_original REV
+  local rev=$1 base tmp paths
+  base=$(basename "$MPR"); tmp="$WORK/.original.tmp"
+  rm -rf "$tmp" "$WORK/mprcontents"; mkdir -p "$tmp"
+  paths=("$base"); [ -z "$(git_app ls-tree "$rev" -- mprcontents 2> /dev/null)" ] || paths+=(mprcontents)
+  git_app archive "$rev" -- "${paths[@]}" | tar -x -C "$tmp" || { rm -rf "$tmp"; return 1; }
+  [ ! -d "$tmp/mprcontents" ] || mv "$tmp/mprcontents" "$WORK/mprcontents"
+  mv -f "$tmp/$base" "$WORK/original.mpr"; rm -rf "$tmp"
+}
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -767,7 +779,7 @@ step_fetch() {
   if [ "$DRY" != 1 ]; then
     local rev
     if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(git_app rev-list --max-parents=0 HEAD | tail -n 1); fi
-    git_app show "$rev:$(basename "$MPR")" > "$WORK/original.mpr"
+    write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
     if [[ "$v" != *"$SOURCE"* ]]; then
