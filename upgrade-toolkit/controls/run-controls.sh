@@ -980,7 +980,7 @@ ctl pipeline-widgetroute-ok-asked-once-pass 0 '^run 2 sections: 0$' -- bash -c "
 ctl pipeline-widgetroute-keep-undoes-catch 0 '^git revert h2$' '!git revert h1' "^commit: repair: undone on the person's B \(unused sample module removed, widgetroute\)$" \
   '^## Any Chart 3\.x in Sample_BuildingBlocks: 2 outside a data view, a data view by hand recommended \(exit 10\)$' '^Candidates: A .*\(recommended: ' -- bash -c "bash $WR/pipe.sh | sed -n '/-- run 3/,\$p'"
 ctl pipeline-dry-build-widgetroute-pass 0 'widgetroute\.py .* --target 11\.15\.0\.1 --approved .*/widget-routes-approved\.txt' '^\+ widgetroute_pass replace' '^\+ widgetroute_pass wrap' '^\+ widgetroute_pass remove' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $WR/papp --source 10.24.26.1 --target 11.15.0.1 --work $WR/pwd --only build --dry-run
-# DV-9: --from STEP never runs a step before STEP. A not-done step the later ones build on refuses (exit 2, names it, says resume.sh / --only); heal and apidirect are skipped by name.
+# DV-9: --from STEP never runs a step before STEP. A not-done step the later ones build on refuses (exit 2, names it, advises rerun without --from / --only); heal and apidirect are skipped by name.
 FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
 for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
 for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
@@ -8096,6 +8096,8 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
+ctl cockpit-status-idle-says-why-catch 0 '^no work file \| idle no-work-dir step=-$' '^no step \| idle no-step-running step=-$' '!null' -- $CK status-idle
+ctl cockpit-status-running-keeps-payload-pass 0 '^step running \| - - step=basewalk$' '^live page hides on idle: 1$' -- $CK status-idle
 ctl cockpit-stopped-bar-pass 0 'bar: The run stopped during this step: Clicking through every page of the old app\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \
