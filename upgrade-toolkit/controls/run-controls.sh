@@ -3167,6 +3167,42 @@ ctl setup-mirror-credentials-nocurl-pass 1 -- grep -q s3cr3t $SC/curl.log
 ctl setup-auth-run-pass 0 '!pat-XYZ' -- setup home-au PATH=$SC/bin:$NR MENDIX_PAT=pat-XYZ UPG_SETUP_STEPS=auth
 ctl setup-auth-stdin-catch 0 '^argv: auth login$' '^stdin: pat-XYZ$' '!argv: .*pat-XYZ' -- cat $SC/mxcli.log
 ctl setup-check-refused-catch 1 'REFUSED, python modules missing for /fake/python3: pymongo' 'NOT READY: toolcheck\.sh --host refused' '!done: source' -- setup home-rf PATH=$SC/bin2:$NR UPG_PYTHON=$T/py-nobson UPG_SETUP_STEPS=host,check
+# cold rfq run on a Mac: cloud/setup.sh crashed in the mxcli step. retry logged "$1 $2" under set -u, and a one-word
+# call (retry mxcli_checkout) died on "$2: unbound variable"; MXCLI_SRC defaulted to /opt/mendixlabs, which a non-root
+# user can't create. Both functions are sourced straight out of setup.sh.
+CS=$T/cloudsetup; mkdir -p $CS/home; : > $CS/ro   # a file where the base folder should be: mkdir fails for root too, unlike a chmod 555 folder
+awk '/^log\(\) /; /^retry\(\) \{/,/^\}/; /^mxcli_src_default\(\) \{/,/^\}/' $B/cloud/setup.sh > $CS/fns.sh
+ctl cloudsetup-retry-oneword-catch 1 'retry in 2s: false' 'retry in 8s: false' '!unbound variable' -- bash -c "set -euo pipefail; sleep() { :; }; . $CS/fns.sh; retry false"
+ctl cloudsetup-mxcli-src-readonly-catch 0 "^$CS/home/mendixlabs/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/ro"
+ctl cloudsetup-mxcli-src-writable-pass 0 "^$CS/rw/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/rw"
+# same run: step_mxcli rm -f'd a binary that didn't report the pinned ref (a Linux build on a Mac never does), and with
+# mxcli-bin linked to another run's tools it deleted that run's binary. Fake git and sleep keep the step offline and fast.
+mkdir -p $CS/bin $CS/other $CS/link/tools $CS/own/tools/mxcli-bin
+printf '#!/bin/sh\nexit 1\n' > $CS/bin/git; printf '#!/bin/sh\nexit 0\n' > $CS/bin/sleep
+printf '#!/bin/sh\necho "mxcli version other-build"\n' > $CS/other/mxcli; cp $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli
+chmod +x $CS/bin/* $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli; ln -sfn $CS/other $CS/link/tools/mxcli-bin
+cloudsetup() { local r=$1; env HOME=$CS/home PATH=$CS/bin:$PATH MXCLI_SRC=$CS/src bash $B/cloud/setup.sh --run-dir $r --source 9.24.10.18073 --target 10.24.28.129343 --only mxcli; }
+ctl cloudsetup-mxcli-link-refused-catch 1 'REFUSED, .*/link/tools/mxcli-bin is a link' 'FAILED mxcli' -- cloudsetup $CS/link
+ctl cloudsetup-mxcli-link-kept-pass 0 'other-build' -- $CS/other/mxcli
+ctl cloudsetup-mxcli-stale-aside-catch 1 'moved to .*/own/tools/mxcli-bin/mxcli\.not-' -- cloudsetup $CS/own
+ctl cloudsetup-mxcli-stale-kept-pass 0 'other-build' -- sh -c "cat $CS/own/tools/mxcli-bin/mxcli.not-*"
+# same run: setup.sh wrote TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit into env.sh (the toolkit has its own repo now)
+# and its journeys step rm -rf'd that path and cloned a repo without upgrade-toolkit; env.sh's TK then replaced the
+# pipeline's own, "dockerhost.sh: No such file", exit 2
+mkdir -p $CS/envrun $CS/home/Mendix/mxcli-project-toolkit
+cloudsetup2() { env HOME=$CS/home PATH=$CS/bin:$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only "$1"; }
+ctl cloudsetup-envsh-tk-own-catch 0 "^export TK=\"$(cd $B/.. && pwd)\"\$" -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only envsh >/dev/null; grep '^export TK=' $CS/envrun/env.sh"
+ctl cloudsetup-journeys-vendored-catch 0 'ok journeys \(already done\)' '!run journeys' -- cloudsetup2 journeys
+ctl cloudsetup-journeys-home-kept-pass 0 'kept' -- sh -c "[ -d $CS/home/Mendix/mxcli-project-toolkit ] && echo kept"
+awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/envblock.sh
+mkdir -p $CS/tkrun/work; echo 'export TK=/stale/mxcli-project-toolkit/upgrade-toolkit' > $CS/tkrun/env.sh
+ctl pipeline-envsh-tk-ignored-catch 0 '^tk=/own/toolkit$' 'ignoring TK=/stale/mxcli-project-toolkit/upgrade-toolkit from env.sh' -- bash -c "WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+ctl pipeline-envsh-tk-same-pass 0 '^tk=/own/toolkit$' '!ignoring TK' -- bash -c "echo 'export TK=/own/toolkit' > $CS/tkrun/env.sh; WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+# same run: env.sh's MXCLI was the Linux build; on the Mac -x held, the exec did not (exit 126). It now goes to the container.
+awk '/^mxcli_host_check\(\) \{/,/^\}/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/hostcheck.sh
+printf '#!/bin/sh\nexit 126\n' > $CS/mx-foreign; printf '#!/bin/sh\necho mxcli version 1\n' > $CS/mx-host; chmod +x $CS/mx-foreign $CS/mx-host
+ctl pipeline-mxcli-foreign-container-catch 0 "does not run on this host" "^m=, mxc=$CS/mx-foreign, u=\$" -- bash -c "set -euo pipefail; MXCLI=$CS/mx-foreign; UPG_MXCLI=$CS/mx-foreign; . $CS/hostcheck.sh; mxcli_host_check; echo \"m=\$MXCLI, mxc=\${MXC_MXCLI:-}, u=\${UPG_MXCLI:-}\""
+ctl pipeline-mxcli-host-kept-pass 0 "^m=$CS/mx-host\$" '!does not run' -- bash -c "set -euo pipefail; MXCLI=$CS/mx-host; . $CS/hostcheck.sh; mxcli_host_check; echo m=\$MXCLI"
 rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2

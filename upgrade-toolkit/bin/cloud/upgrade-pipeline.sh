@@ -150,6 +150,7 @@ mkdir -p "$WORK/state" "$WORK/logs"
   printf '{"route": ["%s", "%s"%s]}\n' "$SOURCE" "$TARGET" "${TARGET2:+, \"$TARGET2\"}" > "$WORK/ladder.json"
 
 # ---- env.sh from bin/cloud/setup.sh: TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
+_tk=${TK:-}   # cold rfq run: env.sh's stale TK (~/Mendix/mxcli-project-toolkit/...) replaced this pipeline's own; exit 2
 # A RUN from the caller's environment counts only when --work lies inside it (setup.sh exports it so). Cold WM1: a
 # wrapper's own RUN=13 became the run folder, "missing source mxbuild toolset: 13/tools/..." and exit 3.
 if [ -n "${RUN:-}" ]; then
@@ -163,6 +164,7 @@ fi
 set +u
 if [ -f "$WORK/env.sh" ]; then . "$WORK/env.sh"; elif [ -f "$RUN/env.sh" ]; then . "$RUN/env.sh"; fi
 set -u
+if [ -n "$_tk" ] && [ "$TK" != "$_tk" ]; then echo "upgrade-pipeline.sh: ignoring TK=$TK from env.sh: this pipeline runs from $_tk"; TK=$_tk; fi
 : "${RUN:=$(dirname "$WORK")}"
 : "${UPG_TOOLS:=$RUN/tools}"
 : "${MXCLI:=${UPG_MXCLI:-}}"
@@ -178,6 +180,16 @@ PORT_OFF=${PORT_OFF:-0}
 APP_PORT=$((8080 + PORT_OFF)); ADMIN_PORT=$((8090 + PORT_OFF))
 export TK RUN UPG_TOOLS
 export UPG_ROOT="$RUN"
+# cold rfq run on a Mac: env.sh from cloud/setup.sh set MXCLI to the Linux build; -x held, the host could not exec it (triage,
+# exit 126). Such a binary runs in the container (mxcli-container.sh reads MXC_MXCLI); the Python helpers use the host mxcli.
+mxcli_host_check() {
+  [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ] || return 0
+  local rc=0; "$MXCLI" --version >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 126 ] || return 0
+  echo "upgrade-pipeline.sh: $MXCLI does not run on this host ($(uname -s)): mxcli calls go through mxcli-container.sh"
+  export MXC_MXCLI="$MXCLI"; MXCLI=""; unset UPG_MXCLI
+}
+mxcli_host_check
 [ -z "${MXCLI:-}" ] || export UPG_MXCLI="$MXCLI"
 export UPG_EXTRA="${UPG_EXTRA:-}"
 export UPG_MXCLI_STATE="$WORK/state/mxcli-version"   # stepupdate.sh checks it too (bin/mxcli_pin.sh)
