@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Proposal: an item no longer gets the MendixSSO-to-OIDC recommendation (RA-16) because a hit location in its evidence names a MendixSSO microflow; RA-16 now matches the item kind and name only (a changedDate item read "OIDC with the IdP"). Field run: starter app with data versioning (DV-12).
 - Feedback register: 14 open rows (DV-1 to DV-14) from an attended 10.9 to 10.24 to 11.12 run on a small Marketplace starter app with data versioning; total 744, open 39.
 - Feedback register: 42 rows from the 10.24 to 11.12 run on a community gamification app (PDS, 314 entities), run code GM (GM-1 to GM-42 and the agent mistakes GM-A1 to GM-A5), each with its status against main, file evidence and its BACKLOG id where one exists; 7 are already fixed, 14 partly, 21 open.
 - Missing-packages check: when missing_deps cannot read the model (INVALID, exit 2) the run now says so in the triage and in row 4 ("not checked") instead of reading it as "no Charts 3.x" or "0 missing". An unreadable model or a missing bson module is now INVALID (exit 2), not a traceback that exited 1 and read as findings; the same holds for an unreadable widget-routes playbook. The widget-drop check (same model reader) notes its exit 2 as "not checked" instead of passing silently.
