@@ -1,0 +1,68 @@
+{
+ "version": "11.12.6.1",
+ "_why": "home page: a plain button (walked) and a button two levels down in a container plug-in widget with no data source, as an Accordion group holds it (always drawn, walked)",
+ "security": {
+  "user_roles": {
+   "Admin": [
+    "Shop.Admin"
+   ]
+  },
+  "admin": "Admin"
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "pages": [
+    {
+     "name": "Home",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": [],
+     "home_buttons": [
+      {
+       "name": "openOverview",
+       "page": "Shop.Overview"
+      },
+      {
+       "name": "inGroup",
+       "page": "Shop.Demo",
+       "in": "container"
+      }
+     ]
+    },
+    {
+     "name": "Overview",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    },
+    {
+     "name": "Demo",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    }
+   ]
+  }
+ ],
+ "navigation": {
+  "homes": [
+   {
+    "role": "*",
+    "page": "Shop.Home"
+   }
+  ],
+  "menu": [
+   {
+    "caption": "Overview",
+    "page": "Shop.Overview"
+   }
+  ]
+ }
+}
