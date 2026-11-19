@@ -811,6 +811,17 @@ ctl missing-deps-target-pass 1 '!above target' -- python3 $B/repair/missing_deps
 # pipeline run 3 (T7-29): Charts 3.x widgets build on 11 but fail at runtime: DEPRECATED-11 before the 11 rung, quiet below 11
 ctl missing-deps-charts3-11-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.PieChart.PieChart: used 1x in Account_Overview' '!MISSING' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3)
 ctl missing-deps-charts3-10-pass 0 '!DEPRECATED-11' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $(model charts3)
+# cold run 4: DEPRECATED-11 lists its documents per module (18 were a Marketplace module's demo pages, 5 the app's own)
+ctl missing-deps-charts3-by-module-catch 1 '^  module Atlas_Core: 2 document\(s\): Chart_Demo1, Chart_Demo2$' '^  module Administration: 1 document\(s\): Account_Overview$' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3-mods)
+# triage on an 11 target stops on Charts 3.x widgets before convert and update (cold run 4: the build found them 16 min later);
+# a written route (charts11.txt) or a 10.x target passes
+C11=$T/c11; mkdir -p $C11/w $C11/wr; echo 'own snippets: Charts 6 on the 10.24 rung' > $C11/wr/charts11.txt
+{ sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
+  echo 'xo() { local f=$1; shift; "$@" > "$f"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
+ctl triage-charts11-catch 0 '^NJ 13 Charts 3\.x widgets on a Mendix 11\.12\.7 target' '^  module Atlas_Core: 2 document' '^done$' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+ctl triage-charts11-route-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/wr TARGET=11.12.7; charts11_check; echo done"
+ctl triage-charts11-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=10.24.28; charts11_check; echo done"
+ctl triage-charts11-wired-pass 0 '^  charts11_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
 # issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
 MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
 ctl missing-module-stop-names-module-and-version-catch 0 '^Q	The update of Atlas_Core needs a module this app does not have: UserCommons\.' '^O	install\|Install UserCommons 2\.4\.0 from the Marketplace\|.*mxcli marketplace install 223053 --version 2\.4\.0' '^R	install$' '^exit 1$' -- $MMC update-introduced $MMA

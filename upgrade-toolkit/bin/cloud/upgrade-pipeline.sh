@@ -864,6 +864,7 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
     nj_flush
   fi
   kept_java_check
+  charts11_check
   nj_flush
 }
 
@@ -887,6 +888,22 @@ kept_java_check() { # a plan that keeps a module whose Java calls Runtime API th
 
 $hits
 Put each Marketplace module on $WORK/plan.txt (newest version for $TARGET); a module with no 11 release or an own module is ported as a repair (playbooks/10-to-11.md row 11): name it in $WORK/java-port.txt, one per line."
+}
+
+charts11_check() { # Charts 3.x widgets on an 11 target: the build stops on them (T7-29), but only after convert and update
+  # Cold run 4, rung 2 (10.24 -> 11.12): basewalk, propose, convert and update ran (16 min), then the build stopped on
+  # 36 AnyChart widgets the 10.24 model already held. The old model answers it here; the build check stays.
+  [ "$DRY" != 1 ] || return 0
+  [ "$(echo "$TARGET" | cut -d. -f1)" -ge 11 ] 2> /dev/null || return 0
+  [ ! -s "$WORK/charts11.txt" ] || return 0
+  local rc=0
+  xo "$WORK/missing_deps-triage.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?
+  grep -q '^DEPRECATED-11' "$WORK/missing_deps-triage.txt" 2> /dev/null || return 0
+  nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
+
+They build, but fail at runtime on Mendix 11 (T7-29). Route per module: the app's own pages get the Charts 6.x widgets
+(playbooks/widgets.md) on the 10.24 rung; a Marketplace module's own demo pages go with that module (update it on the
+plan, remove it, or exclude its pages). Write the route in $WORK/charts11.txt, then rerun (the build checks again)."
 }
 
 # LDMS (repair row 34): mxbuild on Linux unpacks an add-on into .mendix-cache/modules/<lower case>.mxmodule, Gradle asks for the

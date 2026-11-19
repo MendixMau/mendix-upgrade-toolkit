@@ -30,7 +30,8 @@ With --target 11.x every add-on built before 10.21 is a finding too, referenced 
 With --target 11 or later, the deprecated Charts 3.x widgets (com.mendix.widget.custom.PieChart, ColumnChart,
 TimeSeries, ... ; DEPRECATED_11) are listed as DEPRECATED-11 with the documents that use them: they build and pass
 mx check but fail at runtime on Mendix 11 ("Could not find store"; T7-29, every dashboard page broken). Replace them
-with the Charts 6.x widgets before the 11 rung. They count as a finding.
+with the Charts 6.x widgets before the 11 rung. They count as a finding. Each is followed by its documents per module
+(`  module <M>: n document(s): ...`), so the app's own pages stand apart from a Marketplace module's demo pages.
 Exit: 0 = nothing missing, 1 = something missing, broken or DEPRECATED-11 (install or replace it, then rerun), 2 = input error.
 """
 import argparse, collections, glob, json, os, re, sqlite3, struct, sys, tempfile, uuid, zipfile
@@ -111,7 +112,7 @@ def lookup(cat, name, kind, wid=None, target=None):
     return "Marketplace: " + "; ".join(out)
 
 
-def units(path):
+def units(path, with_ids=False):
     try:
         import bson
     except ImportError:
@@ -122,15 +123,19 @@ def units(path):
     blob_col = "Contents" if "Contents" in cols else "NULL"
     v2 = {os.path.basename(f)[:-7].lower(): f
           for f in glob.glob(os.path.join(proj, "mprcontents", "**", "*.mxunit"), recursive=True)}
-    for uid, blob in con.execute(f"select UnitID, {blob_col} from Unit"):
+    for uid, cid, blob in con.execute(f"select UnitID, ContainerID, {blob_col} from Unit"):
         if blob is None and v2:
             f = v2.get(str(uuid.UUID(bytes_le=bytes(uid))).lower())
             blob = open(f, "rb").read() if f else None
         if blob:
             try:
-                yield bson.decode(blob)
+                d = bson.decode(blob)
             except Exception:
                 continue
+            if with_ids:
+                yield bytes(uid), bytes(cid) if cid else None, d
+            else:
+                yield d
 
 
 def descriptor_error(path, z):
@@ -203,14 +208,27 @@ def main():
                 refs[m.group(1)].add(d)
 
     excluded = 0
-    for d in units(p):
+    parent, modid, docs = {}, {}, []  # unit -> container, module unit -> name: the module of each document
+    for uid, cid, d in units(p, with_ids=True):
+        parent[uid] = cid
         if d.get("$Type") in ("Projects$ModuleImpl", "Projects$Module"):
             mods.add(d.get("Name"))
+            modid[uid] = d.get("Name")
         if d.get("Excluded") is True:  # excluded documents and building blocks are not built: ignore their refs
             excluded += 1
             continue
         doc[0] = d.get("Name") or d.get("$Type", "?")
+        docs.append((uid, doc[0]))
         walk(d)
+
+    def module_of(uid):
+        seen = set()
+        while uid is not None and uid not in seen and uid not in modid:
+            seen.add(uid); uid = parent.get(uid)
+        return modid.get(uid, "?")
+    doc_mod = collections.defaultdict(set)  # document name -> modules (names repeat across modules)
+    for uid, name in docs:
+        doc_mod[name].add(module_of(uid))
     if not mods:
         print("missing_deps: INVALID, no modules read", file=sys.stderr); sys.exit(2)
     addon, blocked = {}, []  # module name -> "ADD-ON (...) file" for modules/*.mxmodule (T2-2)
@@ -257,6 +275,14 @@ def main():
     for w in dep11:
         lines.append(f"DEPRECATED-11 widget {w}: used {widgets[w]}x in {', '.join(sorted(used_in[w]))}: Charts 3.x fails at "
                      f"runtime on Mendix 11 (T7-29); replace with the Charts 6.x widget before the 11 rung")
+        # cold run 4: 18 of the 23 documents were a Marketplace module's own demo pages, 5 the app's snippets; one flat
+        # list hid which pages are the app's work and which go with that module (update, remove or exclude it)
+        by_mod = collections.defaultdict(list)
+        for n in used_in[w]:
+            for m in doc_mod.get(n) or {"?"}:
+                by_mod[m].append(n)
+        for m in sorted(by_mod, key=lambda m: (-len(by_mod[m]), m)):
+            lines.append(f"  module {m}: {len(by_mod[m])} document(s): {', '.join(sorted(by_mod[m]))}")
     if not missing_mods and not missing_w and not broken and not blocked and not dep11:
         lines.append("nothing missing")
     print("\n".join(lines))
