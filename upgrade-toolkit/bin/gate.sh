@@ -107,8 +107,10 @@
 #       items)". APIMOCK set but the stand-in's inventory unreadable = INVALID. --dry-run prints each rung's command and exits 0 when the inputs check out; it runs and
 #       writes nothing.
 # Env: UPG_GATE_BIN (instrument folder, default: this one; controls use stubs), UPG_PYTHON, UPG_NODE,
-#      GATE_TIMEOUT (seconds per instrument, default 900; smokewalk 600 unless set). A rung that hits it is INVALID and
-#      its line says "raise GATE_TIMEOUT" (RT-11: a 7-role repeat-3 smoke walk needed 1500).
+#      GATE_TIMEOUT (seconds per instrument, default 900; smokewalk 600 unless set). Also a gate.conf / KEY=VALUE key
+#      (GM-32); the environment variable wins over the file; a positive whole number or the gate refuses to start. A rung
+#      that hits it is INVALID and its line says "raise GATE_TIMEOUT" with the elapsed time (RT-11: a 7-role repeat-3
+#      smoke walk needed 1500; GM-32: 6 roles x 3 repeats took about 20 minutes. The default does not scale with roles x repeat.)
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=${UPG_GATE_BIN:-$here}; PY=${UPG_PYTHON:-python3}; NODE=${UPG_NODE:-node}
@@ -117,7 +119,7 @@ KEYS="WORK LABEL GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CON
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_URL SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS SMOKE_REPEAT SMOKE_LOGIN_PATH JOURNEYS_DIR
  JOURNEYS_BEFORE JOURNEYS_REJUDGE USERS PORT ADMIN_PORT ADMIN_PASS PAUSE SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_PSQL LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT
  JOURNEY_EFFECT_ACCEPT ACTIONS ACTIONS_WAIVE JOURNEY_EVIDENCE JOURNEY_BAR RELEASE_IMPACT POST_CMD RUN APIMOCK APIDIRECT EXCLUDE_SYSTEMS WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED
- APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_layout PRE_release PRE_apis PRE_widgets"
+ APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED GATE_TIMEOUT PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_layout PRE_release PRE_apis PRE_widgets"
 PATHKEYS="WORK GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS JOURNEYS_DIR JOURNEYS_BEFORE
  USERS SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT ACTIONS JOURNEY_EVIDENCE RELEASE_IMPACT APIMOCK APIDIRECT WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED APP_REPO GATE_NOTES HEAL_JSON"
@@ -412,7 +414,10 @@ human_of() {
 }
 
 # --- 2. run -------------------------------------------------------------------------------------------------------
-TO=${GATE_TIMEOUT:-900}
+# GM-32: GATE_TIMEOUT is also a config key (V_GATE_TIMEOUT); the environment variable, when set, wins over the file.
+GT=${GATE_TIMEOUT:-$V_GATE_TIMEOUT}
+case $GT in ''|*[!0-9]*|0*) [ -z "$GT" ] || die "GATE_TIMEOUT=$GT: a positive whole number of seconds (no unit, no zero); set it in gate.conf or the environment";; esac
+TO=${GT:-900}
 # run_limited SECS OUTFILE: run "${CMD[@]}" with a time limit, output to OUTFILE, rc 124 on timeout. C6: macOS has no
 # `timeout`; the rung used to run unlimited there and a hung rung hung the gate. GNU timeout, else gtimeout (Homebrew
 # coreutils), else a bash watchdog that kills the process group; never silently unlimited.
@@ -437,7 +442,7 @@ run_limited() {
 }
 hookenv() { # export G, WORK, LABEL, RUN and every key for a PRE_* / POST_CMD shell (N1R2-9); call it in a subshell
   local k; export G GATE_DIR="$G" WORK="$V_WORK" LABEL="$V_LABEL" RUN="$V_RUN"
-  for k in $KEYS; do case $k in PRE_*|POST_CMD|GATE_DIR|WORK|LABEL|RUN) ;; *) eval "export $k=\"\$V_$k\"";; esac; done
+  for k in $KEYS; do case $k in PRE_*|POST_CMD|GATE_DIR|WORK|LABEL|RUN|GATE_TIMEOUT) ;; *) eval "export $k=\"\$V_$k\"";; esac; done
   [ -n "$V_CONST_OVERRIDES" ] || { [ -n "${ENV_CONST_OVERRIDES+x}" ] && export CONST_OVERRIDES="$ENV_CONST_OVERRIDES" || unset CONST_OVERRIDES; }   # B4T2-12
 }
 run_pre() { # RUNG ; returns 0 when absent or ok
@@ -485,9 +490,9 @@ run_pre() { # RUNG ; returns 0 when absent or ok
     if [ $rc = 0 ]; then v=PASS; elif [ $rc = 1 ]; then v=FAIL; else v=INVALID; fi
     ln="BUILD SUCCEEDED and 0 \"ERROR at\" lines: $( [ $rc = 0 ] && echo yes || echo "no ($(head -1 "$out"))") in $V_BUILD_LOG"
   else
-    t=$TO; [ $r = smoke ] && t=${GATE_TIMEOUT:-600}
+    t=$TO; [ $r = smoke ] && t=${GT:-600}
     echo "[$r] $(show_cmd)"
-    run_limited "$t" "$out"; rc=$?   # C6: the limit always applies (timeout, gtimeout, else a bash watchdog); rc 124 = timed out
+    t0=$SECONDS; run_limited "$t" "$out"; rc=$?; el=$((SECONDS-t0))   # C6: the limit always applies (timeout, gtimeout, else a bash watchdog); rc 124 = timed out
     if [ $r = smoke ] && [ "$rc" = 1 ] && [ -n "$V_EXCLUDE_SYSTEMS" ]; then   # E2E-14: FAIL steps that only called an excluded system
       "$PY" "$B/apimock.py" attribute-smoke "$G/smoke-after.json" --state "$V_APIMOCK" --exclude-systems "$V_EXCLUDE_SYSTEMS" >> "$out" 2>&1
       [ $? = 4 ] && rc=4
@@ -501,7 +506,7 @@ run_pre() { # RUNG ; returns 0 when absent or ok
     if [ $r = journeys ] && [ "$v" = 'PASS*' ] && [ "$rc" != 0 ]; then
       ln="noted, not a failure: nothing that passed on the old app fails on the new one; journeys that fail on the old app too are listed for the owner; $(oneline "$out")"
     fi
-    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); $ln"; echo "gate: rung $r timed out after ${t}s: raise GATE_TIMEOUT (smoke: steps x roles x repeat)" >&2; }
+    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); elapsed ${el}s; set GATE_TIMEOUT=<seconds> in gate.conf or the environment; $ln"; echo "gate: rung $r timed out after ${t}s (elapsed ${el}s): raise GATE_TIMEOUT (smoke: steps x roles x repeat) by setting GATE_TIMEOUT=<seconds> in gate.conf or in the environment (the environment wins)" >&2; }
     if [ "$v" = EXCEPT ]; then
       nci=$(grep -c '^ *NOT CHECKED (excluded: ' "$out")   # item lines only, not a count line
       if [ "$nci" = 0 ]; then v=INVALID; ln="rc 4 but no NOT CHECKED item named; $ln"; else ln="$nci NOT CHECKED (excluded: $V_EXCLUDE_SYSTEMS); $ln"; fi

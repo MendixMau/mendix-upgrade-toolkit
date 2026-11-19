@@ -81,9 +81,9 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    RUN; it is never a PASS. Order matters: journeys change data (pager counts, edited or deleted rows), so walk the layout on both apps
    first. A layout compare run after the journeys fails against a baseline walked on fresh data. In the gate the rung sits before `journeys`. Accept lines: `pair pattern # what you saw`, the reason is required.
 
-8. Journeys: [journeys.md](journeys.md) "At the gate". `GATE_TIMEOUT` (seconds per instrument, default 900) is too
+8. Journeys: [journeys.md](journeys.md) "At the gate". `GATE_TIMEOUT` (seconds per instrument, default 900; smoke 600) is too
    short for a big set: 247 journeys at `--pause 50` take about 65 minutes per side. Set it to journeys times pause
-   times 1.3 plus the app start, e.g. `GATE_TIMEOUT=6000`, in gate.conf next to the journeys rung (NR1-29). A REGRESSION is FAIL; INVALID (no test user, todo) blocks DONE.
+   times 1.3 plus the app start, e.g. `GATE_TIMEOUT=6000`, in gate.conf next to the journeys rung (NR1-29). `GATE_TIMEOUT` is a gate.conf key and a `KEY=VALUE` argument (a positive whole number of seconds, else the gate refuses to start); the environment variable of the same name wins over the file. The smoke limit does not scale with roles x repeat (6 roles x 3 repeats took about 20 minutes, over the 600 s default): set it from roles x repeat x about 70 s plus the app start (GM-32). A rung that hits it names the elapsed time and both ways to raise it. A REGRESSION is FAIL; INVALID (no test user, todo) blocks DONE.
    Cite the coverage line (`actions A found · G generated ... · coverage B/A`, journeys.md "Coverage and honesty").
    gate.sh keys: `ACTIONS` (the OLD model's actions.json, run_journeys `--actions`), else `ACTIONS_WAIVE=<reason>`
    (at best PASS*: no denominator); without either the rung is INVALID. `JOURNEY_EVIDENCE` (`--baseline-evidence`)

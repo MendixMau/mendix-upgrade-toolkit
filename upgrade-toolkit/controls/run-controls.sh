@@ -4994,6 +4994,16 @@ ctl gate-seed-from-pass 0 'gate: seeded ' '\| 6 \| logdiff \| PASS \| 0 \| \(ear
 ctl gate-seed-from-no-only-catch 2 'seed-from needs --only' -- gcase seed2 --seed-from $GI/w/gatemrg
 ctl gate-seed-from-missing-catch 2 'seed-from .*: no gate-summary\.md there' -- gcase seed3 --only journeys --seed-from $GI/nonexistent
 ctl gate-timeout-hint-catch 2 '\| smoke \| INVALID \| 124 \| timed out after 1s \(raise GATE_TIMEOUT\)' 'raise GATE_TIMEOUT \(smoke: steps x roles x repeat\)' -- gcase tmoh GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=5
+# GM-32: GATE_TIMEOUT is a gate.conf key (the environment variable wins over the file); an invalid value is refused; the timeout names the elapsed time and both ways to raise it
+printf 'GATE_TIMEOUT=1\n' > $GI/gt-file.conf; printf 'GATE_TIMEOUT=30\n' > $GI/gt-ok.conf; printf 'GATE_TIMEOUT=ten\n' > $GI/gt-bad.conf
+gtc() { local label=$1 cf=$2; shift 2; ( cd $GI && UPG_GATE_BIN=$GB UPG_PYTHON=python3 UPG_NODE=python3 GATE_STUB_LOG=$GI/stub-$label.log env "$@" bash $B/gate.sh --config $cf WORK=$GI/w LABEL=$label SMOKE_URL=http://localhost:8080 SMOKE_BEFORE=$GI/smoke-before.json SMOKE_PLAN=$GI/smoke-plan.json 'SMOKE_USER=Administrator=smoke_admin:S3cret-pw!' PORT=8080 ADMIN_PORT=8090 ADMIN_PASS=adm1n-s3cret --only smoke 2>&1; echo "rc=$?" ); }
+ctl gate-timeout-conf-key-catch 0 'rc=2' 'timed out after 1s \(raise GATE_TIMEOUT\)' '!unknown key' -- gtc gtk $GI/gt-file.conf GATE_STUB_SLEEP_smokewalk=5
+ctl gate-timeout-conf-key-pass 0 'rc=0' '!timed out' '!unknown key' -- gtc gtp $GI/gt-ok.conf
+ctl gate-timeout-env-wins-catch 0 'rc=2' 'timed out after 1s \(raise GATE_TIMEOUT\)' -- gtc gte $GI/gt-ok.conf GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=5
+ctl gate-timeout-env-wins-pass 0 'rc=0' '!timed out' -- gtc gtew $GI/gt-file.conf GATE_TIMEOUT=30 GATE_STUB_SLEEP_smokewalk=1
+ctl gate-timeout-invalid-value-catch 0 'rc=2' 'GATE_TIMEOUT=ten: a positive whole number of seconds' -- gtc gtb $GI/gt-bad.conf
+ctl gate-timeout-invalid-env-catch 0 'rc=2' 'GATE_TIMEOUT=0: a positive whole number' -- gtc gtbe $GI/gt-ok.conf GATE_TIMEOUT=0
+ctl gate-timeout-message-catch 0 'rc=2' 'elapsed [0-9]+s; set GATE_TIMEOUT=<seconds> in gate\.conf or the environment' '\(elapsed [0-9]+s\): raise GATE_TIMEOUT .* in gate\.conf or in the environment' -- gtc gtm $GI/gt-file.conf GATE_STUB_SLEEP_smokewalk=5
 
 # --- external APIs (E2E-13, E2E-14): bin/apimock.py and its gate wiring -------------------------------------------------
 # Goldens captured from the public Marketplace PFEP 1.4.1 (MendixSSO roles call + the Teamcenter connector's SendService)
