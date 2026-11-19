@@ -8652,6 +8652,9 @@ ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the 
 ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 # DV-2: the target text names no patch number (a number written in the text goes stale; triage reads it from the notes)
 ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -c "grep -nE 'newest patch,? \\(?[0-9]+\\.[0-9]+\\.[0-9]+|Mendix [0-9]+\\.[0-9]+ \\([0-9]+\\.[0-9]+\\.[0-9]+\\)' '$TK/SKILL.md' '$TK/SETUP-PROMPT.md' '$TK/playbooks/10-to-11.md' '$TK/steps/triage.md'; [ \$? = 1 ] && echo 'no target patch in the text'"
+# DV-7: SETUP-PROMPT.md keeps the unattended default and carries a marked attended variant; every file, variable and flag it names exists
+ctl setup-prompt-attended-variant-pass 0 '^setup-prompt: ok$' -- bash $TK/controls/setup_prompt_control.sh
+ctl setup-prompt-attended-variant-catch 1 '^FAIL: no marked attended block$' -- bash -c "sed '/^<!-- ATTENDED-START -->\$/,/^<!-- ATTENDED-END -->\$/d' '$TK/SETUP-PROMPT.md' > $T/sp-noblock.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-noblock.md"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
