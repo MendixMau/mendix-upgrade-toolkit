@@ -238,7 +238,10 @@ def content_signature(model, qn):
     def walk(x):
         if isinstance(x, dict):
             t = x.get("$Type", "")
-            if x.get("Name") and isinstance(x["Name"], str) and ("Forms$" in t or "CustomWidgets$" in t or "Pages$" in t):
+            # a SnippetParameter is no widget: Studio Pro turns a package snippet's Entity into one when it converts
+            # the module, so it shows up in the app and not in a package made before the conversion (its entity stays a ref)
+            if (x.get("Name") and isinstance(x["Name"], str) and ("Forms$" in t or "CustomWidgets$" in t or "Pages$" in t)
+                    and not t.endswith("SnippetParameter")):
                 sig.add(f"widget {t.split('$')[-1]} {x['Name']}")
             for k, v in x.items():
                 if k not in ("$ID", "$Type") and isinstance(v, str) and QN_ONLY.match(v) and k != "Name":

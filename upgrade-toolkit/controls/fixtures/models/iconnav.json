@@ -1,0 +1,113 @@
+{
+ "version": "9.24.10.18073",
+ "_why": "cold rfq: every item of the role menu is icon-only (caption ' '), sign-out included, rendered by a layout navigation tree. The caption path ' ' cannot be navigated and ' ' as textAbsent is in every page",
+ "security": {
+  "user_roles": {
+   "Desk": [
+    "Shop.Desk"
+   ]
+  }
+ },
+ "navigation": {
+  "homes": [
+   {
+    "role": "*",
+    "page": "Shop.Home"
+   }
+  ],
+  "menu": [
+   {
+    "caption": " ",
+    "page": "Shop.Home"
+   },
+   {
+    "caption": " ",
+    "page": "Shop.Orders"
+   },
+   {
+    "caption": " ",
+    "signout": true
+   }
+  ],
+  "login_page": "Shop.Login"
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "layouts": [
+    {
+     "name": "Layout_Side",
+     "named": [
+      {
+       "type": "NavigationTree",
+       "name": "navigationTree3",
+       "source": {
+        "profile": "Responsive"
+       }
+      }
+     ]
+    },
+    {
+     "name": "Layout_Plain",
+     "named": [
+      {
+       "type": "LayoutGrid",
+       "name": "layoutGrid9"
+      }
+     ]
+    }
+   ],
+   "pages": [
+    {
+     "name": "Login",
+     "layout": "Shop.Layout_Plain",
+     "named": [
+      [
+       "TextBox",
+       "usernameInput"
+      ],
+      [
+       "TextBox",
+       "passwordInput"
+      ],
+      [
+       "ActionButton",
+       "loginButton"
+      ]
+     ]
+    },
+    {
+     "name": "Home",
+     "layout": "Shop.Layout_Side",
+     "allowed": [
+      "Shop.Desk"
+     ],
+     "title": "Configurations",
+     "named": [
+      [
+       "Title",
+       "pageTitle1"
+      ]
+     ]
+    },
+    {
+     "name": "Orders",
+     "layout": "Shop.Layout_Side",
+     "allowed": [
+      "Shop.Desk"
+     ],
+     "title": "Orders",
+     "named": [
+      [
+       "Title",
+       "pageTitle1"
+      ]
+     ]
+    }
+   ],
+   "module_roles": [
+    "Desk"
+   ]
+  }
+ ]
+}

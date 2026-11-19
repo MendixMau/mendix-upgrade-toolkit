@@ -1,0 +1,1 @@
+{"from": "charts3.json", "ops": [["set", "modules/2/pages", [{"name": "Chart_Demo1", "widgets": ["com.mendix.widget.custom.PieChart.PieChart"]}, {"name": "Chart_Demo2", "widgets": ["com.mendix.widget.custom.PieChart.PieChart"]}]]]}
