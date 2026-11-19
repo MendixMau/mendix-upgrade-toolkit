@@ -314,7 +314,7 @@ class Model:
 def file_document_entities(model, own_only=False):
     """Qualified names of the entities that specialise System.FileDocument (or System.Image), directly or through another
     entity: the ones whose rows carry a file in the runtime's file store. Mendix 11 refuses to start while a pre-5.12 file
-    document is still on the local file system (11.0.0 requirement row), so the model's answer decides whether a database
+    document is still in the data (11.0.0 requirement row), so the model's answer decides whether a database
     check is owed. own_only: leave out the Marketplace modules."""
     gen = {}
     for d in model.docs.values():

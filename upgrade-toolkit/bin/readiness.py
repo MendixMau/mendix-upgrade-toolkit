@@ -286,7 +286,7 @@ def judge(w, a):
     if before and isinstance((before.get("db") or {}).get("entities"), dict):
         fd_rows = sum(v for k, v in before["db"]["entities"].items() if k in fds and isinstance(v, int))
     if fds and (fd_rows == 0 or (fd_rows is None and rows["data"]["fallback"] == "seeded rows")):
-        rows["data"]["why"] += (f"; file storage not exercised: {'0 rows in' if fd_rows == 0 else 'seed_pg.py seeds no rows in'} the "
+        rows["data"]["why"] += (f"; file storage not exercised: {'0 rows in' if fd_rows == 0 else 'no row count (no before.json) for'} the "
                                 f"{len(fds)} FileDocument entities ({', '.join(fds[:3])}{' ...' if len(fds) > 3 else ''}), so no file was read "
                                 "or written on either version")
         fd_unexercised = True
