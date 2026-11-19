@@ -875,7 +875,7 @@ def check_no_signout(j, entry, refs):
         from mprmodel import Model
         import impact_map
         hits = impact_map.any_sign_out(Model.load(mp))
-    except Exception as e:
+    except (SystemExit, Exception) as e:
         return False, f"NO-SIGNOUT: model {mp} not readable ({e})"
     if hits:
         w, by, d = hits[0]
@@ -976,7 +976,7 @@ def check_unreachable(j, entry, refs, acts_file, acts):
             from mprmodel import Model
             mm = Model.load(mp)
             callers = mm.callers_index()
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             return False, f"UNREACHABLE: model={mp}: not readable ({e})"
         seen_d, todo_d = [], list(x.get("via_pages") or [x.get("host")])
         while todo_d and len(seen_d) < 2000:   # the readable caller chain, walked as action_inventory.py orphans() does

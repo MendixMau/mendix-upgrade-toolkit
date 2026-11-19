@@ -2036,6 +2036,24 @@ for v in base step1-adds guid-changed; do python3 $here/lib/mkv2.py $M/$v $S2/$v
 cp -R $S2/base/. $S2/app/; cp $S/plan.txt $S2/plan.txt
 (cd $S2/app && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
 ctl stepupdate-mpr-v2-catch 1 'committed' 'STOP: new data-bearing finding after guid-changed' '!idcheck input error' '!no entities read' -- env UPG_UPDATE_CMD="cp $S2/{module}/App.mpr {mpr} && rm -rf $S2/app/mprcontents && cp -R $S2/{module}/mprcontents $S2/app/mprcontents" bash $B/stepupdate.sh $S2/app $S2/plan.txt
+# GM-8: the pipeline's original.mpr is a git archive (mprcontents/ beside it), and mprmodel refuses a v2 .mpr that has none.
+# Fixtures: a v1 model and its v2 copy (lib/mkv2.py), real SQLite; the original-writing function is the pipeline's own lines.
+G8=$T/gm8; mkdir -p $G8/bare $G8/v2app $G8/v1app $G8/w2 $G8/w1
+cp $S2/base/App.mpr $G8/bare/App.mpr
+cp -R $S2/base/. $G8/v2app/; cp $M/base/App.mpr $G8/v1app/App.mpr
+for a in v2app v1app; do (cd $G8/$a && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original); done
+G8F="eval \"\$(sed -n '/^write_original() {/,/^}/p; /^git_app() {/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; die4() { echo \"\$*\" >&2; exit 4; }"
+ctl mprmodel-v2-without-mprcontents-catch 1 'MPR v2 project file' 'no mprcontents/ folder' -- python3 $B/mprmodel.py $G8/bare
+ctl mprmodel-v2-with-mprcontents-pass 0 '!MPR v2 project file' '"modules": 3,' '"docs": 8,' -- python3 $B/mprmodel.py $S2/base
+ctl mprmodel-v1-unchanged-pass 0 '!MPR v2 project file' '"modules": 3,' '"docs": 8,' -- python3 $B/mprmodel.py $M/base
+ctl pipeline-original-v2-mprcontents-catch 0 '^mprcontents beside original: yes$' '"modules": 3,' '"docs": 8,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w2; write_original HEAD || exit 9; [ -d $G8/w2/mprcontents ] && echo 'mprcontents beside original: yes'; python3 $B/mprmodel.py $G8/w2/original.mpr"
+# a v2 .mpr with an EMPTY mprcontents/ holds none of its units: refuse too (an archive that skipped mprcontents/ left this)
+mkdir -p $G8/empty/mprcontents; cp $S2/base/App.mpr $G8/empty/App.mpr
+ctl mprmodel-v2-empty-mprcontents-catch 1 'holds none of its units' '!"modules"' -- python3 $B/mprmodel.py $G8/empty
+# a rerun: a stale file left in $WORK/mprcontents by an earlier run is gone after write_original
+mkdir -p $G8/w3/mprcontents; printf stale > $G8/w3/mprcontents/stale-leftover.mxunit
+ctl pipeline-original-rerun-clears-stale-pass 0 '^stale gone$' '^mprcontents units: [1-9]' '"modules": 3,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w3; write_original HEAD || exit 9; [ -e $G8/w3/mprcontents/stale-leftover.mxunit ] || echo 'stale gone'; echo mprcontents units: \$(ls $G8/w3/mprcontents | wc -l); python3 $B/mprmodel.py $G8/w3/original.mpr"
+ctl pipeline-original-v1-pass 0 '^mprcontents beside original: no$' '^original read: yes$' -- bash -c "$G8F; APP=$G8/v1app MPR=$G8/v1app/App.mpr WORK=$G8/w1; write_original HEAD || exit 9; [ -e $G8/w1/mprcontents ] && echo 'mprcontents beside original: yes' || echo 'mprcontents beside original: no'; cmp -s $G8/w1/original.mpr $M/base/App.mpr && python3 $B/mprmodel.py $G8/w1/original.mpr > /dev/null && echo 'original read: yes'"
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
