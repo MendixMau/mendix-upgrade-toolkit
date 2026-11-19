@@ -4,6 +4,7 @@ One line per change, newest group first. Add your line in the same commit as the
 
 ## Unreleased
 
+- Feedback register: 42 rows from the 10.24 to 11.12 run on a community gamification app (PDS, 314 entities), run code GM (GM-1 to GM-42 and the agent mistakes GM-A1 to GM-A5), each with its status against main, file evidence and its BACKLOG id where one exists; 7 are already fixed, 14 partly, 21 open.
 - Missing-packages check: when missing_deps cannot read the model (INVALID, exit 2) the run now says so in the triage and in row 4 ("not checked") instead of reading it as "no Charts 3.x" or "0 missing". An unreadable model or a missing bson module is now INVALID (exit 2), not a traceback that exited 1 and read as findings; the same holds for an unreadable widget-routes playbook. The widget-drop check (same model reader) notes its exit 2 as "not checked" instead of passing silently.
 - Widget-drop check (update step) no longer crashes with "no such column: ContainerID" on a model whose Unit table has no ContainerID column; the shared model reader treats the column as optional, as it already did for Contents (regression from the Charts 3.x triage stop).
 - Smoke walk: a home-page button that has a visibility expression (shown only after a row is selected) is not walked and is listed as "not walked: conditionally visible" with its count, instead of making the old-app walk INVALID and stopping basewalk (run ORG, OrgChart Example 10.3). The skip is decided on the button's own node, not by widget name (default names repeat across pages and roles).
