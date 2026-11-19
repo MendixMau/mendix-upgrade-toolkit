@@ -4786,12 +4786,34 @@ EOF
   rm -rf "$AM/st3z"; cp -r "$S3" "$AM/st3z"; : > "$AM/st3z/requests.jsonl"
   ctl gate-apis-zero-traffic-catch 2 '\| 12 \| apis \| INVALID \| 3 \| .*requests seen: 0' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
     -- gcase sizero GATE_BIN_DIR=$GB3 APIMOCK=$AM/st3z EXCLUDE_SYSTEMS=Teamcenter
+  # cold app: 7 of 32 outside calls had no stand-in, so every dashboard opened an error box and the stand-ins row said only
+  # "Needs your OK". Each endpoint now carries ONE recommendation; a URL constant nothing calls is "not called by the model: no
+  # stand-in needed" (a request to it still logs UNKNOWN, so a call that happens anyway is flagged). Synthetic spec, example.invalid hosts.
+  python3 "$here/lib/mkmodel.py" "$FX/apimock/standins-unknown.json" "$AM/su" > /dev/null; SU=$AM/su/App.mpr
+  ctl apimock-recommend-inventory-pass 3 '^UNKNOWN +rest:Shop\.POST_Token +POST +via URL https://api\.example\.invalid/oauth/token .*=> needs a real test system: test this call in the customer.s test environment before go-live$' \
+    '^UNCALLED +const:Mod\.OldServiceUrl .*=> not called by the model: no stand-in needed$' \
+    '^UNKNOWN +rest:Ext\.GET_Computed .*=> needs a real test system: test this call in the customer.s test environment before go-live$' \
+    '^apis 8 found · mocked 1 · excluded 0 · unknown 5 · not called 2$' \
+    '^stand-ins: 1 stand-in \+ 2 resolved automatically, 5 need a real test system before go-live \(recommended: test in the customer.s test environment\)$' \
+    -- python3 $B/apimock.py inventory $SU
+  SP=$AM/stp
+  ctl apimock-uncalled-serve-pass 0 '^Mod\.OldServiceUrl=http://127\.0\.0\.1:[0-9]+/c/Mod\.OldServiceUrl/$' \
+    -- python3 $B/apimock.py serve $SU --state $SP --port 0 --background
+  ctl apimock-uncalled-coverage-pass 0 '^apis 8 found · mocked 1 · excluded 0 · unknown 5 · not called 2$' -- cat $SP/coverage.txt
+  python3 $AM/fetch.py $B $SP GET /c/Mod.OldServiceUrl/x > /dev/null 2>&1
+  [ -f $SP/pid ] && python3 $B/apimock.py stop --state $SP > /dev/null
+  # no request at all: the check names the constants nothing called, as info (not INVALID by themselves)
+  ctl apimock-uncalled-not-called-pass 3 '^  NOT CALLED endpoint const:Sso\.Provider: not called by the model, no stand-in needed' '!NOT CALLED endpoint const:Mod' \
+    -- python3 $B/apimock.py check --state $SP
+  # a constant "not called" that IS called arrives as an UNKNOWN request: the rung goes INVALID
+  ctl apimock-uncalled-called-catch 3 '^  UNKNOWN request GET /c/Mod\.OldServiceUrl/x' 'verdict: INVALID: .*; 1 requests to UNKNOWN' \
+    '!NOT CALLED endpoint const:Mod' '!verdict: PASS' -- python3 $B/apimock.py check --state $SP
 else
   for c in inventory-pass unknown-invalid-catch no-exclude-catch classify-reason-catch classify-pass serve-pass rest-shape-pass odata-pass excluded-503-pass \
            log-pass check-unknown-catch check-except check-unnamed-system-catch check-unmatched-catch stop-pass standin-pass standin-uncalled-pass \
            addon-unknown-catch addon-unreadable-catch classify-mocked-no-route-catch classify-location-pass classify-location-data-pass \
            classify-location-syntax-catch serve-public-host-bind-pass check-zero-traffic-catch odata-prefix-pass check-unexercised-waived-pass \
-           check-unexercised-catch check-zero-traffic-waived-catch; do skip apimock-$c "no python bson"; done
+           check-unexercised-catch check-zero-traffic-waived-catch recommend-inventory-pass uncalled-serve-pass uncalled-called-catch; do skip apimock-$c "no python bson"; done
   skip gate-standin-real-catch "no python bson"; skip gate-apis-zero-traffic-catch "no python bson"
 fi
 
@@ -7665,7 +7687,7 @@ ctl cockpit-render-without-rung-out-catch 0 '^rendered with a PASS\* rung and no
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
 # what a finding MEANS, per item, from the run's own files (the owner, 2026-11-17: "not just what, but what it means")
-ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
+ctl cockpit-found-means-pass 0 '^means standins: 2 of 4 outside calls are covered in the tests\.$' '^item standins: Mod\.OldUrl \| not called \| ok \| ' '^item standins: Sso\.Refresh \| address built in Java \| wait \| .*Recommended: test this call in the customer.s test environment' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
 # a decision's case file (work/cases/<id>.json): found by id, screenshots embedded, a missing shot shown as such, a broken file ignored
 ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^old shot: data:image/png;base64, \| new shot: .{2}$' '^html: tiles why=2 no-shot$' -- python3 $here/found_means_control.py $T/fmc cases
 # a regression without a case file gets one from the run's own files (no manual case writing): count, old and new shot of the failing
@@ -7938,6 +7960,7 @@ ctl steps-drow-unknown-step-catch 0 '^MISSING D71: the row names S-5, but there 
 ctl steps-drow-file-in-parent-folder-catch 0 '^MISSING D80: the agent decided "Drop the old theme"' '^rc=1$' -- $SC drow-in-parent
 ctl steps-phase-split-keeps-each-version-catch 0 '^found in 11\.12\.7: rc=1$' "^S-1 10\.24\.0 \['PASS', 'NOT RUN'\]$" "^S-2 11\.12\.7 \['PASS', 'PASS'\]$" '^S-1$' -- $SC phase-split
 ctl steps-standins-one-step-per-version-pass 0 "^S-1 10\.24\.0 approved \| The app makes 2 outside calls on Mendix 10\.24\.0\. 2 can be answered by a stand-in\.$" '^S-2 11\.12\.7 assumed \| .*1 gets its address from data.*Compared with the previous version: 1 new, 1 gone, 0 changed\.$' '!^S-3' -- $SC standins
+ctl steps-standins-grouped-ok-pass 0 "^S-1 assumed/unattended \| 1 stand-in \+ 3 resolved automatically, 2 need a real test system before go-live \(recommended: test in the customer's test environment\)\.$" -- $SC standins-grouped
 ctl cockpit-ladder-and-test-health-pass 0 "^ladder \[\('9\.24\.2\.1', 'done'\), \('10\.24\.13\.1', 'done'\), \('11\.12\.7', 'now'\)\]$" "^health \[\('10\.24\.13', \[41, 12\], \[135, 2, 38\], \[258, 224\], 1\)\]$" '^no ladder: \[\] True$' -- $SC cockpit-ladder
 ctl steps-find-topic-pass 0 '^found: S-1$' '^rc=1$' -- $SC find-topic
 # slice 6: the gate links its rungs to the steps; a missing test is a gap in plain words, never a pass
