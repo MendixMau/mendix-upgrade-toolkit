@@ -7560,6 +7560,10 @@ ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: 
 ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan
 ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
 ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
+# cold rfq: Administration was held as a "real logic edit" for entity Account, whose only difference was its User grant
+# reading the association EmployeeManagement owns into it; routed XASSOC with every association a module off the plan owns in
+ctl editroute-access-only-entity-xassoc-catch 0 '^ROUTE Accmod XASSOC: entity access only: its grants name Emp\.Emp_Acct' '^force-ui\.txt: Accmod # editroute XASSOC$' '^approved-step\.txt: Demo\.Demo_Acct ' '^approved-step\.txt: Emp\.Emp_Acct ' '^route-plan\.txt: 7 2\.0\.0 Accmod$' -- $ER access
+ctl editroute-access-plus-attribute-held-pass 0 '^ROUTE Holdmod HOLD: real logic edit: entity H' '!route-plan\.txt: .*Holdmod' '!approved-step\.txt: Emp\.Emp_H' -- $ER access
 ctl editroute-collect-pass 0 'Uimod.mdl: create or modify snippet Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
 # cold test WM1 Atlas_Core: a saved whole element lost the master-layout link and carried the old widget's properties; the change
 # is merged onto the new element instead, and a result mxcli check refuses is held, never executed

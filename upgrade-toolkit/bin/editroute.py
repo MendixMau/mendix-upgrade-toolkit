@@ -23,6 +23,9 @@ Routes, per refused module (the module is updated in all of them except HOLD):
             (mxcli refs): accepted in approved.txt with that reason
   XASSOC    the update drops associations ANOTHER module owns into this one (they hold app data): forced with --save-edits, each
             association replayed and its ORIGINAL GUID restored (replay/<Module>.guids), the step-only removal in approved-step.txt
+            Also an entity the update refused when its only difference from the package is grant members that are such
+            associations (cold rfq: Administration.Account, the User grant read EmployeeManagement.Employee_Account):
+            routed XASSOC with every association a module off the plan owns into it (planorder: the update drops them)
   HOLD      a real logic edit, Java user code, a GUID change, a removal something still uses, a tool or network fault: it stays a
             card for a person, with the evidence. The recommendation there is still to update (move the edit to <Module>_Ext).
 
@@ -42,6 +45,8 @@ import argparse, difflib, glob, json, os, re, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import localedits  # noqa: E402  (MXCLI, CACHE, fetch_pkg)
+import idcheck  # noqa: E402
+import planorder  # noqa: E402
 
 UI_KINDS = {"PAGE", "LAYOUT", "SNIPPET", "IMAGE", "IMAGECOLLECTION", "CONSTANT"}
 LOGIC_KINDS = {"MICROFLOW": "microflow", "NANOFLOW": "nanoflow", "RULE": "rule"}
@@ -90,7 +95,45 @@ def unused(original, kind, qn):
     return rc == 0 and "no references found" in out
 
 
-def route_module(mod, why, S, ledit, original, cache, mpr):
+_ASSOC = {}
+
+
+def assoc_model(original):
+    """idcheck's model of the original app ({} when it cannot be read: a stub or no original)."""
+    if original not in _ASSOC:
+        try:
+            _ASSOC[original] = idcheck.build(idcheck.load(original)[0])
+        except (SystemExit, Exception):
+            _ASSOC[original] = {}
+    return _ASSOC[original]
+
+
+def cross_members(mod, ent, original, pkg):
+    """[association qn] when entity mod.ent differs from the installed package only by grant members that are
+    associations other modules own into it, else []: that edit is the XASSOC route's other side, no logic edit."""
+    model = assoc_model(original) if original else {}
+    cross = {qn.split(".", 1)[1]: qn for qn, x in model.get("association", {}).items()
+             if x["module"] != mod and f"{mod}.{ent}" in (x.get("parent"), x.get("child"))}
+    a = describe(original, "entity", f"{mod}.{ent}") if cross else None
+    b = describe(pkg, "entity", f"{mod}.{ent}") if a and pkg else None
+    la, lb = norm(a), norm(b)
+    if not a or not b or len(la) != len(lb):
+        return []
+    used = set()
+
+    def keep(t):
+        if t in cross:
+            used.add(t)
+            return False
+        return True
+    for x, y in zip(la, lb):
+        if x != y and not (x.strip().startswith("grant ") and re.sub(
+                r"\(([^()]*)\)", lambda m: "(" + ", ".join(t for t in (s.strip() for s in m.group(1).split(",")) if keep(t)) + ")", x) == y):
+            return []
+    return sorted(cross[n] for n in used)
+
+
+def route_module(mod, why, S, ledit, original, cache, mpr, planned=()):
     """-> (route, reason, extra) for one kept module."""
     logs = sorted(glob.glob(os.path.join(S, f"step*-{mod}.log")), key=lambda p: int(re.search(r"step(\d+)-", p).group(1)))
     log = logs[-1] if logs else ""
@@ -131,18 +174,27 @@ def route_module(mod, why, S, ledit, original, cache, mpr):
     if not rows:
         return "HOLD", why, {}
     pkg = None
-    real, cosmetic, ui = [], [], []
+    real, cosmetic, ui, xassoc = [], [], [], []
     for kind, name in rows:
-        if kind in UI_KINDS:
+        if kind in ("ENTITY",) + tuple(LOGIC_KINDS) and pkg is None and ledit and ledit.get("cid") and ledit.get("version"):
+            pkg, _, _ = localedits.fetch_pkg(ledit["cid"], ledit["version"], cache)
+        if kind == "ENTITY" and (xa := cross_members(mod, name, original, pkg)):
+            xassoc += xa
+        elif kind in UI_KINDS:
             ui.append(f"{kind.lower()} {name}")
         elif kind in LOGIC_KINDS:
-            if pkg is None and ledit and ledit.get("cid") and ledit.get("version"):
-                pkg, _, _ = localedits.fetch_pkg(ledit["cid"], ledit["version"], cache)
             a = describe(mpr, LOGIC_KINDS[kind], f"{mod}.{name}")
             b = describe(pkg, LOGIC_KINDS[kind], f"{mod}.{name}") if pkg else None
             (cosmetic if a and b and logic_body(a) == logic_body(b) else real).append(f"{kind.lower()} {name}")
         else:
             real.append(f"{kind.lower()} {name}")
+    if xassoc and not real and not ui:
+        drop = {q for (own, tgt), qs in planorder.kept_owner_notes(assoc_model(original), set(planned) | {mod}).items()
+                if tgt == mod for q in qs}
+        allx = sorted(set(xassoc) | drop)
+        return "XASSOC", f"entity access only: its grants name {', '.join(xassoc)} (owned by another module); the update is " \
+            f"forced and {len(allx)} association(s) other modules own into {mod} are replayed with their original ids", {"assocs": allx}
+    real += [f"entity access on {q}" for q in xassoc]   # mixed with other edits: a person decides
     if real:
         return "HOLD", "real logic edit: " + ", ".join(real) + f" (move it to {mod}_Ext, then update)", {"cosmetic": cosmetic, "ui": ui}
     if ui:
@@ -175,7 +227,8 @@ def cmd_plan(a):
         prev = {}
     rows, now = dict(prev), []
     for mod, why in kept:
-        r, reason, extra = route_module(mod, why, S, led.get(mod), a.original, cache, mpr)
+        r, reason, extra = route_module(mod, why, S, led.get(mod), a.original, cache, mpr,
+                                        [ln.split()[2] for ln in rd(a.plan).splitlines() if len(ln.split()) >= 3 and not ln.startswith("#")])
         p = prev.get(mod)
         if p and p.get("kept_because") == why and r != "HOLD":
             r, reason, extra = "HOLD", f"the routed update kept it again for the same reason: {why}", {}
