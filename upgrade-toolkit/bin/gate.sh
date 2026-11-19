@@ -108,7 +108,7 @@
 #       writes nothing.
 # Env: UPG_GATE_BIN (instrument folder, default: this one; controls use stubs), UPG_PYTHON, UPG_NODE,
 #      GATE_TIMEOUT (seconds per instrument, default 900; smokewalk 600 unless set). Also a gate.conf / KEY=VALUE key
-#      (GM-32); the environment variable wins over the file; a positive whole number or the gate refuses to start. A rung
+#      (GM-32); later wins: gate.conf < environment variable < KEY=VALUE argument; a positive whole number or the gate refuses to start. A rung
 #      that hits it is INVALID and its line says "raise GATE_TIMEOUT" with the elapsed time (RT-11: a 7-role repeat-3
 #      smoke walk needed 1500; GM-32: 6 roles x 3 repeats took about 20 minutes. The default does not scale with roles x repeat.)
 set -u
@@ -162,7 +162,8 @@ if [ -n "$config" ]; then
     setkey "${line%%=*}" "${line#*=}" "$cdir"
   done < "$config"
 fi
-for kv in ${ARGKV[@]+"${ARGKV[@]}"}; do setkey "${kv%%=*}" "${kv#*=}" "$PWD"; done
+GT_ARG=0
+for kv in ${ARGKV[@]+"${ARGKV[@]}"}; do setkey "${kv%%=*}" "${kv#*=}" "$PWD"; [ "${kv%%=*}" = GATE_TIMEOUT ] && GT_ARG=1; done
 for r in $(echo "$only" | tr ',' ' '); do inlist "$r" "$RUNGS" || die "--only: unknown rung '$r' (rungs: $RUNGS)"; done
 [ -n "$V_RUN" ] || V_RUN=$(date -u +%Y%m%d%H%M%S)
 case $V_RUN in *[!A-Za-z0-9_]*) die "RUN=$V_RUN: letters, digits and _ only (it goes into database names)";; esac
@@ -414,9 +415,12 @@ human_of() {
 }
 
 # --- 2. run -------------------------------------------------------------------------------------------------------
-# GM-32: GATE_TIMEOUT is also a config key (V_GATE_TIMEOUT); the environment variable, when set, wins over the file.
-GT=${GATE_TIMEOUT:-$V_GATE_TIMEOUT}
-case $GT in ''|*[!0-9]*|0*) [ -z "$GT" ] || die "GATE_TIMEOUT=$GT: a positive whole number of seconds (no unit, no zero); set it in gate.conf or the environment";; esac
+# GM-32: GATE_TIMEOUT is also a config key (V_GATE_TIMEOUT). Order, later wins: gate.conf < environment < KEY=VALUE argument.
+if [ $GT_ARG = 1 ]; then GT=$V_GATE_TIMEOUT; else GT=${GATE_TIMEOUT:-$V_GATE_TIMEOUT}; fi
+if [ -n "$GT" ]; then
+  case $GT in *[!0-9]*) die "GATE_TIMEOUT=$GT: a positive whole number of seconds (no unit); set it in gate.conf, the environment or as an argument";; esac
+  GT=$((10#$GT)); [ "$GT" -gt 0 ] || die "GATE_TIMEOUT=0: a positive whole number of seconds (not zero); set it in gate.conf, the environment or as an argument"
+fi
 TO=${GT:-900}
 # run_limited SECS OUTFILE: run "${CMD[@]}" with a time limit, output to OUTFILE, rc 124 on timeout. C6: macOS has no
 # `timeout`; the rung used to run unlimited there and a hung rung hung the gate. GNU timeout, else gtimeout (Homebrew
