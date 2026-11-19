@@ -351,6 +351,8 @@ ctl widgetdrop-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.me
 ctl widgetdrop-declared-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS, 0 of 1 widget' -- python3 $B/widgetdrop.py $WD/new
 ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/widgetdrop.py $WD/dflt
 ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
+# missing_deps places documents in modules by ContainerID: a Unit table without it stops as INVALID (exit 2), never maps all to '?'
+ctl missing-deps-no-containerid-catch 2 'INVALID, Unit table has no ContainerID' -- python3 $B/repair/missing_deps.py $WD/old
 # cold rfq: DataWidgets 3.11.8 took Gallery 1.0.0 -> 3.11.8 and a kept module's page had advanced=true, which 3.x does
 # not declare. The package is NEWER (.stepupdate/widgets.txt): "removed in the newer package", not "update the module"
 mkdir -p $WD/up/.stepupdate $WD/down/.stepupdate; cp -R $WD/old/. $WD/up/; cp -R $WD/old/. $WD/down/

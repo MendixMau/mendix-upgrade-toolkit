@@ -127,9 +127,13 @@ def units(path, with_ids=False):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
     blob_col = "Contents" if "Contents" in cols else "NULL"
+    cid_col = "ContainerID" if "ContainerID" in cols else "NULL"
+    if with_ids and cid_col == "NULL":
+        print("missing_deps: INVALID, Unit table has no ContainerID column, so documents cannot be placed in modules",
+              file=sys.stderr); sys.exit(2)
     v2 = {os.path.basename(f)[:-7].lower(): f
           for f in glob.glob(os.path.join(proj, "mprcontents", "**", "*.mxunit"), recursive=True)}
-    for uid, cid, blob in con.execute(f"select UnitID, ContainerID, {blob_col} from Unit"):
+    for uid, cid, blob in con.execute(f"select UnitID, {cid_col}, {blob_col} from Unit"):
         if blob is None and v2:
             f = v2.get(str(uuid.UUID(bytes_le=bytes(uid))).lower())
             blob = open(f, "rb").read() if f else None
