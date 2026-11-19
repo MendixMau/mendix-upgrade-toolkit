@@ -835,6 +835,7 @@ ctl triage-charts11-route-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail;
 ctl triage-charts11-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=10.24.28; charts11_check; echo done"
 # missing_deps exit 2 (INVALID: model unreadable) is said, never read as "no Charts 3.x" (it returned 0 silently before)
 ctl triage-charts11-invalid-catch 0 '^NOTE missing_deps exit 2: Charts 3\.x widgets not checked' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; APP=$WD/old WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+ctl pipeline-widgetdrop-invalid-noted-catch 0 'elif \[ "\$rc" -ge 2 \]; then   # input error' -- sed -n '/rm -f "\$WORK\/widgetdrop.json"/,/jarclash.py/p' $B/cloud/upgrade-pipeline.sh
 ctl pipeline-missing-deps-invalid-noted-catch 0 'elif \[ "\$DRY" != 1 \] && \[ "\$rc" -ge 2 \]; then   # INVALID' -- sed -n '/# row 4: missing or broken packages/,/# row 5, row 6/p' $B/cloud/upgrade-pipeline.sh
 ctl triage-charts11-wired-pass 0 '^  charts11_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
 # issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed

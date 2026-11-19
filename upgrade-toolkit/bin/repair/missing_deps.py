@@ -77,7 +77,7 @@ ROUTES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 try:
     DEPRECATED_11 = [re.compile(r["match"]) for r in json.load(open(ROUTES, encoding="utf-8"))["routes"] if r.get("blocks_from") == 11]
 except (OSError, ValueError, KeyError, re.error) as _e:
-    sys.exit(f"missing_deps: cannot read {ROUTES}: {_e}")
+    print(f"missing_deps: INVALID, cannot read {ROUTES}: {_e}", file=sys.stderr); sys.exit(2)
 
 
 def deprecated_11(wid):
