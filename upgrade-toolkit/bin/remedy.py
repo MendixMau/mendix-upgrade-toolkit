@@ -612,7 +612,7 @@ def main():
             except (OSError, subprocess.TimeoutExpired) as e:
                 err = f"keptdeps.py did not run: {e}"
         if found:
-            r = (False, found, f"kept {', '.join(found)} calls {subject} (keptdeps, {src[0]}): updating {subject} alone "
+            r = (False, found, f"kept {', '.join(found)} calls {subject} (keptdeps, {Path(src[0]).name}): updating {subject} alone "
                  "breaks it; update them in one step")
         elif not others:
             r = (True, [], "")

@@ -33,7 +33,7 @@ import argparse, glob, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CLASSES = ("startup-noise", "no-test-data", "no-click-path", "outside-call", "test-setup", "real-regression", "likely-real")
+CLASSES = ("startup-noise", "accepted", "no-test-data", "no-click-path", "outside-call", "test-setup", "real-regression", "likely-real")
 OPEN_CLASSES = ("real-regression", "likely-real")
 JOURNEY_HEALS = ("rerun", "seed", "standin", "patch", "seedname")
 # A log line the HARNESS causes, with the reason that goes next to it. Each entry carries the check on the run (the evidence).
@@ -54,7 +54,7 @@ NEVER = re.compile(r"FAIL open (\S+): reached \"([^\"]+)\" never appeared")
 SEEDED_NAME = re.compile(r"does not exist: (s\d+x\d+)\b")   # a synthetic seeded value (seed_pg.py: s<short>x<seq>) used as a model name
 ERROR_DIALOG = re.compile(r"An error occurred|mx-underlay")
 NEW_APP_LOGS = ("runtime-newjp.log", "runtime-healnew.log")
-ROW = re.compile(r"^- (FAIL|REVIEW|INVALID|NEW_ENDPOINT) (\S+): (.*)$")
+ROW = re.compile(r"^- (FAIL|REVIEW|INVALID|NEW_ENDPOINT|PASS\*) (\S+): (.*)$")
 
 
 def jload(p, default=None):
@@ -149,7 +149,7 @@ class Run:
         plan = jload(self.W / "journeys" / "plan.json", {})   # the CURRENT plan: why a journey is skipped now (not the stored text)
         self.skipped = {x.get("id"): x for x in plan.get("skipped", []) if isinstance(x, dict)}
         self.twin_present = (self.W / "twin-old.md").is_file()
-        self.twin = {r["check"]: r for r in parse_diff_rows(str(self.W / "twin-old.md")) if r["verdict"] in ("FAIL", "REVIEW")}
+        self.twin = {r["check"]: r for r in parse_diff_rows(str(self.W / "twin-old.md")) if r["verdict"] in ("FAIL", "REVIEW", "PASS*")}   # PASS*: twin-old.md notes a known row (the harness's own admin login) as accepted, still start noise
         self.prev = jload(self.W / "heal.json", {"rounds": [], "rows": []})
         self.done = {(r["id"], r["heal_kind"]) for r in self.prev.get("rows", []) if r.get("heal_kind") in JOURNEY_HEALS}
         # a row that was healed and is classified again keeps no heal_kind: the memory of what ran lives in its own file
@@ -165,7 +165,7 @@ class Run:
         out = []
         pre = self.W / "heal-pre-diff.md"   # the heal step runs diff.py itself: it comes before the gate writes diff.md
         for r in parse_diff_rows(str(pre if pre.is_file() else self.W / "diff.md")):
-            if r["check"].startswith(("journeys", "screens", "smoke")):
+            if r["check"].startswith(("journeys", "screens", "smoke")) or r["verdict"] == "PASS*":   # PASS* is accepted, not a failing row
                 continue
             out.append(self.log_row(r) if r["check"].startswith("log.") else self.data_row(r))
         return out
@@ -539,6 +539,12 @@ def finalize(W):
         if x["id"].startswith("journey:") and x["class"] in OPEN_CLASSES and x.get("heal_kind") in JOURNEY_HEALS \
                 and x["result"].startswith("passes"):
             x["class"] = "test-setup"
+    # a data/log row the gate has since accepted in writing (allow file, PASS* in diff.md) is not an open question any more;
+    # without this the stop kept listing it as "may be a real defect" after the person had answered it (TLT 2026-11-18)
+    acc = {r["check"]: r for r in parse_diff_rows(str(W / "diff.md")) if r["verdict"] == "PASS*"}
+    for x in res["rows"]:
+        if x["id"].startswith(("data:", "log:")) and x["class"] == "likely-real" and x.get("check") in acc:
+            x["class"], x["result"] = "accepted", "accepted in writing: gate row is PASS* (allow file)"
     gs = (W / "gate-summary.md").read_text(errors="replace") if (W / "gate-summary.md").is_file() else ""
     res["gate_rungs"] = {m.group(1): m.group(2).strip() for m in re.finditer(r"^\| \d+ \| (\w+) \| ([A-Z* ]+?) \|", gs, re.M)}
     write_text(W / "heal.json", json.dumps(res, indent=1) + "\n")
