@@ -1460,7 +1460,7 @@ step_update() {
 
 # build: mx check + the FIXED repair rows + mxbuild + stubs commit + quick start.
 # Fixed rows (steps/repair.md): 0 JavaVersion (CE2513), 1 backslash paths, 2 sync-java-dependencies, 3 jardedupe, 5 update-widgets
-# (CE0463), 6 design_props_guard (CE6087). Everything else (rows 4, 7-10 and own-document fixes) is a judgment stop (10).
+# (CE0463), 6 design_props_guard (CE6087), 36 gridlayout (theme, no code). Everything else (rows 4, 7-10 and own-document fixes) is a judgment stop (10).
 CHECK_N=0
 mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   CHECK_N=$((CHECK_N + 1)); CHECK_LOG="$WORK/check-$CHECK_N.log"
@@ -1574,6 +1574,14 @@ $pjl"
   if [ "$DRY" = 1 ] || has_code CE6087; then
     try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
   fi
+  # row 36: an app theme rule written for the Data Widgets 2 markup (display: block !important on .widget-datagrid .table)
+  # overrides the Data Widgets 3 grid: every cell its own row, while mx check, build and smoke pass (cold 9.24 -> 10.24).
+  # Theme only, so no mx check round: its own commit, the SAY line to the person, and a screen cause for the screens rung
+  rc=0; xo "$WORK/gridlayout.out" python3 "$B/repair/gridlayout.py" "$APP" --causes "$WORK/screen-causes.txt" || rc=$?
+  if [ "$DRY" != 1 ] && grep -q '^FIXED' "$WORK/gridlayout.out" 2> /dev/null; then
+    commit_app "repair: data grid 2 layout (old theme rule commented out)" repair repair-row-36
+    say "        repair: $(sed -n 's/^SAY //p' "$WORK/gridlayout.out")"
+  elif [ "$rc" != 0 ]; then note "gridlayout exit $rc (see $WORK/gridlayout.out): not repaired"; fi
   # all fixed rows done: where do we stand
   [ "$DRY" = 1 ] || { mxcheck; n=$(open_errors "$CHECK_LOG"); }
   # bounded loop (fix, recheck, again while it makes progress): a fixed row can expose the code of another one (L42), so the rows
