@@ -728,6 +728,13 @@ def menu_journey(cand, role, model, old=None):
     item = cand.get("menu")
     if not item:
         return None, None
+    # an icon-only item (blank caption, cold pdm: every role-menu item " ") is found by its position among the items with
+    # that caption (impact_map menu_nth); a blank group above it has no such handle: the group is opened by caption
+    nth = cand.get("menu_nth")
+    if any(not (c or "").strip() for c in item[:-1]) or (not (item[-1] or "").strip() and nth is None):
+        return None, {"id": cand["id"], "role": role, "reasons": ["icon-menu"],
+                      "why": f"menu target {cand.get('target')}: the path has an icon-only item the nav verb cannot find "
+                             f"({'a group without a caption' if any(not (c or '').strip() for c in item[:-1]) else 'no position in the impact map; regenerate it'})"}
     ready, branches, note = page_landing(model, cand.get("target"), old)
     if ready is None:
         bare = [b["page"] for b in branches if not b["widget"]]
@@ -737,8 +744,9 @@ def menu_journey(cand, role, model, old=None):
                              f"on both models: write the journey by hand with the branch its test data takes"}
     ui = {"ready": ready, "textAbsent": ERROR_TEXT}
     j = journey(re.sub(r"[^A-Za-z0-9_.-]", "_", cand["id"]) + f"-{role}", cand["title"], role, cand.get("reasons", []),
-                [{"name": f"open {' > '.join(item)}", "actions": [
-                    {"do": "nav", "group": item[0] if len(item) > 1 else None, "item": item[-1], "settleMs": 3000}],
+                [{"name": f"open {' > '.join(c if (c or '').strip() else '(icon)' for c in item)}", "actions": [
+                    {"do": "nav", "group": item[0] if len(item) > 1 else None, "item": item[-1], "settleMs": 3000,
+                     **({} if nth is None else {"nth": nth})}],
                   "ui": ui}], [f"impact:{cand['id']}"])
     if branches:
         j["_branches"] = branches

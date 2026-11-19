@@ -3817,6 +3817,14 @@ ISO="import json,sys; j=json.load(open(sys.argv[1])); s=j['steps'][0]; [print(a[
 ctl impact-iconnav-blank-caption-catch 0 "^visible \[\] signout None$" -- python3 -c "import json; r=json.load(open('$IN/impact.json'))['roles']['Desk']; print('visible', r['menu_visible'], 'signout', r['sign_out_item'])"
 ctl gen-journeys-iconnav-signout-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' '^from layout of Shop.Home, menu widget navigationTree3$' '!^nav' -- python3 -c "$ISO" $IN/gen/journeys/Desk/sign-out.journey.json
 ctl gen-journeys-iconnav-old-impact-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' -- python3 -c "$ISO" $IN/gen-old/journeys/Desk/sign-out.journey.json
+# cold pdm: every role-menu item " ": impact menu journeys navigated by caption to the first " " (all the same page), and two
+# icon items shared one candidate id. impact_map gives a blank-caption item its position (menu_nth), the nav verb clicks it
+MJ="import sys; sys.path.insert(0,'$B'); import gen_journeys as G; j,t=G.menu_journey(eval(sys.argv[1]),'Desk',None); print(j['steps'][0]['actions'][0] if j else ('TODO', t['reasons'], t['why']))"
+ctl impact-menu-icon-position-catch 0 "^\[\('A.P1', 0\), \('A.P2', None\), \('A.P3', 1\), \('A.P4', 2\)\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I; print([(i['target'], n) for i, n in I.menu_positions({'menu': [{'path': [' '], 'target': 'A.P1'}, {'path': ['Orders'], 'target': 'A.P2'}, {'path': [' '], 'target': 'A.P3'}, {'path': ['G', ' '], 'target': 'A.P4'}]})])"
+ctl gen-journeys-menu-icon-nth-catch 0 "'item': ' '" "'nth': 1" -- python3 -c "$MJ" "{'id': 'menu:  #2', 'menu': [' '], 'menu_nth': 1, 'target': 'A.P3', 'title': 't'}"
+ctl gen-journeys-menu-icon-group-todo-catch 0 "^\('TODO', \['icon-menu'\], .*a group without a caption" -- python3 -c "$MJ" "{'id': 'm', 'menu': [' ', 'x'], 'target': 'A.P5', 'title': 't'}"
+ctl gen-journeys-menu-icon-no-position-todo-catch 0 "^\('TODO', \['icon-menu'\], .*regenerate it" -- python3 -c "$MJ" "{'id': 'm', 'menu': [' '], 'target': 'A.P1', 'title': 't'}"
+ctl gen-journeys-menu-named-pass 0 "'item': 'Orders'" "!nth" -- python3 -c "$MJ" "{'id': 'm', 'menu': ['Orders'], 'target': 'A.P2', 'title': 't'}"
 ctl gen-journeys-home-texts-placeholder-catch 0 '"Find a work order"' '!Type search text' '!"Home"' -- cat $G2/journeys/Inspector/login-Inspector.journey.json
 ctl gen-journeys-home-texts-title-widget-pass 0 '"Orders overview"' '!Type search text' -- cat $G2/journeys/Clerk/login-Clerk.journey.json
 ctl gen-journeys-home-texts-popup-title-pass 0 "^Shop.Popup_Title \['Confirm your account', 'Enter the code'\]$" "^Shop.Search_Home \['Find a work order'\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import gen_journeys as G, mprmodel; m=mprmodel.Model.load('$M/guard2'); [print(q, G.home_texts(m, q)) for q in ('Shop.Popup_Title', 'Shop.Search_Home')]"
