@@ -1,0 +1,73 @@
+{
+ "version": "11.12.6.1",
+ "_why": "home page: a plain button (walked), a button in a data grid column's content (the widget holds a DataSource: drawn once per data row, listed as not walked) and a button in a plain widget property (always drawn, walked)",
+ "security": {
+  "user_roles": {
+   "Admin": [
+    "Shop.Admin"
+   ]
+  },
+  "admin": "Admin"
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "pages": [
+    {
+     "name": "Home",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": [],
+     "home_buttons": [
+      {
+       "name": "openOverview",
+       "page": "Shop.Overview"
+      },
+      {
+       "name": "editRow",
+       "page": "Shop.Overview",
+       "in": "grid"
+      },
+      {
+       "name": "inProp",
+       "page": "Shop.Demo",
+       "in": "prop"
+      }
+     ]
+    },
+    {
+     "name": "Overview",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    },
+    {
+     "name": "Demo",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin"
+     ],
+     "named": []
+    }
+   ]
+  }
+ ],
+ "navigation": {
+  "homes": [
+   {
+    "role": "*",
+    "page": "Shop.Home"
+   }
+  ],
+  "menu": [
+   {
+    "caption": "Overview",
+    "page": "Shop.Overview"
+   }
+  ]
+ }
+}

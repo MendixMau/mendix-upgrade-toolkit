@@ -492,18 +492,20 @@ async function dismissModal(page, retries = 3) {
 // grid, so Playwright's physical .click() gets pointer-intercepted. We still
 // click the REAL nav anchor via el.click() so the Mendix handler fires reliably
 // (no deeplink navigation). parentTitle opens the group; childTitle is the dest.
-async function navTo(page, parentTitle, childTitle) {
-  const clickTitle = (t) => page.evaluate((title) => {
+// nth (0 based, optional): which of several anchors with the SAME title; an icon-only menu has blank captions, so the
+// model's position among them is the only handle (CHK/PMNT: Predictive Maintenance menu of ten ' ' items).
+async function navTo(page, parentTitle, childTitle, nth) {
+  const clickTitle = (t, k) => page.evaluate(({ title, k }) => {
     // A top-bar layout (the `mxcli new` template's home page) renders the same menu as
     // .mx-navbar with the same a[title] shape; tree-only found nothing there and every
     // journey died at step 1 (card-disbursement requirements-driven build, 2026-09-25).
     const a = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a')]
-      .find((x) => x.getAttribute('title') === title);
+      .filter((x) => x.getAttribute('title') === title)[k || 0];
     if (a) { a.scrollIntoView({ block: 'nearest' }); a.click(); return true; }
     return false;
-  }, t).catch(() => false);
+  }, { title: t, k }).catch(() => false);
   if (parentTitle) { await clickTitle(parentTitle); await page.waitForTimeout(Math.round(500 / cfg.speed)); }
-  await clickTitle(childTitle);
+  await clickTitle(childTitle, nth);
   await page.waitForTimeout(Math.round(1500 / cfg.speed));
   await dismissModal(page);
 }
