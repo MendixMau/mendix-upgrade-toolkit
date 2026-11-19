@@ -923,6 +923,8 @@ charts11_check() { # Charts 3.x widgets on an 11 target: the build stops on them
   [ ! -s "$WORK/charts11.txt" ] || return 0
   local rc=0
   xo "$WORK/missing_deps-triage.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?
+  # exit 2 is INVALID (the model could not be read), never "no Charts 3.x": say it, the build check stays
+  if [ "$rc" -ge 2 ]; then note "missing_deps exit $rc: Charts 3.x widgets not checked before convert, see $WORK/missing_deps-triage.txt"; return 0; fi
   grep -q '^DEPRECATED-11' "$WORK/missing_deps-triage.txt" 2> /dev/null || return 0
   # One ask, never two: a removed widget is handled once. When widgetroute.py can read a route for these uses, the build routes them
   # (widget_routes) and asks its own one OK at the end, so this early stop stands down; it stays only when no route can be read (exit 2).
@@ -1493,6 +1495,8 @@ step_update() {
         nj_meta person "A widget update in this rung removed settings the pages used. Have the pages been checked on the new widget?" "" "accept|Accept the loss after checking each page|Write widgetdrop-ack.txt with the reason."; nj_add 13 "Decision" "No module update brings these settings back. Check each page on the new widget (the listed setting now has the new widget's behaviour), then accept with a reason in $WORK/widgetdrop-ack.txt."
       fi
       nj_park
+    elif [ "$rc" -ge 2 ]; then   # input error (model unreadable): nothing was checked, never read as "no drops"
+      note "widgetdrop exit $rc: widget settings update-widgets would drop not checked, see $WORK/widgetdrop.out"
     fi
   else
     x python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md"
@@ -1692,6 +1696,8 @@ $pjl"
       fi
     fi
     if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then widget_routes; fi
+  elif [ "$DRY" != 1 ] && [ "$rc" -ge 2 ]; then   # INVALID: nothing was checked, never read as "0 missing"
+    note "missing_deps exit $rc: missing, broken and Charts 3.x packages not checked: $(grep -m1 'INVALID' "$WORK/missing_deps.txt" || tail -1 "$WORK/missing_deps.txt") (see $WORK/missing_deps.txt)"
   fi
   [ "$DRY" != 1 ] || widget_routes
   # row 5, row 6
