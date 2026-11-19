@@ -6693,6 +6693,16 @@ print('R9 item: RA-19', yn(ra['RA-19'].search(r9)))
 print('snippet item: RA-19', yn(ra['RA-19'].search(sn)))
 print('snippet item: RA-9', yn(ra['RA-9'].search(sn)))
 "
+# RA-16 (MendixSSO to OIDC) must bind to the MendixSSO items only. Field run: the items of replacements rows R18, R30 and R21 listed a hit
+# inside a MendixSSO microflow in their evidence and all three got the login recommendation (the item of R30 read "OIDC with the IdP").
+# controls/fixtures/proposal-ra16/items.tsv holds the item texts of that run (kind, name, evidence as the proposal built them).
+ctl proposal-ra16-evidence-mention-not-matched-catch 0 '^P-2 RA-16 no$' '^P-3 RA-16 no$' '^P-5 RA-16 no$' '^P-4 RA-16 yes$' '^P-7 RA-16 yes$' -- python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import proposal
+rx = {e['id']: e['rx'] for e in proposal.load_ra()}['RA-16']
+for l in open('$FX/proposal-ra16/items.tsv'):
+    k, t = l.rstrip('\\n').split('\\t', 1)
+    print(k, 'RA-16', 'yes' if rx.search(t) else 'no')
+"
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
