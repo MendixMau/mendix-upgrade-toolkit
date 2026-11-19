@@ -167,11 +167,34 @@ function landedOk() {
   } catch (e) { return 'page could not be inspected: ' + String(e && e.message || e).slice(0, 100); }
 }
 
+// GM-30: a signed-in session whose home page never rendered is not a failed login. Runs in the browser: the signed-in user's
+// name (Dojo mx.session.getUserName, React mx.session.sessionData.user), else null. Exported for controls/smokewalk_predicates.js.
+function sessionUser(want) {
+  try {
+    if (!window.mx || !mx.session) return null;
+    let n = null;   // only the expected smoke user counts: a guest/anonymous session is not a login
+    if (mx.session.getUserName) n = mx.session.getUserName() || null;
+    else { const u = mx.session.sessionData && mx.session.sessionData.user; n = (u && u.name) || null; }
+    return n && want && String(n).toLowerCase() === String(want).toLowerCase() ? n : null;
+  } catch (e) { return null; }
+}
+// The reason a login did not finish. A session that exists means the credentials worked and the home page errored: say so,
+// with the server's or the dialog's own text when there is one (it was "login failed (HTTP 200, still on login3.html)").
+function loginFailure({ status, url, user, error }) {
+  if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
+  if (user) return 'home failed for this user: ' + (error || 'the home page did not render (no server error captured)') + ' (session exists, HTTP ' + status + ', on ' + url + ')';
+  return 'login failed (HTTP ' + status + ', still on ' + url + ')';
+}
+
 function loginUrl(url, loginPath) { return url + (loginPath || '/login.html'); }
 
 async function login(page, url, user, pass, timeout, loginPath) {
-  let status = 0;
-  page.on('response', r => { if (r.url().endsWith('/xas/') && r.request().postData() && r.request().postData().includes('"login"')) status = r.status(); });
+  let status = 0, srvErr = null;
+  page.on('response', r => {
+    if (!r.url().endsWith('/xas/')) return;
+    if (r.request().postData() && r.request().postData().includes('"login"')) status = r.status();
+    if (r.status() >= 400 || r.status() === 200) r.text().then(t => { try { const j = JSON.parse(t); const m = j && (j.message || j.error || (j.errorMessage)); if (m && (r.status() >= 400 || j.error || j.errorMessage)) srvErr = String(m.message || m).slice(0, 200); } catch (e) { if (r.status() >= 400) srvErr = ('HTTP ' + r.status() + ' ' + t).slice(0, 200); } }).catch(() => {});
+  });
   await page.goto(loginUrl(url, loginPath), { waitUntil: 'domcontentloaded' });
   await page.fill('#usernameInput', user);
   await page.fill('#passwordInput', pass);
@@ -180,8 +203,9 @@ async function login(page, url, user, pass, timeout, loginPath) {
     await page.waitForFunction(loggedIn, null, { timeout });
     return null;
   } catch (e) {
-    if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
-    return 'login failed (HTTP ' + status + ', still on ' + page.url() + ')';
+    const sessUser = await page.evaluate(sessionUser, user).catch(() => null);
+    const dlg = sessUser ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
+    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg });
   }
 }
 
@@ -346,7 +370,7 @@ function apiOnlyHome(plan, s) {
     ? 'API-only role: its home page is the login page ' + s.page + ', no signed-in home to walk' : null;
 }
 
-module.exports = { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl };
+module.exports = { sessionUser, loginFailure, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl };
 if (require.main === module) (async () => {
   const o = args();
   let results;
