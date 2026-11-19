@@ -7541,6 +7541,18 @@ printf '[{"name": "Shopmod", "files": [{"change": "CHANGED", "kind": "theme", "p
 ctl evidence-check-release-notes-catch 0 '^- release_impact: no brain version tables' '^files: work/release-impact\.out$' -- python3 $B/evidence.py --work $T/evw/work --kind check "Release notes"
 ctl evidence-theme-files-catch 0 '^- themesource/shopmod/web/main\.scss: changed \(1 variable' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Shopmod themesource edits"
 ctl evidence-theme-other-module-pass 1 '\(no evidence found\)' '!main\.scss' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Othermod themesource edits"
+# cold rfq: 14 replacement cards ("R18 Runtime Java API removals (Java)") and a Java card whose only edit is one Java file were
+# ask-no-evidence: the row's evidence column in replacements.md and the module's file rows in localedits.json are shown now
+cat > $T/evw/work/replacements.md <<'MD'
+| id | status | pattern | replacement | evidence | unchecked | effort | risk | verified | handled |
+|---|---|---|---|---|---|---|---|---|---|
+| R5 | HIT | Old client API in Java | the new API | /\bCore\.oldCall\w*\|\bOld\.thing\b/ in javasource/shopmod/A.java (2), javasource/shopmod/B.java (1); Forms$GlyphIcon: 3 in Shopmod.Home (own) | - | S | - | yes |  |
+MD
+printf '[{"name": "Javamod", "logic": [], "files": [{"change": "CHANGED", "kind": "java", "path": "javasource/javamod/Utils.java", "detail": "user code differs from the installed package (logic edit)"}]}]' > $T/evw/work2.json
+mkdir -p $T/evw2/work; cp $T/evw/work2.json $T/evw2/work/localedits.json
+ctl evidence-recipe-row-catch 0 '^- replacements\.md row R5: HIT$' '^- found in javasource/shopmod/A\.java \(2\), javasource/shopmod/B\.java \(1\)$' '^- Forms\$GlyphIcon: 3 in Shopmod\.Home' '^files: work/replacements\.md$' '!oldCall' -- python3 $B/evidence.py --work $T/evw/work --kind Java "R5 Old client API in Java"
+ctl evidence-recipe-no-row-pass 1 '\(no evidence found\)' -- python3 $B/evidence.py --work $T/evw/work --kind widget "R6 Something else"
+ctl evidence-module-java-file-catch 0 '^- javasource/javamod/Utils\.java: changed \(user code differs' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw2/work --kind Java Javamod
 # a copy of a work folder: state/app-dir still names the original run (a path that is gone); the evidence files are found beside work/ and shown from the app folder, never as ../../..
 mkdir -p $T/evc/run/work/state $T/evc/run/app/.stepupdate; printf '/gone/elsewhere/runs/X1/app\n' > $T/evc/run/work/state/app-dir
 printf 'RED REMOVED Entity Mod.Thing\n' > $T/evc/run/app/.stepupdate/step1-Mod.idcheck
