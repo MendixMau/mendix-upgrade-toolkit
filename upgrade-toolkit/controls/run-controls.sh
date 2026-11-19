@@ -191,6 +191,52 @@ ctl restore-guid-catch 1 'GUID_CHANGED' -- python3 $B/idcheck.py $M/base/App.mpr
 ctl restore-guid-apply 0 'written' -- python3 $B/restore_guid.py $M/restored/App.mpr MFAmodule.MFA.QR_Url --from $M/base/App.mpr
 ctl restore-guid-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $M/restored/App.mpr
 
+# GM-24: step mode, a re-creation under the ORIGINAL name with a new GUID (a drop accepted at one step, the owner module re-adds it
+# at a later one): old = the step before (attribute gone), new = the step after (guid-changed's QR_Url), baseline = the original
+echo '{"from": "'$FX'/models/base.json", "ops": [["delete", "modules/1/entities/0/attributes/1"]]}' > $T/rd-old.json
+python3 $here/lib/mkmodel.py $T/rd-old.json $M/rd-old > /dev/null
+ctl idcheck-readded-new-guid-catch 1 '^RED +READDED_NEW_GUID +attribute +MFAmodule\.MFA\.QR_Url' 'verdict: FAIL' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr
+ctl idcheck-readded-same-guid-pass 0 'verdict: PASS' '!READDED_NEW_GUID' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/base/App.mpr --baseline $M/base/App.mpr
+# a bare element name (editroute writes these into approved-step.txt for a replayed association) must not approve READDED_NEW_GUID:
+# only the keyed form does. Bare name alone -> still FAIL; keyed form -> PASS. GUID_CHANGED keeps bare-name approvals (hand-written
+# approved.txt files rely on it; flipping it would change their verdicts with no hint)
+echo 'MFAmodule.MFA.QR_Url  # editroute XASSOC: replayed' > $T/ap-bare.txt
+echo 'READDED_NEW_GUID attribute MFAmodule.MFA.QR_Url  # owner accepted the new GUID' > $T/ap-keyed.txt
+echo 'GUID_CHANGED attribute MFAmodule.MFA.QR_Url  # owner accepted the new GUID' > $T/ap-keyed-gc.txt
+ctl idcheck-readded-bare-name-not-approved-catch 1 '^RED +READDED_NEW_GUID +attribute +MFAmodule\.MFA\.QR_Url' 'verdict: FAIL' '1 open' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr --approved $T/ap-bare.txt
+ctl idcheck-readded-keyed-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr --approved $T/ap-keyed.txt
+ctl idcheck-guid-changed-bare-name-still-approved-pass 0 'verdict: PASS' '!^RED ' -- python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-bare.txt
+ctl idcheck-guid-changed-keyed-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-keyed-gc.txt
+ctl idcheck-removed-bare-name-still-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $M/rd-old/App.mpr --approved $T/ap-bare.txt
+# GM-24: net zero needs the GUID too. Old has QR_Url2 carrying the ORIGINAL QR_Url's GUID (an earlier step renamed it), new drops it:
+# not in the original by name, but its identity is, so the removal is a real loss and stays open
+g=$(python3 -c "import sys, uuid; sys.path.insert(0, '$here/lib'); import mkmodel; print(uuid.uuid5(mkmodel.NS, 'MFAmodule.MFA.QR_Url'))")
+echo '{"from": "'$FX'/models/base.json", "ops": [["set", "modules/1/entities/0/attributes/1/name", "QR_Url2"], ["set", "modules/1/entities/0/attributes/1/guid", "'$g'"]]}' > $T/nz-old.json
+python3 $here/lib/mkmodel.py $T/nz-old.json $M/nz-old > /dev/null
+echo '{"from": "'$FX'/models/base.json", "ops": [["delete", "modules/1/entities/0/attributes/1"]]}' > $T/nz-new.json
+python3 $here/lib/mkmodel.py $T/nz-new.json $M/nz-new > /dev/null
+ctl idcheck-netzero-same-guid-catch 1 '^RED +REMOVED +attribute +MFAmodule\.MFA\.QR_Url2' '!transient' -- python3 $B/idcheck.py $M/nz-old/App.mpr $M/nz-new/App.mpr --baseline $M/base/App.mpr
+# the real transient (neither the name nor the GUID in the original) is still approved
+ctl idcheck-netzero-new-element-pass 0 'transient: not in the original app \(name or GUID\), net zero' -- python3 $B/idcheck.py $M/step1-adds/App.mpr $M/base/App.mpr --baseline $M/base/App.mpr
+
+# GM-23 / A-1: stepcheck.py, the model check read after each step. Captured-shape logs (fixtures/check): worse adds errors, better only drops
+SC=$FX/check
+ctl stepcheck-new-errors-catch 1 '^NEW CE6085' 'adds? ?|new error\(s\) \(CE6085 x' '^Q.*breaks the model' '^R.*keep$' '^O.*keep\|Keep ModX at the installed version' '^W.*keep\|step-keep\.txt\|ModX' '^W.*accept\|stepcheck-accepted\.txt\|ModX CE6085' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields
+ctl stepcheck-fewer-errors-pass 0 'no new error' '!^NEW' -- python3 $B/stepcheck.py $SC/before.log $SC/after-better.log --module ModX --version 2.0.0 --fields
+echo 'ModX CE6085  # accepted by a person' > $T/sc-acc.txt
+ctl stepcheck-accepted-pass 0 'no new error' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --accepted $T/sc-acc.txt
+ctl stepcheck-accepted-other-module-catch 1 '^NEW CE6085' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModY --accepted $T/sc-acc.txt
+printf '[error] [MXCHECK] mx check ended without a result: boom\n' > $T/sc-died.log
+ctl stepcheck-died-not-zero-catch 3 'did not finish' -- python3 $B/stepcheck.py $SC/before.log $T/sc-died.log --module ModX
+# the keep option says what --skip does: only ModX stays; modules whose update needs the newer ModX are reported before the build
+ctl stepcheck-keep-wording-catch 1 '^O.*keep\|.*modules whose update needs the newer ModX are reported before the build' '!listed as kept' '!as clean as before' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields
+# GM-23: stepcheck_stop turns the stop file into a NEEDS-JUDGMENT section (the real function, cut out of the pipeline with awk)
+SK=$T/sck; mkdir -p $SK/app/.stepupdate $SK/work
+python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields | grep -E '^(Q|R|O|W|B)	' > $SK/app/.stepupdate/stepcheck-stop.txt
+for fn in nj_meta nj_add nj_writes stepcheck_stop; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$fn"'\(\) \{.*\}$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $SK/fns.sh
+printf '%s\n' 'nj_file() { echo "FILE $1"; }' 'nj_flush() { cat "$NJ_TMP"; exit 13; }' 'NJ_CODE=0; NJ_TMP='"$SK"'/nj.tmp; : > $NJ_TMP' > $SK/stub.sh
+ctl pipeline-stepcheck-stop-render-catch 13 '^FILE 13$' '^question: Updating ModX to 2\.0\.0 breaks the model' '^recommended: keep$' '^option: keep\|' '^option: accept\|' '^option: hand\|' '^writes: keep\|step-keep\.txt\|ModX$' '^writes: accept\|stepcheck-accepted\.txt\|ModX CE6085' '^owner: person' -- bash -c ". $SK/stub.sh; . $SK/fns.sh; APP=$SK/app WORK=$SK/work; stepcheck_stop x"
+
 # T5-15 / T5F-4: a KEPT module that calls the old API of a PLANNED module (microflow, Java action, generalization, Java
 # import) caps that module at its current major; the plan must never move it silently
 # MC-11: keptstyle lists platform widget selectors in a kept module's theme
@@ -1983,6 +2029,39 @@ cp -R $S2/base/. $S2/app/; cp $S/plan.txt $S2/plan.txt
 (cd $S2/app && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
 ctl stepupdate-mpr-v2-catch 1 'committed' 'STOP: new data-bearing finding after guid-changed' '!idcheck input error' '!no entities read' -- env UPG_UPDATE_CMD="cp $S2/{module}/App.mpr {mpr} && rm -rf $S2/app/mprcontents && cp -R $S2/{module}/mprcontents $S2/app/mprcontents" bash $B/stepupdate.sh $S2/app $S2/plan.txt
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
+
+# GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
+# model and the before log for anything else, so step 1 adds errors: the step is undone, nothing is committed, exit 4, and the stop file
+# holds the question in the shape widgetfix prints. The pass control (same plan, a check that finds nothing new) commits.
+S5=$T/step-chk; mkdir -p $S5/app $S5/step1-adds; cp $M/base/App.mpr $S5/app/App.mpr; cp $M/step1-adds/App.mpr $S5/step1-adds/
+printf '120743 1.6.0 step1-adds\n' > $S5/plan.txt
+(cd $S5/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+printf '#!/bin/sh\nif cmp -s "$1" %s/step1-adds/App.mpr; then cp %s/after-worse.log "$2"; else cp %s/before.log "$2"; fi\n' $S5 $FX/check $FX/check > $S5/chk.sh
+printf '#!/bin/sh\ncp %s/before.log "$2"\n' $FX/check > $S5/chk-clean.sh
+printf '#!/bin/sh\nexit 0\n' > $S5/chk-none.sh
+ctl stepupdate-stepcheck-catch 4 'STOP: step1-adds 1\.6\.0 adds model errors' 'NEW CE6085' 'nothing committed' '!committed [0-9a-f]' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt
+ctl stepupdate-stepcheck-nothing-committed 0 'base' '!step: step1-adds' -- git -C $S5/app log --format=%s
+ctl stepupdate-stepcheck-tree-undone 0 '!.' -- git -C $S5/app status --porcelain --untracked-files=no
+ctl stepupdate-stepcheck-stop-file 0 '^Q.*breaks the model' '^R.*keep$' '^W.*keep\|step-keep\.txt\|step1-adds' -- cat $S5/app/.stepupdate/stepcheck-stop.txt
+echo 'step1-adds CE6085  # accepted' > $S5/acc.txt
+ctl stepupdate-stepcheck-accepted-pass 0 'committed' '!STOP' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt --check-accepted $S5/acc.txt
+S6=$T/step-chk2; mkdir -p $S6/app $S6/step1-adds; cp $M/base/App.mpr $S6/app/App.mpr; cp $M/step1-adds/App.mpr $S6/step1-adds/; cp $S5/plan.txt $S5/chk-clean.sh $S5/chk-none.sh $S6/
+(cd $S6/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-stepcheck-clean-pass 0 'no new error' 'committed' '!STEPCHECK NOT RUN' -- env UPG_STEPCHECK_CMD="sh $S6/chk-clean.sh {mpr} {log}" UPG_UPDATE_CMD="cp $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S6/app $S6/plan.txt
+S7=$T/step-chk3; mkdir -p $S7/app; cp $M/base/App.mpr $S7/app/App.mpr; cp $S5/plan.txt $S5/chk-none.sh $S7/
+(cd $S7/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-stepcheck-notrun-catch 1 'STEPCHECK NOT RUN: the model check after step1-adds did not finish' 'STEPCHECK NOT RUN after: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S7/chk-none.sh {mpr} {log}" UPG_UPDATE_CMD="cp $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S7/app $S7/plan.txt
+# a baseline check that crashed ([MXCHECK], no "The app contains:") is not remembered for this HEAD: the next step checks again
+S7b=$T/step-chk3b; mkdir -p $S7b/app; cp $M/base/App.mpr $S7b/app/App.mpr; cp $S5/plan.txt $S5/chk-none.sh $S7b/
+(cd $S7b/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-stepcheck-crashed-baseline-not-remembered-catch 0 '^check-head absent$' -- bash -c "env UPG_STEPCHECK_CMD='sh $S7b/chk-none.sh {mpr} {log}' UPG_UPDATE_CMD='cp $S5/{module}/App.mpr {mpr}' bash $B/stepupdate.sh $S7b/app $S7b/plan.txt > /dev/null 2>&1; [ -e $S7b/app/.stepupdate/check-head ] && echo check-head present || echo check-head absent"
+# GM-24: idcheck original -> now at the end of the batch. guid-changed against the original (--baseline base) reads BATCH-IDCHECK; with
+# the finding approved in writing it reads PASS
+S8=$T/step-batch; mkdir -p $S8/app $S8/gc; cp $M/base/App.mpr $S8/app/App.mpr; cp $M/guid-changed/App.mpr $S8/gc/
+printf '120743 1.7.0 gc\n' > $S8/plan.txt
+(cd $S8/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+echo 'GUID_CHANGED attribute MFAmodule.MFA.QR_Url  # step accepted only' > $S8/approved-step.txt; : > $S8/approved.txt
+ctl stepupdate-batch-idcheck-catch 1 'BATCH-IDCHECK original -> now has open data-bearing finding' 'BATCH-IDCHECK RED +GUID_CHANGED +attribute +MFAmodule\.MFA\.QR_Url' 'committed' -- env UPG_UPDATE_CMD="cp $S8/gc/App.mpr {mpr}" bash $B/stepupdate.sh $S8/app $S8/plan.txt --approved $S8/approved-step.txt --approved-total $S8/approved.txt --baseline $M/base/App.mpr
 # T4-mpr, T8-10: an app path with a space is one word for the update command (was split: every module refused)
 for d in "my app" "my app2"; do mkdir -p "$T/$d"; cp $M/base/App.mpr "$T/$d/App.mpr"
   (cd "$T/$d" && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base); done
@@ -2249,6 +2328,11 @@ ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* -
 # cold rfq: java-port.txt reaches stepupdate as --port-java; the build waits for java-port-done.txt while a step listed PORT-JAVA
 mkdir -p $V/pw5; printf '# port by hand\nSapConnector\n' > $V/pw5/java-port.txt
 ctl pipeline-dry-port-java-pass 0 'stepupdate\.sh .* --unattended .*--port-java SapConnector' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw5 --only update --dry-run
+# GM-23 / GM-24: the pipeline hands stepupdate the per-step model check, the written approvals for the batch-end idcheck, and the answers
+# (stepcheck-accepted.txt, step-keep.txt); UPG_NO_STEPCHECK=1 leaves the check out
+mkdir -p $V/pw6; printf 'ModA CE6085  # a person\n' > $V/pw6/stepcheck-accepted.txt; printf 'ModB  # keep\n' > $V/pw6/step-keep.txt; : > $V/pw6/approved.txt
+ctl pipeline-dry-stepcheck-wired-pass 0 'UPG_STEPCHECK_CMD=bash.*stepcheck-run\.sh\\ .*mpr.*log' 'stepupdate\.sh .*--check-accepted .*/pw6/stepcheck-accepted\.txt' 'stepupdate\.sh .*--skip ModB' 'stepupdate\.sh .*--approved-total .*/pw6/approved\.txt' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw6 --only update --dry-run
+ctl pipeline-dry-stepcheck-off-pass 0 'stepupdate\.sh ' '!stepcheck-run' '!UPG_STEPCHECK_CMD' -- env UPG_NO_STEPCHECK=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw6 --only update --dry-run
 PJ=$T/pj; mkdir -p $PJ/w $PJ/wd $PJ/wn
 awk '/java-port-done\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $PJ/blk.sh
 printf '%s\n' '   PORT-JAVA SapConnector javasource/sap/Utils.java (old file under /a/saved/SapConnector): the update replaces it' > $PJ/w/stepupdate-1.out
