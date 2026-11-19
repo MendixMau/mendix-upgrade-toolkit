@@ -6795,7 +6795,12 @@ ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the t
 mkw notes; printf 'Checked the widget list by hand.\n\n- the old theme is unused\n' > $PR/notes/AGENT-NOTES.md; bash $PR/prop.sh $PR/notes > /dev/null; bash $PR/prop.sh $PR/notes > /dev/null
 ctl proposal-agent-notes-survive-rerun-catch 0 '^## Agent notes$' '^> Checked the widget list by hand\.$' '^> - the old theme is unused$' '^headings: 1$' 'Testing plan\|## Agent notes\|## 6\. Sign-off\|' -- sh -c "cat $PR/notes/AGENT-NOTES.md > /dev/null && sed -n '/^## Agent notes/,/^## 6\\./p' $PR/notes/PROPOSAL.md; grep -c '^## Agent notes' $PR/notes/PROPOSAL.md | sed 's/^/headings: /'; grep -E '^## ' $PR/notes/PROPOSAL.md | tr '\n' '|'"
 ctl proposal-no-agent-notes-no-section-pass 0 '!Agent notes' -- cat $PR/plain/PROPOSAL.md
-ctl proposal-agent-notes-in-cockpit-catch 0 'Agent notes' 'Checked the widget list by hand' -- sh -c "python3 $B/cockpitpage.py --work $PR/notes --out $PR/notes/out.html > /dev/null && grep -o 'Agent notes.\{0,80\}' $PR/notes/out.html | head -3"
+ctl proposal-agent-notes-in-cockpit-catch 0 '^Agent notes$' '^intro: Checked the widget list by hand\.$' '^intro: - the old theme is unused$' '!> ' -- python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import cockpitmatrix
+for s in cockpitmatrix.plan_doc(open('$PR/notes/PROPOSAL.md').read()):
+    if s['h'] == 'Agent notes':
+        print(s['h']); [print('intro:', t) for t in s['intro']]
+"
 # signed -> 0 (the unanswered items take their recommendation, P-n lines CONFIRMED); the same folder first answered P-1 by hand
 mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
@@ -8012,6 +8017,7 @@ ctl decisions-pending-matches-page-catch 0 '^chat: confirm:D2 regression:Gridmod
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
+ctl cockpit-check-note-mention-no-hide-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost-note
 ctl cockpit-check-withdraw-pass 0 "withdrawn \['S-4'\]" '!ghost-step' 'rows Oldmod: 0' -- $CK check-withdraw
 ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-running
 # cold CMM: the "Release notes (check)" and "<M> themesource edits (theme)" cards were ask-no-evidence on every run, as only
@@ -8095,6 +8101,8 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
+ctl cockpit-status-idle-says-why-catch 0 '^no work file \| idle no-work-dir step=-$' '^no step \| idle no-step-running step=-$' '!null' -- $CK status-idle
+ctl cockpit-status-running-keeps-payload-pass 0 '^step running \| - - step=basewalk$' '^live page hides on idle: 1$' -- $CK status-idle
 ctl cockpit-stopped-bar-pass 0 'bar: The run stopped during this step: Clicking through every page of the old app\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \
@@ -8578,6 +8586,8 @@ ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 21
 ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
 ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
 ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
+# DV-2: the target text names no patch number (a number written in the text goes stale; triage reads it from the notes)
+ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -c "grep -nE 'newest patch,? \\(?[0-9]+\\.[0-9]+\\.[0-9]+|Mendix [0-9]+\\.[0-9]+ \\([0-9]+\\.[0-9]+\\.[0-9]+\\)' '$TK/SKILL.md' '$TK/SETUP-PROMPT.md' '$TK/playbooks/10-to-11.md' '$TK/steps/triage.md'; [ \$? = 1 ] && echo 'no target patch in the text'"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

@@ -863,6 +863,13 @@ def plan_doc(text):
         if sec is None or not ln.strip():
             continue
         t = ln.strip().replace("`", "")
+        if sec["h"] == "Agent notes" and t.startswith(">"):   # the notes are a blockquote in PROPOSAL.md: show the text, not the marker
+            t = t[1:].strip()
+            if not t:
+                continue
+            sec["intro"].append(t)
+            cur = None
+            continue
         if ln.startswith("- "):
             cur = {"text": t[2:], "subs": []}
             mm = re.match(r"^\[(P-\d+)\] (\w+): (.*)$", cur["text"])

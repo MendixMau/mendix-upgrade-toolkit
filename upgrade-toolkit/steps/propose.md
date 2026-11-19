@@ -15,7 +15,7 @@ edits and a widget with no successor are section 3, never section 2.
 
 ## Agent notes
 A note for the reader of the proposal goes in `$W/AGENT-NOTES.md` (free text, one file, append to it). Never edit PROPOSAL.md: a rerun
-writes the whole file. Propose shows the notes in an `## Agent notes` section and the cockpit shows them in the Plan table; a rerun keeps
+writes the whole file. Propose shows the notes in an `## Agent notes` section and the cockpit shows them in the plan drawer under "Agent notes"; a rerun keeps
 them. A choice you made on your own is not a note: it is a D row ([decide.md](decide.md)).
 
 ## Ask, then stop

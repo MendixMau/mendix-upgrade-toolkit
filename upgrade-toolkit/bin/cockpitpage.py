@@ -765,9 +765,6 @@ def build_model(work):
         rows.append([it["name"], what, effort_of(it["sub"].get("recommendation", "")), st])
     rows.append(["Sign-off", f"Signed by {signed[0]} on {signed[1]}." if signed else ("Paused by the owner." if P["paused"] else "Waiting for your name."), "N", "ok" if signed else "warn"])
     cnt = {k: sum(1 for r in rows[:-1] if r[2] == k) for k in "CMSN"}
-    notes = (rd(os.path.join(work, "AGENT-NOTES.md")) or "").strip()   # free text the agent keeps across proposal reruns
-    if notes:
-        rows.insert(len(rows) - 1, ["Agent notes", short(notes, 400), "N", "idle"])
     pcls = "done" if signed else ("wait" if done["propose"] else "")
     phases.append({"id": "plan", "n": "Plan", "cls": pcls, "time": phase_time(PHASES[1][2]),
                    "s": "Signed" if signed else ("Choices, not signed" if done["propose"] else "Not started"),
@@ -916,7 +913,7 @@ LIVE_JS = """<script>window.UPG_LIVE=true;</script><script>
 (function(){var k="cockpit-scroll",s=null,due=false;
 try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
 function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
-function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r){b.hidden=true;return;}
+function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r||r.state==="idle"){b.hidden=true;return;}
 var w=[r.mins?r.mins+" min":"just started"];if(r.tool)w.push("now in "+r.tool);if(r.said)w.push(r.said);
 b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.querySelector("small").textContent=w.join(" \u00b7 ");b.hidden=false;}
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
