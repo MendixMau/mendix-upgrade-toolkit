@@ -71,6 +71,8 @@ mxcli v0.28.0 (#1408, #1474), what it changes for the rows above:
   compare inside a single invocation and cannot straddle versions; `convertmade.sh` (trusts the triage localedits.json), the triage
   catalog (`test_inventory.py`, `impact_map.py`) and `replay/<Module>.mdl` (written from a DESCRIBE of the old app) do, and the pin protects them.
 
+Copying a container or widget by hand (not via copydoc.py / widgetrestore.py, which copy from the original and so keep its conditions): compare `ConditionalVisibilitySettings` (and, where present, `ConditionalEditabilitySettings` / `Editability`) with the widget being restored, and reset them to the original's; a copy that keeps the source container's rule can leave the restored page empty for most users (GM-A4). If there is no original, say so in the repair note for review. Shape: `bin/action_inventory.py` line 578 (`ConditionalVisibilitySettings` dict with `Expression` or `Attribute`, or None).
+
 Hand repairs are labelled (change ledger, `bin/changelog.py` -> `$W/CHANGES.md`): every commit you or the agent make in app/ by hand goes through
 `bash $B/appcommit.sh --app app --by agent|person --kind repair --rule repair-row-<N> --why "what and why, one line" -- <path> [<path> ...]`
 (kinds: module-update, convert, repair, replay, theme, data, config; rule = the row above or `decision S-n`). It commits the named paths only and
