@@ -904,13 +904,15 @@ unset UPG_CACHE UPG_MXCLI
 # --- repair: missing modules and widgets, broken widget packages (E5 F15, E1 17, E5 F22) ----------------------------
 # GM-29: orphan javasource action files (no model Java action, still extending the removed CustomJavaAction): listed, never deleted
 OJ=$T/orphanjava; python3 $here/lib/mkmodel.py $FX/models/orphan-java.json $OJ/orphan > /dev/null; python3 $here/lib/mkmodel.py $FX/models/orphan-java-clean.json $OJ/clean > /dev/null
-mkdir -p $OJ/unreadable; cp -r $OJ/orphan/javasource $OJ/unreadable/; echo 'not a sqlite file' > $OJ/unreadable/App.mpr
-ctl orphan-javasource-orphan-catch 1 'ORPHAN +javasource/appmod/actions/Gone\.java' 'PROPOSE +delete' 'git rm -- javasource/appmod/actions/Gone\.java$' '2 action file\(s\) checked, 1 orphan' -- python3 $B/repair/orphan_javasource.py $OJ/orphan
+python3 $here/lib/mkmodel.py $FX/models/orphan-java-noactions.json $OJ/noact > /dev/null; mkdir -p $OJ/nompr; cp -r $OJ/orphan/javasource $OJ/nompr/; mkdir -p $OJ/unreadable; cp -r $OJ/orphan/javasource $OJ/unreadable/; echo 'not a sqlite file' > $OJ/unreadable/App.mpr
+ctl orphan-javasource-orphan-catch 1 'ORPHAN +javasource/appmod/actions/Gone\.java' 'PROPOSE +delete' 'git rm -- javasource/appmod/actions/Gone\.java javasource/appmod/actions/Tricky\.java$' '3 action file\(s\) checked, 2 orphan' -- python3 $B/repair/orphan_javasource.py $OJ/orphan
+ctl orphan-javasource-comment-opener-catch 1 'ORPHAN +javasource/appmod/actions/Tricky\.java' -- python3 $B/repair/orphan_javasource.py $OJ/orphan
+ctl orphan-javasource-no-actions-decoded-unknown-catch 2 'UNKNOWN +javasource/appmod/actions/Present\.java.*no Java actions decoded' '!ORPHAN' -- python3 $B/repair/orphan_javasource.py $OJ/noact
 ctl orphan-javasource-present-action-pass 1 '!(ORPHAN|git rm).*Present\.java' -- python3 $B/repair/orphan_javasource.py $OJ/orphan
 ctl orphan-javasource-helper-class-pass 1 '!Helper\.java' -- python3 $B/repair/orphan_javasource.py $OJ/orphan
 ctl orphan-javasource-clean-pass 0 '1 action file\(s\) checked, 0 orphan' '!ORPHAN' -- python3 $B/repair/orphan_javasource.py $OJ/clean
 ctl orphan-javasource-unreadable-model-catch 2 'UNKNOWN +javasource/appmod/actions/Gone\.java' 'not judged' '!ORPHAN' '!Traceback' -- python3 $B/repair/orphan_javasource.py $OJ/unreadable
-ctl orphan-javasource-no-mpr-unknown-pass 2 'UNKNOWN +javasource/appmod/actions/Present\.java' '!ORPHAN' -- python3 $B/repair/orphan_javasource.py $OJ/unreadable/javasource/..
+ctl orphan-javasource-no-mpr-unknown-pass 2 'UNKNOWN +javasource/appmod/actions/Present\.java' '!ORPHAN' -- python3 $B/repair/orphan_javasource.py $OJ/nompr
 ctl orphan-javasource-deletes-nothing-pass 0 -- bash -c "python3 $B/repair/orphan_javasource.py $OJ/orphan > /dev/null; [ -f $OJ/orphan/javasource/appmod/actions/Gone.java ]"
 ctl missing-deps-catch 1 'UserCommons' 'PopupMenu' -- python3 $B/repair/missing_deps.py --catalog $FX/catalog/catalog.json $M/missing-deps
 # E4-27: content ids from mxcli's local catalog; a widget matches a Widget entry only, and no match is said, not guessed

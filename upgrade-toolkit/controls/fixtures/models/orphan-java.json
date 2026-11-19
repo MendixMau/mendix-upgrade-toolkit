@@ -11,8 +11,9 @@
   }
  ],
  "files": {
-  "javasource/appmod/actions/Present.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\n// Present\npublic class Present extends CustomJavaAction<Boolean> {\n  public Boolean executeAction() { return true; }\n}\n",
-  "javasource/appmod/actions/Gone.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\n// Gone\npublic class Gone extends CustomJavaAction<Boolean> {\n  public Boolean executeAction() { return true; }\n}\n",
-  "javasource/appmod/actions/Helper.java": "package appmod.actions;\n// extends CustomJavaAction in a comment only\npublic class Helper { static String x() { return \"extends CustomJavaAction\"; } }\n"
+  "javasource/appmod/actions/Present.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\npublic class Present extends CustomJavaAction<Boolean> {\n  // Present action\n  public Boolean executeAction() { return true; }\n}\n",
+  "javasource/appmod/actions/Gone.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\npublic class Gone extends CustomJavaAction<Boolean> {\n  // Gone action\n  public Boolean executeAction() { return true; }\n}\n",
+  "javasource/appmod/actions/Helper.java": "package appmod.actions;\n// extends CustomJavaAction in a comment only\npublic class Helper { static String x() { return \"extends CustomJavaAction\"; } }\n",
+  "javasource/appmod/actions/Tricky.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\n// see /* here\npublic class Tricky extends CustomJavaAction<Boolean> {\n  public Boolean executeAction() { return true; }\n}\n/* closes later */\n"
  }
 }

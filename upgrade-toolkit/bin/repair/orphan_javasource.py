@@ -11,7 +11,7 @@ Nothing else lists such files.
 Per file javasource/<module>/actions/*.java (the module folder is the lower-case module name):
   ORPHAN   the file extends CustomJavaAction / UserAction (an action class), the model was read, and it has no
            JavaActions$JavaAction document <Module>.<file name>. Excluded documents count as present (they are in the model).
-  UNKNOWN  the model could not be read (no .mpr, unreadable, no bson module, no modules in it): nothing is judged an orphan.
+  UNKNOWN  the model could not be read (no .mpr, unreadable, no bson module, no modules in it, or no Java action decoded at all): nothing is judged an orphan.
   (nothing) a file that is not an action class (a helper class the user wrote next to the actions), or an action that exists.
 Each ORPHAN is followed by a PROPOSE line with the git rm command. This tool never deletes: a person approves, then
 deletes (git is the undo). Add-on module Java is not under javasource/ and is never looked at.
@@ -26,9 +26,9 @@ ACTION_BASE = re.compile(r"\bextends\s+(?:[\w$]+\.)*(?:CustomJavaAction|UserActi
 
 
 def strip_comments(t):
-    t = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', t)   # string literals first: "//" or "extends ..." inside one is text
-    t = re.sub(r"/\*.*?\*/", " ", t, flags=re.S)
-    return re.sub(r"//[^\n]*", " ", t)
+    """One pass, left to right: // and /* */ comments, "..." and '...' literals are blanked in the order they occur,
+    so a '/*' inside a // comment (or a '//' inside a string) opens nothing."""
+    return re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', " ", t, flags=re.S)
 
 
 def is_action_class(path):
@@ -54,6 +54,8 @@ def model_actions(target):
     if not m.modules:
         return None, "the model holds no modules"
     acts = {n: set() for n in m.modules}
+    if not m.of_type("JavaActions$JavaAction"):
+        return None, "no Java actions decoded from the model"
     for d in m.of_type("JavaActions$JavaAction"):
         acts.setdefault(d.module, set()).add(d.qn.split(".", 1)[1])
     return acts, None
