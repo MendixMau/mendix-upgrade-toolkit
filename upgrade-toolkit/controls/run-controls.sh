@@ -417,6 +417,50 @@ WRT="python3 $B/repair/widgetrestore.py $WR/cur --from $WR/old/App.mpr --doc Adm
 ctl widgetrestore-dry-catch 0 '^  RESTORE baseType: attr -> ref$' '^  RESTORE refEntity: \(unset\) -> System\.UserRoles$' 'dry run, rerun with --apply' -- $WRT
 ctl widgetrestore-apply-pass 0 'written, 2 setting\(s\) back' '^again: +nothing differs' '^keep=attr$' '^ids-renewed$' -- bash -c "$WRT --apply; echo again: \$($WRT | tail -1); python3 $WR/show.py $WR/cur/App.mpr"
 ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets named drop_downFilter1' -- python3 $B/repair/widgetrestore.py $WR/cur --from $WR/other/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1
+# exprparam_source.py (repair row 35, cold rfq): an expression text parameter that kept a source variable (a snippet
+# parameter, pasted from a snippet; CE7005 after the convert) loses it; an attribute parameter keeps its source
+PV=$T/pv; mkdir -p $PV/a
+cat > $PV/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid
+def I(): return uuid.uuid4().bytes
+def var(snip): return {"$ID": I(), "$Type": "Forms$PageVariable", "LocalVariable": "", "PageParameter": "",
+                       "SnippetParameter": snip, "UseAllPages": False, "Widget": ""}
+def text(n, expr, attr, src): return {"$ID": I(), "$Type": "Forms$DynamicText", "Name": n, "Content": {"$ID": I(),
+    "$Type": "Forms$ClientTemplate", "Parameters": [2, {"$ID": I(), "$Type": "Forms$ClientTemplateParameter",
+    "AttributeRef": attr, "Expression": expr, "SourceVariable": src}]}}
+date = "formatDateTime($Order/Placed)"
+page = {"$ID": I(), "$Type": "Forms$Page", "Name": "Order_Done", "Excluded": False,
+        "Parameters": [2, {"$ID": I(), "$Type": "Forms$PageParameter", "Name": "Order"}],
+        "LayoutCall": {"Arguments": [2, {"Widgets": [2, text("text1", date, None, var("Order")),
+                                                     text("text2", "", {"$ID": I(), "Attribute": "Shop.Order.Number"}, var("Order")),
+                                                     text("text3", date, None, None)]}]}}
+mod = {"$ID": I(), "$Type": "Projects$ModuleImpl", "Name": "Shop"}
+con = sqlite3.connect(f"{sys.argv[1]}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+m = uuid.uuid4().bytes_le
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (m, None, bson.encode(mod)))
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uuid.uuid4().bytes_le, m, bson.encode(page)))
+con.commit()
+EOF
+cat > $PV/show.py <<'EOF'
+import bson, sqlite3, sys
+for (b,) in sqlite3.connect(sys.argv[1]).execute("select Contents from Unit"):
+    d = bson.decode(b)
+    def walk(x, name):
+        if isinstance(x, dict):
+            name = x.get("Name") if isinstance(x.get("Name"), str) else name
+            if x.get("$Type") == "Forms$ClientTemplateParameter":
+                print(f"{name}: source={'none' if x['SourceVariable'] is None else x['SourceVariable']['SnippetParameter']}")
+            [walk(v, name) for v in x.values()]
+        elif isinstance(x, list):
+            [walk(v, name) for v in x]
+    walk(d, "?")
+EOF
+python3 $PV/mk.py $PV/a
+ctl exprparam-source-dry-catch 0 "^FIX Shop\.Order_Done text1: expression 'formatDateTime\(\\\$Order/Placed\)' carries SnippetParameter Order: removed$" '1 fix\(es\); dry run' '!text2' '!text3' -- python3 $B/repair/exprparam_source.py $PV/a
+ctl exprparam-source-apply-pass 0 '1 fix\(es\); written' '^again: exprparam_source: 0 fix\(es\); nothing to write$' '^text1: source=none$' '^text2: source=Order$' '^text3: source=none$' -- bash -c "python3 $B/repair/exprparam_source.py $PV/a --apply; echo again: \$(python3 $B/repair/exprparam_source.py $PV/a | tail -1); python3 $PV/show.py $PV/a/App.mpr"
+ctl exprparam-source-noproject-pass 2 'exprparam_source: .*expected exactly one \.mpr' -- python3 $B/repair/exprparam_source.py $PV
+ctl pipeline-build-exprparam-row35-catch 0 'has_code CE7005' 'try_fix "expression parameter source" repair-row-35 CE7005 python3 "\$B/repair/exprparam_source.py" "\$APP" --apply' -- grep -A2 'row 35' $B/cloud/upgrade-pipeline.sh
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP
@@ -432,6 +476,13 @@ ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that hol
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
+# under the pipeline's set -Eeuo pipefail the lookup must not end early: cold rfq rung 2 (convert the newest commit, the rung-1
+# history below it) died at this line, exit 4, when awk quit at the match and git log got SIGPIPE
+# (git log only gets SIGPIPE when the log outgrows the pipe buffer, and some awks read on to the end, so the log is a long
+# stand-in stream, and the shell gets the default SIGPIPE back: a shell started by a tool that ignores it hides the bug)
+printf '%s\n' 'import signal, os, sys; signal.signal(signal.SIGPIPE, signal.SIG_DFL); os.execvp("bash", ["bash"] + sys.argv[1:])' > $RP/dfl.py
+printf '%s\n' 'set -Eeuo pipefail' ". $RP/stub.sh" 'git_app() { printf "%s\n" "abc1234 convert 11.12.7"; seq 1 300000 | sed "s/^/def5678 step /"; }' "WORK=$RP/w APP=$RP/top" 'f; echo reached' > $RP/top.sh
+ctl pipeline-update-convert-lookup-sigpipe-catch 0 '^reached 30 of 30$' -- bash -c "n=0; for i in \$(seq 1 30); do [ \"\$(python3 $RP/dfl.py $RP/top.sh 2> /dev/null)\" = reached ] && n=\$((n+1)); done; echo reached \$n of 30"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
@@ -7510,6 +7561,18 @@ printf '[{"name": "Shopmod", "files": [{"change": "CHANGED", "kind": "theme", "p
 ctl evidence-check-release-notes-catch 0 '^- release_impact: no brain version tables' '^files: work/release-impact\.out$' -- python3 $B/evidence.py --work $T/evw/work --kind check "Release notes"
 ctl evidence-theme-files-catch 0 '^- themesource/shopmod/web/main\.scss: changed \(1 variable' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Shopmod themesource edits"
 ctl evidence-theme-other-module-pass 1 '\(no evidence found\)' '!main\.scss' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Othermod themesource edits"
+# cold rfq: 14 replacement cards ("R18 Runtime Java API removals (Java)") and a Java card whose only edit is one Java file were
+# ask-no-evidence: the row's evidence column in replacements.md and the module's file rows in localedits.json are shown now
+cat > $T/evw/work/replacements.md <<'MD'
+| id | status | pattern | replacement | evidence | unchecked | effort | risk | verified | handled |
+|---|---|---|---|---|---|---|---|---|---|
+| R5 | HIT | Old client API in Java | the new API | /\bCore\.oldCall\w*\|\bOld\.thing\b/ in javasource/shopmod/A.java (2), javasource/shopmod/B.java (1); Forms$GlyphIcon: 3 in Shopmod.Home (own) | - | S | - | yes |  |
+MD
+printf '[{"name": "Javamod", "logic": [], "files": [{"change": "CHANGED", "kind": "java", "path": "javasource/javamod/Utils.java", "detail": "user code differs from the installed package (logic edit)"}]}]' > $T/evw/work2.json
+mkdir -p $T/evw2/work; cp $T/evw/work2.json $T/evw2/work/localedits.json
+ctl evidence-recipe-row-catch 0 '^- replacements\.md row R5: HIT$' '^- found in javasource/shopmod/A\.java \(2\), javasource/shopmod/B\.java \(1\)$' '^- Forms\$GlyphIcon: 3 in Shopmod\.Home' '^files: work/replacements\.md$' '!oldCall' -- python3 $B/evidence.py --work $T/evw/work --kind Java "R5 Old client API in Java"
+ctl evidence-recipe-no-row-pass 1 '\(no evidence found\)' -- python3 $B/evidence.py --work $T/evw/work --kind widget "R6 Something else"
+ctl evidence-module-java-file-catch 0 '^- javasource/javamod/Utils\.java: changed \(user code differs' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw2/work --kind Java Javamod
 # a copy of a work folder: state/app-dir still names the original run (a path that is gone); the evidence files are found beside work/ and shown from the app folder, never as ../../..
 mkdir -p $T/evc/run/work/state $T/evc/run/app/.stepupdate; printf '/gone/elsewhere/runs/X1/app\n' > $T/evc/run/work/state/app-dir
 printf 'RED REMOVED Entity Mod.Thing\n' > $T/evc/run/app/.stepupdate/step1-Mod.idcheck
@@ -7529,6 +7592,10 @@ ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: 
 ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan
 ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
 ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
+# cold rfq: Administration was held as a "real logic edit" for entity Account, whose only difference was its User grant
+# reading the association EmployeeManagement owns into it; routed XASSOC with every association a module off the plan owns in
+ctl editroute-access-only-entity-xassoc-catch 0 '^ROUTE Accmod XASSOC: entity access only: its grants name Emp\.Emp_Acct' '^force-ui\.txt: Accmod # editroute XASSOC$' '^approved-step\.txt: Demo\.Demo_Acct ' '^approved-step\.txt: Emp\.Emp_Acct ' '^route-plan\.txt: 7 2\.0\.0 Accmod$' -- $ER access
+ctl editroute-access-plus-attribute-held-pass 0 '^ROUTE Holdmod HOLD: real logic edit: entity H' '!route-plan\.txt: .*Holdmod' '!approved-step\.txt: Emp\.Emp_H' -- $ER access
 ctl editroute-collect-pass 0 'Uimod.mdl: create or modify snippet Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
 # cold test WM1 Atlas_Core: a saved whole element lost the master-layout link and carried the old widget's properties; the change
 # is merged onto the new element instead, and a result mxcli check refuses is held, never executed

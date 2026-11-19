@@ -1323,7 +1323,9 @@ step_update() {
   # stayed in the menu after the rerun, the Local Users tab showed nothing. Rewind to the convert commit first.
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/replay-keep.txt" ]; then
     local conv reps
-    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s { print $1; exit }')
+    # awk reads the whole log: an awk that quit at the match made git log die of SIGPIPE, and under pipefail the step with it
+    # (cold rfq rung 2, the convert the newest commit: exit 4 at this line, 29 of 40 tries)
+    conv=$(git_app log --format='%h %s' 2> /dev/null | awk -v s="convert $TARGET" 'substr($0, index($0, " ") + 1) == s && c == "" { c = $1 } END { print c }')
     reps=$([ -z "$conv" ] || git_app log --format='%h %s' "$conv..HEAD" 2> /dev/null | grep -E '^[0-9a-f]+ replay: ' | head -5 | tr '\n' ';' || true)
     if [ -n "$reps" ]; then
       nj_meta info; nj_add 12 "Update rerun on an app that holds replay commits" "Since convert $conv: $reps an update rerun keeps their documents and menu changes and does not route again."
@@ -1450,6 +1452,10 @@ step_build() {
   if { [ "$DRY" = 1 ] && { [ "$(major "$SOURCE")" -le 9 ] || { [ "$(major "$SOURCE")" = 10 ] && [ "$(minor "$SOURCE")" -le 6 ]; }; }; } ||
      { [ "$DRY" != 1 ] && has_code CE2513; }; then
     try_fix "JavaVersion Java21" repair-row-0 CE2513 mxcli_run -p "$MPR" -c "alter settings model JavaVersion = 'Java21'"
+  fi
+  # row 35: an expression text parameter that kept a source variable (9.24 ignored it, 10 says CE7005)
+  if [ "$DRY" = 1 ] || has_code CE7005; then
+    try_fix "expression parameter source" repair-row-35 CE7005 python3 "$B/repair/exprparam_source.py" "$APP" --apply
   fi
   # rows 2 and 3: always, before the first build
   rc=0; xo "$WORK/logs/sync-java.log" heavy sync "$TARGET" mx sync-java-dependencies "$MPR" || rc=$?
