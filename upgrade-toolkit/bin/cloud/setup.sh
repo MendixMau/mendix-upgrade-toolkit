@@ -29,7 +29,7 @@ retry() {
   local d
   for d in 2 4 8; do
     "$@" && return 0
-    log "retry in ${d}s: $1 $2"
+    log "retry in ${d}s: $1 ${2:-}"   # one-word calls (retry mxcli_checkout) have no $2 under set -u
     sleep "$d"
   done
   "$@"
@@ -75,9 +75,9 @@ selected() {
 mkdir -p "$RUN" ~/Mendix
 RUN=$(cd "$RUN" && pwd)
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
-TK=$HOME/Mendix/mxcli-project-toolkit/upgrade-toolkit
+TK=$REPO/upgrade-toolkit   # the toolkit this setup.sh belongs to; ~/Mendix/mxcli-project-toolkit no longer holds it
 MXCLI=$RUN/tools/mxcli-linux
-MXCLI_SRC=${MXCLI_SRC:-/opt/mendixlabs/mxcli}
+MXCLI_SRC=${MXCLI_SRC:-}   # empty: mxcli_src_default picks it in step_mxcli
 # default: 78bdfa5, the build the pipeline ran on. v0.28.0 is blocked (SETUP.md, "Known problem of v0.28.0")
 MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
 MXCLI_VER=$MXCLI_REF; [[ $MXCLI_REF =~ ^[0-9a-f]{40}$ ]] && MXCLI_VER=${MXCLI_REF:0:7}   # a full commit id reports as its 7-digit form
@@ -97,11 +97,11 @@ need_mx9() { [ "$SRC_MAJOR" = 9 ]; }
 # BT-1: the Mendix 9 mxbuild before 9.20 is Mono-era (modeler/mxbuild.exe): it needs the e5-mx9-mono image (Dockerfile.mx9-mono)
 # and bin/mono-shim.sh on its toolset (step toolsets).
 need_mono() { [ "$SRC_MAJOR" = 9 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -lt 20 ]; }
-# Java 17 variant: no worker built one (T7 used mig-mx10 / JDK 21 for 10.6 sources), so nothing to add.
-# If a 10.x source below 10.24 ever needs it, add it here: [ "$SRC_MAJOR" = 10 ] && [ "$SRC_MINOR" -lt 24 ].
+# Java 11 variant (mig-mx10-j11, CHK-1): a 10.0 to 10.6 source has Gradle 7.6 in its mxbuild (dies on JDK 21) and a runtime that wants Java 11; mx10.sh picks the image.
+need_j11() { [ "$SRC_MAJOR" = 10 ] && [ "$(echo "$SOURCE_FULL" | cut -d. -f2)" -le 23 ]; }  # 10.9 bundles Gradle 7.6.3 as 10.6 does (DVS); 10.24 has Gradle 8.5
 base_images() {
   echo "eclipse-temurin:21-jdk postgres:16"
-  if need_mx9; then echo "eclipse-temurin:11-jdk"; fi
+  if need_mx9 || need_j11; then echo "eclipse-temurin:11-jdk"; fi
 }
 
 # ---- each step has chk_<name> (0 = done) and step_<name> ----
@@ -170,6 +170,7 @@ chk_build() {
   docker info >/dev/null 2>&1 || return 1
   docker image inspect mig-mx10 >/dev/null 2>&1 || return 1
   if need_mx9; then docker image inspect e5-mx9 >/dev/null 2>&1 || return 1; fi
+  if need_j11; then docker image inspect mig-mx10-j11 >/dev/null 2>&1 || return 1; fi
   if need_mono; then docker image inspect e5-mx9-mono >/dev/null 2>&1 || return 1; fi
 }
 step_build() {
@@ -179,6 +180,10 @@ step_build() {
   if need_mx9; then
     docker image inspect e5-mx9 >/dev/null 2>&1 ||
       retry docker build -q --network host -t e5-mx9 -f "$TK/bin/docker/Dockerfile.mx9" "$TK/bin/docker"
+  fi
+  if need_j11; then
+    docker image inspect mig-mx10-j11 >/dev/null 2>&1 ||
+      retry docker build -q --network host -t mig-mx10-j11 -f "$TK/bin/docker/Dockerfile.mx10-j11" "$TK/bin/docker"
   fi
   if need_mono; then
     docker image inspect e5-mx9-mono >/dev/null 2>&1 ||
@@ -194,38 +199,76 @@ step_cacert() { log "no CA bundle at $CA_BUNDLE: container Marketplace calls wil
 
 # The built binary must be the pinned ref: a binary built from HEAD earlier (or from another MXCLI_REF) is rebuilt.
 mxcli_is_ref() { "$1" --version 2>/dev/null | head -1 | grep -qE "(^| )${MXCLI_VER//./\\.}( |\$)"; }
+# /opt is root-only on macOS and for a non-root user (cold rfq run: "mkdir: /opt/mendixlabs: Permission denied"):
+# fall back to the home folder, as setup-container.sh does. $1 is the base folder, /opt/mendixlabs by default.
+mxcli_src_default() {
+  local d=${1:-/opt/mendixlabs}/mxcli
+  if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then echo "$d"; else echo "$HOME/mendixlabs/mxcli"; fi
+}
 mxcli_checkout() {  # the ref (tag, branch or commit) at depth 1 into $MXCLI_SRC
   mkdir -p "$MXCLI_SRC"; [ -d "$MXCLI_SRC/.git" ] || git -C "$MXCLI_SRC" init -q
   git -C "$MXCLI_SRC" remote get-url origin >/dev/null 2>&1 || git -C "$MXCLI_SRC" remote add origin https://github.com/mendixlabs/mxcli
   GIT_LFS_SKIP_SMUDGE=1 git -C "$MXCLI_SRC" fetch -q --depth 1 origin "$MXCLI_REF" &&
     git -C "$MXCLI_SRC" checkout -q -f --detach FETCH_HEAD
 }
-chk_mxcli() { [ -x "$RUN/tools/mxcli-bin/mxcli" ] && [ -L "$MXCLI" ] && [ -e "$MXCLI" ] && [ -L ~/.local/bin/mxcli ] && mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli"; }
+# cold predictive-maintenance run on a Mac: mxcli-linux pointed at the Mac build, mxcli-container.sh mounted it into the
+# linux/amd64 container and the first module update died, "cannot execute binary file: Exec format error" (exit 126).
+# On a host that is not Linux, tools/mxcli-linux is a second, cross-built binary; mxcli-bin/mxcli stays the host one.
+# linux_mxcli_ok BIN: an ELF file stamped with the pinned ref (it can't run here to say so).
+linux_mxcli_ok() { [ "$(head -c 4 "$1" 2>/dev/null | od -An -c | tr -d ' \n')" = 177ELF ] && LC_ALL=C grep -aqF "$MXCLI_VER" "$1"; }
+host_linux() { [ "$(uname -s)" = Linux ]; }
+chk_mxcli() {
+  [ -x "$RUN/tools/mxcli-bin/mxcli" ] && [ -L "$MXCLI" ] && [ -e "$MXCLI" ] && [ -L ~/.local/bin/mxcli ] && mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli" &&
+    { host_linux || linux_mxcli_ok "$MXCLI"; }
+}
+mxcli_make() {  # the pinned ref checked out and built for this host into mxcli-bin (make runs the generators too)
+  [ -n "$MXCLI_SRC" ] || MXCLI_SRC=$(mxcli_src_default)
+  log "mxcli source: $MXCLI_SRC"
+  # GitHub release downloads are 403 at the egress proxy (T1): build from source, at the pinned ref (not HEAD)
+  retry mxcli_checkout
+  command -v antlr4 >/dev/null 2>&1 || retry python3 -m pip install -q 'antlr4-tools==0.2.2'
+  # T2/T8: repo1.maven.org answers 429; antlr4-tools looks in ~/.m2 first, so pre-place the jar from the GCS mirror
+  if [ ! -s "$ANTLR_JAR" ]; then
+    mkdir -p "$(dirname "$ANTLR_JAR")"
+    retry curl -sS -f -o "$ANTLR_JAR.part" https://maven-central.storage-download.googleapis.com/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar ||
+      retry curl -sS -f -o "$ANTLR_JAR.part" https://repo.maven.apache.org/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
+    mv "$ANTLR_JAR.part" "$ANTLR_JAR"
+  fi
+  # `make build` runs the generate steps itself (its prerequisites: grammar = make -C mdl/grammar generate, sync-all,
+  # completions; the checkout ships no generated parser). VERSION= stamps the binary with the ref: a depth-1 checkout has no
+  # tag to `git describe`, and sync-all leaves the tree "dirty".
+  (cd "$MXCLI_SRC" && ANTLR4_TOOLS_ANTLR_VERSION=4.13.2 GOTOOLCHAIN=auto make build VERSION="$MXCLI_VER" BUILD_DIR="$RUN/tools/mxcli-bin")
+}
 step_mxcli() {
+  # cold rfq run: mxcli-bin linked to another run's tools, and a Linux build that can't report its version on a Mac;
+  # the old rm -f deleted the other run's binary through the link. Never build into a link, never delete a binary.
+  if [ -L "$RUN/tools/mxcli-bin" ]; then
+    log "REFUSED, $RUN/tools/mxcli-bin is a link to $(readlink "$RUN/tools/mxcli-bin"): another run's mxcli is not rebuilt from here"
+    return 1
+  fi
   if [ -x "$RUN/tools/mxcli-bin/mxcli" ] && ! mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli"; then
-    log "mxcli in $RUN/tools/mxcli-bin is not $MXCLI_VER ($("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1)): rebuilding"
-    rm -f "$RUN/tools/mxcli-bin/mxcli"
+    local aside="$RUN/tools/mxcli-bin/mxcli.not-$MXCLI_VER.$(date +%Y%m%d%H%M%S)"
+    log "mxcli in $RUN/tools/mxcli-bin is not $MXCLI_VER ($("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1)): moved to $aside, rebuilding"
+    mv "$RUN/tools/mxcli-bin/mxcli" "$aside"
   fi
-  if [ ! -x "$RUN/tools/mxcli-bin/mxcli" ]; then
-    # GitHub release downloads are 403 at the egress proxy (T1): build from source, at the pinned ref (not HEAD)
-    retry mxcli_checkout
-    command -v antlr4 >/dev/null 2>&1 || retry python3 -m pip install -q 'antlr4-tools==0.2.2'
-    # T2/T8: repo1.maven.org answers 429; antlr4-tools looks in ~/.m2 first, so pre-place the jar from the GCS mirror
-    if [ ! -s "$ANTLR_JAR" ]; then
-      mkdir -p "$(dirname "$ANTLR_JAR")"
-      retry curl -sS -f -o "$ANTLR_JAR.part" https://maven-central.storage-download.googleapis.com/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar ||
-        retry curl -sS -f -o "$ANTLR_JAR.part" https://repo.maven.apache.org/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
-      mv "$ANTLR_JAR.part" "$ANTLR_JAR"
+  local made=""
+  [ -x "$RUN/tools/mxcli-bin/mxcli" ] || { mxcli_make; made=1; }
+  local lin="$RUN/tools/mxcli-bin/mxcli"
+  if ! host_linux; then
+    # the generators `make build` runs (go run ./cmd/gen-completions) must run on this host, so make builds the host binary
+    # and the container one is a plain cross build of the same, already generated, tree
+    lin="$RUN/tools/mxcli-bin/mxcli-linux-amd64"
+    if ! linux_mxcli_ok "$lin"; then
+      [ -n "$made" ] || mxcli_make
+      (cd "$MXCLI_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=auto go build -ldflags "-s -w -X main.Version=$MXCLI_VER" -o "$lin" ./cmd/mxcli)
     fi
-    # `make build` runs the generate steps itself (its prerequisites: grammar = make -C mdl/grammar generate, sync-all,
-    # completions; the checkout ships no generated parser). VERSION= stamps the binary with the ref: a depth-1 checkout has no
-    # tag to `git describe`, and sync-all leaves the tree "dirty".
-    (cd "$MXCLI_SRC" && ANTLR4_TOOLS_ANTLR_VERSION=4.13.2 GOTOOLCHAIN=auto make build VERSION="$MXCLI_VER" BUILD_DIR="$RUN/tools/mxcli-bin")
+    linux_mxcli_ok "$lin" || { log "$lin is not a Linux build of $MXCLI_VER"; return 1; }
   fi
-  ln -sfn "$RUN/tools/mxcli-bin/mxcli" "$MXCLI"
+  ln -sfn "$lin" "$MXCLI"
   mkdir -p ~/.local/bin && ln -sfn "$RUN/tools/mxcli-bin/mxcli" ~/.local/bin/mxcli
-  log "mxcli: $("$MXCLI" --version 2>/dev/null | head -1) (MXCLI_REF=$MXCLI_REF)"
-  mxcli_is_ref "$MXCLI" || { log "mxcli --version does not report $MXCLI_VER"; return 1; }
+  log "mxcli: $("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1) (MXCLI_REF=$MXCLI_REF)"
+  host_linux || log "container mxcli: $MXCLI -> $lin (linux/amd64 cross build, $(uname -s) host)"
+  mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli" || { log "mxcli --version does not report $MXCLI_VER"; return 1; }
 }
 
 chk_toolsets() {
@@ -271,11 +314,10 @@ step_playwright() {  # preinstalled Chromium is used; skip the browser download
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 retry npm install -q playwright@1.56 >/dev/null 2>&1)
 }
 
-chk_journeys() { [ -d ~/Mendix/mxcli-project-toolkit/project-tests/e2e ]; }
-step_journeys() {  # T8: journey engine (public repo), read-only clone
-  rm -rf ~/Mendix/mxcli-project-toolkit
-  retry git clone -q --depth 1 https://github.com/MendixMau/mxcli-project-toolkit ~/Mendix/mxcli-project-toolkit
-}
+# The journey engine is vendored (vendor/e2e/VENDORED.md); run_journeys.py copies it, no clone. The old step rm -rf'd
+# ~/Mendix/mxcli-project-toolkit (the link the symlink step makes) and cloned a repo without upgrade-toolkit (cold rfq run).
+chk_journeys() { [ -s "$TK/vendor/e2e/journey-runner.js" ]; }
+step_journeys() { log "journey engine missing at $TK/vendor/e2e: this toolkit checkout is incomplete"; return 1; }
 
 chk_auth() { [ -x "$MXCLI" ] && "$MXCLI" auth status >/dev/null 2>&1; }
 step_auth() {  # T3/T4/T8: non-interactive login with the PAT
@@ -288,7 +330,7 @@ chk_envsh() { [ -s "$RUN/env.sh" ] && grep -q "SOURCE_FULL=\"$SOURCE_FULL\"" "$R
 step_envsh() {
   cat > "$RUN/env.sh" <<ENVEOF
 # Generated by setup.sh. Source it before running the toolkit: . $RUN/env.sh
-# Toolkit root (the toolkit hard-codes ~/Mendix/mxcli-project-toolkit)
+# Toolkit root (the checkout setup.sh ran from); upgrade-pipeline.sh uses its own location, not this
 export TK="$TK"
 # Run folder: tools/, work/, app copies
 export RUN="$RUN"
