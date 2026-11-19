@@ -476,6 +476,9 @@ ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that hol
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
+# step_build commits the regenerated stubs before a build stop (cold rfq rung 2: a javac stop left them uncommitted, the rerun
+# from update died in stepupdate's clean-tree check)
+ctl pipeline-build-stubs-before-stop-catch 0 '^stubs stop$' -- bash -c "awk '/^step_build\\(\\) \\{/{p=1} p&&/commit_app \"build: regenerated stubs\"/{printf \"stubs \"} p&&/nj_add 10 \"mxbuild failed/{print \"stop\"} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh"
 # triage stops a plan that keeps a module whose Java calls Runtime API that 11 removed (cold rfq rung 2: 34 javac errors at
 # the build in three kept Marketplace modules); planned, ported (java-port.txt) or clean modules and a 10.x target pass
 KJ=$T/kj; mkdir -p $KJ/app/javasource/keptmod/reader $KJ/app/javasource/planmod $KJ/app/javasource/ownok $KJ/app/javasource/ownok/proxies $KJ/w $KJ/wp
