@@ -2,7 +2,7 @@
 
 Goal: know the version path, the module plan and the traps before anything changes.
 
-Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
+Paths: `B=$TK/bin` (`TK` = the folder that holds SKILL.md, see there),
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
 with version tables; the scripts find it the same way).
