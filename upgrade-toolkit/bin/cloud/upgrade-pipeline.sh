@@ -861,6 +861,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   rc=0; xo "$WORK/jarclash-before.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash-before.md" || rc=$?
   # impact map of the old app alone (always-on journey set, steps/journeys.md)
   must python3 "$B/impact_map.py" "$WORK/original.mpr" "$WORK/original.mpr" --out "$WORK/impact-base.json"
+  # DV-3: which company brain this run uses (or that none was found), once, from the same script the gate summary asks
+  if [ "$DRY" = 1 ]; then say "+ brainpath.py --describe"; else
+    python3 "$B/brainpath.py" --describe 2>&1 | tee "$WORK/brain.txt"; fi
   # release impact (V31-RI): needs the module jumps, which come from the plan. --auto with the app's own model and javasource
   # closes the rows the app cannot hit; --evidence: a row stays open only when the app's own modules use what it names, and the
   # environment rows become one go-live checklist (cold test: 190 open rows). The production database and OS come from
