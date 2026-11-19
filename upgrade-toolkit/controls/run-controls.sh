@@ -7430,6 +7430,9 @@ printf '#!/bin/sh\nexit 0\n' > $BTR/bin/docker; chmod +x $BTR/bin/docker
 BTP=$BTR/work
 btpipe() { local e=(); while [ "${1:-}" != "" ] && [[ "$1" == *=* ]]; do e+=("$1"); shift; done; env PATH=$BTR/bin:$PATH MXCLI= ${e[@]+"${e[@]}"} bash $B/cloud/upgrade-pipeline.sh --app-dir $BTR/app --source 10.24.26.1 --target 11.15.0.1 --work $BTP "$@"; }
 ctl bt10-pipeline-baseline-gate-catch 3 "step 'baseline': DISK FULL: only 12 MB are free" '!mxbuild' -- btpipe UPG_FREE_MB=12 --only baseline
+# DV-6 resume gap: the baseline step itself adds the exclude to an app repo that has none (a run whose run start predates it)
+BXA=$BTR/app-bx; rm -rf $BXA; mkdir -p $BXA; (cd $BXA && git init -q && touch App.mpr && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original)
+ctl buildout-baseline-step-adds-exclude-catch 0 '^/\.classpath$' '^/\.project$' '^/\*\.launch$' -- bash -c "env PATH=$BTR/bin:\$PATH MXCLI= UPG_FREE_MB=12 bash $B/cloud/upgrade-pipeline.sh --app-dir $BXA --source 10.24.26.1 --target 11.15.0.1 --work $BTR/work-bx --only baseline > /dev/null 2>&1; cat $BXA/.git/info/exclude"
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
