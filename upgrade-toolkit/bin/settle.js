@@ -30,6 +30,9 @@
 // stuck-ignored as a top bar). ASSUMED: no captured page in this repo shows the placeholder's DOM, so the selectors are
 // class-name patterns taken from the widget names, not read from a captured page; replace them with the real class
 // once a page capture exists (FEEDBACK GM-33).
+// FALSE MATCH: a class that matches but never goes away (a permanent "skeleton" theme class) would fail every page. When
+// the timeout ends on the lazy path with the DOM unchanged for stuckMs the reason says so and names SETTLE_LAZY_OFF=1,
+// which turns lazy detection off entirely (the pre-GM-33 behaviour).
 // pageSettled() runs in the browser (page.evaluate) and in node with a fake document (controls/smokewalk_predicates.js).
 
 const BUSY = [
@@ -40,17 +43,21 @@ const BUSY = [
 ];
 
 // ASSUMED (GM-33): class-name substrings, matched case-insensitively; no captured page shows the real markup.
-// keep in step with the copy inside pageSettled (it is serialised into the browser and cannot see this const)
+// ONE copy: settle() passes LAZY (and BUSY) into pageSettled as an argument, because pageSettled is serialised into the
+// browser and cannot see this const. SETTLE_LAZY_OFF=1 passes an empty list (lazy detection off, the pre-GM-33 behaviour).
 const LAZY = [
   '[class*="lazyload" i]', '[class*="lazy-load" i]', '[class*="skeleton" i]', '[class*="dataview-loader" i]',
 ];
 
 const TOPBAR_PX = 10;
 
-function pageSettled(busySel, topPx) {
+// cfg = { busy, lazy, top } (arrays of selectors, band in px); a bare array is taken as the busy list (old call shape).
+function pageSettled(cfg) {
   try {
-    const sel = (busySel || BUSY).join(', ');
-    const band = topPx || 10;
+    const c = Array.isArray(cfg) ? { busy: cfg } : (cfg || {});
+    const sel = (c.busy || BUSY).join(', ');
+    const lazyList = c.lazy || LAZY;
+    const band = c.top || 10;
     const shown = e => {
       try {
         if (e.getClientRects && !e.getClientRects().length) return false;
@@ -67,8 +74,7 @@ function pageSettled(busySel, topPx) {
         return r.top >= -1 && r.top <= band && r.height <= band && r.top + r.height <= band + 1;
       } catch (x) { return false; }
     };
-    const lazySel = ['[class*="lazyload" i]', '[class*="lazy-load" i]', '[class*="skeleton" i]', '[class*="dataview-loader" i]'].join(', ');
-    const lazy = [...document.querySelectorAll(lazySel)].filter(shown).map(name);
+    const lazy = lazyList.length ? [...document.querySelectorAll(lazyList.join(', '))].filter(shown).map(name) : [];
     const shownAll = [...document.querySelectorAll(sel)].filter(shown);
     const busy = shownAll.filter(e => !thinTop(e)).map(name);
     const topbar = shownAll.filter(thinTop).map(name);
@@ -90,12 +96,14 @@ async function settle(page, opts = {}) {
   const stableMs = opts.stableMs ?? 750;
   const stuckMs = opts.stuckMs ?? Number(process.env.SETTLE_STUCK_MS || 5000);
   const topbarMs = opts.topbarMs ?? Number(process.env.SETTLE_TOPBAR_MS || 3000);
+  const lazyOff = opts.lazyOff ?? process.env.SETTLE_LAZY_OFF === '1';   // escape hatch for a permanent false match
+  const arg = { busy: BUSY, lazy: lazyOff ? [] : LAZY, top: TOPBAR_PX };
   const poll = 250;
   const t0 = Date.now();
   let last = null, stableSince = 0, sizeSince = 0, lastBusy = [], topSince = 0;
   await page.waitForLoadState('networkidle', { timeout: Math.min(5000, timeout) }).catch(() => {});
   while (Date.now() - t0 < timeout) {
-    const s = await page.evaluate(pageSettled, BUSY).catch(e => ({ busy: ['evaluate: ' + String(e.message).split('\n')[0]], size: -1 }));
+    const s = await page.evaluate(pageSettled, arg).catch(e => ({ busy: ['evaluate: ' + String(e.message).split('\n')[0]], size: -1 }));
     const top = s.topbar || [];
     lastBusy = s.busy.concat(top);
     if (s.size !== last || s.size < 0) sizeSince = Date.now();   // DOM size changed (or unreadable): not standing still
@@ -124,8 +132,10 @@ async function settle(page, opts = {}) {
   if (lazyLeft.length) {
     const names = [...new Set(lazyLeft)].slice(0, 4).map(b => b.slice(17)).join(', ');
     const other = [...new Set(lastBusy.filter(b => !/^lazy-placeholder:/.test(b)))].slice(0, 3).join(', ');
+    const unchanged = sizeSince && still >= stuckMs
+      ? `; placeholder present and DOM unchanged for ${still}ms; if this class is permanent it is a false match — set SETTLE_LAZY_OFF=1` : '';
     return { ok: false, ms, lazy: true,
-             reason: `still loading: lazy-load placeholder(s) still present: ${names}${other ? '; also ' + other : ''}` };
+             reason: `still loading: lazy-load placeholder(s) still present: ${names}${other ? '; also ' + other : ''}${unchanged}` };
   }
   const real = lastBusy.length && !lastBusy.some(b => /^(error|evaluate):/.test(b));
   if (real && sizeSince && still >= stuckMs)
