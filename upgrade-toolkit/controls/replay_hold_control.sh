@@ -18,6 +18,7 @@ git_app() { git -C "$APP" -c user.name=c -c user.email=c@c "$@"; }
 xo() { local o=$1; shift; "$@" > "$o" 2>&1; }
 note() { echo "note: $*"; }
 Q=""
+nj_meta() { :; }
 nj_file() { echo "STOP $1: $2"; Q=$1; }
 nj_add() { echo "STOP $1: $2"; Q=$1; }
 nj_flush() { [ -z "$Q" ] || { echo "EXIT $Q"; exit "$Q"; }; }

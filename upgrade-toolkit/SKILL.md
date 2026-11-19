@@ -1,10 +1,23 @@
 ---
 name: mendix-upgrade
 description: Orchestrate a Mendix app upgrade (Studio Pro version plus Marketplace modules) from triage to an honest progress report (N of M checks closed; machine codes PASS / FAIL / INVALID). Says which step file and script to use, in which order, and when to stop. Use when asked to upgrade a Mendix app or to judge whether an upgrade is safe.
-status: v3.1 (2026-10-05; release-impact.md is a required triage output and gate rung, screenshots wait for the page to settle, positive controls judge only ui-landing rows, convert-made module edits are recognised, every script has a catch and a pass control, `make test` in controls/)
+status: current. Fixed steps run by upgrade-pipeline.sh; the agent drives the stops (see Driving the run); every script has a catch and a pass control in controls/.
 ---
 
 # Mendix upgrade orchestrator
+
+## Driving the run (every stop)
+
+At every stop of `upgrade-pipeline.sh` the agent does these four things, in this order. The terminal is where the run is
+driven; the cockpit page is for the owner who wants to glance.
+
+1. Print the brief: `upgrade-pipeline.sh --work $W --brief` (the pipeline also prints it at each stop). Tell the person its
+   "Do this now" line in your own words first, before any detail.
+2. Ask each open decision in the chat, one question with clickable options: `AskUserQuestion` on Claude Code, numbered
+   markdown elsewhere, with "something else" always available. List them with `python3 $B/decisions.py pending --work $W`;
+   put the recommended option first; then end your turn and wait for the answer. A sign-off is never taken from chat.
+3. Record each answer: `python3 $B/decisions.py add --work $W --item ID --choice KEY --by NAME --source chat`.
+4. Rerun the command the stop file names (`NEEDS-JUDGMENT.md`).
 
 Run the steps in order. Each step file says what to run and what proves it. Every step writes its evidence to the run
 folder's work dir `$W`; the report cites only files that exist.

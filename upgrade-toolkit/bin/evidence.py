@@ -37,8 +37,14 @@ def _rd(p):
 
 
 def _rel(work, p):
+    """A path as the reader finds it from the run folder. A path outside it (a copy of the work folder whose state/app-dir
+    still names the original run) is shown from the app folder on, never as ../../..: nobody can follow that."""
     run = os.path.dirname(os.path.abspath(work))
-    return os.path.relpath(p, run)
+    r = os.path.relpath(p, run)
+    if r.startswith(".."):
+        parts = os.path.normpath(p).split(os.sep)
+        r = os.sep.join(parts[parts.index(".stepupdate") - 1:]) if ".stepupdate" in parts and parts.index(".stepupdate") > 0 else os.path.basename(p)
+    return r
 
 
 KIND = {"LAYOUT": "layout", "SNIPPET": "snippet", "PAGE": "page", "MICROFLOW": "microflow", "NANOFLOW": "nanoflow",
@@ -99,6 +105,8 @@ def for_item(work, name, kind=None):
     if other is not None:
         return other
     app = (_rd(os.path.join(work, "state", "app-dir")) or "").strip()
+    if app and not os.path.isdir(app):   # a copied work folder: the app folder is the sibling of work/ with the same name
+        app = next((c for c in [os.path.join(os.path.dirname(work), os.path.basename(app))] if os.path.isdir(c)), app)
     S = os.path.join(app, ".stepupdate") if app else ""
     what, files = [], []
     for p in sorted(glob.glob(os.path.join(S, f"step*-{name}.log"))) if S else []:

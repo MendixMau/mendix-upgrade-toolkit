@@ -1,0 +1,25 @@
+{
+ "from": "replace-clean.json",
+ "ops": [
+  [
+   "set",
+   "modules/0/pages/0/widgets",
+   [
+    "Quiet.widget.Quiet"
+   ]
+  ],
+  [
+   "set",
+   "widget_packages",
+   {
+    "Quiet.mpk": {
+     "ids": [
+      "Quiet.widget.Quiet"
+     ],
+     "version": "2.0.0",
+     "js": "var o={logger:1};this.logger.debug(\"a\");mylogger.debug(\"b\");console.log(\"c\");x.window.logger.warn(\"d\");var logger=1;"
+    }
+   }
+  ]
+ ]
+}
