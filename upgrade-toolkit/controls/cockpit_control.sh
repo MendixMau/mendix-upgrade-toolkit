@@ -446,6 +446,43 @@ PY
          touch "$W/.cockpit-seen"; STEP=build op "tab polling"
          sleep 3; STEP=build op "tab gone"; sleep 3; STEP=build UPG_COCKPIT_OPEN=0 op "off"
          kill "$(cat "$W/.cockpit-pid")" 2> /dev/null ;;
+  live-noopener) # DV-4: cockpit_live on a host with no browser opener (open/xdg-open absent, no display) still starts the server and says so
+         { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
+         . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; date > "$W/state/triage.done"
+         unset DISPLAY WAYLAND_DISPLAY UPG_COCKPIT_OPENER; export UPG_COCKPIT_OPEN=${NOOPENER_MODE:-auto}
+         uname() { echo Linux; }   # no macOS "open"; no display, so no xdg-open either
+         STEP=build cockpit_live > "$T/live.out" 2>&1; unset -f uname
+         sed 's#127.0.0.1:[0-9]*#127.0.0.1:PORT#' "$T/live.out"
+         port=$(cat "$W/.cockpit-port" 2> /dev/null); echo "port file: ${port:+yes}"; echo "pid alive: $(kill -0 "$(cat "$W/.cockpit-pid" 2> /dev/null)" 2> /dev/null && echo 1 || echo 0)"
+         echo ".cockpit-work: $(cat "$W/.cockpit-work" 2> /dev/null | sed "s#$W#WORK#")"
+         [ -z "$port" ] || python3 -c 'import json,sys,urllib.request as u; r=json.load(u.urlopen("http://127.0.0.1:%s/status"%sys.argv[1])); print("status:", r.get("state"), r.get("reason"))' "$port"
+         [ -z "$port" ] || python3 -c 'import sys,urllib.request as u; print("page served:", len(u.urlopen("http://127.0.0.1:%s/"%sys.argv[1]).read()) > 100)' "$port"
+         kill "$(cat "$W/.cockpit-pid")" 2> /dev/null; true ;;
+  live-noserver) # DV-4: the server cannot start: the log says no cockpit is running and why, never silence
+         { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
+         . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs" "$T/stub"; date > "$W/state/triage.done"
+         printf '#!/bin/bash\ncase "$*" in *cockpitserve*) echo "cannot bind: boom" >&2; exit 1;; esac\nexec %s "$@"\n' "$(command -v python3)" > "$T/stub/python3"; chmod +x "$T/stub/python3"
+         unset DISPLAY WAYLAND_DISPLAY UPG_COCKPIT_OPENER; export UPG_COCKPIT_OPEN=auto
+         PATH=$T/stub:$PATH STEP=build cockpit_live 2>&1 | sed 's#'"$W"'#WORK#g' ;;
+  resume-cockpit) # DV-10: resume.sh starts the cockpit server for a run folder with a work folder; a second resume starts no second one
+         mkdir -p "$T/rr"; cp -R "$here/fixtures/cockpit/run/work" "$T/rr/work"; printf '#!/bin/bash\nexit 0\n' > "$T/rr/run-pipeline.sh"; touch "$T/rr/work/state/gate.done"
+         mkdir -p "$T/rr/bare"; printf '#!/bin/bash\nexit 0\n' > "$T/rr/bare/run-pipeline.sh"
+         export UPG_COCKPIT_OPEN=1 UPG_RESUME_NO_DOCKER=1
+         r() { bash "$B/cloud/resume.sh" "$@" 2>&1 | grep 'cockpit:' | sed -E 's#^\[resume [0-9:]+\] ##; s#127.0.0.1:[0-9]+#127.0.0.1:PORT#; s#\(.*\)$##'; }
+         r "$T/rr"; p1=$(cat "$T/rr/work/.cockpit-pid"); r "$T/rr"; p2=$(cat "$T/rr/work/.cockpit-pid")
+         echo "same server after second resume: $([ "$p1" = "$p2" ] && echo yes || echo no)"
+         echo "servers on this folder: $(pgrep -f "cockpitserve.py --dir $T/rr/work" | wc -l | tr -d ' ')"
+         r "$T/rr/bare"; echo "no work folder: .cockpit-pid $([ -e "$T/rr/bare/work/.cockpit-pid" ] && echo made || echo none)"
+         echo "open=0 cockpit lines: $(UPG_COCKPIT_OPEN=0 r "$T/rr" | wc -l | tr -d ' ')"; kill "$p1" 2> /dev/null; true ;;
+  up-stale-pid) # a live pid that is not our server (sleep) in .cockpit-pid and a bogus port: started, answers /status, the sleep is left alone
+         mkdir -p "$T/su/logs"; cp -R "$here/fixtures/cockpit/run/work/." "$T/su/"; sleep 60 & sp=$!
+         echo $sp > "$T/su/.cockpit-pid"; echo 1 > "$T/su/.cockpit-port"
+         out=$(bash "$B/cloud/cockpit-up.sh" --work "$T/su" 2>&1); echo "line: ${out%% *}"
+         port=$(cat "$T/su/.cockpit-port"); echo "port replaced: $([ "$port" != 1 ] && echo yes || echo no)"
+         python3 -c 'import json,sys,urllib.request as u; print("status answers:", "state" in json.load(u.urlopen("http://127.0.0.1:%s/status"%sys.argv[1])) or True)' "$port"
+         echo "unrelated pid untouched: $(kill -0 $sp 2> /dev/null && echo yes || echo no)"
+         echo "pid file is the server: $([ "$(cat "$T/su/.cockpit-pid")" != "$sp" ] && echo yes || echo no)"
+         kill $sp "$(cat "$T/su/.cockpit-pid")" 2> /dev/null; true ;;
   cockpit-flag) cp -R "$here/fixtures/cockpit/run" "$T/r2"; bash "$B/cloud/upgrade-pipeline.sh" --cockpit --work "$T/r2/work" && test -s "$T/r2/work/COCKPIT.html" && echo "COCKPIT.html written" ;;
   matrix-*) # the matrix page: read the embedded data with a small python helper, print what it saw
             mx() { python3 - "$@" <<'PY'
