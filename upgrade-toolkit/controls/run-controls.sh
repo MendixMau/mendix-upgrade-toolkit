@@ -5002,14 +5002,16 @@ ctl gate-timeout-conf-key-pass 0 'rc=0' '!timed out' '!unknown key' -- gtc gtp $
 ctl gate-timeout-env-wins-catch 0 'rc=2' 'timed out after 1s \(raise GATE_TIMEOUT\)' -- gtc gte $GI/gt-ok.conf GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=5
 ctl gate-timeout-env-wins-pass 0 'rc=0' '!timed out' -- gtc gtew $GI/gt-file.conf GATE_TIMEOUT=30 GATE_STUB_SLEEP_smokewalk=1
 ctl gate-timeout-invalid-value-catch 0 'rc=2' 'GATE_TIMEOUT=ten: a positive whole number of seconds' -- gtc gtb $GI/gt-bad.conf
-ctl gate-timeout-invalid-env-catch 0 'rc=2' 'GATE_TIMEOUT=0: a positive whole number' -- gtc gtbe $GI/gt-ok.conf GATE_TIMEOUT=0
-ctl gate-timeout-message-catch 0 'rc=2' 'elapsed [0-9]+s; set GATE_TIMEOUT=<seconds> in gate\.conf or the environment' '\(elapsed [0-9]+s\): raise GATE_TIMEOUT .* in gate\.conf or in the environment' -- gtc gtm $GI/gt-file.conf GATE_STUB_SLEEP_smokewalk=5
+ctl gate-timeout-invalid-env-catch 0 'rc=2' 'GATE_TIMEOUT: a positive whole number of seconds' -- gtc gtbe $GI/gt-ok.conf GATE_TIMEOUT=0
+ctl gate-timeout-message-catch 0 'rc=2' 'elapsed [0-9]+s; set GATE_TIMEOUT=<seconds> in gate\.conf or the environment' '\(elapsed [0-9]+s\): raise GATE_TIMEOUT .* in gate\.conf, in the environment or as a KEY=VALUE argument \(order, later wins: gate\.conf < environment < KEY=VALUE argument\)' '!the environment wins' -- gtc gtm $GI/gt-file.conf GATE_STUB_SLEEP_smokewalk=5
 ctl gate-timeout-arg-form-catch 0 'rc=2' 'timed out after 1s \(raise GATE_TIMEOUT\)' -- gtc gta $GI/gt-ok.conf GATE_STUB_SLEEP_smokewalk=5 -- GATE_TIMEOUT=1
 ctl gate-timeout-arg-beats-env-catch 0 'rc=2' 'timed out after 1s \(raise GATE_TIMEOUT\)' -- gtc gtab $GI/gt-ok.conf GATE_TIMEOUT=ten GATE_STUB_SLEEP_smokewalk=5 -- GATE_TIMEOUT=1
 ctl gate-timeout-arg-beats-env-pass 0 'rc=0' '!timed out' -- gtc gtabp $GI/gt-ok.conf GATE_TIMEOUT=1 GATE_STUB_SLEEP_smokewalk=1 -- GATE_TIMEOUT=30
 ctl gate-timeout-leading-zero-pass 0 'rc=0' '!timed out' '!positive whole' -- gtc gtz $GI/gt-ok.conf GATE_TIMEOUT=007
-ctl gate-timeout-zeros-refused-catch 0 'rc=2' 'GATE_TIMEOUT=0: a positive whole number' -- gtc gtz0 $GI/gt-ok.conf GATE_TIMEOUT=000
+ctl gate-timeout-zeros-refused-catch 0 'rc=2' 'GATE_TIMEOUT: a positive whole number of seconds' -- gtc gtz0 $GI/gt-ok.conf GATE_TIMEOUT=000
 ctl gate-timeout-unit-suffix-refused-catch 0 'rc=2' 'GATE_TIMEOUT=30s: a positive whole number' -- gtc gtu $GI/gt-ok.conf GATE_TIMEOUT=30s
+ctl gate-timeout-huge-refused-catch 0 'rc=2' 'GATE_TIMEOUT: a positive whole number of seconds' -- gtc gthg $GI/gt-ok.conf GATE_TIMEOUT=18446744073709551617
+ctl gate-timeout-leading-zero-watchdog-catch 0 'rc=2' 'timed out after 8s \(raise GATE_TIMEOUT\)' '!positive whole' -- gtc gtzw $GI/gt-ok.conf GATE_NO_TIMEOUT_BIN=1 GATE_TIMEOUT=008 GATE_STUB_SLEEP_smokewalk=20
 
 # --- external APIs (E2E-13, E2E-14): bin/apimock.py and its gate wiring -------------------------------------------------
 # Goldens captured from the public Marketplace PFEP 1.4.1 (MendixSSO roles call + the Teamcenter connector's SendService)

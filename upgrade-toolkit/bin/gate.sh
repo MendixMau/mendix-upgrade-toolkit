@@ -419,7 +419,8 @@ human_of() {
 if [ $GT_ARG = 1 ]; then GT=$V_GATE_TIMEOUT; else GT=${GATE_TIMEOUT:-$V_GATE_TIMEOUT}; fi
 if [ -n "$GT" ]; then
   case $GT in *[!0-9]*) die "GATE_TIMEOUT=$GT: a positive whole number of seconds (no unit); set it in gate.conf, the environment or as an argument";; esac
-  GT=$((10#$GT)); [ "$GT" -gt 0 ] || die "GATE_TIMEOUT=0: a positive whole number of seconds (not zero); set it in gate.conf, the environment or as an argument"
+  GT=${GT#"${GT%%[!0]*}"}   # strip leading zeros, as text: no arithmetic on a value that could wrap
+  [ -n "$GT" ] && [ ${#GT} -le 7 ] || die "GATE_TIMEOUT: a positive whole number of seconds, at most 9999999 (zero, longer values and units are refused); set it in gate.conf, the environment or as an argument"
 fi
 TO=${GT:-900}
 # run_limited SECS OUTFILE: run "${CMD[@]}" with a time limit, output to OUTFILE, rc 124 on timeout. C6: macOS has no
@@ -510,7 +511,7 @@ run_pre() { # RUNG ; returns 0 when absent or ok
     if [ $r = journeys ] && [ "$v" = 'PASS*' ] && [ "$rc" != 0 ]; then
       ln="noted, not a failure: nothing that passed on the old app fails on the new one; journeys that fail on the old app too are listed for the owner; $(oneline "$out")"
     fi
-    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); elapsed ${el}s; set GATE_TIMEOUT=<seconds> in gate.conf or the environment; $ln"; echo "gate: rung $r timed out after ${t}s (elapsed ${el}s): raise GATE_TIMEOUT (smoke: steps x roles x repeat) by setting GATE_TIMEOUT=<seconds> in gate.conf or in the environment (the environment wins)" >&2; }
+    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); elapsed ${el}s; set GATE_TIMEOUT=<seconds> in gate.conf or the environment; $ln"; echo "gate: rung $r timed out after ${t}s (elapsed ${el}s): raise GATE_TIMEOUT (smoke: steps x roles x repeat) by setting GATE_TIMEOUT=<seconds> in gate.conf, in the environment or as a KEY=VALUE argument (order, later wins: gate.conf < environment < KEY=VALUE argument)" >&2; }
     if [ "$v" = EXCEPT ]; then
       nci=$(grep -c '^ *NOT CHECKED (excluded: ' "$out")   # item lines only, not a count line
       if [ "$nci" = 0 ]; then v=INVALID; ln="rc 4 but no NOT CHECKED item named; $ln"; else ln="$nci NOT CHECKED (excluded: $V_EXCLUDE_SYSTEMS); $ln"; fi
