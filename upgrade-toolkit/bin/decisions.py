@@ -73,7 +73,10 @@ def lastmap(rows):
     out = {}
     for r in rows:
         if r.get("item") and r["item"] != "signoff":
-            out[r["item"]] = r
+            if r.get("consumed"):
+                out.pop(r["item"], None)   # a stop's answer the run already acted on: the next stop with the same id is a new question
+            else:
+                out[r["item"]] = r
     return out
 
 
@@ -231,6 +234,9 @@ def set_tagged(path, tag, line):
         return False
     if old == new:
         return False
+    if old and not new and not base:
+        os.remove(path)   # every line was this answer's: an existence-based file (widgetdrop-ack.txt) must go with it
+        return True
     write_lines(path, new)
     return True
 
@@ -323,6 +329,14 @@ def cmd_apply(a):
                     changed += set_tagged(os.path.join(w, wr["file"]), tag, None)
         if not opt.get("writes"):
             notes.append(f"{item}: recorded ({opt['label']}), nothing to write for the pipeline")
+    # a stop's answer is acted on once: the run reads what it wrote, and the same id may be asked again by a later stop (stop:update:1)
+    lm = lastmap(rows)
+    done = [i for i in lm if i.startswith("stop:") and i in items and any(o["key"] == lm[i].get("choice") for o in items[i]["options"])]
+    if done:
+        for r in rows:
+            if r.get("item") in done and not r.get("consumed"):
+                r["consumed"] = True
+        save(w, rows)
     s = apply_signoff(w, rows, model)
     if s != "no sign-off row":
         notes.append(f"sign-off: {s}")

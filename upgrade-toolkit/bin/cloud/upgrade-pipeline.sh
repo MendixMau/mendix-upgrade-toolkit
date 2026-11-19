@@ -245,6 +245,9 @@ need_path() { # need_path PATH WHAT
 # NEXT nj_add/nj_file. The cockpit shows an agent or info section as no question for the person, and a person section as its real
 # question with the options and the recommended one ("none:<why>" in place of the key: no default exists, the page says why). A section
 # without nj_meta is read as before.
+# Rule for every person section (run DVS): the question says what users notice, 2-3 options each carry a plain consequence (what users
+# notice, what the run does next, never an instruction to the agent), the toolkit recommends one when it can judge, and says why when it
+# cannot ("none:<why>"). An option that the run can carry out itself gets `nj_writes key|file|line` so one answer is all a person does.
 NJ_META=""
 nj_meta() {
   NJ_META="owner: $1"; shift
@@ -337,6 +340,24 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   say "STOP    auto: $(grep -c '^<!-- parked at' "$WORK/NEEDS-JUDGMENT.md") parked item(s) to answer in one round (exit $code), see $WORK/NEEDS-JUDGMENT.md"
   brief_say || true   # the brief is information: it never changes a stop's exit code
   exit "$code"
+}
+
+# nj_writes KEY|FILE|LINE ...: after nj_meta person, what answering KEY writes into the work folder (decisions.py apply does it, so
+# one answer on the page or in chat is all a person does; run DVS: choosing "update" left the plan line to be written by hand)
+nj_writes() { local w; for w in "$@"; do NJ_META="$NJ_META"$'\n'"writes: $w"; done; }
+# widget_drop_stop: the "installed package lacks it" stop in reader words (bin/widgetfix.py names the module, the fixing version,
+# what users lose); returns 1 when widgetfix has nothing, and the caller keeps the generic wording
+widget_drop_stop() {
+  local out q="" r="" k t1 t2 body="" opts=() ws=() mods=()
+  [ -s "$WORK/widgetdrop.json" ] || return 1
+  out=$(python3 "$B/widgetfix.py" "$APP" --drops "$WORK/widgetdrop.json" --plan "$WORK/plan.txt" --target "${TARGET:-}" 2> /dev/null) || return 1
+  while IFS=$'\t' read -r k t1; do
+    case "$k" in Q) q=$t1 ;; R) r=$t1 ;; O) opts+=("$t1") ;; W) ws+=("$t1") ;; B) body="$body$t1"$'\n' ;; esac
+  done <<< "$out"
+  [ -n "$q" ] && [ "${#opts[@]}" -gt 0 ] || return 1
+  nj_meta info; nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+  nj_meta person "$q" "$r" "${opts[@]}"; nj_writes "${ws[@]}"
+  nj_add 13 "Decision" "${body%$'\n'}"
 }
 
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
@@ -518,6 +539,8 @@ cleanup() {
   local a rc=$? st=${TIMING_STEP:-${STEP:-}}
   [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
+  # exit 4 (a failed step; after timing_close, which ends "running") writes no stop file: the page must still say the run is not working (MTA: page "agent is working", brief "waiting")
+  if [ "$rc" = 4 ] && [ ! -f "$WORK/NEEDS-JUDGMENT.md" ] && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
@@ -1180,7 +1203,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
   for f in "$WORK/replay"/*.mdl "$WORK/replay"/*.patch; do
     [ -f "$f" ] || continue
     mod=$(basename "$f"); mod=${mod%.*}
-    if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
+    if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod([[:space:]]+#.*)?\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
     # one replay per module per rung: the 10.24 rung's replay must not skip the 11 rung's (editroute writes a new replay/ each rung)
     # no -q: grep must read the whole log, or git dies of SIGPIPE and pipefail makes the check false
     if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -xF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" > /dev/null; then note "replay $mod skipped: replayed already"; continue; fi
@@ -1353,9 +1376,12 @@ step_update() {
     # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
     # drop the settings the old package lacks (cold CMM: Administration 4.5.0's Roles filter lost its association mode)
     rc=0
-    xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" || rc=$?
+    rm -f "$WORK/widgetdrop.json"
+    xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" --json "$WORK/widgetdrop.json" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetdrop-ack.txt" ]; then
-      if grep -q '^WIDGET-DROP .*installed package lacks it' "$WORK/widgetdrop.out"; then
+      if grep -q '^WIDGET-DROP .*installed package lacks it' "$WORK/widgetdrop.out" && widget_drop_stop; then
+        :
+      elif grep -q '^WIDGET-DROP .*installed package lacks it' "$WORK/widgetdrop.out"; then
         nj_meta info; nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
         nj_meta person "Widget settings would be dropped: the installed widget package is older than the pages. What should we do?" "" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
       else   # cold rfq: every drop is a property a widget update in this rung removed upstream
@@ -2158,8 +2184,8 @@ rung2_stale() {
 main() {
   preflight
   resolve_app
+  decisions_apply   # resume: what was decided on the page or in chat while the run was stopped (before the stop file goes: a stop's answer is in its options)
   [ "$DRY" = 1 ] || rm -f "$WORK/NEEDS-JUDGMENT.md"
-  decisions_apply   # resume: what was decided on the page or in chat while the run was stopped
   if [ -n "$FROM" ] && [ "$DRY" != 1 ]; then
     # cold WM1: --from update with another mxcli cleared the .done of update..gate, and only then the pin refused; check first
     local ps=$FROM; case "$ps" in fetch) ps=triage ;; propose) ps=convert ;; esac

@@ -363,6 +363,22 @@ ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widge
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 mkdir -p $WD/w3
 ctl pipeline-update-widgetdrop-newer-catch 0 '^NJ 13 Widget settings the newer widget no longer has: a module update in this rung replaced the widget' '^NJ 13 Decision: No module update brings these settings back' '!Update the module that ships' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w3 APP=$WD/up B=$B; . $WD/nj.sh; echo done"
+# run DVS (StarterApp 10.9 -> 10.24, update step): the stop named no module and no version, said nothing about what users lose, gave "No
+# recommendation" although DataWidgets 2.32.4 fits, worded its options as agent instructions, and "update" wrote nothing. bin/widgetfix.py
+# gets the facts from widgetdrop --json, the installed modules, `mxcli marketplace versions` (fixtures/widgetfix/versions-116540.txt is a
+# verbatim capture) and the candidate package (a real 2.32.4 module package cut to its Datagrid widget). The page and the chat read it.
+WF=$here/fixtures/widgetfix
+ctl widgetfix-names-module-and-version-catch 0 '^Q	7 data grids would forget the column layout people saved, and 1 more kind of loss\. Update DataWidgets to 2\.32\.4 first\?$' '^R	update$' '^O	update\|Update DataWidgets to 2\.32\.4\|' '^W	update\|plan\.txt\|116540 2\.32\.4 DataWidgets$' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+ctl widgetfix-options-are-reader-consequences-catch 0 'Users keep what they saved on 7 of the 8 widgets' 'The other 1 \(combo box\) is not in this package' '!Before the build' '!Create widgetdrop-ack' '!Write widgetdrop-ack' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+sed 's/2\.30\.6/2.32.4/' $WF/modules-dvs.json > $T/modules-nofit.json
+ctl widgetfix-no-fit-says-why-catch 0 '^R	none:No newer DataWidgets fits Mendix 10\.24\.0 and has these settings' '^O	accept\|Go on and lose them\|Users notice it: 7 data grids would forget the column layout people saved' '^O	fix\|' '!^W	update' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $T/modules-nofit.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+ctl widgetfix-unchecked-package-does-not-promise-catch 0 '^O	update\|Update DataWidgets to 2\.30\.9\|The package could not be checked here, so what users keep is not promised\.' '!Users keep what they saved' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.12.6 --no-download --cache $T/empty-cache
+ctl cockpit-dvs-stop-names-module-recommends-catch 0 '^7 data grids would forget the column layout people saved, and 1 more kind of loss\. Update DataWidgets to 2\.32\.4 first\?$' '^We recommend: Update DataWidgets to 2\.32\.4$' '^Your choices: Update DataWidgets to 2\.32\.4 or Go on without updating\.$' '!No recommendation' '^cards: 1$' -- bash $here/cockpit_control.sh dvs-stop
+ctl cockpit-dvs-stop-no-fit-says-why-catch 0 '^No recommendation: this one is your call\. No newer DataWidgets fits Mendix 10\.24\.0' 'Only you know whether losing them matters' -- bash $here/cockpit_control.sh dvs-stop-nofit
+ctl cockpit-dvs-stop-answer-writes-plan-line-catch 0 '^    chat: decisions\.py add .* --item stop:update:1 --choice update --by NAME --source chat$' '^116540 2\.32\.4 DataWidgets # \[item:stop:update:1\] by Ana via page' '^stepupdate reads: cid=116540 ver=2\.32\.4 module=DataWidgets$' -- bash $here/cockpit_control.sh dvs-stop-update
+ctl cockpit-dvs-stop-answer-acts-once-catch 0 '^ack: accepted: 7 data grids' '^asked after the run went on: 0$' '^asked by the next stop with the same id: 1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-twice
+# the pipeline's own stop site goes through widget_drop_stop; a failing widgetfix falls back to the generic wording (the controls above)
+ctl pipeline-update-widgetdrop-uses-widgetfix-catch 0 'nj_writes "\$\{ws\[@\]\}"' '--json "\$WORK/widgetdrop\.json"' '^  decisions_apply   # resume' -- grep -E 'nj_writes "\$\{ws|--json "\$WORK/widgetdrop.json"|^  decisions_apply   # resume' $B/cloud/upgrade-pipeline.sh
 # widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
 # mode gets the widget back from an earlier commit: settings restored, fresh ids, the rest of the page untouched
 WR=$T/wr; mkdir -p $WR/cur $WR/old $WR/other
@@ -6760,6 +6776,10 @@ ctl cockpit-stop-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1; touch $TM/wb/fixed
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1
 ctl timing-failed-step-row-catch 0 'rows=2' '^build 2026-10-20T10:00:00Z 2026-10-20T10:05:00Z 4$' '^build 2026-10-20T12:05:00Z 2026-10-20T12:17:00Z 0$' -- tmshow $TM/wb/state/timing.tsv
+# exit 4 writes no stop file, so the page written at the failure must not still say a step is running (MTA lane B: page "The agent is working",
+# brief "Waiting for 1 answer"); cleanup regenerates it after timing_close ended the running marker
+STUB_FAIL=1 tmrun $TM/wf $TM/times-b.txt build > /dev/null 2>&1
+ctl cockpit-exit4-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wf/regen-saw 2> /dev/null || echo never)"
 # a dry run writes no timing file
 DRY=1 tmrun $TM/wd $TM/times-a.txt build > /dev/null 2>&1
 ctl timing-dry-run-no-file-pass 0 'timing=absent' -- sh -c "[ -e $TM/wd/state/timing.tsv ] && echo timing=present || echo timing=absent"
