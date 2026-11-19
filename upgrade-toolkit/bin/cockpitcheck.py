@@ -37,7 +37,8 @@ def check(work):
     asks = cockpitmatrix.open_questions(model)
     ask_names = {re.sub(r"\s*\((module|widget|jar|java)\)$", "", i.get("title", "")) for i in asks}
     plan = cockpitpage.rd(os.path.join(work, "PROPOSAL.md")) or ""
-    in_plan = set(re.findall(r"\[(P-\d+)\]", plan))
+    plan_items = re.sub(r"(?ms)^## Agent notes\n.*?(?=^## |\Z)", "", plan)   # a note that says "see [P-3]" is not the plan naming P-3
+    in_plan = set(re.findall(r"\[(P-\d+)\]", plan_items))
     recs, _ = stp.load(work)
     for r in recs or []:
         decided = (r.get("approval") or {}).get("state") in ("approved", "rejected")   # a module the update kept after the sign-off
