@@ -85,8 +85,9 @@ rung whether the app can be judged, what the customer must supply, and the best 
 ## Rules that hold in every step
 
 - Target version (LTS-1): the default target is the latest released LTS at its newest patch that has release notes,
-  recorded as a full version (`mxversion.py`). As of 2026-10-13 that is Mendix 11.12 LTS (newest patch 11.12.6,
-  2026-10-08; 11.12.5 says "do not upgrade to this version", so a patch is never taken from this text: read the notes); the next LTS, 11.18, is planned for December 2026. Check the source of truth at triage, never memory, and grep the chosen patch's notes for "do not upgrade to this version" (NR2-1):
+  recorded as a full version (`mxversion.py`). As of 2026-11 that is Mendix 11.12 LTS. This text names no
+  patch on purpose: a patch number written here goes stale within weeks (DV-2), so the patch is always read from the notes
+  at triage (11.12.5 is an example of a patch whose notes say "do not upgrade to this version"); the next LTS, 11.18, is planned for December 2026. Check the source of truth at triage, never memory, and grep the chosen patch's notes for "do not upgrade to this version" (NR2-1):
   https://docs.mendix.com/releasenotes/studio-pro/lts-mts/ and the release notes of that minor. Paths: 9.x to 10.24 to
   11.12; 10.x to 10.24 to 11.12; 11.x below 11.12 one rung to 11.12. An app already on a newer non-LTS 11.x (11.15) is
   parked until the next LTS, never downgraded. Another target (MTS, non-LTS) only when the user asks for it by name. A
