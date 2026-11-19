@@ -7451,6 +7451,9 @@ ctl proposal-testing-plan-no-inventory-says-so-pass 0 'external calls: not measu
 ctl pipeline-build-loop-bounded-pass 0 'UPG_BUILD_ROUNDS:-2' 'no progress: stop' -- sh -c "sed -n '/^step_build() {/,/^}/p' $B/cloud/upgrade-pipeline.sh | grep -oE 'UPG_BUILD_ROUNDS:-2|no progress: stop' | sort -u"
 ctl pipeline-build-loop-skipped-in-dry-run-pass 0 'DRY" != 1 .*UPG_BUILD_ROUNDS' -- sh -c "sed -n '/^step_build() {/,/^}/p' $B/cloud/upgrade-pipeline.sh | grep -E 'DRY.* != 1 .*UPG_BUILD_ROUNDS'"
 ctl pipeline-heal-step-order-pass 0 'journeys heal apidirect diff gate' -- sh -c "grep -E '^STEPS=' $B/cloud/upgrade-pipeline.sh | sed 's/.*afterwalk //; s/)//'"
+# cold rfq: apidirect copied the frozen db as <X>_apid_old and smoke_users.py refused it ("not a copy"), so the step died with exit 4;
+# each db the pipeline gives test users is made by fresh_name with a _smoke_ name just before
+ctl pipeline-smoke-users-on-smoke-copy-catch 0 '^ok \$\{X\}_smoke_apid_\$side$' '^ok \$\{X\}_smoke_jold$' '!^NOT-A-SMOKE-COPY' -- awk '/(^|[ ;(])db=\$\(fresh_name "/{n=$0; sub(/.*fresh_name "/,"",n); sub(/".*/,"",n)} /smoke_users\.py" "\$db"/{print (n ~ /_smoke/ ? "ok " : "NOT-A-SMOKE-COPY ") n}' $B/cloud/upgrade-pipeline.sh
 
 # --- cockpit page (bin/cockpitpage.py) and the decision ledger (bin/decisions.py) on fixtures/cockpit (a made-up shop app) -------------
 CK="bash $here/cockpit_control.sh"
