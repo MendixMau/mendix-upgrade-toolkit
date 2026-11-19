@@ -40,7 +40,8 @@ Rules, per module and route:
   - otherwise ASK when the route blocks the target major (blocks_from), else PLAN: the new widget, the property mapping
     and the effort from the routes file. A route whose new widget is not installed asks to install its package first.
 Each replaced widget and removed module is appended to --done; --ok-report turns that list into one OK per route and per
-module (OK writes ok-replaced R N / remove-module M, B writes route-b R / keep-module M). --report gets the ASK items.
+module in the standard stop shape (owner person, question, options in reader words, recommended, writes: ok-replaced R N /
+remove-module M for OK, route-b R / keep-module M for B). --report gets the ASK items the same way.
 Excluded documents are skipped. Building blocks and page templates are design-time templates: never shown at runtime.
 Exit: 0 = nothing left that blocks the target (DONE, AUTO and PLAN only), 1 = an ASK, 2 = input error.
 """
@@ -292,8 +293,13 @@ def found(r, docs, nuse, mod, reach):
     return f"Found: {r['name']} on {where} ({plural(nuse, 'use')}) in module {mod}; {reach}"
 
 
-def section(title, shape, rec, writes=()):
-    return "\n".join([f"## {title}", ""] + shape + ["", f"Recommended: {rec}"] + list(writes)) + "\n"
+def section(title, shape, question, rec, options, writes=()):
+    """One NEEDS-JUDGMENT.md section in the standard shape (nj_meta person + nj_writes of bin/cloud/upgrade-pipeline.sh): the
+    question in the reader's words, 2-3 options (key, label, what the reader notices), the recommended key, and per option the
+    one line answering it writes (key, file, line; decisions.py apply). The body is the evidence (Found, Searched, Candidates, Applied)."""
+    meta = ["owner: person", f"question: {question}", f"recommended: {rec}"] + [f"option: {k}|{lab}|{what}" for k, lab, what in options]
+    meta += [f"writes: {k}|{f}|{ln}" for k, f, ln in writes]
+    return "\n".join([f"## {title}", ""] + meta + [""] + shape) + "\n"
 
 
 def ok_report(done, routes, have, ok):
@@ -315,10 +321,19 @@ def ok_report(done, routes, have, ok):
                  "Candidates: " + ", ".join([cand("A", f"{r['new_name']} ({r['package']})", r["mapping"], r.get("minutes_per_use", 5) * len(mine),
                                                   "the widget id changes, every setting is kept", rec=True)] + alt_cands(r, len(mine))),
                  f"Applied: A in the test build, as repair commits 'repair: deprecated widgets ... (widgetroute)' (mx check not worse):"] + lst_
-        b = r.get("alternatives") and f"B writes: widget-routes-approved.txt: route-b {rid}"
-        out.append(section(f"{len(mine)} {noun} replaced by {r['package']} ({r['new_name']}), {napx} approximated: OK?", shape,
-                           "OK; look at the charts on their pages once (the gate's screenshots show them). Picking B undoes those commits on the rerun and asks for the rebuild.",
-                           [f"OK writes: widget-routes-approved.txt: ok-replaced {rid} {len(mine)}"] + ([b] if b else [])))
+        alts = r.get("alternatives")
+        n = len(mine)
+        opts = [("ok", f"Keep the new {noun}", f"Your users see the same {noun} as before, drawn by {r['new_name']} ({r['package']}); "
+                 + (f"{napx} {'is' if napx == 1 else 'are'} approximated, so look at them once on their pages (the final check's screenshots show them). " if napx else "")
+                 + "Nothing else to do.")]
+        wr = [("ok", "widget-routes-approved.txt", f"ok-replaced {rid} {n}")]
+        if alts:
+            opts.append(("b", f"Rebuild them as {alts[0]['name']}", f"The replacement is undone on the rerun and the {noun} are rebuilt by hand "
+                         f"as {alts[0]['name']} ({effort(alts[0].get('minutes_per_use', 30) * n)}); until then those pages show no {noun}."))
+            wr.append(("b", "widget-routes-approved.txt", f"route-b {rid}"))
+        out.append(section(f"{n} {noun} replaced by {r['package']} ({r['new_name']}), {napx} approximated: OK?", shape,
+                           f"{plural(n, 'deprecated ' + noun[:-1])} stop working on Mendix 11, so the test build replaced them with {r['new_name']}. Do they stay?",
+                           "ok", opts, wr))
     for x in rows:
         m = re.match(r"REMOVED-MODULE (\S+) \[(\w+)\] (\d+) (.*)$", x)
         if not m or {f"remove-module {m[1]}", f"keep-module {m[1]}"} & ok:
@@ -331,9 +346,10 @@ def ok_report(done, routes, have, ok):
                                                   f"each chart gets a data view and {r['new_name']} by hand")]),
                  "Applied: A in the test build, its own repair commit 'repair: unused sample module removed (widgetroute)' (mx check not worse)"]
         out.append(section(f"Module {m[1]}: unused sample module removed: OK?", shape,
-                           "OK. Picking B puts the module back (the commit is reverted on the rerun).",
-                           [f"OK writes: widget-routes-approved.txt: remove-module {m[1]}",
-                            f"B writes: widget-routes-approved.txt: keep-module {m[1]}"]))
+                           f"Module {m[1]} holds only sample pages with charts that fail on Mendix 11, and nothing in your app opens it, so the test build removed it. Is that fine?",
+                           "ok", [("ok", "Keep it removed", "Your users notice nothing: no menu item, page or flow of the app used it. The sample pages are gone."),
+                                  ("b", "Put the module back", f"The module and its sample pages return on the rerun; their charts stay broken on Mendix 11 until someone rebuilds them ({effort(5 * n)}).")],
+                           [("ok", "widget-routes-approved.txt", f"remove-module {m[1]}"), ("b", "widget-routes-approved.txt", f"keep-module {m[1]}")]))
     return out
 
 
@@ -452,7 +468,9 @@ def main():
                 lines += [f"  {x}" for x in shape] + [f"  OUTSIDE-DATA-VIEW {d.qn} {w.get('Name')}" for d, w, y in stuck]
                 if st == "ASK":
                     report.append(section(f"{r['name']} in {mod}: {len(stuck)} outside a data view, a data view by hand recommended", shape,
-                                          f"A: put a data view around each ({effort(5 * len(stuck))}), then rerun."))
+                                          f"{plural(len(stuck), 'chart')} in module {mod} cannot be replaced by itself: it sits outside a data view, and {r['new_name']} only works inside one. What should we do?",
+                                          "a", [("a", "Put a data view around each, then rerun", f"Once the data views are there the rerun replaces the chart by itself ({effort(5 * len(stuck))}); until then those pages break on Mendix 11."),
+                                                ("later", "Leave them for now", f"Those pages stay broken on Mendix {a.target} and the gate lists them as open; nothing else changes.")], ()))
                 row = {"module": mod, "route": rid, "row": r.get("row"), "uses": len(stuck), "documents": bd,
                        "opened_by": opened, "status": st, "action": "wrap", "recommendation": rec}
         else:
@@ -494,7 +512,10 @@ def main():
             lines.append(f"  WHY {r['why']}")
             if st == "ASK":
                 aname = next(re.match(r"[A-Z] (.+?) \(recommended", c) for c in cands if "(recommended" in c)
-                report.append(section(f"{r['name']} in {mod}: {plural(n, 'use')}, {aname[1]} recommended", shape, f"{rec} ({effort(mins)})"))
+                report.append(section(f"{r['name']} in {mod}: {plural(n, 'use')}, {aname[1]} recommended", shape,
+                                      f"{plural(n, 'use')} of {r['name']} in module {mod} fail on Mendix {a.target} and cannot be swapped one to one. What should we do?",
+                                      "a", [("a", f"Rebuild with {aname[1]}", f"{rec.split(': ', 1)[-1][:160]} ({effort(mins)}); until then those pages break."),
+                                            ("later", "Leave them for now", f"Those pages stay broken on Mendix {a.target} and the gate lists them as open; nothing else changes.")], ()))
             row.update(status=st, action="manual", recommendation=rec)
         counts[st] += 1
         out.append(row)
