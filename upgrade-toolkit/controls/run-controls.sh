@@ -1203,10 +1203,15 @@ ctl jarstale-n3-vendorlib-pairs 1 'summary: 7 jars to remove \(7 duplicate versi
     'REMOVE +userlib/nimbus-jose-jwt-9\.12\.1\.jar\.MendixSSO\.4\.1\.0\.RequiredLib +ORPHAN marker' -- python3 $B/repair/jardedupe.py $JS/n3
 # GM-27: a marker that names an ARTIFACT (databroker-business-events-module), not a module, is mapped to the module that
 # owns it. Owner found = the jar is known, not STALE; no owner = KEEP UNKNOWN; a removed module's jar is still STALE.
-for k in artifact artifact-pkg artifact-unknown; do python3 $here/lib/mkjarstale.py $JS/$k $k; done
-ctl jarstale-artifact-marker-catch 1 'summary: 1 jars to remove' '!databroker-business-events-module' '!(kotlin-stdlib|annotations)' '!UNKNOWN' -- python3 $B/repair/jardedupe.py $JS/artifact
+for k in artifact artifact-pkg artifact-unknown artifact-extras artifact-shaded artifact-addon artifact-leftover; do python3 $here/lib/mkjarstale.py $JS/$k $k; done
+ctl jarstale-artifact-marker-catch 1 'summary: 1 jars to remove' 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +OWNER-GUESS: businessevents \(package com\.mendix\.businessevents\.runtime\)' 'KEEP +userlib/annotations-13\.0\.jar +OWNER-GUESS' '!STALE.*databroker' '!UNKNOWN' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact
 ctl jarstale-artifact-marker-removed-mod-pass 1 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE: module\(s\) OldMod not in the app' 'summary: 1 jars to remove' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact
 ctl jarstale-artifact-unknown-owner-pass 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' 'KEEP +userlib/annotations-13\.0\.jar +UNKNOWN' 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE: module\(s\) OldMod' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-unknown
+# GM-27 review: the filename anchor (<artifact>-<digit>), a package another jar also provides, an add-on owner, a leftover folder
+ctl jarstale-artifact-extras-not-claimed-pass 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-extras
+ctl jarstale-artifact-shaded-package-catch 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-shaded
+ctl jarstale-artifact-addon-owner-guess 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +OWNER-GUESS: businessevents \(package com\.mendix\.businessevents\.runtime\)' '!UNKNOWN' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-addon
+ctl jarstale-artifact-leftover-folder-not-owner-pass 0 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-leftover
 if python3 -c 'import bson' 2>/dev/null; then
   echo '{"version": "10.24.16.96987", "modules": [{"name": "BusinessEvents", "appstore": [170, "3.12.1"]}]}' > $T/jarstale-art.json
   python3 $here/lib/mkmodel.py $T/jarstale-art.json $JS/artifact-pkg-mpr > /dev/null; cp -r $JS/artifact-pkg/userlib $JS/artifact-pkg/javasource $JS/artifact-pkg-mpr/

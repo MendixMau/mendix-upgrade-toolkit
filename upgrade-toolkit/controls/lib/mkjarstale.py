@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mkjarstale.py: jar folders for the jardedupe STALE / OLD-VERSION controls (public library names, real zips).
 
-  mkjarstale.py <out dir> addon-cache|addon-zip|addon-unreadable|no-addon|sso|t1r|n3|netty|netty-nocodec|artifact|artifact-pkg|artifact-unknown
+  mkjarstale.py <out dir> addon-cache|addon-zip|addon-unreadable|no-addon|sso|t1r|n3|netty|netty-nocodec|artifact|artifact-pkg|artifact-unknown|artifact-extras|artifact-shaded|artifact-addon|artifact-leftover
 
 addon-*   T2R3-6 shape: the 6 OIDC-marked userlib jars of TOOLKIT-FEEDBACK T2R3-6 (java-jwt 3.11.0, jackson-core,
           -databind, -annotations 2.14.1, json, commons-codec 1.15), no OIDC module in the app, and an add-on
@@ -22,6 +22,11 @@ artifact  GM-27: kotlin-stdlib and annotations jars whose marker names the ARTIF
           package). Also a jar marked by OldMod, a module the app no longer has: that one is still STALE.
 artifact-pkg   the same markers, but nothing in the Java links them: only the module's installed package (an .mpk in
           the cache the control writes) ships the marker files.
+artifact-extras   the owner's Java imports a package of '<artifact>-extras-1.jar', which is another artifact: no claim.
+artifact-shaded   the artifact jar holds only com.google.gson, which gson-2.10.jar provides too, and an unrelated module
+          'other' imports com.google.gson.Gson: a shared package proves nothing.
+artifact-addon    the artifact jar's package is imported by an add-on's Java only (.mendix-cache/modules/...).
+artifact-leftover a javasource/oldmod/ folder imports the artifact jar's package, but OldMod is not installed.
 artifact-unknown   the artifact marker with no owner anywhere (no package, no jar, no Java), plus the OldMod jar.
 """
 import io, os, sys, zipfile
@@ -126,7 +131,8 @@ elif kind in ("netty", "netty-nocodec"):
         put(f"{out}/userlib/{a}-{v1}.jar.MendixSSO.RequiredLib")
     for a in ("netty-buffer", "netty-codec-http", "netty-codec-base", "netty-codec-compression"):
         put(f"{out}/vendorlib/{a}-{v2}.jar", jar(cls("io.netty." + a.split("-", 1)[1].replace("-", ".")), ("io.netty", a, v2)))
-elif kind in ("artifact", "artifact-pkg", "artifact-unknown"):
+elif kind in ("artifact", "artifact-pkg", "artifact-unknown", "artifact-extras", "artifact-shaded", "artifact-addon",
+              "artifact-leftover"):
     art = "databroker-business-events-module"
     put(f"{out}/App.mpr", "Module BusinessEvents Module Administration")
     for a, g, v, pkg in (("kotlin-stdlib", "org.jetbrains.kotlin", "1.9.10", "kotlin"),
@@ -139,6 +145,24 @@ elif kind in ("artifact", "artifact-pkg", "artifact-unknown"):
         put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime"), ("com.mendix", art, "3.12.1")))
         put(f"{out}/javasource/businessevents/actions/Publish.java",
             "package businessevents.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
+    elif kind == "artifact-extras":
+        put(f"{out}/userlib/{art}-extras-1.jar", jar(cls("com.mendix.businessevents.extras")))
+        put(f"{out}/javasource/businessevents/actions/Publish.java",
+            "package businessevents.actions;\nimport com.mendix.businessevents.extras.C0;\nclass Publish {}\n")
+    elif kind == "artifact-shaded":
+        put(f"{out}/App.mpr", "Module BusinessEvents Module other Module Administration")
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.google.gson")))
+        put(f"{out}/userlib/gson-2.10.jar", jar(cls("com.google.gson"), ("com.google.code.gson", "gson", "2.10")))
+        put(f"{out}/javasource/other/actions/Parse.java",
+            "package other.actions;\nimport com.google.gson.Gson;\nclass Parse {}\n")
+    elif kind == "artifact-addon":
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime")))
+        put(f"{out}/.mendix-cache/modules/businessevents.mxmodule/javasource/businessevents/actions/Publish.java",
+            "package businessevents.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
+    elif kind == "artifact-leftover":
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime")))
+        put(f"{out}/javasource/oldmod/actions/Publish.java",
+            "package oldmod.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
     elif kind == "artifact-pkg":
         put(f"{out}/javasource/businessevents/actions/Publish.java", "package businessevents.actions;\nclass Publish {}\n")
         z = io.BytesIO()

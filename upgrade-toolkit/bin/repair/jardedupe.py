@@ -260,28 +260,57 @@ def is_artifact_token(tok):
     return not IDENT.match(tok)
 
 
+def in_app(project, mod):
+    """True when the module is INSTALLED: in the .mpr's module list, an add-on, or named in the .mpr / mprcontents bytes
+    (case-insensitive). A leftover javasource/<module>/ folder alone is not an install. No .mpr = cannot prove = True."""
+    low = mod.lower()
+    if low in {k.lower() for k in installed_modules(project)} or low in addon_java(project)[2]:
+        return True
+    mprs = [f for f in os.listdir(project) if f.endswith(".mpr")]
+    if not mprs:
+        return True
+    paths = [os.path.join(project, m) for m in mprs]
+    for root, _, fs in os.walk(os.path.join(project, "mprcontents")):
+        paths += [os.path.join(root, f) for f in fs]
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                if low.encode() in f.read().lower():
+                    return True
+        except OSError:
+            return True
+    return False
+
+
 def artifact_owner(project, tok, marker):
-    """The module a marker that names an ARTIFACT belongs to (GM-27), from data the app already holds, or None.
-    1. The module's own installed package ships the marker file (userlib/<jar>.<artifact>.RequiredLib in its .mpk).
-    2. The artifact's own jar (userlib/ or vendorlib/ <artifact>-<version>.jar) holds packages that a module's Java
-       (javasource/<module>/ or an add-on) declares or imports.
+    """(module, how, detail) for the module a marker that names an ARTIFACT belongs to (GM-27), or None.
+    how 'proof': the module's own installed package ships the marker file (userlib/<jar>.<artifact>.RequiredLib in its
+    .mpk). how 'guess': the artifact's own jar (<artifact>-<digit>...jar in userlib/ or vendorlib/) holds packages that
+    no other jar there provides, and an INSTALLED module's Java (javasource/<module>/ or an add-on) declares or imports
+    one; detail = that package. The caller prints a guess (OWNER-GUESS), never silently.
     Nothing is guessed from the artifact's spelling: no match = None (the caller reports UNKNOWN, never STALE)."""
     js = os.path.join(project, "javasource")
     jmods = sorted(d for d in (os.listdir(js) if os.path.isdir(js) else []) if os.path.isdir(os.path.join(js, d)))
     for m in sorted(set(installed_modules(project)) | set(jmods)):
         pk = package_userlib(project, m)
         if pk and marker in pk[0]:
-            return m
-    pkgs = set()
+            return m, "proof", ""
+    pkgs, shared = set(), set()
     for d in ("userlib", "vendorlib"):
         base = os.path.join(project, d)
         for j in (os.listdir(base) if os.path.isdir(base) else []):
-            if j.endswith(".jar") and re.match(re.escape(tok) + r"-\d", j):
-                pkgs |= jar_packages(os.path.join(base, j))
+            if j.endswith(".jar"):
+                if re.match(re.escape(tok) + r"-\d", j):
+                    pkgs |= jar_packages(os.path.join(base, j))
+                else:
+                    shared |= jar_packages(os.path.join(base, j))
+    pkgs -= shared   # a package another jar also provides (shaded gson, a common namespace) proves nothing
     if not pkgs:
         return None
-    own = lambda i: any(i == q or i.startswith(q + ".") for q in pkgs)
+    hit = lambda i: next((q for q in sorted(pkgs) if i == q or i.startswith(q + ".")), None)
     for m in jmods:
+        if not in_app(project, m):
+            continue
         for root, _, fs in os.walk(os.path.join(js, m)):
             for f in fs:
                 if f.endswith(".java"):
@@ -290,11 +319,12 @@ def artifact_owner(project, tok, marker):
                     except OSError:
                         continue
                     pk = {x.group(1) for x in re.finditer(r"^\s*package\s+([\w.]+)\s*;", t, re.M)}
-                    if any(own(i) for i in java_imports(t) | pk):
-                        return m
-    for i, adds in addon_java(project)[0].items():
-        if own(i):
-            return sorted(adds)[0]
+                    for i in sorted(java_imports(t) | pk):
+                        if hit(i):
+                            return m, "guess", hit(i)
+    for i, adds in sorted(addon_java(project)[0].items()):
+        if hit(i):
+            return sorted(adds)[0], "guess", hit(i)
     return None
 
 
@@ -471,10 +501,15 @@ def plan(project, extra=frozenset()):
     for r in jars.values():
         if r["dir"] != "userlib" or not r["mods"]:
             continue
-        gone_m, unk_m = set(), set()
+        gone_m, unk_m, guess = set(), set(), []
         for f, mod, _ in r["mv"]:
             if is_artifact_token(mod):   # GM-27: an artifact name is mapped to its module, never matched as one
-                if artifact_owner(project, mod, f) or module_known(project, mod, extra):
+                ow = artifact_owner(project, mod, f)
+                if ow:
+                    if ow[1] == "guess":
+                        guess.append(f"{ow[0]} (package {ow[2]})")
+                    continue
+                if module_known(project, mod, extra):
                     continue
                 unk_m.add(mod)
             elif not module_known(project, mod, extra):
@@ -485,6 +520,8 @@ def plan(project, extra=frozenset()):
                         f"determined (no installed package ships the marker, no javasource or add-on uses the artifact's "
                         f"jar): review by hand", 2))
             continue
+        if guess:   # ownership by package import is a guess: never silent
+            out.append(("KEEP", r, f"OWNER-GUESS: {', '.join(sorted(set(guess)))}", 2))
         old = [(f, mod, v) for f, mod, v in r["mv"] if mod not in gone_m and v and vkey(v) < vkey(cur[mod])]
         live = [x for x in r["mv"] if x[1] not in gone_m and x not in old]
         if live:
