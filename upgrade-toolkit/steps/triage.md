@@ -5,7 +5,8 @@ Goal: know the version path, the module plan and the traps before anything chang
 Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
-with version tables; the scripts find it the same way).
+with version tables, else the starter brain the toolkit ships in `data/starter-brain`: the public Mendix release-note tables;
+the scripts find it the same way, and release_impact.py fills what a company brain lacks from the starter).
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).
@@ -167,6 +168,13 @@ with version tables; the scripts find it the same way).
    "library upgraded to x" requirement row whose libraries no Java outside that module's own folder imports
    (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). Without `project_dir` (a hand facts
    file) both stay open: run `--facts-from-mpr` on the real project, or add `"project_dir": "app"` by hand.
+   Only real decisions reach a person (cold test: 190 open rows, each with a recommendation, still drowned the owner): the
+   pipeline adds `--evidence`. A row the rules leave open stays open only when the app's own modules use what it names
+   (a class, setting or element name found in their model or code, a feature with a document there; the evidence is
+   cited under "Open rows"). Rows about the deployment environment (database, Java, OS, browser, cloud, build host) are
+   `later (auto): go-live-env` and one "Go-live environment checklist (N items)", with the run's database as the TEST
+   environment: a person confirms production once before go-live. The rest are `not relevant (auto): not-used` with
+   what was searched; a deprecation the app uses is `deprecated-still-works` (a backlog note). `--check` counts open rows only.
    Replacements (B6): release impact keys on version windows, so a deprecated module kept at its version (DeepLink,
    MendixSSO) or a deprecated feature in use (Document Templates, legacy scheduled events, mx.logger) gives no row. The
    pipeline runs `python3 $B/replacement_check.py app/ --to <last rung's full ver> --out $W/replacements.md` at triage

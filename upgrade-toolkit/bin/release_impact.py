@@ -54,7 +54,7 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                Database Connector), Core.addDevelopmentServlet (dev_servlet 0). T6R-5: requirement and deprecation rows of
                git-teamserver and mxbuild-cli (the developer's tools, the build host) under the same IDE_REACHES_APP test;
                the SVN removal when the project is under Git (vcs); with project_dir (written by --facts-from-mpr when a
-               javasource folder is next to the mpr, or given by hand) a java-actions removal whose every `affected` item
+               javasource folder is next to the mpr, or given by hand) a java-actions removal or deprecation whose every `affected` item
                is a Java symbol none of which occurs in javasource (proxies excluded) or in a userlib jar's class files
                (java-symbol-absent, the scope is cited), and a module requirement row that only bumps libraries of
                LIB_PKG which no Java outside javasource/<module>/ imports (module-library-bump). A prose item, a
@@ -84,13 +84,31 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                <out>.facts.json; --facts files given too win over it. One mpr alone gives facts, no module rows: a line
                "auto cannot use: ..." says each thing that is lost (module rows, kept/stranded, every fact not known).
   --types      default breaking,removal,requirement,deprecation (module rows also migration-step); also security, known-issue, improvement, feature, fix
-  --brain      default: bin/brainpath.py ($UPG_BRAIN, UPG_BRAIN= in local.env, else a ~/Mendix/*-brain with version tables)
+  --brain      read this brain alone. Default: bin/brainpath.py ($UPG_BRAIN, UPG_BRAIN= in local.env, else a ~/Mendix/*-brain
+               with version tables) on top of the starter brain the toolkit ships (data/starter-brain, the public Mendix
+               release notes): the company brain wins where both have a table, the starter fills a major's table, a module
+               file or the versions above the company table's newest row it lacks. No company brain: the starter alone.
+               The report's "Brain:" line says which brain was used. With the starter alone, a missing table (a module
+               with no file, a major or version it lacks) is a "Toolkit gaps" line, never a row for a person (cold test).
+               Open rows get one recommended action each under "Open rows: what to do".
+  --evidence   (with --auto and a project) only real decisions reach a person (cold test: 190 open rows drowned the owner). A row
+               the rules leave open stays open ONLY when the app demonstrably uses what it names: a name from the row
+               (CamelCase, dotted, snake_case, ...()) found in the app's own modules (the model and project settings,
+               javasource/javascriptsource/themesource of those modules, theme/), a feature fact above 0 with a document of
+               the app's own modules, or a model element the row is about (legacy scheduled events, commit event handlers).
+               The evidence (document or file) is written under "Open rows". Marketplace modules do not count: the plan
+               updates them. A row about the deployment environment (database vendor or version, OS, Java, browser, cloud,
+               build host) is "later (auto): go-live-env: ..." and one grouped "Go-live environment checklist (N items)" for a
+               person before go-live, with the run's database (bin/runapp.py) as the TEST environment; production is
+               confirmed once. Every other row is "not relevant (auto): not-used: not used in this app (no hit in model or
+               code): ..." with what was searched. --check and the cockpit count only the open rows.
   --out        default release-impact.md. A rerun keeps the handled entries of rows it finds again. An entry whose row is gone
                (the brain reworded it, T2F-4) is listed under "Entries that matched no row", kept until the row returns, and
                counted in the output. With --auto a rerun also says how many human entries auto would have decided and which
                differ in kind (T2F-3); the header counts auto, kept and open (T2F-5).
   --check      exit 1 while any row has no "handled: <evidence path or commit>" or "not relevant: <reason>" entry
-               ("handled (...)" and "handled - ..." count too, T5-20). Prints auto, human and open counts.
+               ("handled (...)" and "handled - ..." count too, T5-20). Prints auto, human and open counts. A "later (auto):"
+               row (the go-live environment checklist) is not open; it is counted on its own line.
 
 Exit (generate): 0 = written, every source covered; 2 = something not covered (an UNKNOWN module, a plan line without
 an old version, no Studio Pro table for a major in the range, or --to newer than the newest Studio Pro row of its
@@ -109,7 +127,9 @@ MODULE_DEFAULT_TYPES = DEFAULT_TYPES + ["migration-step"]
 # FM-7: "not relevant: (deployed app) reason" (text may start with a bracket after the colon) and "not relevant for the
 # deployed app: reason" (up to 60 characters between the verdict and the colon) are accepted.
 HANDLED = re.compile(r"^(handled|not relevant)(?:\s+for\s+[^:()]{1,60}?)?\s*(?::\s*[^\s\-\u2013\u2014]|(?:\(|-|\u2013|\u2014)\s*[^\s()\-\u2013\u2014])", re.I)
-AUTO = re.compile(r"^(not relevant|handled) \(auto\):", re.I)
+AUTO = re.compile(r"^(not relevant|handled|later) \(auto\):", re.I)
+# --evidence: a row about the deployment environment, for a person before go-live (not open, not closed)
+LATER = re.compile(r"^later \(auto\):", re.I)
 # Closure rule (QJ-2, steps/triage.md step 10). A removed setting or a flipped default changes behaviour exactly where
 # the setting was NOT set: the app ran with the old default. So on such a row a "not relevant" that rests only on the
 # setting being absent is unsound and the row stays open. Sound: the source version already had the new default (cite
@@ -194,31 +214,62 @@ def slugify(name):
     return re.sub(r"-+", "-", s).lower().strip("-")
 
 
+# The starter brain the toolkit ships (data/starter-brain, brainpath.py): the public Mendix release-note tables. A company
+# brain adds its own lessons on top and wins where both have a table; the starter fills what it lacks (a major's table, a
+# module file, the versions above the company table's newest row). Cold test (fresh install): no brain, so no check ran.
+STARTER = Path(__file__).resolve().parent.parent / "data" / "starter-brain"
+
+
 class Brain:
-    def __init__(self, root):
+    def __init__(self, root, starter=STARTER):
         self.v = Path(root) / "baseline" / "versions"
+        sv = Path(starter) / "baseline" / "versions" if starter else None
+        self.layers = [self.v] + ([sv] if sv and sv.is_dir() and sv.resolve() != self.v.resolve() else [])
+        self.is_starter = self.v.resolve() == (STARTER / "baseline" / "versions").resolve()
+        self.used_starter = set()   # what the starter filled in for a company brain (said in the report header)
         self.mods = {}
-        for f in sorted((self.v / "modules").glob("*.md")):
-            first = f.read_text(errors="replace").split("\n", 1)[0]
-            m = re.match(r"^#\s*(.*?)\s*\(Marketplace component (\d+)\)", first)
-            title, cid = (m.group(1), m.group(2)) if m else (first.lstrip("# ").strip(), None)
-            self.mods[f.stem] = {"title": title, "cid": cid, "path": f}
+        for layer in reversed(self.layers):   # the company brain last, so its module files win
+            for f in sorted((layer / "modules").glob("*.md")):
+                first = f.read_text(errors="replace").split("\n", 1)[0]
+                m = re.match(r"^#\s*(.*?)\s*\(Marketplace component (\d+)\)", first)
+                title, cid = (m.group(1), m.group(2)) if m else (first.lstrip("# ").strip(), None)
+                self.mods[f.stem] = {"title": title, "cid": cid, "path": f, "starter": layer != self.v}
+
+    def has_tables(self):
+        return any(layer.glob("studio-pro-upgrade-*.md") for layer in self.layers)
+
+    def label(self):
+        """Which brain the rows come from, for the report header."""
+        if self.is_starter or self.layers[0] != self.v or not list(self.v.glob("studio-pro-upgrade-*.md")):
+            if not self.is_starter and self.v.is_dir():
+                return f"the toolkit's starter brain {STARTER} (public Mendix release notes; {self.v} has no version tables)"
+            return f"the toolkit's starter brain {STARTER} (public Mendix release notes; no company brain configured)"
+        extra = f"; the starter brain filled {', '.join(sorted(self.used_starter))}" if self.used_starter else ""
+        return f"company brain {self.v}{extra}"
 
     def find(self, name, cid=None, slug=None):
-        """(slug, how) or (None, why)."""
+        """(slug, how) or (None, why). The company brain's files are searched first, the starter's only when none fits."""
+        own = {k: v for k, v in self.mods.items() if not v["starter"]}
+        if len(own) < len(self.mods) and own:
+            hit, how = self._find(own, name, cid, slug)
+            if hit:
+                return hit, how
+        return self._find(self.mods, name, cid, slug)
+
+    def _find(self, mods, name, cid=None, slug=None):
         if slug:
-            return (slug, "given") if slug in self.mods else (None, f"no brain file modules/{slug}.md")
+            return (slug, "given") if slug in mods else (None, f"no brain file modules/{slug}.md")
         if cid:
-            hit = [s for s, m in self.mods.items() if m["cid"] == str(cid)]
+            hit = [s for s, m in mods.items() if m["cid"] == str(cid)]
             if len(hit) == 1:
                 return hit[0], f"content id {cid}"
         sl = slugify(name)
-        if sl in self.mods:
+        if sl in mods:
             return sl, "name"
         q = squash(name)
         tries = [q, q + "module", "mendix" + q, re.sub(r"\d+$", "", q), re.sub(r"module$", "", q)]
         for t in [t for t in dict.fromkeys(tries) if t]:
-            hit = sorted({s for s, m in self.mods.items() if t in (squash(s), squash(m["title"]))})
+            hit = sorted({s for s, m in mods.items() if t in (squash(s), squash(m["title"]))})
             if len(hit) == 1:
                 return hit[0], f"name ({t})"
             if len(hit) > 1:
@@ -228,23 +279,30 @@ class Brain:
     def studio(self, lo, hi, types):
         rows, missing = [], []
         for major in range(lo[0], hi[0] + 1):
-            f = self.v / f"studio-pro-upgrade-{major}.md"
-            if not f.exists():
-                missing.append(f"no Studio Pro table for Mendix {major} ({f})")
+            files = [layer / f"studio-pro-upgrade-{major}.md" for layer in self.layers]
+            files = [f for f in files if f.exists()]
+            if not files:
+                missing.append(f"no Studio Pro table for Mendix {major} ({self.v / f'studio-pro-upgrade-{major}.md'})")
                 continue
             newest = None
-            for head, body in tables(f.read_text(errors="replace")):
-                if "version" not in head or "change" not in head:
-                    continue
-                ix = {h: i for i, h in enumerate(head)}
-                for r in body:
-                    get = lambda k: r[ix[k]] if k in ix and ix[k] < len(r) else ""
-                    v = vt(get("version"))
-                    if v and v[0] == major and (newest is None or cmpv(v, newest) > 0):
-                        newest = v
-                    if get("type").lower() in types and in_range(vt(get("version")), lo, hi):
-                        rows.append({"version": get("version"), "type": get("type").lower(), "area": get("area"),
-                                     "change": get("change"), "affected": get("affected"), "source": get("source")})
+            for f in files:   # the company table first; a later (starter) table adds only versions above its newest row
+                above = newest
+                for head, body in tables(f.read_text(errors="replace")):
+                    if "version" not in head or "change" not in head:
+                        continue
+                    ix = {h: i for i, h in enumerate(head)}
+                    for r in body:
+                        get = lambda k: r[ix[k]] if k in ix and ix[k] < len(r) else ""
+                        v = vt(get("version"))
+                        if above is not None and not (v and cmpv(v[:3], above[:3]) > 0):
+                            continue
+                        if v and v[0] == major and (newest is None or cmpv(v, newest) > 0):
+                            newest = v
+                        if get("type").lower() in types and in_range(vt(get("version")), lo, hi):
+                            if f.parent != self.v:
+                                self.used_starter.add(f"Studio Pro {major}" + (f" above {'.'.join(map(str, above))}" if above else ""))
+                            rows.append({"version": get("version"), "type": get("type").lower(), "area": get("area"),
+                                         "change": get("change"), "affected": get("affected"), "source": get("source")})
             # T1-8, T2-19, T7-6: a table older than the target lists nothing for the newest versions, silently.
             # Compared on major.minor.patch: 10.24.25.12345 is in a table whose newest row is 10.24.25.
             if major == hi[0] and newest and cmpv(hi[:3], newest[:3]) > 0:
@@ -261,7 +319,9 @@ class Brain:
         m = self.mods[slug]
         text = m["path"].read_text(errors="replace")
         link = re.search(r"\[marketplace\]\((\S+?)\)", text)
-        src = f"[brain](modules/{slug}.md)" + (f", [marketplace]({link.group(1)})" if link else "")
+        if m["starter"] and not self.is_starter:
+            self.used_starter.add(f"module {slug}")
+        src = f"[{'starter brain' if m['starter'] else 'brain'}](modules/{slug}.md)" + (f", [marketplace]({link.group(1)})" if link else "")
         rows = []
         for head, body in tables(text):
             if "version" not in head or "change" not in head:
@@ -639,6 +699,7 @@ def facts_from_project(mpr, db_vendor=None, db_version=None, runtime_os=None):
     import mprmodel  # needs bson (pip install pymongo)
     mpr = Path(mpr)
     m = mprmodel.Model.load(str(mpr))
+    _MODELS[str(mpr)] = m   # --evidence reads the same model
     types, per_unit = {}, []  # per_unit: (unit $Type, {$Type: n} inside that unit)
 
     def walk(x, acc):
@@ -829,7 +890,8 @@ def auto_rule(section, cols, facts, lo, hi):
             return f"not relevant (auto): {area}: area {area} is {what}"
         # T6R-5: a removed Java API breaks only code that names it. Every `affected` item must be a Java symbol, and
         # none may occur in javasource (proxies excluded: regenerated) or in a userlib jar's class files.
-        if area == "java-actions" and typ == "removal" and "project_dir" in facts:
+        # Cold test: a deprecation of a Java symbol the app never names is as settled as a removal (26 rows stayed open).
+        if area == "java-actions" and typ in ("removal", "deprecation") and "project_dir" in facts:
             syms = java_symbols(affected)
             pdir = facts["project_dir"][0]
             rev = java_rev(pdir) if syms else None
@@ -906,6 +968,226 @@ def auto_rule(section, cols, facts, lo, hi):
     return f"not relevant (auto): feature-absent: row is about {', '.join(touched)}; {', '.join(dict.fromkeys(cite))}"
 
 
+# ---------------------------------------------------------------- --evidence (cold test: only real decisions reach a person)
+# A row the rules leave open stays open only when the app demonstrably uses what it names. The app = its own modules
+# (not from the Marketplace: the plan updates those), the project settings and theme/. Every verdict cites what it read.
+ENV_AREAS = ("data-storage", "deployment", "deployment-cloud", "mxbuild-cli")
+ENV_TEXT = re.compile(r"\bjava\s*\d+|\bjdk\b|\bjre\b|openjdk|\.net\b|\bdotnet\b|node\.?js|\bwindows\b|\blinux\b|\bmac ?os\b|"
+                      r"\bubuntu\b|\bbrowsers?\b|\bsafari\b|\bchrome\b|\bfirefox\b|\bkubernetes\b|\bdocker\b|cloud foundry|"
+                      r"\bjetty\b|\btomcat\b|\bamazon s3\b|\baws\b|\bazure\b|\bs3\b|\bgradle\b|\barm64\b|"
+                      + "|".join(VENDORS.values()), re.I)
+# CamelCase product and vendor names: no name the app chooses, so no evidence
+NOT_NAME = {"OData", "PostgreSQL", "MariaDB", "MySQL", "JavaScript", "TypeScript", "MxBuild", "GitHub", "GitLab", "macOS",
+            "WebSocket", "WebSockets", "DevOps", "TeamServer", "AppStore", "CloudFoundry", "OpenID", "OAuth", "XPath",
+            "JavaDoc", "IntelliJ", "MPRv1", "MPRv2", "SQLServer", "DataGrid", "ReactJS", "NodeJS", "PowerShell"}
+NAME = re.compile(r"[A-Za-z_][\w$]*(?:[.#][A-Za-z_][\w$]*)*(?:\(\))?")
+SRC_EXT = {".java", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".scss", ".css", ".html", ".xml", ".json"}
+
+
+def row_names(text):
+    """Names an app can hold: CamelCase, dotted (Core.execute, com.mendix.x.Y), snake_case, Foo#bar. A parameter list is
+    no name ("initialize(IContext, IMendixIdentifier)": IContext is in every Java action), nor an XPath function ("false()")."""
+    out = []
+    for t in NAME.findall(re.sub(r"\([^()]*\)", "()", text or "")):
+        b = t.replace("()", "")
+        if b in NOT_NAME or len(b) < 4 or re.search(r"\.(?:exe|js|mpr|md)$", b, re.I) or b.lower() in ("node.js", "asp.net"):
+            continue
+        if (re.search(r"[A-Za-z]\.[A-Za-z]", b) or "_" in b.strip("_") or "#" in b
+                or re.search(r"[a-z][A-Z]|[A-Z]{2,}[a-z]", b)) and b not in out:
+            out.append(b)
+    return out
+
+
+class Evidence:
+    """The app's own parts, read once: per document of an own module its strings and element types, the project settings,
+    and the source files of the own modules plus theme/."""
+
+    def __init__(self, mpr):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import mprmodel
+        self.m = m = _MODELS.get(str(mpr)) or mprmodel.Model.load(str(mpr))
+        self.own = sorted(n for n, i in m.modules.items() if n and not i.get("from_appstore"))
+        own = set(self.own)
+        self.docs = []   # (label, module, text, {$Type})
+
+        def types(x, acc):
+            if isinstance(x, dict):
+                t = x.get("$Type")
+                if isinstance(t, str):
+                    acc.add(t)
+                for v in x.values():
+                    types(v, acc)
+            elif isinstance(x, list):
+                for v in x:
+                    types(v, acc)
+        seen = set()
+        for d in list(m.all_docs) + [v for k, v in m.docs.items() if "$" in k.split(".", 1)[-1]]:
+            if d.module not in own or id(d) in seen:
+                continue
+            seen.add(id(d))
+            acc = set()
+            types(d.data, acc)
+            self.docs.append((f"{d.qn} ({d.type.split('$')[-1]})", d.module, "\n".join(mprmodel.strings(d.data)), acc, d))
+        for t, d in m.singletons.items():
+            if t in ("Settings$ProjectSettings", "Navigation$NavigationDocument"):
+                self.docs.append(("project settings" if "Settings" in t else "navigation", "", "\n".join(mprmodel.strings(d)), set(), None))
+        root = Path(mpr).resolve().parent
+        self.root = root
+        self.files = {}   # relative path -> text
+        lower = {n.lower() for n in own}
+        for top in ("javasource", "javascriptsource", "themesource"):
+            for f in (root / top).glob("*/**/*") if (root / top).is_dir() else []:
+                rel = f.relative_to(root)
+                if (f.is_file() and f.suffix.lower() in SRC_EXT and rel.parts[1].lower() in lower and "proxies" not in rel.parts
+                        and "node_modules" not in rel.parts):
+                    self.files[rel.as_posix()] = f.read_text(errors="replace")
+        for f in (root / "theme").rglob("*") if (root / "theme").is_dir() else []:
+            if f.is_file() and f.suffix.lower() in SRC_EXT and "node_modules" not in f.parts:
+                self.files[f.relative_to(root).as_posix()] = f.read_text(errors="replace")
+
+    def scope(self):
+        return (f"the model of the app's own modules ({len(self.own)} modules, {len(self.docs)} documents and settings) and "
+                f"their javasource/javascriptsource/themesource plus theme/ ({len(self.files)} files); Marketplace modules excluded")
+
+    def find(self, name, module=None):
+        """['Module.Doc (Type)' or 'path'] holding name; module (a Marketplace module's rows): only references into it."""
+        last = re.split(r"[.#]", name)[-1]
+        if module:
+            rx = re.compile(r"(?<![\w$])" + re.escape(module) + r"\.(?:[\w$]+[./])*" + re.escape(name.split(".")[-1]) + r"(?![\w$])")
+        else:
+            rx = re.compile(r"(?<![\w$])" + re.escape(name) + r"(?![\w$])")
+        hits = [lab for lab, _, text, _, _ in self.docs if rx.search(text)]
+        # code: the full name, or a method call foo( in a file that also names its class (Core.execute -> Core + execute()
+        cls = re.split(r"[.#]", name)[-2] if re.search(r"[.#]", name) else None
+        mrx = re.compile(r"(?<![\w$])" + re.escape(last) + r"\s*\(") if cls and last[:1].islower() else None
+        crx = re.compile(r"(?<![\w$])" + re.escape(cls) + r"(?![\w$])") if cls else None
+        pk = module.lower() if module else None
+        for path, text in self.files.items():
+            if module and (path.split("/")[1].lower() == pk or pk not in text.lower()):
+                continue
+            if (not module and rx.search(text)) or (module and re.search(r"(?<![\w$])" + re.escape(last) + r"(?![\w$])", text)) \
+                    or (mrx and mrx.search(text) and crx.search(text)):
+                hits.append(path)
+        return hits
+
+    def of_types(self, rx):
+        return [lab for lab, _, _, ts, _ in self.docs if any(re.search(rx, t) for t in ts)]
+
+
+_MODELS = {}
+# feature (FEATURES name) -> the element types that show the app's own modules use it
+FEATURE_TYPES = {"published OData": r"PublishedODataService", "consumed OData": r"ConsumedODataService|ODataRemoteEntitySource",
+                 "OData": r"ODataService", "published REST": r"PublishedRestService$",
+                 "consumed REST": r"ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
+                 "REST": r"PublishedRestService$|ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
+                 "web services": r"WebService|WebServiceCallAction", "workflows": r"^Workflows\$Workflow$",
+                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile"}
+
+
+def legacy_events(ev):
+    """Scheduled events with no repeating schedule (the legacy kind Mendix 10 refuses at start)."""
+    out = []
+    for lab, _, _, ts, d in ev.docs:
+        if d is not None and d.type == "ScheduledEvents$ScheduledEvent" and not any(t.endswith("Schedule") for t in ts):
+            out.append(lab)
+    return out
+
+
+# model elements a row is about, by its words (Studio Pro rows): (row regex, finder)
+ELEMENTS = [
+    (r"legacy scheduled events?|scheduled events?\b.*\b(?:non-repeating|start time)", legacy_events),
+    (r"\b(?:before|after) commit\b", lambda ev: ev.of_types(r"DomainModels\$EntityEvent$|DomainModels\$EventHandler$")),
+]
+
+
+def evidence_rule(section, cols, facts, ev):
+    """('open', evidence) | ('later', 'later (auto): ...') | ('closed', 'not relevant (auto): not-used: ...')."""
+    if section == "Studio Pro":
+        typ, area, change, affected = cols[1], cols[2].lower(), cols[3], cols[4]
+        mod = None
+    else:
+        typ, area, change, affected = cols[1], "", cols[2], cols[3]
+        mod = section[len("Module "):]
+    text = f"{change} {affected}"
+    names = row_names(affected) + [x for x in row_names(change) if x not in row_names(affected)]
+    hits = []
+    for nm in names:
+        h = ev.find(nm, mod)
+        if h:
+            hits.append(f"{nm} in {', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+    if section == "Studio Pro":
+        for rx, fn in ELEMENTS:
+            if re.search(rx, text, re.I):
+                h = fn(ev)
+                if h:
+                    hits.append(f"{', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+        for name, rx, ks in FEATURES:
+            if re.search(rx, text, re.I) and any(k in facts and facts[k][0] not in (0, False, None, []) for k in ks):
+                h = ev.of_types(FEATURE_TYPES[name])
+                if h:
+                    hits.append(f"{name}: {', '.join(h[:3])}" + (f" and {len(h) - 3} more" if len(h) > 3 else ""))
+    if hits and typ == "deprecation":   # it still works on the target: a backlog note, no decision for this upgrade
+        return "closed", ("not relevant (auto): deprecated-still-works: the app uses it (" + "; ".join(dict.fromkeys(hits))[:300]
+                          + "), and a deprecated item still works on the target; replace it before the next major version")
+    if hits:
+        return "open", "; ".join(dict.fromkeys(hits))
+    env = [x.group(0) for x in ENV_TEXT.finditer(text)]
+    if area == "java-actions":   # Java action code; only the JDK it runs on is the environment
+        env = [e for e in env if re.match(r"(?i)jdk|jre|java\s*\d|openjdk", e)]
+    if section == "Studio Pro" and (area in ENV_AREAS or env):
+        what = ", ".join(dict.fromkeys(e.strip() for e in env)) or f"area {area}"
+        return "later", (f"later (auto): go-live-env: about the deployment environment ({what}), not the app's model or code; "
+                         "in the Go-live environment checklist")
+    where = f"references into {mod} from " if mod else ""
+    what = (f"searched {', '.join(names)} in {where}" if names else
+            "the row names no class, setting or element to search; its features and model elements were checked in ")
+    return "closed", f"not relevant (auto): not-used: not used in this app (no hit in model or code): {what}{ev.scope()}"
+
+
+def test_environment():
+    """The database the toolkit runs the app on (bin/runapp.py): the TEST environment, never production."""
+    t = (Path(__file__).resolve().parent / "runapp.py")
+    t = t.read_text(errors="replace") if t.exists() else ""
+    db = re.search(r'"DatabaseType":\s*"(\w+)"', t)
+    ver = re.search(r'"postgres:(\d+)', t)
+    if not db:
+        return "unknown (bin/runapp.py not readable)"
+    return f"{db.group(1)}{' ' + ver.group(1) if ver and db.group(1).lower().startswith('postgres') else ''} (the database bin/runapp.py runs the app on)"
+
+
+def recommend(section, cols):
+    """One recommended action for a row the facts left open, in plain words (cold test: rows without a way to solve them)."""
+    if section == "Studio Pro":
+        typ, area, change, affected = cols[1], cols[2].lower(), cols[3], cols[4]
+    else:
+        typ, area, change, affected = cols[1], "module", cols[2], cols[3]
+    what = affected or "the part it names"
+    feat = next((name for name, rx, _ in FEATURES if re.search(rx, f"{change} {affected}", re.I)), None)
+    if section != "Studio Pro":
+        if typ == "migration-step":
+            return f"do the publisher's step after the module update ({what}), then walk the screens that use it; small effort."
+        if typ == "requirement":
+            return "check the plan's target version of this module fits the target Mendix version; keep the old one only with a reason."
+        if typ == "deprecation":
+            return f"nothing to do for this upgrade; replace {what} when the app is next changed there."
+        return f"search the app for uses of {what} and fix them in the update commit; a journey over that part proves it; small to medium effort."
+    if area == "data-storage":
+        return "confirm the production database against this row; give the run --db-vendor/--db-version and it closes itself when it does not apply."
+    if typ == "deprecation":
+        return f"nothing to do for this upgrade (it still works on the target); plan to replace {what} before the next major version."
+    if typ == "requirement":
+        return (f"confirm the deployment environment meets it ({what}) before go-live; the toolkit's build already uses the target tools."
+                if area in ("runtime", "deployment-cloud", "deployment", "mxbuild-cli") else
+                f"the target build brings it; a clean build log is the evidence ({what}).")
+    if area == "java-actions":
+        return f"the target build compiles the Java: where it fails on {what}, move the code to the replacement the notes name; small effort per call."
+    if area in ("studio-pro-ide", "modeling", "domain-model", "pages"):
+        return f"the convert and the consistency check show it: fix every error that names {what} in the model; small effort."
+    if feat:
+        return f"the app uses {feat}: after the upgrade, run a journey over that part and compare with before."
+    return f"after the upgrade, run a journey over the part that uses {what} and compare with before; fix only what differs."
+
+
 _PIPE_WARNED = set()
 
 
@@ -962,8 +1244,12 @@ def generate(a):
         sys.exit("release_impact: --from-mpr and --to-mpr go together (with --auto, one of them is read for facts only)")
     types = [t.strip().lower() for t in (a.types.split(",") if a.types else DEFAULT_TYPES) if t.strip()]
     mtypes = types if a.types else MODULE_DEFAULT_TYPES
-    br = Brain(a.brain)
-    if not (br.v / "modules").is_dir():
+    if a.brain:   # --brain DIR reads that brain alone
+        br = Brain(a.brain, starter=None)
+    else:         # the default brain (brainpath.py) on top of the starter brain, which fills what it lacks
+        import brainpath
+        br = Brain(brainpath.find()[0] or STARTER)
+    if not br.has_tables():
         print(f"release_impact: no brain version tables under {br.v}", file=sys.stderr)
         return 2
     out = Path(a.out)
@@ -997,6 +1283,13 @@ def generate(a):
                 lost.append(f"{k}: unknown, the rows it decides stay open")
         for l in dict.fromkeys(lost):
             print(f"auto cannot use: {l}")
+    ev = None
+    if a.evidence:
+        src = a.facts_from_mpr or a.from_mpr or a.to_mpr
+        if not a.auto or not src:
+            sys.exit("release_impact: --evidence needs --auto and the project (--facts-from-mpr app/<App>.mpr): it reads the app's own modules")
+        ev = Evidence(src)
+        print(f"evidence: {ev.scope()}")
     keep, orphans = old_handled(out)
     keep = {**orphans, **keep}
     used = set()
@@ -1008,16 +1301,20 @@ def generate(a):
          f"Types: {', '.join(types)}" + ("" if a.types else f" (module rows also: {', '.join(t for t in mtypes if t not in types)})") + f". Source: {br.v} (official release notes in the brain). Every row needs a",
          "`handled: <evidence path or commit>` or `not relevant: <reason>` entry in the last column;",
          "`release_impact.py --check` exits 1 while one is empty. Gate rule: --check clean, or INVALID."]
+    brain_ix = len(L)
+    L += ["", ""]   # "Brain: ...", filled at the end (what the starter brain filled is known once the rows are read)
     hdr_ix = len(L)
     if a.auto:
         L += ["", ""]  # filled once the rows are known (T2F-5): how many entries are auto and how many are a person's
     L.append("")
     n = 0
     counts = {}
-    nauto = nhuman = 0
+    nauto = nhuman = nlater = 0
+
+    open_rows, later_rows, evid = [], [], {}
 
     def row(section, cols):
-        nonlocal n, nauto, nhuman
+        nonlocal n, nauto, nhuman, nlater
         n += 1
         key = (section, cols[0], cols[3] if section == "Studio Pro" else cols[2])
         h = keep.get(key, "")
@@ -1027,10 +1324,22 @@ def generate(a):
             rule = auto_rule(section, cols, facts, lo, hi) or ""
             if not h or AUTO.match(h):  # auto entries are recomputed; a human entry stays
                 h = rule
-                nauto += bool(h)
+                if not h and ev is not None and section != "Not covered":
+                    kind, what = evidence_rule(section, cols, facts, ev)
+                    if kind == "open":
+                        evid[n] = what
+                    else:
+                        h = what
+                if LATER.match(h):
+                    nlater += 1
+                    later_rows.append((n, cols, section))
+                else:
+                    nauto += bool(h)
             elif rule:
                 would.append((n, cols[0], h, rule))
         nhuman += bool(h) and not AUTO.match(h) and bool(HANDLED.match(h))
+        if not HANDLED.match(h or "") and not LATER.match(h or "") and section != "Not covered":
+            open_rows.append((n, cols[0], section, cols))
         return f"| {n} | " + " | ".join(esc(c) for c in cols) + f" | {esc(h)} |"
 
     L += [f"## Studio Pro ({len(srows)} rows)", ""]
@@ -1090,7 +1399,36 @@ def generate(a):
             L.append("No row of these types in the jump (the brain file exists; read its improvement rows too when the jump is large).")
         mod_total += len(rows)
         L.append("")
-    if unknown or gaps:
+    # open rows: one recommended action each, so a person decides with one look (never a bare list of release notes)
+    recs = [(num, ver, recommend(sec, cols)) for num, ver, sec, cols in open_rows]
+    if recs:
+        L += [f"## Open rows: what to do ({len(recs)})", "",
+              ("These rows name something the app's own modules use (the evidence is cited). One recommended action each;"
+               if ev is not None else
+               "These rows touch something the app holds (or a fact the run could not count). One recommended action each;"),
+              "write `handled: <evidence>` in the row once done, or `not relevant: <reason>` when it does not apply.", ""]
+        L += [f"- row {num} ({ver}): " + (f"the app uses it: {evid[num]}. Do: " if num in evid else "") + r for num, ver, r in recs]
+        L.append("")
+    # --evidence: rows about the deployment environment are one grouped item for a person before go-live, not open rows
+    if later_rows:
+        L += [f"## Go-live environment checklist ({len(later_rows)} items)", "",
+              f"Test environment (this run): {test_environment()}. Production: confirm once that it runs a database, Java, OS",
+              f"and browser that Mendix {a.to} supports; these release-note rows are about that environment. Not a decision now:",
+              "a person ticks the list once before go-live (not counted as open rows).", ""]
+        L += [f"- row {num} ({c[0]}, {c[1]}, {c[2] if sec == 'Studio Pro' else sec}): {(c[3] if sec == 'Studio Pro' else c[2])[:160]}"
+              for num, c, sec in later_rows]
+        L.append("")
+    # Cold test (fresh install): a table the toolkit lacks is the toolkit's gap, never a question for the person. With the
+    # starter brain alone a missing table is listed here, not as a row: --check does not count it. A company brain's
+    # missing table stays a "Not covered" row (its owner fills it).
+    if br.is_starter and (unknown or gaps):
+        L += [f"## Toolkit gaps ({len(unknown) + len(gaps)})", "",
+              "The starter brain has no release-note table for these. Not a decision for you: the toolkit's tables need a data",
+              "refresh (or configure a company brain that has them). Until then, the module's release notes on the Marketplace",
+              "are the source.", ""]
+        L += [f"- {mname}: {why}" for mname, why in unknown] + [f"- Studio Pro: {g}" for g in gaps]
+        L.append("")
+    elif unknown or gaps:
         L += [f"## Not covered ({len(unknown) + len(gaps)})", "",
               "Read these release notes by hand and record what you found.", "",
               "| # | module or source | why | change | handled |", "|---|---|---|---|---|"]
@@ -1110,18 +1448,23 @@ def generate(a):
         for i, ((sec, ver, chg), v) in enumerate(sorted(lost_entries), 1):
             L.append(f"| o{i} | {esc(sec)} | {esc(ver)} | {esc(chg)} | {esc(v)} |")
         L.append("")
+    L[brain_ix:brain_ix + 2] = ["", f"Brain: {br.label()}."]
     if a.auto:
         L[hdr_ix:hdr_ix + 2] = [
             "`not relevant (auto): <rule>: <fact>` entries were written by --auto from the facts "
             + ", ".join(f"`{f}`" for f in fact_files) + ": replace one with your own entry",
             f"when the fact is wrong for that row (a human entry is never overwritten). This run: {nauto} auto, "
-            f"{nhuman} kept from a person, {n - nauto - nhuman} open."]
+            f"{nhuman} kept from a person, {n - nauto - nhuman - nlater} open"
+            + (f", {nlater} in the go-live environment checklist." if nlater else ".")]
     out.write_text("\n".join(L) + "\n")
+    print(f"brain: {br.label()}")
     print(f"release-impact: Studio Pro {len(srows)} rows (" + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none") +
           f"), modules {mod_total} rows, not covered {len(unknown) + len(gaps)} -> {out}")
     if a.auto:
         print(f"auto: {nauto} of {n} rows pre-filled as not relevant from {len(facts)} facts "
               f"({', '.join(sorted(facts)) or 'none'}); the rest stay for a person")
+    if ev is not None:
+        print(f"evidence: {len(open_rows)} rows open (the app uses what they name), {nlater} in the go-live environment checklist")
     if lost_entries:
         print(f"orphan entries: {len(lost_entries)} handled entries matched no row (listed under '{ORPHAN_HEAD}' in {out})")
     if would:
@@ -1130,10 +1473,11 @@ def generate(a):
               "(auto says not relevant, the person says handled)")
         for num, ver, h, rule in differ[:10]:
             print(f"  row {num} ({ver}): human `{h[:70]}` vs {rule[:110]}")
+    word = "TOOLKIT GAP" if br.is_starter else "UNKNOWN"
     for mname, why in unknown:
-        print(f"UNKNOWN {mname}: {why}")
+        print(f"{word} {mname}: {why}")
     for g in gaps:
-        print(f"UNKNOWN {g}")
+        print(f"{word} {g}")
     return 2 if unknown or gaps else 0
 
 
@@ -1143,6 +1487,7 @@ def check(path):
         print(f"release_impact: no file {p}", file=sys.stderr)
         return 2
     section, open_rows, unsound, blocked, total, nauto, reviewed, rejected = "", [], [], [], 0, 0, [], []
+    nlater = 0
     for line in p.read_text(errors="replace").splitlines():
         if line.startswith("## "):
             section = line[3:].split(" (")[0]
@@ -1152,6 +1497,9 @@ def check(path):
             if HANDLED.match(c[-1]) and re.search(r"\bREVIEW\b", c[-1]):   # MC-15: counted as handled, but a person said "look again"
                 reviewed.append(f"{section} row {c[0]}")
             label = f"{section} row {c[0]}: {c[1]} {c[2]} {c[4] if len(c) > 4 else ''}"[:160]
+            if LATER.match(c[-1]):   # --evidence: the go-live environment checklist, for a person before go-live
+                nlater += 1
+                continue
             if not HANDLED.match(c[-1]):
                 open_rows.append(label)
                 if c[-1].strip() and not re.match(r"^(open|blocked)\s*:\s*\S", c[-1], re.I):
@@ -1164,6 +1512,9 @@ def check(path):
                 unsound.append(label)
             elif AUTO.match(c[-1]):
                 nauto += 1
+    gaps = re.search(r"^## Toolkit gaps \((\d+)\)", p.read_text(errors="replace"), re.M)
+    if gaps:   # cold test: a table the toolkit lacks is listed, never a row a person must close
+        print(f"toolkit gaps: {gaps.group(1)} (the starter brain lacks these tables; listed in {p.name}, not rows to close)")
     if total == 0 and "No row of these types" not in p.read_text(errors="replace"):
         print(f"release_impact: {p} holds no release-impact rows", file=sys.stderr)
         return 2
@@ -1175,12 +1526,14 @@ def check(path):
         print(f"{len(rejected)} open row(s) have text in the last column that is not an entry (e.g. {rejected[0]}). "
               "Expected: `handled: <evidence path or commit>` or `not relevant: <reason>` (also `not relevant for <what>: <reason>`), "
               "starting with that word; the reason must follow the colon.")
-    print(f"release-impact check: {total - len(open_rows)} of {total} rows handled or not relevant, {len(open_rows)} open"
+    if nlater:
+        print(f"go-live environment checklist: {nlater} rows (a person confirms the production environment once before go-live; not open)")
+    print(f"release-impact check: {total - len(open_rows) - nlater} of {total} rows handled or not relevant, {len(open_rows)} open"
           + (f" ({len(reviewed)} handled row(s) marked REVIEW)" if reviewed else ""))
     if reviewed:
         print("REVIEW-MARKED (handled, flagged for a human; the check does not fail on them, the report must list them): "
               + ", ".join(reviewed[:12]) + (f" and {len(reviewed) - 12} more" if len(reviewed) > 12 else ""))
-    print(f"auto: {nauto}, human: {total - len(open_rows) - nauto}, open: {len(open_rows)}")
+    print(f"auto: {nauto}, human: {total - len(open_rows) - nauto - nlater}, open: {len(open_rows)}")
     if blocked:
         print(f"blocked: {len(blocked)} (finding written), untouched: {len(open_rows) - len(blocked) - len(unsound)}, "
               f"unsound: {len(unsound)}")
@@ -1200,11 +1553,11 @@ def main():
     ap.add_argument("--to-mpr", dest="to_mpr")
     ap.add_argument("--slug", action="append", help="Module=brain-slug, for a module neither name nor content id finds (T6R-4)")
     ap.add_argument("--auto", action="store_true")
+    ap.add_argument("--evidence", action="store_true", help="with --auto: open only rows the app demonstrably uses (see the docstring)")
     ap.add_argument("--facts", action="append")
     ap.add_argument("--types")
     ap.add_argument("--out", default="release-impact.md")
-    import brainpath
-    ap.add_argument("--brain", default=brainpath.find()[0] or os.environ.get("UPG_BRAIN") or str(Path("~/Mendix/<company>-brain").expanduser()))
+    ap.add_argument("--brain", help="read this brain alone; default: brainpath.py's brain on top of the starter brain")
     ap.add_argument("--facts-from-mpr", dest="facts_from_mpr", help="count facts from this project (model + javasource), T2F-2")
     ap.add_argument("--facts-out", dest="facts_out")
     ap.add_argument("--db-vendor", dest="db_vendor")

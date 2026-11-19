@@ -1,0 +1,5 @@
+{"version": "9.24.2", "languages": ["en_US"],
+ "modules": [{"name": "MyShop", "docs": [{"type": "Microflows$Microflow", "name": "ACT_Reply", "data": {"ReturnVariableName": "$Response/ReasonPhrase"}}]},
+             {"name": "Encryption", "appstore": [1011, "9.0.1"], "docs": [{"type": "Microflows$Microflow", "name": "ACT_Hook", "data": {"ReturnVariableName": "FixtureLegacyHookQq"}}]}],
+ "files": {"javasource/myshop/actions/A.java": "package myshop.actions;\nclass A { void run() { Core.executeVoid(null, \"x\"); } }\n"},
+ "navigation": {"login_page": ""}}
