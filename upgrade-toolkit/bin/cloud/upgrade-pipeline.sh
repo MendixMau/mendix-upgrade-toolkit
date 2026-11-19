@@ -366,6 +366,22 @@ widget_drop_stop() {
   nj_add 13 "Decision" "${body%$'\n'}"
 }
 
+# stepcheck_stop: stepupdate undid a step because it added model errors (exit 4) and wrote .stepupdate/stepcheck-stop.txt in
+# widgetfix's field shape (Q question, R recommended, O options, W what answering writes, B body). Never committed before the
+# check was read (GM-23 / A-1). Returns 1 when that file is missing, and the caller dies with the generic message.
+stepcheck_stop() {
+  local f="$APP/.stepupdate/stepcheck-stop.txt" k t1 q="" r="" body="" opts=() ws=()
+  [ -s "$f" ] || return 1
+  while IFS=$'\t' read -r k t1; do
+    case "$k" in Q) q=$t1 ;; R) r=$t1 ;; O) opts+=("$t1") ;; W) ws+=("$t1") ;; B) body="$body$t1"$'\n' ;; esac
+  done < "$f"
+  [ -n "$q" ] && [ "${#opts[@]}" -gt 0 ] || return 1
+  nj_meta info; nj_file 13 "A module update added model errors; the step was undone before it was committed (steps/upgrade.md, steps/repair.md)" "$WORK/stepupdate-$1.out" 14 '^(   NEW|STOP|   stepcheck)'
+  nj_meta person "$q" "$r" "${opts[@]}"; nj_writes "${ws[@]}"
+  nj_add 13 "Decision" "${body%$'\n'}"
+  nj_flush
+}
+
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
 decisions_apply() {
   [ "$DRY" != 1 ] || return 0
@@ -1249,9 +1265,32 @@ run_stepupdate() { # run_stepupdate PLAN label
   # the pre-convert localedits report tells stepupdate which modules have UI edits at all (UNSAVED, convert-made rows)
   local le=()
   [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
+  # GM-23 / A-1: the model check after every step, read before the commit (stepcheck-run.sh = mx check under the heavy lock);
+  # UPG_NO_STEPCHECK=1 turns it off. Answers: stepcheck-accepted.txt (errors accepted for a module), step-keep.txt (modules kept).
+  # GM-24: the original-to-now idcheck at each batch end reads approved.txt only, never the step-only acceptances.
+  local sc=()
+  if [ "${UPG_NO_STEPCHECK:-0}" != 1 ]; then
+    local scc="${UPG_STEPCHECK_CMD:-}"   # (a default inside ${..:-..} would end at the first } of {mpr})
+    [ -n "$scc" ] || scc="bash $(printf %q "$B/stepcheck-run.sh") {mpr} {log}"
+    envs+=("UPG_STEPCHECK_CMD=$scc")
+    [ ! -s "$WORK/stepcheck-accepted.txt" ] || sc+=(--check-accepted "$WORK/stepcheck-accepted.txt")
+  fi
+  if [ -s "$WORK/step-keep.txt" ]; then
+    local kmods; kmods=$( { grep -vE '^[[:space:]]*(#|$)' "$WORK/step-keep.txt" || true; } | awk '{print $1}' | paste -sd, -)
+    [ -z "$kmods" ] || sc+=(--skip "$kmods")
+  fi
+  [ ! -f "$WORK/approved.txt" ] || sc+=(--approved-total "$WORK/approved.txt")
   xo "$WORK/stepupdate-$2.out" env "${envs[@]}" bash "$B/stepupdate.sh" "$APP" "$plan" --approved "$apf" \
-    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} ${pj[@]+"${pj[@]}"} ${le[@]+"${le[@]}"} || rc=$?
+    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} ${pj[@]+"${pj[@]}"} ${le[@]+"${le[@]}"} ${sc[@]+"${sc[@]}"} || rc=$?
   [ "$DRY" = 1 ] || cat "$WORK/stepupdate-$2.out" >> "$LOG"
+  if [ "$rc" = 4 ] && [ "$DRY" != 1 ]; then stepcheck_stop "$2" || true; fi
+  # a batch-end finding is said here, with the cause still near; the stop stays the total idcheck after the routes and replays
+  # (a route restores GUIDs, so stopping before them would stop on what they repair)
+  if [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK original' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "idcheck original -> now after the $2 batch has open finding(s): $(grep -c '^   BATCH-IDCHECK' "$WORK/stepupdate-$2.out") listed in $WORK/stepupdate-$2.out; the total idcheck decides after the routes and replays"
+  elif [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK could not run' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "batch idcheck not run after the $2 batch, see $WORK/stepupdate-$2.out; the total idcheck after the routes and replays still runs"
+  fi
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0
 }

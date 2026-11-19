@@ -8,6 +8,11 @@ WORSE (more errors, or a new error code) means undo that fix. CASCADE (exit 0) m
 gone and the rise comes from other codes that the old errors hid (E4: 121 CE1613 gone, 217 CE0463 revealed, E4-26):
 keep the fix and continue with the new class. Without `--fixed` a rise is always WORSE.
 
+Errors a module update added are caught earlier than this list (GM-23 / A-1): stepupdate runs `mx check` after each update and
+undoes a step that added errors before it commits (steps/upgrade.md, "Model check per step"). A module whose errors a person
+accepted for the repair step arrives here as `stepcheck-accepted.txt` lines; work them in this table. The check before the first
+repair is then the first `check-<n>.log`, not the first time anyone saw those errors.
+
 | # | symptom | tool | then |
 |---|---|---|---|
 | 0 | CE2513 "Java 11 is not supported" right after a 9 to 10 convert (project setting JavaVersion=Java11, E5b-16) | `mxcli -p app/<app>.mpr -c "alter settings model JavaVersion = 'Java21'"` | commit, mx check again |
