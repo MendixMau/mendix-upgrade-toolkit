@@ -8674,6 +8674,7 @@ DH=$TK/controls/docker_hang_control.sh
 ctl setup-docker-hang-bounded-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\? restart Docker Desktop / dockerd' -- bash $DH timeout
 ctl setup-docker-hang-no-timeout-fallback-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\?' -- bash $DH fallback
 ctl setup-docker-image-inspect-hang-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\?' '!could not pull' -- bash $DH images
+ctl setup-docker-fallback-leaves-no-orphan-sleep-catch 0 '^leftover sleep 7919: 0$' '^rc3=3$' '^rc124=124$' '!BAD-true' -- bash $DH orphans
 ctl setup-docker-hang-plan-reports-pass 0 '^elapsed ok$' '^rc=0$' 'dockerd: did not answer in 2 s' -- bash $DH plan
 # GM-10: the app's git tree is checked at the start of every step. A worktree of a deleted clone: clear message, exit 2.
 G10=$T/gm10; mkdir -p $G10/main $G10/shim

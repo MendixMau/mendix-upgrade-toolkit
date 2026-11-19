@@ -55,9 +55,10 @@ upg_timeout() {
   if [ -n "$tmo" ]; then "$tmo" "$secs" "$@"; return $?; fi
   flag=$(mktemp "${TMPDIR:-/tmp}/upg-timeout.XXXXXX") || return 1; rm -f "$flag"
   "$@" & pid=$!
-  ( sleep "$secs"; : > "$flag"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 & wd=$!
+  # the watchdog installs its TERM trap first and kills its own sleep (jobs -p) on TERM, so a command that finishes in time leaves no orphaned `sleep $secs` behind
+  ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM; sleep "$secs" & wait; : > "$flag"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 & wd=$!
   rc=0; wait "$pid" 2>/dev/null || rc=$?
-  pkill -P "$wd" 2>/dev/null; kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null || true
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null || true
   if [ -e "$flag" ]; then rm -f "$flag"; return 124; fi
   return $rc
 }
