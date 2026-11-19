@@ -492,8 +492,11 @@ echo 'class B { boolean f() { return Core.isSubClassOf("A", "B"); } }' > $KJ/app
 echo 'class C { void f() { Core.createXPathQuery("//X").execute(ctx); } }' > $KJ/app/javasource/ownok/C.java
 echo 'class P { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/ownok/proxies/P.java
 printf '# kept: KeptMod\n1 2.0.0 PlanMod\n' | tee $KJ/w/plan.txt > $KJ/wp/plan.txt; echo 'KeptMod no 11 release' > $KJ/wp/java-port.txt
-{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
+{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_meta() { :; }'; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
 ctl triage-kept-java-removed-api-catch 0 '^NJ 13 Kept module calls Java API Mendix 11\.12\.7 removed' '^keptmod: 1 file\(s\), e\.g\. javasource/keptmod/reader/A\.java $' '!^planmod' '!^ownok' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=11.12.7; kept_java_check"
+# a stub that defines nj_add on one line also defines nj_meta: every stop site carries nj_meta, and a stub without it died with exit 127 on
+# the 3 sites tagged on 2026-11-19 (kept Java, Charts 3.x, port-java)
+ctl controls-stub-nj-meta-pass 0 '^bare 0$' -- sh -c "grep -h 'nj_add() {' '$here'/*.sh | grep -v nj_meta | grep -vc '^nj_add' | sed 's/^/bare /'"
 ctl triage-kept-java-ported-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/wp TARGET=11.12.7; kept_java_check; echo done"
 ctl triage-kept-java-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=10.24.28; kept_java_check; echo done"
 ctl triage-kept-java-wired-pass 0 '^  kept_java_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
@@ -821,7 +824,7 @@ ctl missing-deps-charts3-by-module-catch 1 '^  module Atlas_Core: 2 document\(s\
 # triage on an 11 target stops on Charts 3.x widgets before convert and update (cold run 4: the build found them 16 min later);
 # a written route (charts11.txt) or a 10.x target passes
 C11=$T/c11; mkdir -p $C11/w $C11/wr; echo 'own snippets: Charts 6 on the 10.24 rung' > $C11/wr/charts11.txt
-{ sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
+{ sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_meta() { :; }'; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
   echo 'xo() { local f=$1; shift; "$@" > "$f" 2>&1; }'; echo 'note() { echo "NOTE $*"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
 # a removed widget is asked once: when widgetroute.py can read a route the triage stop stands down (the build routes it and asks its one OK);
 # the triage stop stays only when no route can be read (widgetroute exit 2). Here a stub widgetroute that exits 2 stands for that case.
@@ -2253,7 +2256,7 @@ PJ=$T/pj; mkdir -p $PJ/w $PJ/wd $PJ/wn
 awk '/java-port-done\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $PJ/blk.sh
 printf '%s\n' '   PORT-JAVA SapConnector javasource/sap/Utils.java (old file under /a/saved/SapConnector): the update replaces it' > $PJ/w/stepupdate-1.out
 cp $PJ/w/stepupdate-1.out $PJ/wd/; echo 'Utils.java: Accept header ported' > $PJ/wd/java-port-done.txt; echo '   committed abc1234' > $PJ/wn/stepupdate-1.out
-printf '%s\n' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; exit 13; }' 'DRY=0' 'f() { . '"$PJ"'/blk.sh; }' > $PJ/stub.sh
+printf '%s\n' 'nj_meta() { :; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; exit 13; }' 'DRY=0' 'f() { . '"$PJ"'/blk.sh; }' > $PJ/stub.sh
 ctl pipeline-build-port-java-stop-catch 13 '^NJ 13 Local Java edits to port by hand before the build' '^PORT-JAVA SapConnector javasource/sap/Utils\.java' '^FLUSH$' '!^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/w; f; echo built"
 ctl pipeline-build-port-java-done-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wd; f; echo built"
 ctl pipeline-build-port-java-none-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wn; f; echo built"
