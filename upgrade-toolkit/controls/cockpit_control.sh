@@ -709,6 +709,9 @@ PY
   # cockpitcheck.py: the page never contradicts itself (cold test WM1: ghost "Not approved yet" rows, a red stop bar while running)
   check-ghost) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
             python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
+  check-ghost-note) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            printf '## 3. Needs your decision before we start\n\n- [P-1] module: Gridmod\n\n## Agent notes\n\n> Oldmod is the [P-99] case, I looked at it by hand.\n\n## 6. Sign-off\n' > "$W/PROPOSAL.md"
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
   check-withdraw) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
             python3 -c "import sys; sys.path.insert(0,'$B'); import steps; print('withdrawn', steps.withdraw('$W', {'S-1','S-2','S-3'}, 'No longer in the plan.'))"
             python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?"

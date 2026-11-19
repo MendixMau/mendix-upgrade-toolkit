@@ -13,6 +13,11 @@ under "not measured" in section 5, never skipped.
 4 needs a person anyway, 5 human effort, 6 sign-off. A kept module, a stranded module, a RED local edit, Java or theme
 edits and a widget with no successor are section 3, never section 2.
 
+## Agent notes
+A note for the reader of the proposal goes in `$W/AGENT-NOTES.md` (free text, one file, append to it). Never edit PROPOSAL.md: a rerun
+writes the whole file. Propose shows the notes in an `## Agent notes` section and the cockpit shows them in the plan drawer under "Agent notes"; a rerun keeps
+them. A choice you made on your own is not a note: it is a D row ([decide.md](decide.md)).
+
 ## Ask, then stop
 Ask one question per section-3 item in chat (options and evidence are in the item; same rules as
 [decide.md](decide.md)), write each answer as a `P-n` line in `$W/DECISIONS.md` (decide.md format), then end the turn.

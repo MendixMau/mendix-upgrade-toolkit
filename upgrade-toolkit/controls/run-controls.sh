@@ -6797,6 +6797,16 @@ ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
 ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the toolkit\|## 3\. Needs your decision before we start\|## 4\. Needs a person anyway\|## 5\. Human effort\|## Testing plan\|## 6\. Sign-off\|$' -- sh -c "grep -E '^## ' $PR/kept/PROPOSAL.md | tr '\n' '|'; echo"
+# DV-11: the agent's notes live in W/AGENT-NOTES.md, which propose only reads: a rerun keeps them, PROPOSAL.md and the cockpit show them
+mkw notes; printf 'Checked the widget list by hand.\n\n- the old theme is unused\n' > $PR/notes/AGENT-NOTES.md; bash $PR/prop.sh $PR/notes > /dev/null; bash $PR/prop.sh $PR/notes > /dev/null
+ctl proposal-agent-notes-survive-rerun-catch 0 '^## Agent notes$' '^> Checked the widget list by hand\.$' '^> - the old theme is unused$' '^headings: 1$' 'Testing plan\|## Agent notes\|## 6\. Sign-off\|' -- sh -c "cat $PR/notes/AGENT-NOTES.md > /dev/null && sed -n '/^## Agent notes/,/^## 6\\./p' $PR/notes/PROPOSAL.md; grep -c '^## Agent notes' $PR/notes/PROPOSAL.md | sed 's/^/headings: /'; grep -E '^## ' $PR/notes/PROPOSAL.md | tr '\n' '|'"
+ctl proposal-no-agent-notes-no-section-pass 0 '!Agent notes' -- cat $PR/plain/PROPOSAL.md
+ctl proposal-agent-notes-in-cockpit-catch 0 '^Agent notes$' '^intro: Checked the widget list by hand\.$' '^intro: - the old theme is unused$' '!> ' -- python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import cockpitmatrix
+for s in cockpitmatrix.plan_doc(open('$PR/notes/PROPOSAL.md').read()):
+    if s['h'] == 'Agent notes':
+        print(s['h']); [print('intro:', t) for t in s['intro']]
+"
 # signed -> 0 (the unanswered items take their recommendation, P-n lines CONFIRMED); the same folder first answered P-1 by hand
 mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
@@ -8013,6 +8023,7 @@ ctl decisions-pending-matches-page-catch 0 '^chat: confirm:D2 regression:Gridmod
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
+ctl cockpit-check-note-mention-no-hide-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost-note
 ctl cockpit-check-withdraw-pass 0 "withdrawn \['S-4'\]" '!ghost-step' 'rows Oldmod: 0' -- $CK check-withdraw
 ctl cockpit-check-running-no-stopbar-pass 0 'stopbar: 0' '^0$' -- $CK check-running
 # cold CMM: the "Release notes (check)" and "<M> themesource edits (theme)" cards were ask-no-evidence on every run, as only
