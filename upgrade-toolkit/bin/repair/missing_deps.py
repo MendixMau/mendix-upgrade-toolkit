@@ -128,6 +128,8 @@ def units(path, with_ids=False):
     cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
     blob_col = "Contents" if "Contents" in cols else "NULL"
     cid_col = "ContainerID" if "ContainerID" in cols else "NULL"
+    if with_ids and cid_col == "NULL":
+        sys.exit("missing_deps: INVALID, Unit table has no ContainerID column, so documents cannot be placed in modules")
     v2 = {os.path.basename(f)[:-7].lower(): f
           for f in glob.glob(os.path.join(proj, "mprcontents", "**", "*.mxunit"), recursive=True)}
     for uid, cid, blob in con.execute(f"select UnitID, {cid_col}, {blob_col} from Unit"):
