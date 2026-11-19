@@ -5278,6 +5278,31 @@ for cap, name in ((' ', 'blank'), ('Home', 'named')):
   ctl gen-journeys-blank-caption-menu-skip-catch 0 "'act-Shop\.Home\.btnA' \['icon-menu'\]" -- python3 -c "import json; [print(repr(s['id']), s['reasons']) for s in json.load(open('$SC/icm-gen-blank/plan.json'))['skipped']]"
   ctl gen-journeys-named-menu-entry-kept-pass 0 '^1 journeys,' -- cat $SC/icm-named.out
   ctl gen-journeys-all-skipped-plan-written-catch 0 '^0 journeys, .* 11 skipped' '!Traceback' -- cat $SC/icm-blank.out
+  # cold pdm: an icon item now carries its position among same-caption items (menu_nth, as in the impact map) and the
+  # action journey clicks it by position (#65) instead of skipping; a blank GROUP above an item still has no handle
+  python3 -c "
+import json
+d=json.load(open('$SC/icm-blank.json'))
+for x in d['actions']:
+    if x['id'] == 'Shop.Home.btnA':
+        x['path'][0]['menu_nth'] = 1
+json.dump(d, open('$SC/icm-nth.json', 'w'))
+for x in d['actions']:
+    if x['id'] == 'Shop.Home.btnA':
+        x['path'][0]['menu'] = [' ', 'Home']
+json.dump(d, open('$SC/icm-grp.json', 'w'))"
+  rm -rf $SC/icm-gen-nth $SC/icm-gen-grp
+  python3 $B/gen_journeys.py --actions $SC/icm-nth.json --out-dir $SC/icm-gen-nth --roles-with-users Clerk > $SC/icm-nth.out 2>&1
+  python3 $B/gen_journeys.py --actions $SC/icm-grp.json --out-dir $SC/icm-gen-grp --roles-with-users Clerk > $SC/icm-grp.out 2>&1
+  ctl gen-journeys-action-icon-nth-catch 0 '^1 journeys,' -- cat $SC/icm-nth.out
+  ctl gen-journeys-action-icon-nth-nav-catch 0 "'item': ' ', .*'nth': 1" '!Traceback' -- python3 -c "import json; print(json.load(open('$SC/icm-gen-nth/journeys/Clerk/act-Shop.Home.btnA.journey.json'))['steps'][0]['actions'][0])"
+  ctl gen-journeys-action-icon-group-skip-pass 0 "'act-Shop\.Home\.btnA' \['icon-menu'\]" -- python3 -c "import json; [print(repr(s['id']), s['reasons']) for s in json.load(open('$SC/icm-gen-grp/plan.json'))['skipped']]"
+  ctl actions-entries-icon-nth-catch 0 '^M\.A 0 #1$' '^M\.B None Orders$' '^M\.C 1 #2$' -- python3 -c "
+import sys, types; sys.path.insert(0, '$B'); import action_inventory as A
+m = types.SimpleNamespace(navigation=lambda: {'Web': {'kind': 'Responsive', 'menu': [
+    {'path': [' '], 'target': 'M.A'}, {'path': ['Orders'], 'target': 'M.B'}, {'path': [' '], 'target': 'M.C'}]}})
+for label, t, hop in A.Inventory.entries(types.SimpleNamespace(m=m)):
+    print(t, hop.get('menu_nth'), label.split()[-1])"
 else
   skip journey-scope-line-pass 'python3 has no bson (pip install pymongo): the synthetic model cannot be built'
 fi
