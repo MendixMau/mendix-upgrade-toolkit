@@ -8573,6 +8573,8 @@ ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 21
 ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
 ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
 ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
+# DV-2: the target text names no patch number (a number written in the text goes stale; triage reads it from the notes)
+ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -c "grep -nE 'newest patch,? \\(?[0-9]+\\.[0-9]+\\.[0-9]+|Mendix [0-9]+\\.[0-9]+ \\([0-9]+\\.[0-9]+\\.[0-9]+\\)' '$TK/SKILL.md' '$TK/SETUP-PROMPT.md' '$TK/playbooks/10-to-11.md' '$TK/steps/triage.md'; [ \$? = 1 ] && echo 'no target patch in the text'"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
