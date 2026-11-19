@@ -820,7 +820,14 @@ ctl missing-deps-charts3-by-module-catch 1 '^  module Atlas_Core: 2 document\(s\
 C11=$T/c11; mkdir -p $C11/w $C11/wr; echo 'own snippets: Charts 6 on the 10.24 rung' > $C11/wr/charts11.txt
 { sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
   echo 'xo() { local f=$1; shift; "$@" > "$f"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
-ctl triage-charts11-catch 0 '^NJ 13 Charts 3\.x widgets on a Mendix 11\.12\.7 target' '^  module Atlas_Core: 2 document' '^done$' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+# a removed widget is asked once: when widgetroute.py can read a route the triage stop stands down (the build routes it and asks its one OK);
+# the triage stop stays only when no route can be read (widgetroute exit 2). Here a stub widgetroute that exits 2 stands for that case.
+C11B=$T/c11b/bin; mkdir -p $C11B/repair; ln -sfn $B/../playbooks $T/c11b/playbooks; for f in $B/*; do [ "$f" = $B/repair ] || ln -sf $f $C11B/; done; for f in $B/repair/*; do ln -sf $f $C11B/repair/; done; rm -f $C11B/repair/widgetroute.py
+printf 'import sys\nsys.exit(2)\n' > $C11B/repair/widgetroute.py
+sed "s#B=$B #B=$C11B #" $C11/stub.sh > $C11/stub-noroute.sh
+ctl triage-charts11-noroute-catch 0 '^NJ 13 Charts 3\.x widgets on a Mendix 11\.12\.7 target' '^  module Atlas_Core: 2 document' '^done$' -- bash -c "set -Eeuo pipefail; . $C11/stub-noroute.sh; WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+ctl triage-charts11-routed-once-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+ctl triage-charts11-widgetroute-asks-pass 1 '^ROUTE Atlas_Core: Pie chart' -- python3 $B/repair/widgetroute.py $(model charts3-mods) --target 11.12.7
 ctl triage-charts11-route-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/wr TARGET=11.12.7; charts11_check; echo done"
 ctl triage-charts11-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=10.24.28; charts11_check; echo done"
 ctl triage-charts11-wired-pass 0 '^  charts11_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
@@ -836,6 +843,106 @@ ctl missing-module-nothing-missing-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC nothi
 ctl missing-module-no-git-history-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC no-git $MMA
 ctl cockpit-missing-module-stop-is-the-card-catch 0 '^The update of Atlas_Core needs a module this app does not have: UserCommons' '^We recommend: Install UserCommons 2\.4\.0 from the Marketplace$' '^question cards: 1$' '!Nothing you can answer here' -- bash $here/cockpit_control.sh p24-stop
 ctl widget-descriptor-catch 1 'BROKEN.*data descriptor missing' -- python3 $B/repair/missing_deps.py $M/widget-descriptor
+# cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents. widgetroute.py gives one
+# route per module from playbooks/widget-routes.json and heals what it can in the test build: a sample module nothing opens is
+# removed, the exact route (Any Chart -> Custom chart, same keys) is replaced in place, a use straight on a snippet parameter
+# gets a data view first; each item reads Found / Searched / Candidates (one recommended) / Applied, never "no replacement"
+WR=$T/wr; mkdir -p $WR/papp; touch $WR/papp/App.mpr; WRP="python3 $B/repair/widgetroute.py"
+ctl missing-deps-routes-from-data-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.AnyChart.AnyChart: used 4x .*\(route: widgetroute\.py\)' '!MicroflowTimer' -- python3 $B/repair/missing_deps.py --target 11.12.7 $(model widgetroute)
+ctl widgetroute-recommend-per-module-catch 0 '^ROUTE Sample_BuildingBlocks: Any Chart 3\.x used 2x in 2 building blocks; templates, never shown at runtime; nothing opens them -> remove the module: it holds only 2 building blocks and nothing in the app refers to it \[AUTO\]' \
+  '^  Candidates: A remove the module \(recommended: nothing in the app opens or refers to it; .*, B keep the module ' '^ROUTE Shop: Any Chart 3\.x used 2x in 1 snippet; opened by Dashboard -> replace by Custom chart \(Charts 6\.x\), the same settings; 1 approximated \[AUTO\]' \
+  '^  WOULD-REPLACE Shop\.SNIP_Sales anyChart2 -> Custom chart \(exact\)$' "^  WOULD-APPROXIMATE Shop\.SNIP_Sales anyChart3 -> Custom chart: plotly 3 dropped 'titlefont'" '!OK writes' \
+  '^ROUTE Shop: Microflow Timer .*-> replace with Events .*\[PLAN\]' '^summary: 2 widgets to replace in the test build \(1 approximated\), 1 module to remove, OK afterwards; 0 to decide, 1 planned' -- $WRP $(model widgetroute) --target 11.12.7
+ctl widgetroute-below-11-plan-pass 0 'Any Chart 3\.x .*\[AUTO\]' '!\[ASK\]' -- $WRP $(model widgetroute-nocharts6) --target 10.24.16
+ctl widgetroute-charts6-missing-catch 1 '^ROUTE Shop: Any Chart 3\.x .*-> install Charts 6\.x \(it ships Custom chart\), then rerun: the replacement is then done here \[ASK\]' '!WOULD-REPLACE' \
+  '^  Applied: will apply A on your OK: install Charts 6\.x' -- $WRP $(model widgetroute-nocharts6) --target 11.12.7
+ctl widgetroute-outside-data-view-catch 1 '^ROUTE Shop: Any Chart 3\.x used 1x outside a data view in SNIP_Total -> put a data view around each, then rerun.*\[ASK\]' '^  OUTSIDE-DATA-VIEW Shop\.SNIP_Total anyChart4$' \
+  '^  Applied: not yet: the snippet has no object parameters' '!WOULD-(REPLACE|WRAP) Shop\.SNIP_Total' -- $WRP $(model widgetroute-bare) --target 11.12.7
+# the item shape (owner's rule): every item a person sees says what was searched, the candidates with one recommended, and
+# what was applied; it never says only "no replacement"
+ctl widgetroute-item-shape-catch 1 '^## Any Chart 3\.x in Shop: 1 outside a data view, a data view by hand recommended$' '^Found: Any Chart 3\.x on 1 snippet \(1 use\) in module Shop' \
+  '^Searched: the platform-supported list \(playbooks/widget-routes\.json: 13 routes, from the Marketplace packages\), the installed widget packages' \
+  '^Candidates: A .* \(recommended: .*\), B Line, Column or Pie chart \(Charts 6\.x\) \(' '^Applied: ' '^owner: person$' '^recommended: a$' '^option: a\|Put a data view around each, then rerun\|' '!^Recommended: ' '!no replacement' \
+  -- bash -c "$WRP $(model widgetroute-bare) --target 11.12.7 --report $WR/rep.md > /dev/null; rc=\$?; cat $WR/rep.md; exit \$rc"
+ctl widgetroute-item-shape-manual-catch 1 '^## Line chart \(Charts 1\.x-3\.x\) in Shop: 1 use, Line chart \(Charts 6\.x\) recommended$' '^Searched: ' '^Candidates: A Line chart \(Charts 6\.x\) \(recommended: .*\), B Custom chart' \
+  '^Applied: not automatic: ' '!no replacement' -- bash -c "$WRP $(model widgetroute-kept) --target 11.12.7 --report $WR/rep2.md > /dev/null; rc=\$?; cat $WR/rep2.md; exit \$rc"
+ctl widgetroute-module-with-logic-kept-catch 1 '!remove the module' '^  OUTSIDE-DATA-VIEW Sample_BuildingBlocks\.Chart_Bar anyChart1' '^ROUTE Shop: Line chart .*-> replace with Line chart \(Charts 6\.x\): each series becomes a line.*\[ASK\] effort ~30 min' -- $WRP $(model widgetroute-kept) --target 11.12.7
+# self-heal: a use straight on the snippet's one object parameter gets a data view on it, then the Custom chart
+ctl widgetroute-wrap-catch 0 '^  WOULD-WRAP Shop\.SNIP_Total anyChart4 -> Custom chart: wrapped in a data view on the parameter Chart' '!\[ASK\]' \
+  '^wrapped: dataView1 Chart Shop\.Chart anyChart4 com\.mendix\.widget\.web\.customchart\.CustomChart$' '^done: APPROXIMATED Shop\.SNIP_Total anyChart4 \[anychart\] ' \
+  -- bash -c "rm -rf $WR/w; cp -R $(model widgetroute-wrap) $WR/w; $WRP $WR/w --target 11.12.7 | grep WOULD-WRAP; $WRP $WR/w --target 11.12.7 --apply --pass wrap --done $WR/w/done.txt > /dev/null; sed 's/^/done: /' $WR/w/done.txt
+python3 -c \"import sys; sys.path[:0] = ['$B', '$B/repair']
+from mprmodel import Model; from widgetdrop import find
+for dv in find(Model.load('$WR/w').docs['Shop.SNIP_Total'].data, lambda x: x.get('\\\$Type') == 'Forms\\\$DataView'):
+    w = dv['Widgets'][1]; print('wrapped:', dv['Name'], dv['DataSource']['SourceVariable']['SnippetParameter'], dv['DataSource']['EntityRef']['Entity'], w['Name'], w['Type']['WidgetId'])\""
+# --apply: the widget is a Custom chart now (id, translatable JSON as a plain string), the done list is what the OK shows
+cat > $WR/apply.sh <<SH
+rm -rf $WR/a; cp -R $(model widgetroute) $WR/a
+$WRP $WR/a --target 11.12.7 --apply --done $WR/a/done.txt; echo "rc=\$?"
+$WRP $WR/a --target 11.12.7 | sed 's/^/after: /'
+sed 's/^/done: /' $WR/a/done.txt
+$WRP $WR/a --target 11.12.7 --ok-report $WR/a/done.txt | sed 's/^/ok: /'
+python3 -c "import sys; sys.path[:0] = ['$B', '$B/repair']
+from mprmodel import Model; from widgetdrop import find
+m = Model.load('$WR/a')
+for w in find(m.docs['Shop.SNIP_Sales'].data, lambda x: x.get('\\\$Type') == 'CustomWidgets\\\$CustomWidget'):
+    v = [p['Value'] for p in w['Object']['Properties'][1:] if p['Value'].get('PrimitiveValue', '').startswith('{')]
+    print('widget:', w['Name'], w['Type']['WidgetId'], w['Type']['WidgetPluginWidget'], v[0]['PrimitiveValue'][:12], v[0]['TranslatableValue'])"
+SH
+ctl widgetroute-apply-replaces-catch 0 '^  REPLACED Shop\.SNIP_Sales anyChart2 -> Custom chart \(exact\)$' '^summary: 2 widgets replaced in the test build \(1 approximated\)' '^rc=0$' '!^after: ROUTE Shop: Any Chart' '^after: ROUTE Sample_BuildingBlocks: .*\[AUTO\]' \
+  "^done: APPROXIMATED Shop\.SNIP_Sales anyChart3 \[anychart\] Any Chart 3\.x -> Custom chart: plotly 3 dropped 'titlefont'" '^widget: anyChart2 com\.mendix\.widget\.web\.customchart\.CustomChart True \{"xaxis": \{" None$' \
+  '^ok: ## 2 charts replaced by Charts 6\.x \(Custom chart\), 1 approximated: OK\?$' '^ok: Searched: ' '^ok: Candidates: A Custom chart \(Charts 6\.x\) \(recommended: ' '^ok: Applied: A in the test build' \
+  '^ok: writes: ok\|widget-routes-approved\.txt\|ok-replaced anychart 2$' '^ok: writes: b\|widget-routes-approved\.txt\|route-b anychart$' '^ok: owner: person$' '^ok: recommended: ok$' '!OK writes' '!no replacement' -- bash $WR/apply.sh
+printf 'keep-module Sample_BuildingBlocks\n' > $WR/keep.txt; printf 'route-b anychart # [item:stop:build:1] by Ana via page: B\n' > $WR/routeb.txt
+ctl widgetroute-remove-by-default-catch 0 '-> remove the module; DROP MODULE written for mxcli: .*\[DONE\]' '^DROP MODULE IF EXISTS Sample_BuildingBlocks;$' '^REMOVED-MODULE Sample_BuildingBlocks \[anychart\] 2 2 building blocks' \
+  -- bash -c "rm -rf $WR/r; cp -R $(model widgetroute) $WR/r; $WRP $WR/r --target 11.12.7 --apply --pass remove --done $WR/r.done --mdl $WR/r.mdl && cat $WR/r.mdl $WR/r.done"
+ctl widgetroute-keep-module-pass 1 '!remove the module' '^  OUTSIDE-DATA-VIEW Sample_BuildingBlocks\.Chart_Bar anyChart1$' -- $WRP $(model widgetroute) --target 11.12.7 --approved $WR/keep.txt
+ctl widgetroute-failed-next-candidate-catch 1 '^  Applied: A tried in the test build: mx check got worse, undone \(see the build log\)\. Proposal: B, Line, Column or Pie chart \(Charts 6\.x\), ~1\.2 h$' '!WOULD-REPLACE' \
+  -- $WRP $(model widgetroute) --target 11.12.7 --failed replace
+ctl widgetroute-route-b-catch 1 '^ROUTE Shop: Any Chart 3\.x .*-> rebuild as Line, Column or Pie chart \(Charts 6\.x\) \(picked B\)' '!WOULD-REPLACE Shop' -- $WRP $(model widgetroute) --target 11.12.7 --approved $WR/routeb.txt
+ctl widgetroute-no-route-file-catch 1 'cannot read the routes file' -- $WRP $(model widgetroute) --target 11.12.7 --routes $WR/none.json
+# the pipeline (build row 37): replace and remove in the test build, each its own repair, then one OK per item; B undoes it
+cat > $WR/pipe.sh <<SH
+rm -rf $WR/p; mkdir -p $WR/p/w; cp -R $(model widgetroute) $WR/p/app
+eval "\$(sed -n '/^widgetroute_pass() {/,/^widget_routes_ok() {/p' $B/cloud/upgrade-pipeline.sh | sed '\$d')"
+eval "\$(sed -n '/^widget_routes_ok() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)"
+try_fix() { local s=\$1; shift 3; "\$@" > /dev/null && SUBJ="repair: \$s" && echo "commit: repair: \$s"; }
+git_app() { case "\$*" in "log -1 --format=%s") echo "\$SUBJ" ;; "log --format=%H %s") printf 'h2 repair: unused sample module removed (widgetroute)\nh1 repair: deprecated widgets replaced (widgetroute)\n' ;; revert*) echo "git revert \$3" >> \$WORK/reverts ;; esac; }
+commit_app() { echo "commit: \$1"; }
+heavy() { echo "heavy \$*"; }; mxcli_run() { echo "mxcli \$1 <\$(cat "\$2")>" >&2; }
+xo() { local o=\$1; shift; "\$@" > "\$o" 2>&1; }; note() { echo "note: \$*"; }; nj_file() { echo "nj_file \$*"; }
+nj_sections() { sed "s/^## \(.*\)\$/## \1 (exit \$1)/" "\$2"; }; nj_park() { echo "-- park"; }
+DRY=0; B=$B; APP=$WR/p/app; MPR=$WR/p/app/App.mpr; TARGET=11.12.7; WORK=$WR/p/w; LOG=$WR/p/w/log
+echo "-- run 1"; widget_routes; widget_routes_ok
+printf 'remove-module Sample_BuildingBlocks # by Ana\nok-replaced anychart 2 # by Ana\n' > \$WORK/widget-routes-approved.txt
+echo "-- run 2"; SUBJ=; widget_routes; widget_routes_ok
+printf 'keep-module Sample_BuildingBlocks # by Ana\nok-replaced anychart 2 # by Ana\n' > \$WORK/widget-routes-approved.txt
+echo "-- run 3"; SUBJ=; widget_routes; widget_routes_ok; cat \$WORK/reverts
+SH
+ctl pipeline-widgetroute-repair-then-one-ok-catch 0 '^commit: repair: deprecated widgets replaced \(widgetroute\)$' '^commit: repair: unused sample module removed \(widgetroute\)$' 'mxcli exec <DROP MODULE IF EXISTS Sample_BuildingBlocks;>' \
+  '^## 2 charts replaced by Charts 6\.x \(Custom chart\), 1 approximated: OK\? \(exit 10\)$' "^- Shop\.SNIP_Sales anyChart3: plotly 3 dropped 'titlefont'" '^Searched: ' '^Candidates: A Custom chart .*\(recommended: ' \
+  '^writes: ok\|widget-routes-approved\.txt\|ok-replaced anychart 2$' '^## Module Sample_BuildingBlocks: unused sample module removed: OK\? \(exit 10\)$' '^writes: b\|widget-routes-approved\.txt\|keep-module Sample_BuildingBlocks$' \
+  '!nj_file' '!no replacement' -- bash -c "bash $WR/pipe.sh | sed '/-- run 2/,\$d'"
+ctl pipeline-widgetroute-ok-asked-once-pass 0 '^run 2 sections: 0$' -- bash -c "bash $WR/pipe.sh | sed -n '/-- run 2/,/-- run 3/p' | grep -c '^## ' | sed 's/^/run 2 sections: /'"
+ctl pipeline-widgetroute-keep-undoes-catch 0 '^git revert h2$' '!git revert h1' "^commit: repair: undone on the person's B \(unused sample module removed, widgetroute\)$" \
+  '^## Any Chart 3\.x in Sample_BuildingBlocks: 2 outside a data view, a data view by hand recommended \(exit 10\)$' '^Candidates: A .*\(recommended: ' -- bash -c "bash $WR/pipe.sh | sed -n '/-- run 3/,\$p'"
+ctl pipeline-dry-build-widgetroute-pass 0 'widgetroute\.py .* --target 11\.15\.0\.1 --approved .*/widget-routes-approved\.txt' '^\+ widgetroute_pass replace' '^\+ widgetroute_pass wrap' '^\+ widgetroute_pass remove' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $WR/papp --source 10.24.26.1 --target 11.15.0.1 --work $WR/pwd --only build --dry-run
+# the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
+# nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
+cat > $WR/stop.sh <<SH
+rm -rf $WR/st; cp -R $(model widgetroute) $WR/st; mkdir -p $WR/stw
+$WRP $WR/st --target 11.12.7 --apply --done $WR/st/done.txt > /dev/null
+$WRP $WR/st --target 11.12.7 --apply --pass remove --done $WR/st/done.txt --mdl $WR/st/r.mdl > /dev/null
+{ printf '# NEEDS JUDGMENT: step build, exit 10\n\nwork: $WR/stw\nRule: ..., then rerun:\n\n    upgrade-pipeline.sh --work W --from build\n'
+  $WRP $WR/st --target 11.12.7 --ok-report $WR/st/done.txt | sed 's/^## \(.*\)\$/\n## \1 (exit 10)/'; } > $WR/stw/NEEDS-JUDGMENT.md
+SH
+bash $WR/stop.sh
+ctl cockpit-stop-reader-words-answer-applies-catch 0 '^row: stop:build:1 \| title: 2 deprecated charts stop working on Mendix 11, so the test build replaced them with Custom chart\. Do they stay\? \| rec: ok \| options: ok b \|' \
+  "writes: \[\{'file': 'widget-routes-approved\.txt', 'line': 'ok-replaced anychart 2'\}, \{'file': 'widget-routes-approved\.txt', 'line': 'route-b anychart'\}\]" \
+  '\| ok: Keep the new charts \(Your users see the same charts as before, drawn by Custom chart \(Charts 6\.x\); 1 is approximated' '\| b: Rebuild them as Line, Column or Pie chart \(Charts 6\.x\) \(The replacement is undone on the rerun' \
+  '^row: stop:build:2 \| title: Module Sample_BuildingBlocks holds only sample pages' '\| problem: Found: Any Chart 3\.x on' '!Writes ' '!the rerun acts on it' '!Decided, rerun' \
+  '^approved: ok-replaced anychart 2 # \[item:stop:build:1\] by Ana via chat' '^keep-module Sample_BuildingBlocks # \[item:stop:build:2\] by Ana via chat' \
+  -- env WRSTOP=$WR/stw bash $here/cockpit_control.sh stopped-ok
 ctl widget-crc-catch 1 'BROKEN' -- python3 $B/repair/missing_deps.py $M/widget-crc
 
 # --- repair: superseded userlib jars (E5 F18, E1 17) -----------------------------------------------------------------

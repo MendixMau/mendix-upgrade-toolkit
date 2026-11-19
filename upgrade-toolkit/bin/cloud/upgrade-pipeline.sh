@@ -908,6 +908,10 @@ charts11_check() { # Charts 3.x widgets on an 11 target: the build stops on them
   local rc=0
   xo "$WORK/missing_deps-triage.txt" python3 "$B/repair/missing_deps.py" "$APP" --target "$TARGET" || rc=$?
   grep -q '^DEPRECATED-11' "$WORK/missing_deps-triage.txt" 2> /dev/null || return 0
+  # One ask, never two: a removed widget is handled once. When widgetroute.py can read a route for these uses, the build routes them
+  # (widget_routes) and asks its own one OK at the end, so this early stop stands down; it stays only when no route can be read (exit 2).
+  rc=0; xo "$WORK/widgetroute-triage.txt" python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt" || rc=$?
+  [ "$rc" -ge 2 ] || return 0
   nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
 
 They build, but fail at runtime on Mendix 11 (T7-29). Route per module: the app's own pages get the Charts 6.x widgets
@@ -1501,6 +1505,82 @@ try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep w
   if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule"; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
   else note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
 }
+# row 37 (cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents): every
+# deprecated widget gets one route per module from playbooks/widget-routes.json (bin/repair/widgetroute.py). The toolkit
+# heals itself: the recommended candidate goes into the test build, each kind its own repair commit (mx check may not get
+# worse, else undone): replace (Any Chart -> Custom chart, update-widgets in it), wrap (a use straight on a snippet
+# parameter gets a data view on it first) and remove (a sample module nothing opens). A pass that was undone makes its
+# route propose the next candidate. What was applied waits for one OK at the end (widget_routes_ok); the person's B
+# (keep-module M, route-b R in widget-routes-approved.txt) undoes it on the rerun (widgetroute_undo).
+widgetroute_pass() { # widgetroute_pass replace|wrap|remove
+  local rc=0
+  rm -f "$WORK/widgetroute.mdl"
+  python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt" --apply --pass "$1" \
+    --done "$WORK/widgetroute-done.new" --mdl "$WORK/widgetroute.mdl" || rc=$?
+  [ "$rc" -le 1 ] || return "$rc"
+  if [ "$1" = remove ]; then [ ! -s "$WORK/widgetroute.mdl" ] || mxcli_run exec "$WORK/widgetroute.mdl" -p "$MPR"
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+}
+widgetroute_undo() { # the person picked B on the one-OK list: revert what the test build did for it, once
+  local ok="$WORK/widget-routes-approved.txt" done="$WORK/widgetroute-done.txt" h subj pat
+  [ -f "$ok" ] && [ -f "$done" ] || return 0
+  for subj in "unused sample module removed" "deprecated widgets"; do
+    if [ "$subj" = "deprecated widgets" ]; then pat=$(sed -nE 's/^(REPLACED|APPROXIMATED) [^ ]+ [^ ]+ \[([a-z0-9]+)\] .*/route-b \2/p' "$done")
+    else pat=$(sed -nE 's/^REMOVED-MODULE ([^ ]+) .*/keep-module \1/p' "$done"); fi
+    [ -n "$pat" ] && sed 's/[[:space:]]*#.*//' "$ok" | grep -qxF "$pat" || continue
+    for h in $(git_app log --format='%H %s' | awk -v s="repair: $subj" 'index($0, " " s) && / \(widgetroute\)$/ {print $1}'); do
+      git_app revert --no-commit "$h" > /dev/null 2>&1 || { note "widgetroute: could not revert $h, see git -C $APP status"; git_app revert --abort > /dev/null 2>&1; return 0; }
+    done
+    commit_app "repair: undone on the person's B ($subj, widgetroute)" repair repair-widgetroute
+    if [ "$subj" = "deprecated widgets" ]; then sed -i.bak -E '/^(REPLACED|APPROXIMATED) /d' "$done"; else sed -i.bak '/^REMOVED-MODULE /d' "$done"; fi
+    rm -f "$done.bak"; note "widgetroute: B picked, '$subj' undone"
+  done
+}
+nj_sections() { # nj_sections CODE FILE: "## title" sections written by a tool, each one stop item
+  [ -s "$2" ] || return 0
+  [ "$NJ_CODE" != 0 ] || NJ_CODE=$1
+  { echo; sed "s/^## \(.*\)$/## \1 (exit $1)/" "$2"; } >> "$NJ_TMP"
+}
+widget_routes() {
+  local rc=0 wr=(python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt")
+  if [ "$DRY" = 1 ]; then
+    xo "$WORK/widgetroute.txt" "${wr[@]}"
+    try_fix "deprecated widgets replaced (widgetroute)" repair-widgetroute CE0463 widgetroute_pass replace
+    try_fix "deprecated widgets wrapped in a data view and replaced (widgetroute)" repair-widgetroute CE0463 widgetroute_pass wrap
+    try_fix "unused sample module removed (widgetroute)" repair-widgetroute CE0463 widgetroute_pass remove
+    return 0
+  fi
+  widgetroute_undo
+  xo "$WORK/widgetroute.txt" "${wr[@]}" || rc=$?
+  if [ "$rc" -ge 2 ]; then   # no route could be read: the plain list, as before
+    nj_meta agent; nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
+    return 0
+  fi
+  local pass subj pat failed=""
+  for pass in replace wrap remove; do
+    case "$pass" in
+      replace) pat='^  WOULD-(REPLACE|APPROXIMATE) '; subj="deprecated widgets replaced (widgetroute)" ;;
+      wrap)    pat='^  WOULD-WRAP '; subj="deprecated widgets wrapped in a data view and replaced (widgetroute)" ;;
+      remove)  pat='-> remove the module: .*\[AUTO\]'; subj="unused sample module removed (widgetroute)" ;;
+    esac
+    grep -qE -- "$pat" "$WORK/widgetroute.txt" || continue
+    rm -f "$WORK/widgetroute-done.new"
+    try_fix "$subj" repair-widgetroute CE0463 widgetroute_pass "$pass"
+    if [ "$(git_app log -1 --format=%s)" = "repair: $subj" ]; then
+      [ ! -f "$WORK/widgetroute-done.new" ] || cat "$WORK/widgetroute-done.new" >> "$WORK/widgetroute-done.txt"
+    else failed="$failed${failed:+,}$pass"; note "widgetroute: $pass made mx check worse or failed: undone, the next candidate is proposed (see $LOG)"; fi
+  done
+  rc=0; xo "$WORK/widgetroute.txt" "${wr[@]}" --failed "$failed" --report "$WORK/widgetroute-report.md" --json "$WORK/widgetroute.json" || rc=$?
+  note "widgetroute: $(tail -1 "$WORK/widgetroute.txt") (see $WORK/widgetroute.txt)"
+  [ "$rc" != 1 ] || nj_sections 10 "$WORK/widgetroute-report.md"
+}
+widget_routes_ok() { # end of build: what the test build applied, one OK per route and per removed module (parked in Interview mode auto)
+  [ "$DRY" != 1 ] && [ -s "$WORK/widgetroute-done.txt" ] || return 0
+  python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt" \
+    --ok-report "$WORK/widgetroute-done.txt" > "$WORK/widgetroute-ok.md" || return 0
+  nj_sections 10 "$WORK/widgetroute-ok.md"
+  nj_park
+}
 step_build() {
   local n=0 rc=0
   # cold rfq: an update with --port-java replaced Java files that carried a local edit; mxbuild would pass without it
@@ -1574,10 +1654,9 @@ $pjl"
         nj_flush
       fi
     fi
-    if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then
-      nj_meta agent; nj_file 10 "Charts 3.x widgets on an 11 target: replace with Charts 6.x before the gate (T7-29)" "$WORK/missing_deps.txt" 30 '^DEPRECATED-11'
-    fi
+    if grep -q '^DEPRECATED-11' "$WORK/missing_deps.txt"; then widget_routes; fi
   fi
+  [ "$DRY" != 1 ] || widget_routes
   # row 5, row 6
   if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
   if [ "$DRY" = 1 ] || has_code CE6087; then
@@ -1651,6 +1730,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     nj_meta info; nj_file 10 "First 20 error lines" "$WORK/logs/runtime-new.log" 20 'ERROR|CRITICAL|Exception'
     nj_flush
   fi
+  widget_routes_ok
 }
 
 # after: the new app on a fresh copy of the frozen DB, snapshot after. Scripts: runapp.py, snapshot.py

@@ -390,6 +390,20 @@ PY
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
          rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+  stopped-ok) # the widgetroute stop in the standard nj_meta shape ($WRSTOP holds the work folder with the NEEDS-JUDGMENT.md widgetroute.py wrote): reader-worded
+         # options, the recommended one, the lines each answer writes; an answer applies them (decisions.py apply)
+         W=$WRSTOP; [ -f "$W/NEEDS-JUDGMENT.md" ] || { echo "no stop file in WRSTOP"; exit 2; }
+         python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp
+for it in cp.build_model(sys.argv[2])["items"]:
+    if it["id"].startswith("stop:"):
+        print("row:", it["id"], "| title:", it["title"], "| rec:", it["rec"], "| options:", " ".join(o["key"] for o in it["options"]),
+              "| writes:", [w for o in it["options"] for w in o.get("writes", [])], "|", " | ".join(f"{o['key']}: {o['label']} ({o['causes']})" for o in it["options"]),
+              "| problem:", it["problem"])
+PY
+         dec add --item stop:build:1 --choice ok --by Ana --source chat > /dev/null && dec add --item stop:build:2 --choice b --by Ana --source chat > /dev/null && dec apply > /dev/null
+         echo "approved: $(cat "$W/widget-routes-approved.txt")" ;;
   decide) # Blocked on you (cold test WM1): every open question is a sidebar row and a dialog with one button per option, the sign-off last; the local
          # server's POST /decide writes the same ledger as the page import, refuses bad answers and form posts, and a card
          # disappears once answered
