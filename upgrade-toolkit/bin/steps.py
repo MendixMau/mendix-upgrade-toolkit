@@ -908,9 +908,22 @@ def inventory(path):
         return {}
 
 
+def standin_groups(path):
+    """(stand-ins, resolved automatically, need a real test system) of an apimock inventory: the counts of apimock.grouped
+    (a URL constant nothing calls is resolved automatically, "not called"; UNKNOWN and EXCLUDED need a real test system)."""
+    try:
+        eps = json.load(open(path, encoding="utf-8")).get("endpoints", [])
+    except (OSError, ValueError, AttributeError):
+        return 0, 0, 0
+    return (sum(1 for e in eps if e.get("status") == "MOCKED" and not e.get("auto")),
+            sum(1 for e in eps if e.get("auto") and e.get("status") in ("MOCKED", "UNCALLED")),
+            sum(1 for e in eps if e.get("status") in ("UNKNOWN", "EXCLUDED")))
+
+
 def cmd_standins(a):
     """One step per version: review the stand-ins for the app's outside calls, against the previous version when there is one.
-    Routine (approved, no buttons) unless calls are unclear; then it needs the owner's OK. Closes by the apis rung."""
+    Routine (approved, no buttons) when every call has a plain stand-in; otherwise ONE grouped OK: "S stand-ins + A resolved
+    automatically, M need a real test system before go-live (recommended: ...)". Closes by the apis rung."""
     now_ = inventory(a.inventory)
     if not now_:
         die(f"no endpoints in {a.inventory}")
@@ -927,15 +940,18 @@ def cmd_standins(a):
         moved = [k for k in now_ if k in prev and now_[k] != prev[k]]
         found.append(f"Compared with the previous version: {len(new)} new, {len(gone)} gone, {len(moved)} changed." if new or gone or moved
                      else "Nothing changed since the previous version.")
+    stand, auto, real = standin_groups(a.inventory)
     sid = ensure(a.work, "standins", "Review the stand-ins for outside calls", {
         "found_say": " ".join(found), "stage": "triage", "evidence": [os.path.basename(a.inventory)],
-        "proposed_say": "Answer every classified call with a stand-in during the tests, and classify the unclear ones." if unclear
+        "proposed_say": (f"{stand} stand-in{'' if stand == 1 else 's'} + {auto} resolved automatically, {real} "
+                         f"need{'s' if real == 1 else ''} a real test system before go-live"
+                         + (" (recommended: test in the customer's test environment)." if real else ".")) if auto or real
                         else "Answer every call with a stand-in during the tests.",
         "why": "The tests cannot reach the real outside systems, so each call gets a stand-in that answers like the real one.",
         "closes_by": ["apis"]}, clean(a.by))
     ap = approval_of(a.work, sid)
     if not ap or ap.get("source") in (ROUTINE, "unattended"):
-        want = ("assumed", "unattended") if unclear else ("approved", ROUTINE)
+        want = ("assumed", "unattended") if unclear or auto or real else ("approved", ROUTINE)
         if not ap or (ap.get("state"), ap.get("source")) != want:
             set_approval(a.work, sid, want[0], "agent", want[1])
     print(sid)

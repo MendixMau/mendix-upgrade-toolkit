@@ -207,6 +207,11 @@ for t in ("PROPOSAL: seed a real work order with annexes, alerts and samples", "
             UPG_PHASE=10.24.0 st standins --inventory "$T/i1.json"; UPG_PHASE=10.24.0 st standins --inventory "$T/i1.json"
             UPG_PHASE=11.12.7 st standins --inventory "$T/i2.json" --previous "$T/i1.json"; st show --json > "$T/s.json"
             fieldof "$T/s.json" '"\n".join("%s %s %s | %s" % (r["id"], r.get("phase"), r["approval"]["state"], r["found"]["say"]) for r in d)' ;;
+  # cold app: proxy / discovery / not-called endpoints are resolved automatically; the row is ONE grouped OK with the count
+  standins-grouped) echo '{"endpoints":[{"id":"a","status":"MOCKED"},{"id":"b","status":"MOCKED","auto":"proxy"},{"id":"c","status":"MOCKED","auto":"discovery"},
+            {"id":"d","status":"UNCALLED","auto":"uncalled"},{"id":"e","status":"UNKNOWN"},{"id":"f","status":"EXCLUDED"}]}' > "$T/i3.json"
+            UPG_PHASE=10.24.0 st standins --inventory "$T/i3.json" >/dev/null; st show --json > "$T/s.json"
+            fieldof "$T/s.json" '"\n".join("%s %s/%s | %s" % (r["id"], r["approval"]["state"], r["approval"].get("source"), r["proposed"]["say"]) for r in d)' ;;
   cockpit-ladder) mkdir -p "$W/state" "$W/rung2/state"; touch "$W/state/fetch.done"; touch "$W/rung2/state/fetch.done"
             echo '{"route":["9.24.2.1","10.24.13.1","11.12.7"]}' > "$W/ladder.json"
             gsum "$W" PASS; echo "Overall: **PASS**" >> "$W/gate-summary.md"

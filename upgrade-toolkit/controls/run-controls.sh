@@ -4135,6 +4135,24 @@ ctl release-impact-orphan-returns-pass 0 '\| 4 \| 11\.6\.8 \| breaking .*\| hand
 sed -E 's/^(\| 1 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 handled: evidence\/dotnet.md |/; s/^(\| 3 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 not relevant: own words |/' $RI/n19.md > $RI/n19w.md
 ctl release-impact-would-auto-catch 0 'auto would also decide 2 rows that carry a human entry; 1 of them differ in kind \(auto says not relevant, the person says handled\)' 'row 1 \(11\.6\.5\): human `handled: evidence/dotnet\.md` vs not relevant \(auto\): dotnet-ide-host' 'This run: 8 auto, 2 kept from a person, 2 open\.' '!row 3 \(11\.6\.7\): human' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19w.md; cat $RI/n19w.md"
 ctl release-impact-would-auto-quiet-pass 0 '!auto would also decide' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19q.md"
+# Cold test (owner's rule: only real decisions reach a person; 190 open rows, each with a recommendation, still drowned him).
+# --evidence: a row stays open only when the app's own modules use what it names (evidence cited); environment rows are one
+# go-live checklist (the run's database as the TEST environment); the rest close as not used, with what was searched;
+# --check and the cockpit count the open rows only. fixtures/brain-evidence: one row per verdict, read as a company brain.
+model reln-evidence > /dev/null
+RE="python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr"
+ctl reln-ev-open-only-used-catch 1 '^OPEN Studio Pro row 1: 10\.1\.0 removal No longer support custom reason phrases' '!^OPEN Studio Pro row [2-6]:' 'release-impact check: 3 of 6 rows handled or not relevant, 1 open$' -- sh -c "$RE --out $RI/ev.md >/dev/null; python3 $B/release_impact.py --check $RI/ev.md"
+ctl reln-ev-evidence-cited-pass 0 '^- row 1 \(10\.1\.0\): the app uses it: ReasonPhrase in MyShop\.ACT_Reply \(Microflow\)\. Do:' 'This run: 3 auto, 0 kept from a person, 1 open, 2 in the go-live environment checklist\.' -- cat $RI/ev.md
+ctl reln-ev-golive-checklist-pass 0 '^## Go-live environment checklist \(2 items\)' '^Test environment \(this run\): PostgreSQL 16 \(the database bin/runapp\.py runs the app on\)\. Production: confirm once' '^- row 3 \(10\.1\.0, removal, data-storage\): Dropped support for MariaDB 10\.3' '^- row 4 \(10\.1\.0, requirement, runtime\)' '^\| 3 \| 10\.1\.0 .*\| later \(auto\): go-live-env: ' -- cat $RI/ev.md
+ctl reln-ev-not-used-catch 0 '^\| 2 \| 10\.1\.0 .*\| not relevant \(auto\): not-used: not used in this app \(no hit in model or code\): searched FixtureLegacyHookQq in the model of the app.s own modules .*Marketplace modules excluded \|$' '^\| 5 \| 10\.1\.0 .*\| not relevant \(auto\): not-used: not used in this app \(no hit in model or code\): the row names no class' -- cat $RI/ev.md
+ctl reln-ev-deprecated-used-pass 0 '^\| 6 \| 10\.1\.0 .*\| not relevant \(auto\): deprecated-still-works: the app uses it \(Core\.executeVoid in javasource/myshop/actions/A\.java\)' -- cat $RI/ev.md
+ctl reln-ev-check-later-pass 1 '^go-live environment checklist: 2 rows' '^auto: 3, human: 0, open: 1$' '!^OPEN .*MariaDB' '!^OPEN .*Java 21' -- python3 $B/release_impact.py --check $RI/ev.md
+ctl reln-ev-cockpit-later-lane-pass 0 '^At deploy \| Go-live environment checklist \(2 items\) \| you / customer$' '!Your call' -- sh -c "mkdir -p $RI/ev-work && cp $RI/ev.md $RI/ev-work/release-impact.md && python3 -c \"import sys; sys.path.insert(0, '$B'); import cockpitmatrix as c; M = c.build('$RI/ev-work', {'items': [], 'sub': ''}); [print(o['group'] + ' | ' + o['text'] + ' | ' + o['owner']) for o in M['band']['open']['items']]\""
+ctl reln-ev-pipeline-pass 0 'riauto=\(--auto --evidence --facts-from-mpr' -- grep -n 'riauto=(' $B/cloud/upgrade-pipeline.sh
+# no brain at all: --evidence says so exactly as a run without it does (exit 2, no file written), never closing a row on nothing
+mkdir -p $RI/nohome
+ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
+ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
 BRV=${UPG_BRAIN:-$HOME/Mendix/<company>-brain}
 if [ -f $BRV/baseline/versions/studio-pro-upgrade-10.md ] && [ -f $BRV/baseline/versions/modules/task-queue-helpers.md ]; then
   # the real brain, read only. The 3.1.0 jump has no ShowSystemQueuesInCharts row in the brain (a gap, FEEDBACK V31-RI),
@@ -4880,12 +4898,34 @@ EOF
   rm -rf "$AM/st3z"; cp -r "$S3" "$AM/st3z"; : > "$AM/st3z/requests.jsonl"
   ctl gate-apis-zero-traffic-catch 2 '\| 12 \| apis \| INVALID \| 3 \| .*requests seen: 0' 'Overall: \*\*INVALID' '!Overall: \*\*PASS' \
     -- gcase sizero GATE_BIN_DIR=$GB3 APIMOCK=$AM/st3z EXCLUDE_SYSTEMS=Teamcenter
+  # cold app: 7 of 32 outside calls had no stand-in, so every dashboard opened an error box and the stand-ins row said only
+  # "Needs your OK". Each endpoint now carries ONE recommendation; a URL constant nothing calls is "not called by the model: no
+  # stand-in needed" (a request to it still logs UNKNOWN, so a call that happens anyway is flagged). Synthetic spec, example.invalid hosts.
+  python3 "$here/lib/mkmodel.py" "$FX/apimock/standins-unknown.json" "$AM/su" > /dev/null; SU=$AM/su/App.mpr
+  ctl apimock-recommend-inventory-pass 3 '^UNKNOWN +rest:Shop\.POST_Token +POST +via URL https://api\.example\.invalid/oauth/token .*=> needs a real test system: test this call in the customer.s test environment before go-live$' \
+    '^UNCALLED +const:Mod\.OldServiceUrl .*=> not called by the model: no stand-in needed$' \
+    '^UNKNOWN +rest:Ext\.GET_Computed .*=> needs a real test system: test this call in the customer.s test environment before go-live$' \
+    '^apis 8 found · mocked 1 · excluded 0 · unknown 5 · not called 2$' \
+    '^stand-ins: 1 stand-in \+ 2 resolved automatically, 5 need a real test system before go-live \(recommended: test in the customer.s test environment\)$' \
+    -- python3 $B/apimock.py inventory $SU
+  SP=$AM/stp
+  ctl apimock-uncalled-serve-pass 0 '^Mod\.OldServiceUrl=http://127\.0\.0\.1:[0-9]+/c/Mod\.OldServiceUrl/$' \
+    -- python3 $B/apimock.py serve $SU --state $SP --port 0 --background
+  ctl apimock-uncalled-coverage-pass 0 '^apis 8 found · mocked 1 · excluded 0 · unknown 5 · not called 2$' -- cat $SP/coverage.txt
+  python3 $AM/fetch.py $B $SP GET /c/Mod.OldServiceUrl/x > /dev/null 2>&1
+  [ -f $SP/pid ] && python3 $B/apimock.py stop --state $SP > /dev/null
+  # no request at all: the check names the constants nothing called, as info (not INVALID by themselves)
+  ctl apimock-uncalled-not-called-pass 3 '^  NOT CALLED endpoint const:Sso\.Provider: not called by the model, no stand-in needed' '!NOT CALLED endpoint const:Mod' \
+    -- python3 $B/apimock.py check --state $SP
+  # a constant "not called" that IS called arrives as an UNKNOWN request: the rung goes INVALID
+  ctl apimock-uncalled-called-catch 3 '^  UNKNOWN request GET /c/Mod\.OldServiceUrl/x' 'verdict: INVALID: .*; 1 requests to UNKNOWN' \
+    '!NOT CALLED endpoint const:Mod' '!verdict: PASS' -- python3 $B/apimock.py check --state $SP
 else
   for c in inventory-pass unknown-invalid-catch no-exclude-catch classify-reason-catch classify-pass serve-pass rest-shape-pass odata-pass excluded-503-pass \
            log-pass check-unknown-catch check-except check-unnamed-system-catch check-unmatched-catch stop-pass standin-pass standin-uncalled-pass \
            addon-unknown-catch addon-unreadable-catch classify-mocked-no-route-catch classify-location-pass classify-location-data-pass \
            classify-location-syntax-catch serve-public-host-bind-pass check-zero-traffic-catch odata-prefix-pass check-unexercised-waived-pass \
-           check-unexercised-catch check-zero-traffic-waived-catch; do skip apimock-$c "no python bson"; done
+           check-unexercised-catch check-zero-traffic-waived-catch recommend-inventory-pass uncalled-serve-pass uncalled-called-catch; do skip apimock-$c "no python bson"; done
   skip gate-standin-real-catch "no python bson"; skip gate-apis-zero-traffic-catch "no python bson"
 fi
 
@@ -7759,7 +7799,7 @@ ctl cockpit-render-without-rung-out-catch 0 '^rendered with a PASS\* rung and no
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
 # what a finding MEANS, per item, from the run's own files (the owner, 2026-11-17: "not just what, but what it means")
-ctl cockpit-found-means-pass 0 '^means standins: 1 of 3 outside calls are covered in the tests\.$' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
+ctl cockpit-found-means-pass 0 '^means standins: 2 of 4 outside calls are covered in the tests\.$' '^item standins: Mod\.OldUrl \| not called \| ok \| ' '^item standins: Sso\.Refresh \| address built in Java \| wait \| .*Recommended: test this call in the customer.s test environment' '^item standins: Mail\.GetToken \| address from data \| wait \| .*Mail\.Provider\.TokenUrl' '^item modules: Theme 1\.0\.0 → 2\.0\.0 \| 1 local edit \| wait \| .*restyled this shared layout' '^item modules: Plain .* \| no local edits \| ok \|' '^means modules: 1 could not be compared' '^item module:Admin: Admin\.Extra \| added \| bad \| .*data stored in it' '^means module:Admin: 1 of them holds the app' '^means react: 4 widgets in 1 kind move' '^empty nothing:known$' -- python3 $here/found_means_control.py $T/fm
 # a decision's case file (work/cases/<id>.json): found by id, screenshots embedded, a missing shot shown as such, a broken file ignored
 ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^old shot: data:image/png;base64, \| new shot: .{2}$' '^html: tiles why=2 no-shot$' -- python3 $here/found_means_control.py $T/fmc cases
 # a regression without a case file gets one from the run's own files (no manual case writing): count, old and new shot of the failing
@@ -8032,6 +8072,7 @@ ctl steps-drow-unknown-step-catch 0 '^MISSING D71: the row names S-5, but there 
 ctl steps-drow-file-in-parent-folder-catch 0 '^MISSING D80: the agent decided "Drop the old theme"' '^rc=1$' -- $SC drow-in-parent
 ctl steps-phase-split-keeps-each-version-catch 0 '^found in 11\.12\.7: rc=1$' "^S-1 10\.24\.0 \['PASS', 'NOT RUN'\]$" "^S-2 11\.12\.7 \['PASS', 'PASS'\]$" '^S-1$' -- $SC phase-split
 ctl steps-standins-one-step-per-version-pass 0 "^S-1 10\.24\.0 approved \| The app makes 2 outside calls on Mendix 10\.24\.0\. 2 can be answered by a stand-in\.$" '^S-2 11\.12\.7 assumed \| .*1 gets its address from data.*Compared with the previous version: 1 new, 1 gone, 0 changed\.$' '!^S-3' -- $SC standins
+ctl steps-standins-grouped-ok-pass 0 "^S-1 assumed/unattended \| 1 stand-in \+ 3 resolved automatically, 2 need a real test system before go-live \(recommended: test in the customer's test environment\)\.$" -- $SC standins-grouped
 ctl cockpit-ladder-and-test-health-pass 0 "^ladder \[\('9\.24\.2\.1', 'done'\), \('10\.24\.13\.1', 'done'\), \('11\.12\.7', 'now'\)\]$" "^health \[\('10\.24\.13', \[41, 12\], \[135, 2, 38\], \[258, 224\], 1\)\]$" '^no ladder: \[\] True$' -- $SC cockpit-ladder
 ctl steps-find-topic-pass 0 '^found: S-1$' '^rc=1$' -- $SC find-topic
 # slice 6: the gate links its rungs to the steps; a missing test is a gap in plain words, never a pass
