@@ -165,7 +165,7 @@ if [ -n "${UPG_MXCLI_STATE:-}" ] && [ -s "$UPG_MXCLI_STATE" ] && [ $dry = 0 ]; t
 fi
 mpr=$(cd "$app" && ls *.mpr 2>/dev/null)
 [ "$(echo "$mpr" | grep -c .)" = 1 ] || { echo "stepupdate: $app: expected one .mpr" >&2; exit 2; }
-git -C "$app" rev-parse --git-dir >/dev/null 2>&1 || { echo "stepupdate: $app is not a git work tree" >&2; exit 2; }
+bash "$bin/apptree.sh" "$app" || { echo "stepupdate: STOP, nothing changed (GM-10)" >&2; exit 2; }
 # run by hand (repair row 32) under a HOME with no git identity, every commit failed ("Author identity unknown", cold CMM
 # DataWidgets step): the same fallback identity as upgrade-pipeline.sh git_identity
 if [ -z "$(git -C "$app" config user.email 2> /dev/null || true)" ]; then
@@ -292,6 +292,8 @@ while read -r cid ver mod rest; do
   echo "== step $n: $mod $ver (content $cid)"
   case "$cid" in *[!0-9]*|0) ;; *) jcids+=(--cid "$mod=$cid");; esac   # B4N1-7: jardedupe reads the installed package by it
   if [ $dry = 1 ]; then echo "   would run: $cmd"; continue; fi
+  # GM-10: the app's git tree is checked at the start of EVERY step, not only once at the run start (a worktree whose main clone was deleted mid-run)
+  bash "$bin/apptree.sh" "$app" || { echo "stepupdate: STOP at step $n ($mod): the app's git tree is gone; $((n - 1)) step(s) were done, nothing recorded for this one. Fix it and rerun with --from $mod." >&2; exit 2; }
   # NR2-7: an MPR v2 project keeps its units in mprcontents/ beside the .mpr: snapshot both, or idcheck reads no units
   rm -rf "$st/prevtree"; mkdir -p "$st/prevtree"
   mcdir=$(dirname "$mpr")/mprcontents; mcdir=${mcdir#./}
