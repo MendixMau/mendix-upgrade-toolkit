@@ -755,10 +755,12 @@ step_fetch() {
   if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
     must git -C "$APP" init -q
     ensure_gitignore
+    must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
   elif [ "$DRY" != 1 ]; then
     ensure_gitignore
+    must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before the commit_app calls below (git add -A)
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
   else say "+ git init + commit original (when $APP has no .git)"; fi
