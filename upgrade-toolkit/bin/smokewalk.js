@@ -169,12 +169,13 @@ function landedOk() {
 
 // GM-30: a signed-in session whose home page never rendered is not a failed login. Runs in the browser: the signed-in user's
 // name (Dojo mx.session.getUserName, React mx.session.sessionData.user), else null. Exported for controls/smokewalk_predicates.js.
-function sessionUser() {
+function sessionUser(want) {
   try {
     if (!window.mx || !mx.session) return null;
-    if (mx.session.getUserName) return mx.session.getUserName() || null;
-    const u = mx.session.sessionData && mx.session.sessionData.user;
-    return (u && (u.name || u.guid)) || null;
+    let n = null;   // only the expected smoke user counts: a guest/anonymous session is not a login
+    if (mx.session.getUserName) n = mx.session.getUserName() || null;
+    else { const u = mx.session.sessionData && mx.session.sessionData.user; n = (u && u.name) || null; }
+    return n && want && String(n).toLowerCase() === String(want).toLowerCase() ? n : null;
   } catch (e) { return null; }
 }
 // The reason a login did not finish. A session that exists means the credentials worked and the home page errored: say so,
@@ -202,9 +203,9 @@ async function login(page, url, user, pass, timeout, loginPath) {
     await page.waitForFunction(loggedIn, null, { timeout });
     return null;
   } catch (e) {
-    const user = await page.evaluate(sessionUser).catch(() => null);
-    const dlg = user ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
-    return loginFailure({ status, url: page.url(), user, error: srvErr || dlg });
+    const sessUser = await page.evaluate(sessionUser, user).catch(() => null);
+    const dlg = sessUser ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
+    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg });
   }
 }
 

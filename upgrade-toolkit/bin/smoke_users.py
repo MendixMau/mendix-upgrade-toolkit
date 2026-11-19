@@ -65,7 +65,7 @@ DO $$
 DECLARE
   r record; uid bigint; given text := {leaf}; leaf text; sid bigint; n int := 0; has_acc boolean; cur text; tbl text;
   sup text; chain text[]; t text; deeper text; have text; mine text; nmine int;
-  donor bigint; best int; k int; m int; moved int; a record; c record; cols text; vals text; dflt text;
+  donor bigint; best int; k int; m int; moved int; a record; c record; cols text; vals text; dflt text; cn text;
 BEGIN
   has_acc := to_regclass('"administration$account"') IS NOT NULL;
   FOR r IN SELECT id, name FROM "system$userrole" {role_filter} ORDER BY name LOOP
@@ -127,6 +127,7 @@ BEGIN
                         AND NOT (t = 'administration$account' AND at.column_name IN ('fullname', 'islocaluser'))
                         AND EXISTS (SELECT 1 FROM information_schema.columns ic WHERE ic.table_name = t AND ic.column_name = at.column_name) LOOP
               dflt := nullif(a.dv, '');
+              IF left(dflt, 2) = '[%' THEN dflt := NULL; END IF;   -- dynamic default ([%CurrentDateTime%]): not a literal, treated as none
               IF dflt IS NULL AND a.ty = 10 THEN dflt := 'false'; END IF;
               IF dflt IS NULL AND a.req THEN
                 dflt := CASE WHEN a.ty IN (0, 3, 4, 5) THEN '0' WHEN a.ty = 30 THEN '' WHEN a.ty = 20 THEN to_char(now(), 'YYYY-MM-DD HH24:MI:SS') ELSE NULL END;
@@ -134,7 +135,12 @@ BEGIN
               IF dflt IS NOT NULL THEN cols := cols || ', ' || format('%I', a.col); vals := vals || ', ' || quote_literal(dflt); END IF;
             END LOOP;
           END IF;
-          EXECUTE format('INSERT INTO %I (%s) VALUES (%s)', t, cols, vals) USING uid;
+          BEGIN
+            EXECUTE format('INSERT INTO %I (%s) VALUES (%s)', t, cols, vals) USING uid;
+          EXCEPTION WHEN not_null_violation THEN
+            GET STACKED DIAGNOSTICS cn = COLUMN_NAME;
+            RAISE EXCEPTION 'smoke_users: % column % is required and has no usable default (an enumeration is never invented): give the model a default or fill it by hand (GM-30)', t, cn;
+          END;
         END IF;
       END LOOP;
     ELSE
@@ -142,6 +148,20 @@ BEGIN
         RAISE EXCEPTION 'smoke_% exists as %, not %: use a fresh copy or delete the smoke_ users first', lower(r.name), have, leaf;
       END IF;
       UPDATE "system$user" SET password = {q(pw_hash)}, active = true, blocked = false, failedlogins = 0 WHERE id = uid;
+      -- GM-30: a smoke user from an earlier run keeps NULL Booleans: set them to the model default, else false
+      IF to_regclass('"mendixsystem$attribute"') IS NOT NULL THEN
+        FOREACH t IN ARRAY chain LOOP
+          CONTINUE WHEN t LIKE 'system$%';
+          FOR a IN SELECT at.column_name AS col, nullif(at.default_value, '') AS dv FROM "mendixsystem$attribute" at
+                     JOIN "mendixsystem$entity" e ON e.id = at.entity_id
+                    WHERE e.table_name = t AND at.type = 10 AND at.column_name <> 'id'
+                      AND EXISTS (SELECT 1 FROM information_schema.columns ic WHERE ic.table_name = t AND ic.column_name = at.column_name) LOOP
+            dflt := a.dv;
+            IF dflt IS NULL OR left(dflt, 2) = '[%' THEN dflt := 'false'; END IF;
+            EXECUTE format('UPDATE %I SET %I = %L WHERE id = $1 AND %I IS NULL', t, a.col, dflt, a.col) USING uid;
+          END LOOP;
+        END LOOP;
+      END IF;
       DELETE FROM "system$userroles" WHERE "system$userid" = uid;
     END IF;
     INSERT INTO "system$userroles" ("system$userid", "system$userroleid") VALUES (uid, r.id);

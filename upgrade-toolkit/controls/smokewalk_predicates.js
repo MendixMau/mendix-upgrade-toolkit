@@ -124,11 +124,16 @@ function pwLoad() {
   // T7R-12, T8R-8: --repeat never clears a FAIL by luck: FAIL then PASS is FLAKY, FAIL on every attempt stays FAIL
   // GM-30: a live session with a home page that errors is "home failed for this user", not "login failed"
   global.mx = { session: { getUserName: () => 'smoke_user' } };
-  check('sessionUser dojo', sessionUser(), 'smoke_user');
+  check('sessionUser dojo', sessionUser('Smoke_User'), 'smoke_user');
   global.mx = { session: { sessionData: { user: { guid: '1', name: 'smoke_user' } } } };
-  check('sessionUser react', sessionUser(), 'smoke_user');
+  check('sessionUser react', sessionUser('smoke_user'), 'smoke_user');
+  global.mx = { session: { getUserName: () => 'guest' } };
+  check('sessionUser guest is not the expected user', sessionUser('smoke_user'), null);
+  global.mx = { session: { sessionData: { user: { guid: '9', name: 'anonymous' } } } };
+  check('sessionUser anonymous is not the expected user', sessionUser('smoke_user'), null);
+  check('loginFailure guest session stays login failed', loginFailure({ status: 200, url: 'u', user: sessionUser('smoke_user'), error: 'x' }), 'login failed (HTTP 200, still on u)');
   global.mx = { session: { getUserName() { throw new Error('Session is not available'); } } };
-  check('sessionUser while session throws', sessionUser(), null);
+  check('sessionUser while session throws', sessionUser('smoke_user'), null);
   check('loginFailure session and server error', loginFailure({ status: 200, url: 'http://h/login3.html', user: 'smoke_user', error: 'NullPointerException in Home' }),
     'home failed for this user: NullPointerException in Home (session exists, HTTP 200, on http://h/login3.html)');
   check('loginFailure session without error text', /^home failed for this user: the home page did not render/.test(loginFailure({ status: 200, url: 'u', user: 'x' })), true);

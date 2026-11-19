@@ -7,7 +7,7 @@ CREATE TABLE "mendixsystem$attribute" (id varchar(36) PRIMARY KEY, entity_id var
 CREATE TABLE "system$user" (id bigint PRIMARY KEY, name varchar(100), password varchar(200), active boolean, blocked boolean,
   webserviceuser boolean, isanonymous boolean, failedlogins int, createddate timestamp, changeddate timestamp, submetaobjectname varchar(255));
 CREATE TABLE "administration$account" (id bigint PRIMARY KEY, fullname varchar(200), islocaluser boolean, ismanager boolean);
-CREATE TABLE "spec$staff" (id bigint PRIMARY KEY, isactive boolean, notify boolean, grade int NOT NULL, region varchar(50), badge varchar(50));
+CREATE TABLE "spec$staff" (id bigint PRIMARY KEY, isactive boolean, notify boolean, grade int NOT NULL, region varchar(50), badge varchar(50), stamp timestamp, opted boolean);
 CREATE TABLE "system$userrole" (id bigint PRIMARY KEY, name varchar(100));
 CREATE TABLE "system$userroles" ("system$userid" bigint, "system$userroleid" bigint);
 CREATE TABLE "system$session" (id bigint PRIMARY KEY);
@@ -17,5 +17,11 @@ INSERT INTO "mendixsystem$entityidentifier" VALUES ('u', 1), ('a', 2), ('s', 3);
 INSERT INTO "mendixsystem$attribute" VALUES ('1', 'a', 'FullName', 'fullname', 30, 200, NULL), ('2', 'a', 'IsLocalUser', 'islocaluser', 10, 0, NULL),
   ('3', 'a', 'IsManager', 'ismanager', 10, 0, NULL),
   ('4', 's', 'IsActive', 'isactive', 10, 0, NULL), ('5', 's', 'Notify', 'notify', 10, 0, 'true'), ('6', 's', 'Grade', 'grade', 3, 0, NULL),
-  ('7', 's', 'Region', 'region', 30, 50, 'North'), ('8', 's', 'Badge', 'badge', 30, 50, NULL);
+  ('7', 's', 'Region', 'region', 30, 50, 'North'), ('8', 's', 'Badge', 'badge', 30, 50, NULL), ('9', 's', 'Stamp', 'stamp', 20, 0, '[%CurrentDateTime%]'), ('10', 's', 'Opted', 'opted', 10, 0, NULL);
 INSERT INTO "system$userrole" VALUES (1, 'Clerk');
+-- a smoke user from an earlier run (pre-fix): NULL Booleans on both levels
+INSERT INTO "system$user" (id, name, submetaobjectname) VALUES (900, 'smoke_old', 'Spec.Staff');
+INSERT INTO "administration$account" (id, fullname) VALUES (900, 'Smoke Old');
+INSERT INTO "spec$staff" (id, grade) VALUES (900, 5);
+INSERT INTO "system$userrole" VALUES (2, 'Old');
+INSERT INTO "system$userroles" VALUES (900, 2);

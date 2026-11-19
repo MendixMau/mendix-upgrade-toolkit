@@ -1675,6 +1675,7 @@ ctl smokewalk-login-path-default-pass 0 '^loginPath /login.html url http://h:1/l
 ctl smokewalk-login-path-bad-catch 2 'needs a path starting with /' -- lp ",'--login-path','login.html'"
 ctl smoke-rejudge-needs-compare-catch 2 'rejudge needs --compare' -- $SW --rejudge $SF/new-pass.json
 ctl smokewalk-home-failed-catch 0 '^ok +sessionUser dojo' '^ok +loginFailure session and server error' '^ok +loginFailure no session' '^ok +loginFailure license limit wins' '!^FAIL' -- node $here/smokewalk_predicates.js
+ctl smokewalk-guest-session-catch 0 '^ok +sessionUser guest is not the expected user' '^ok +sessionUser anonymous is not' '^ok +loginFailure guest session stays login failed' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-api-only-pass 0 '^ok +apiOnlyHome login page home: got true' '^ok +apiOnlyHome ordinary home: got null' '^ok +apiOnlyHome menu step to the login page: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass menu-copy-same-step-pass other-page-gone-catch; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; fi
 
@@ -1706,7 +1707,7 @@ if python3 -c "import bcrypt" 2> /dev/null; then
     -- python3 $B/smoke_users.py fx_t --psql false
   # GM-30: a specialization row carries every column (model default, Boolean false, required column its zero), never the id alone
   ctl smoke-users-spec-defaults-sql-pass 0 'GM-30: every column of this level gets a value' 'FROM "mendixsystem\$attribute" at' "IF dflt IS NULL AND a.ty = 10 THEN dflt := 'false'" \
-    'ic.is_nullable = .NO. AND ic.column_default IS NULL' "EXECUTE format\('INSERT INTO %I \(%s\) VALUES \(%s\)', t, cols, vals\) USING uid" '!INSERT INTO %I \(id\) VALUES' \
+    'ic.is_nullable = .NO. AND ic.column_default IS NULL' "left\\(dflt, 2\\) = '\\[%'" 'WHEN not_null_violation' 'UPDATE %I SET %I = %L WHERE id = \$1 AND %I IS NULL' "EXECUTE format\('INSERT INTO %I \(%s\) VALUES \(%s\)', t, cols, vals\) USING uid" '!INSERT INTO %I \(id\) VALUES' \
     -- python3 $B/smoke_users.py fx_t --entity CustomAdminModule.UserAccount --psql "$SU/user-one-below-account.json"
 else skip smoke-users-ambiguous-catch "no python bcrypt"; skip smoke-users-auto-one-pass "no python bcrypt"; skip smoke-users-entity-flag-pass "no python bcrypt"; fi
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to
@@ -1725,10 +1726,10 @@ elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python
 else
   docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 && docker exec mig-pg createdb -U mendix fx_ctl_gm30 \
     && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30 -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
-  ctl smoke-users-spec-defaults-pass 0 'smoke user smoke_clerk -> role Clerk \(Spec\.Staff\)' '!ERROR' \
+  ctl smoke-users-spec-defaults-pass 0 'smoke user smoke_clerk -> role Clerk \(Spec\.Staff\)' 'smoke user smoke_old -> role Old' '!ERROR' \
     -- python3 $B/smoke_users.py fx_ctl_gm30 --entity Spec.Staff --apply
-  ctl smoke-users-spec-defaults-row-pass 0 '^row f\|t\|0\|North\|$' '^acct Smoke Clerk\|t\|f$' \
-    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30 -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
+  ctl smoke-users-spec-defaults-row-pass 0 '^row f\|t\|0\|North\|$' '^acct Smoke Clerk\|t\|f$' '^stamp 1$' '^old f\|t\|f$' \
+    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30 -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff where id <> 900" -c "select 'stamp ' || count(*) from spec\$staff where id <> 900 and stamp is null" -c "select 'old ' || concat_ws('|', isactive, notify, opted) from spec\$staff where id = 900" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
   docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 > /dev/null
 fi
 if [ $fast = 1 ]; then skip smoke-users-per-role-pass "--fast"
