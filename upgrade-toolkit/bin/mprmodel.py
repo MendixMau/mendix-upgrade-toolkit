@@ -131,6 +131,10 @@ class Model:
                 self.units[bytes(uid)] = (bytes(cid) if cid else None, cname, bson.decode(blob))
             except Exception:
                 continue
+        # GM-8: a v2 file whose mprcontents/ holds none of its units (an empty folder) is as unreadable as a missing one.
+        if rows and all(r[3] is None for r in rows) and not self.units:
+            sys.exit(f"mprmodel: {path} is an MPR v2 file but the mprcontents/ beside it holds none of its units: "
+                     f"nothing can be read (an incomplete copy: use a git archive of the tree).")
 
     def _module_of(self, uid):
         """Walk containers up to the Projects$Module(Impl); return (module name, folder path)."""

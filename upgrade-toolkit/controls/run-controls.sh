@@ -2046,7 +2046,13 @@ G8F="eval \"\$(sed -n '/^write_original() {/,/^}/p; /^git_app() {/p' \${PIPE:-$B
 ctl mprmodel-v2-without-mprcontents-catch 1 'MPR v2 project file' 'no mprcontents/ folder' -- python3 $B/mprmodel.py $G8/bare
 ctl mprmodel-v2-with-mprcontents-pass 0 '!MPR v2 project file' '"modules": 3,' '"docs": 8,' -- python3 $B/mprmodel.py $S2/base
 ctl mprmodel-v1-unchanged-pass 0 '!MPR v2 project file' '"modules": 3,' '"docs": 8,' -- python3 $B/mprmodel.py $M/base
-ctl pipeline-original-v2-mprcontents-catch 0 '^mprcontents beside original: yes$' '^units: [1-9]' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w2; write_original HEAD || exit 9; [ -d $G8/w2/mprcontents ] && echo 'mprcontents beside original: yes'; python3 $B/mprmodel.py $G8/w2/original.mpr | grep -c . | sed 's/^/units: /'"
+ctl pipeline-original-v2-mprcontents-catch 0 '^mprcontents beside original: yes$' '"modules": 3,' '"docs": 8,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w2; write_original HEAD || exit 9; [ -d $G8/w2/mprcontents ] && echo 'mprcontents beside original: yes'; python3 $B/mprmodel.py $G8/w2/original.mpr"
+# a v2 .mpr with an EMPTY mprcontents/ holds none of its units: refuse too (an archive that skipped mprcontents/ left this)
+mkdir -p $G8/empty/mprcontents; cp $S2/base/App.mpr $G8/empty/App.mpr
+ctl mprmodel-v2-empty-mprcontents-catch 1 'holds none of its units' '!"modules"' -- python3 $B/mprmodel.py $G8/empty
+# a rerun: a stale file left in $WORK/mprcontents by an earlier run is gone after write_original
+mkdir -p $G8/w3/mprcontents; printf stale > $G8/w3/mprcontents/stale-leftover.mxunit
+ctl pipeline-original-rerun-clears-stale-pass 0 '^stale gone$' '^mprcontents units: [1-9]' '"modules": 3,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w3; write_original HEAD || exit 9; [ -e $G8/w3/mprcontents/stale-leftover.mxunit ] || echo 'stale gone'; echo mprcontents units: \$(ls $G8/w3/mprcontents | wc -l); python3 $B/mprmodel.py $G8/w3/original.mpr"
 ctl pipeline-original-v1-pass 0 '^mprcontents beside original: no$' '^original read: yes$' -- bash -c "$G8F; APP=$G8/v1app MPR=$G8/v1app/App.mpr WORK=$G8/w1; write_original HEAD || exit 9; [ -e $G8/w1/mprcontents ] && echo 'mprcontents beside original: yes' || echo 'mprcontents beside original: no'; cmp -s $G8/w1/original.mpr $M/base/App.mpr && python3 $B/mprmodel.py $G8/w1/original.mpr > /dev/null && echo 'original read: yes'"
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
 
