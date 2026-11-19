@@ -3039,8 +3039,11 @@ if command -v node > /dev/null; then
   ctl settle-wait-catch 0 '^ok +progress bar never goes away -> not settled' '^ok +DOM keeps changing' '^ok +indicator stays, DOM still -> stuck' '^ok +indicator stays, DOM changing -> loading, not stuck' '!^FAIL' -- node $here/settle_control.js
   # B4N1-14: a thin top bar on a page with text is ignored (said); a blank page, another indicator or a changing DOM is not
   ctl settle-topbar-pass 0 '^ok +top bar only, page has text, DOM still -> settled' '^ok +top bar only, blank page -> stuck' '^ok +top bar plus a grid loading state -> stuck' '^ok +top bar, DOM still changing -> loading' '!^FAIL' -- node $here/settle_control.js
+  ctl settle-lazy-catch 0 '^ok +lazy placeholder never goes away -> not settled, says placeholders present' '^ok +placeholder goes away, then stable' '^ok +permanent placeholder, DOM unchanged -> diagnostic names the false match' '^ok +SETTLE_LAZY_OFF \(opts.lazyOff\)' '^ok +SETTLE_LAZY_OFF=1 env' '!^FAIL' -- node $here/settle_lazy_control.js
+  ctl settle-lazy-pass 0 '^ok +no placeholder -> settled, unchanged' '!^FAIL' -- node $here/settle_lazy_control.js
+  ctl settle-lazy-drift-pass 0 '^ok +drift guard: LAZY is the pinned list' '^ok +drift guard: pageSettled queries the list it is handed' '^ok +drift guard: with no argument pageSettled falls back to LAZY' '^ok +drift guard: class-substring selectors appear once' '!^FAIL' -- node $here/settle_lazy_control.js -- node $here/settle_lazy_control.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
-else skip settle-wait-catch "no node"; skip smokewalk-settle-pass "no node"; fi
+else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
 if command -v node > /dev/null; then ctl filecheck-compare 0 '^SAME: upload, download' '^rc=0' '^DIFFERENT' '^  dl_sha: old "aa" new "bb"' '^  new side did not complete: login' '^rc=1' -- bash $here/filecheck_compare_control.sh
 else skip filecheck-compare "no node"; fi
