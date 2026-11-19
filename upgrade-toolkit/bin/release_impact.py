@@ -418,7 +418,7 @@ FEATURES = [
     ("workflows", r"\bworkflows?\b|\buser tasks?\b", ("workflows",)),
     ("OQL", r"\boql\b", ("oql",)),
     ("document templates", r"document templates?|document generation", ("document_templates",)),
-    # GM-42: Mendix 11.0.0 refuses to start while a pre-5.12 file document is on the local file system. The row is about data,
+    # GM-42: Mendix 11.0.0 refuses to start while a pre-5.12 file document exists in the data. The row is about data,
     # not code; the model says only whether FileDocument entities exist (absent: no file can be there; present or unknown: open)
     ("file documents", r"file documents?\b.*\b5\.12\b|\b5\.12\b.*\bfile documents?", ("file_documents",)),
 ]
@@ -1059,9 +1059,9 @@ def legacy_events(ev):
 
 
 def file_document_labels(ev):
-    """GM-42: the app's own entities that specialise System.FileDocument (a row about pre-5.12 file documents is open when any exists)."""
+    """GM-42: the entities that specialise System.FileDocument, Marketplace modules included, as the fact and the proposal count them (a row about pre-5.12 file documents is open when any exists)."""
     import mprmodel
-    return [f"{qn} (FileDocument entity)" for qn in mprmodel.file_document_entities(ev.m, own_only=True)]
+    return [f"{qn} (FileDocument entity)" for qn in mprmodel.file_document_entities(ev.m)]
 
 
 # model elements a row is about, by its words (Studio Pro rows): (row regex, finder)

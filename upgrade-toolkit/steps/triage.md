@@ -251,8 +251,8 @@ with version tables; the scripts find it the same way).
    installed module versions of both projects, paired by content id (a renamed module such as DataGrid to
    DataWidgets keeps its id), so modules kept, installed by missing_deps or held back are what really happened
    (T1-31). Hand plan lines take a content id as an extra field: `DataGrid 1.3.2 -> 3.11.7 116540` (T1-9, T8-6).
-   File documents (GM-42): Mendix 11.0 refuses to start while a file document from before Mendix 5.12 is still on the local file
-   system (10.x only logged a warning, release notes 10.24.0 and 11.0.0). `--facts-from-mpr` counts the entities that specialise
+   File documents (GM-42): Mendix 11.0 refuses to start while a file document from before Mendix 5.12 is still present in the data
+   (Mendix 10.24 logs a warning, release notes 10.24.0 and 11.0.0). `--facts-from-mpr` counts the entities that specialise
    System.FileDocument or System.Image (`file_documents`); when there are any, that 11.0.0 row stays open (also under
    `--evidence`; 0 closes it by the fact), and the proposal raises a BLOCKER item: ask which databases the environments run on and
    check each one for pre-5.12 file documents before the convert, starting on 10.x until the migration finishes. The model cannot

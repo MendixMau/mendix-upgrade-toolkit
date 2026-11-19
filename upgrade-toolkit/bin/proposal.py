@@ -395,8 +395,8 @@ class Facts:
             self.not_measured.append(("apimock-inventory.json", "not an apimock.py inventory file"))
 
     def filedoc_item(self):
-        """GM-42: Mendix 11.0 refuses to start while a pre-5.12 file document is still on the local file system (10.x only
-        warned). The model shows whether FileDocument entities exist; only the environment's database shows whether old files
+        """GM-42: Mendix 11.0 refuses to start while a pre-5.12 file document is still present in the data (Mendix 10.24
+        logs a warning). The model shows whether FileDocument entities exist; only the environment's database shows whether old files
         are in it, so the proposal asks which databases the app runs on and raises a BLOCKER until each was checked."""
         if not self.filedocs:
             return
@@ -406,15 +406,17 @@ class Facts:
         ents = ", ".join(self.filedocs[:5]) + (f" and {len(self.filedocs) - 5} more" if len(self.filedocs) > 5 else "")
         self.add3("data", "BLOCKER: pre-5.12 file documents in each environment's database",
                   f"the model has {len(self.filedocs)} entities that hold files (FileDocument specializations: {ents}). Mendix 11.0 refuses to "
-                  "start when a file document from before Mendix 5.12 is still on the local file system; Mendix 10.x only warns "
+                  "start when a file document from before Mendix 5.12 is still present in the data; Mendix 10.24 logs a warning "
                   "(release notes 10.24.0 and 11.0.0). QUESTION: which databases do the app's environments (test, acceptance, "
                   "production) run on, and who can read them? WHAT TO LOOK FOR: file document rows of those entities whose file is "
                   "still stored the pre-5.12 way; on 10.24 or later the runtime writes a warning at start when any exist, so a copy "
                   "of each environment's database started on 10.24 shows it in the log. The SQL that lists them: to be confirmed on "
                   "a real database (not written here: no source the toolkit holds gives the column or the rule)",
-                  "I checked each environment's database: none holds pre-5.12 file documents | some do: start on 10.x until the migration "
-                  "finishes, then convert | I cannot read an environment's database: hand to a named person | pause the upgrade",
-                  "check each environment's database for pre-5.12 file documents before the convert; start on 10.x until the migration finishes",
+                  "the app's data was first created on Mendix 5.12 or later: no such file can exist; the convert goes ahead | "
+                  "I checked each environment's database: none holds pre-5.12 file documents; the convert goes ahead | "
+                  "some do: start on 10.x until the app team has moved the old file documents as the 11.0 release note describes, then convert | "
+                  "I cannot read an environment's database: hand to a named person; the convert waits for their answer | pause the upgrade",
+                  "I cannot read an environment's database: hand to a named person; the convert waits for their answer",
                   "M", "the app does not start on Mendix 11 in an environment whose database still holds an old file document")
 
     def build(self):
