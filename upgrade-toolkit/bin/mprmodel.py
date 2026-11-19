@@ -311,6 +311,29 @@ class Model:
         return out
 
 
+def file_document_entities(model, own_only=False):
+    """Qualified names of the entities that specialise System.FileDocument (or System.Image), directly or through another
+    entity: the ones whose rows carry a file in the runtime's file store. Mendix 11 refuses to start while a pre-5.12 file
+    document is still in the data (11.0.0 requirement row), so the model's answer decides whether a database
+    check is owed. own_only: leave out the Marketplace modules."""
+    gen = {}
+    for d in model.docs.values():
+        if d.type == "DomainModels$DomainModel" and not (own_only and (model.modules.get(d.module) or {}).get("from_appstore")):
+            for e in d.data.get("Entities") or []:
+                if not isinstance(e, dict):   # a BSON array starts with its type marker (an int)
+                    continue
+                g = (e.get("MaybeGeneralization") or {}).get("Generalization")
+                if g:
+                    gen[f"{d.module}.{e.get('Name')}"] = g
+    out = {"System.FileDocument", "System.Image"}
+    while True:
+        more = {e for e, g in gen.items() if g in out and e not in out}
+        if not more:
+            break
+        out |= more
+    return sorted(out - {"System.FileDocument", "System.Image"})
+
+
 def module_role_to_user_roles(model):
     idx = {}
     for ur, mrs in model.user_roles().items():
