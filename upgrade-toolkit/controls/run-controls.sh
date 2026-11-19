@@ -8652,6 +8652,12 @@ ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the 
 ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 # DV-2: the target text names no patch number (a number written in the text goes stale; triage reads it from the notes)
 ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -c "grep -nE 'newest patch,? \\(?[0-9]+\\.[0-9]+\\.[0-9]+|Mendix [0-9]+\\.[0-9]+ \\([0-9]+\\.[0-9]+\\.[0-9]+\\)' '$TK/SKILL.md' '$TK/SETUP-PROMPT.md' '$TK/playbooks/10-to-11.md' '$TK/steps/triage.md'; [ \$? = 1 ] && echo 'no target patch in the text'"
+# DV-7: SETUP-PROMPT.md keeps the unattended default and carries a marked attended variant; every file, variable and flag it names exists
+ctl setup-prompt-attended-variant-pass 0 '^setup-prompt: ok$' -- bash $TK/controls/setup_prompt_control.sh
+ctl setup-prompt-attended-variant-catch 1 '^FAIL: no marked attended block$' -- bash -c "sed '/^<!-- ATTENDED-START -->\$/,/^<!-- ATTENDED-END -->\$/d' '$TK/SETUP-PROMPT.md' > $T/sp-noblock.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-noblock.md"
+ctl setup-prompt-default-sentence-catch 1 '^FAIL: the unattended default sentence is missing$' -- bash -c "sed '/^Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says PASS\.$/d' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-default-sentence-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-default-sentence-catch.md"
+ctl setup-prompt-bad-flag-catch 1 '^FAIL: named flag is in no script: --sign-for-owner$' -- bash -c "sed 's/--source chat/--source chat --sign-for-owner/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-bad-flag-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-bad-flag-catch.md"
+ctl setup-prompt-never-sign-removed-catch 1 '^FAIL: attended block lacks: You never sign for me$' -- bash -c "sed 's/You never sign for me/You may sign for me/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-never-sign-removed-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-never-sign-removed-catch.md"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
