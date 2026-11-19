@@ -19,6 +19,8 @@ driven; the cockpit page is for the owner who wants to glance.
 3. Record each answer: `python3 $B/decisions.py add --work $W --item ID --choice KEY --by NAME --source chat`.
 4. Rerun the command the stop file names (`NEEDS-JUDGMENT.md`).
 
+Before the first model write, read the user's permission rules (for Claude Code the `permissions` deny and allow lists in its settings files) for the write tools. A deny on `mxcli exec` also covers any wrapper or script that calls it; never route around a deny, ask instead. The same check applies to the tools that write the model without mxcli (direct BSON or .mpr writes): `bin/repair/{copy_mappings,copydoc,exprparam_source,widgetrestore,widgetroute}.py`, `bin/restore_guid.py`, `bin/restoreunit.py`.
+
 Run the steps in order. Each step file says what to run and what proves it. Every step writes its evidence to the run
 folder's work dir `$W`; the report cites only files that exist.
 A person reading the result starts at [READING-THE-VERDICT.md](READING-THE-VERDICT.md).
