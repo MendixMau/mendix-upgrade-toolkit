@@ -211,7 +211,34 @@ mxcli_checkout() {  # the ref (tag, branch or commit) at depth 1 into $MXCLI_SRC
   GIT_LFS_SKIP_SMUDGE=1 git -C "$MXCLI_SRC" fetch -q --depth 1 origin "$MXCLI_REF" &&
     git -C "$MXCLI_SRC" checkout -q -f --detach FETCH_HEAD
 }
-chk_mxcli() { [ -x "$RUN/tools/mxcli-bin/mxcli" ] && [ -L "$MXCLI" ] && [ -e "$MXCLI" ] && [ -L ~/.local/bin/mxcli ] && mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli"; }
+# cold predictive-maintenance run on a Mac: mxcli-linux pointed at the Mac build, mxcli-container.sh mounted it into the
+# linux/amd64 container and the first module update died, "cannot execute binary file: Exec format error" (exit 126).
+# On a host that is not Linux, tools/mxcli-linux is a second, cross-built binary; mxcli-bin/mxcli stays the host one.
+# linux_mxcli_ok BIN: an ELF file stamped with the pinned ref (it can't run here to say so).
+linux_mxcli_ok() { [ "$(head -c 4 "$1" 2>/dev/null | od -An -c | tr -d ' \n')" = 177ELF ] && LC_ALL=C grep -aqF "$MXCLI_VER" "$1"; }
+host_linux() { [ "$(uname -s)" = Linux ]; }
+chk_mxcli() {
+  [ -x "$RUN/tools/mxcli-bin/mxcli" ] && [ -L "$MXCLI" ] && [ -e "$MXCLI" ] && [ -L ~/.local/bin/mxcli ] && mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli" &&
+    { host_linux || linux_mxcli_ok "$MXCLI"; }
+}
+mxcli_make() {  # the pinned ref checked out and built for this host into mxcli-bin (make runs the generators too)
+  [ -n "$MXCLI_SRC" ] || MXCLI_SRC=$(mxcli_src_default)
+  log "mxcli source: $MXCLI_SRC"
+  # GitHub release downloads are 403 at the egress proxy (T1): build from source, at the pinned ref (not HEAD)
+  retry mxcli_checkout
+  command -v antlr4 >/dev/null 2>&1 || retry python3 -m pip install -q 'antlr4-tools==0.2.2'
+  # T2/T8: repo1.maven.org answers 429; antlr4-tools looks in ~/.m2 first, so pre-place the jar from the GCS mirror
+  if [ ! -s "$ANTLR_JAR" ]; then
+    mkdir -p "$(dirname "$ANTLR_JAR")"
+    retry curl -sS -f -o "$ANTLR_JAR.part" https://maven-central.storage-download.googleapis.com/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar ||
+      retry curl -sS -f -o "$ANTLR_JAR.part" https://repo.maven.apache.org/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
+    mv "$ANTLR_JAR.part" "$ANTLR_JAR"
+  fi
+  # `make build` runs the generate steps itself (its prerequisites: grammar = make -C mdl/grammar generate, sync-all,
+  # completions; the checkout ships no generated parser). VERSION= stamps the binary with the ref: a depth-1 checkout has no
+  # tag to `git describe`, and sync-all leaves the tree "dirty".
+  (cd "$MXCLI_SRC" && ANTLR4_TOOLS_ANTLR_VERSION=4.13.2 GOTOOLCHAIN=auto make build VERSION="$MXCLI_VER" BUILD_DIR="$RUN/tools/mxcli-bin")
+}
 step_mxcli() {
   # cold rfq run: mxcli-bin linked to another run's tools, and a Linux build that can't report its version on a Mac;
   # the old rm -f deleted the other run's binary through the link. Never build into a link, never delete a binary.
@@ -224,28 +251,24 @@ step_mxcli() {
     log "mxcli in $RUN/tools/mxcli-bin is not $MXCLI_VER ($("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1)): moved to $aside, rebuilding"
     mv "$RUN/tools/mxcli-bin/mxcli" "$aside"
   fi
-  if [ ! -x "$RUN/tools/mxcli-bin/mxcli" ]; then
-    [ -n "$MXCLI_SRC" ] || MXCLI_SRC=$(mxcli_src_default)
-    log "mxcli source: $MXCLI_SRC"
-    # GitHub release downloads are 403 at the egress proxy (T1): build from source, at the pinned ref (not HEAD)
-    retry mxcli_checkout
-    command -v antlr4 >/dev/null 2>&1 || retry python3 -m pip install -q 'antlr4-tools==0.2.2'
-    # T2/T8: repo1.maven.org answers 429; antlr4-tools looks in ~/.m2 first, so pre-place the jar from the GCS mirror
-    if [ ! -s "$ANTLR_JAR" ]; then
-      mkdir -p "$(dirname "$ANTLR_JAR")"
-      retry curl -sS -f -o "$ANTLR_JAR.part" https://maven-central.storage-download.googleapis.com/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar ||
-        retry curl -sS -f -o "$ANTLR_JAR.part" https://repo.maven.apache.org/maven2/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
-      mv "$ANTLR_JAR.part" "$ANTLR_JAR"
+  local made=""
+  [ -x "$RUN/tools/mxcli-bin/mxcli" ] || { mxcli_make; made=1; }
+  local lin="$RUN/tools/mxcli-bin/mxcli"
+  if ! host_linux; then
+    # the generators `make build` runs (go run ./cmd/gen-completions) must run on this host, so make builds the host binary
+    # and the container one is a plain cross build of the same, already generated, tree
+    lin="$RUN/tools/mxcli-bin/mxcli-linux-amd64"
+    if ! linux_mxcli_ok "$lin"; then
+      [ -n "$made" ] || mxcli_make
+      (cd "$MXCLI_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=auto go build -ldflags "-s -w -X main.Version=$MXCLI_VER" -o "$lin" ./cmd/mxcli)
     fi
-    # `make build` runs the generate steps itself (its prerequisites: grammar = make -C mdl/grammar generate, sync-all,
-    # completions; the checkout ships no generated parser). VERSION= stamps the binary with the ref: a depth-1 checkout has no
-    # tag to `git describe`, and sync-all leaves the tree "dirty".
-    (cd "$MXCLI_SRC" && ANTLR4_TOOLS_ANTLR_VERSION=4.13.2 GOTOOLCHAIN=auto make build VERSION="$MXCLI_VER" BUILD_DIR="$RUN/tools/mxcli-bin")
+    linux_mxcli_ok "$lin" || { log "$lin is not a Linux build of $MXCLI_VER"; return 1; }
   fi
-  ln -sfn "$RUN/tools/mxcli-bin/mxcli" "$MXCLI"
+  ln -sfn "$lin" "$MXCLI"
   mkdir -p ~/.local/bin && ln -sfn "$RUN/tools/mxcli-bin/mxcli" ~/.local/bin/mxcli
-  log "mxcli: $("$MXCLI" --version 2>/dev/null | head -1) (MXCLI_REF=$MXCLI_REF)"
-  mxcli_is_ref "$MXCLI" || { log "mxcli --version does not report $MXCLI_VER"; return 1; }
+  log "mxcli: $("$RUN/tools/mxcli-bin/mxcli" --version 2>/dev/null | head -1) (MXCLI_REF=$MXCLI_REF)"
+  host_linux || log "container mxcli: $MXCLI -> $lin (linux/amd64 cross build, $(uname -s) host)"
+  mxcli_is_ref "$RUN/tools/mxcli-bin/mxcli" || { log "mxcli --version does not report $MXCLI_VER"; return 1; }
 }
 
 chk_toolsets() {
