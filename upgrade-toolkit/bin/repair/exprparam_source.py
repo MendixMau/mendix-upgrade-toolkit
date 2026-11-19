@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""exprparam_source.py: an expression text parameter that still carries a source variable (repair row 34, CE7005).
+"""exprparam_source.py: an expression text parameter that still carries a source variable (repair row 35, CE7005).
 
   exprparam_source.py <app dir|.mpr> [--apply]
 
