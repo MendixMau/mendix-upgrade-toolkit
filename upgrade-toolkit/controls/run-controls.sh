@@ -8112,6 +8112,7 @@ ctl cockpit-live-server-failure-is-logged-catch 0 '^cockpit: no cockpit is runni
 DK=$T/nodockerbin; mkdir -p $DK; printf '#!/bin/sh\nexit 1\n' > $DK/docker; chmod +x $DK/docker
 ctl pipeline-docker-down-message-names-resume-catch 3 'docker daemon not running .*bin/cloud/resume\.sh <run folder>' 'restarts dockerd and the cockpit server' -- env PATH=$DK:$PATH bash $B/cloud/upgrade-pipeline.sh --app-dir $DK --source 10.24.26.1 --target 11.15.0.1 --work $T/dkw
 ctl resume-starts-cockpit-once-catch 0 '^cockpit: server started at http://127\.0\.0\.1:PORT/' '^cockpit: server running at http://127\.0\.0\.1:PORT/' '^same server after second resume: yes$' '^servers on this folder: 1$' '^no work folder: \.cockpit-pid none$' '^open=0 cockpit lines: 0$' -- $CK resume-cockpit
+ctl cockpit-up-stale-pid-starts-server-catch 0 '^line: started$' '^port replaced: yes$' '^status answers: True$' '^unrelated pid untouched: yes$' '^pid file is the server: yes$' -- $CK up-stale-pid
 # doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
 ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh
 ctl doctor-toolset-missing-catch 1 'FAIL  toolset     9\.24\.99\.1: no .*/mxbuild-9\.24\.99\.1' -- env DOCKER_HOST=unix://$T/no.sock UPG_TOOLS=$T bash $B/doctor.sh 9.24.99.1

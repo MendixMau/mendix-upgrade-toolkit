@@ -28,7 +28,12 @@ if ! python3 "$B/cockpitpage.py" --work "$view" --out "$d/.COCKPIT-view.new" --s
 fi
 if cmp -s "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; then rm -f "$d/.COCKPIT-view.new"; else mv "$d/.COCKPIT-view.new" "$d/COCKPIT-view.html"; fi
 state=running
-if ! { [ -f "$d/.cockpit-pid" ] && kill -0 "$(cat "$d/.cockpit-pid")" 2> /dev/null; }; then
+# running = the pid is alive AND its port answers /status: a pid reused after a container restart, or a server that quit on its
+# --idle-exit, is not ours (never killed here); the start path below replaces the stale files
+alive=0
+if [ -f "$d/.cockpit-pid" ] && kill -0 "$(cat "$d/.cockpit-pid")" 2> /dev/null && [ -s "$d/.cockpit-port" ] \
+  && python3 -c 'import sys,urllib.request as u; u.urlopen("http://127.0.0.1:%s/status" % sys.argv[1], timeout=2).read()' "$(cat "$d/.cockpit-port")" 2> /dev/null; then alive=1; fi
+if [ "$alive" = 0 ]; then
   state=started; rm -f "$d/.cockpit-port"
   nohup python3 "$B/cockpitserve.py" --dir "$d" > "$d/.cockpit-serve.log" 2>&1 < /dev/null &
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$d/.cockpit-port" ] && break; sleep 0.3; done

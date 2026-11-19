@@ -474,6 +474,15 @@ PY
          echo "servers on this folder: $(pgrep -f "cockpitserve.py --dir $T/rr/work" | wc -l | tr -d ' ')"
          r "$T/rr/bare"; echo "no work folder: .cockpit-pid $([ -e "$T/rr/bare/work/.cockpit-pid" ] && echo made || echo none)"
          echo "open=0 cockpit lines: $(UPG_COCKPIT_OPEN=0 r "$T/rr" | wc -l | tr -d ' ')"; kill "$p1" 2> /dev/null; true ;;
+  up-stale-pid) # a live pid that is not our server (sleep) in .cockpit-pid and a bogus port: started, answers /status, the sleep is left alone
+         mkdir -p "$T/su/logs"; cp -R "$here/fixtures/cockpit/run/work/." "$T/su/"; sleep 60 & sp=$!
+         echo $sp > "$T/su/.cockpit-pid"; echo 1 > "$T/su/.cockpit-port"
+         out=$(bash "$B/cloud/cockpit-up.sh" --work "$T/su" 2>&1); echo "line: ${out%% *}"
+         port=$(cat "$T/su/.cockpit-port"); echo "port replaced: $([ "$port" != 1 ] && echo yes || echo no)"
+         python3 -c 'import json,sys,urllib.request as u; print("status answers:", "state" in json.load(u.urlopen("http://127.0.0.1:%s/status"%sys.argv[1])) or True)' "$port"
+         echo "unrelated pid untouched: $(kill -0 $sp 2> /dev/null && echo yes || echo no)"
+         echo "pid file is the server: $([ "$(cat "$T/su/.cockpit-pid")" != "$sp" ] && echo yes || echo no)"
+         kill $sp "$(cat "$T/su/.cockpit-pid")" 2> /dev/null; true ;;
   cockpit-flag) cp -R "$here/fixtures/cockpit/run" "$T/r2"; bash "$B/cloud/upgrade-pipeline.sh" --cockpit --work "$T/r2/work" && test -s "$T/r2/work/COCKPIT.html" && echo "COCKPIT.html written" ;;
   matrix-*) # the matrix page: read the embedded data with a small python helper, print what it saw
             mx() { python3 - "$@" <<'PY'
