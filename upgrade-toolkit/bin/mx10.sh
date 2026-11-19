@@ -1,7 +1,11 @@
 #!/bin/zsh
 [ -n "${BASH_VERSION:-}" ] && exec zsh "$0" "$@"  # a zsh script: `bash script.sh` re-runs it under zsh (E6-1)
 # mx10.sh <ver> <mx|mxbuild> args...: Linux mxbuild 10.x/11.x tool (mx check, mx convert, mxbuild) in an amd64 container.
-#   <ver> names $UPG_TOOLS/mxbuild-<ver> (for example 10.24.16). Image: UPG_IMAGE10 (default mig-mx10, bin/docker/Dockerfile.mx10).
+#   <ver> names $UPG_TOOLS/mxbuild-<ver> (for example 10.24.16). Image: UPG_IMAGE10 (default mig-mx10, bin/docker/Dockerfile.mx10;
+#   for a 10.0 to 10.6 default mig-mx10-j11, Dockerfile.mx10-j11: the Gradle 7.6 in mxbuild 10.6 dies on JDK 21 with
+#   "Unsupported class file major version 65", and the 10.6 runtime itself refuses anything but Java 11 ("Java 11 is required"),
+#   so the OLD app of a 10.6 source never built or started, CHK-1; any other 10.x whose toolset bundles Gradle 7.x, e.g. 10.9, gets the
+#   same image, DVS; 10.7 to 10.23 otherwise unchanged).
 #   mxbuild: refused on an incomplete toolset (toolcheck.sh); --java-home/--java-exe-path and HOME=/tmp are added.
 #   11.x on an arm64 host (Docker emulating amd64): the tool is started through a small sh that sets LD_PRELOAD to those of
 #   libuuid.so.1, libfreetype.so.6, libfontconfig.so.1 (in /usr/lib/x86_64-linux-gnu) that EXIST in the image (M1: mxbuild
@@ -31,4 +35,10 @@ if [[ $v == 11.* && ${UPG_PRELOAD:-} != 0 && " ${UPG_EXTRA:-} " != *"LD_PRELOAD=
   run=(sh -c 'p=; for l in libuuid.so.1 libfreetype.so.6 libfontconfig.so.1; do [ -e /usr/lib/x86_64-linux-gnu/$l ] && p="$p:/usr/lib/x86_64-linux-gnu/$l"; done; [ -n "$p" ] && export LD_PRELOAD=${p#:}; exec "$@"' sh $run)  # M1
 fi
 export UPG_RETRY_CRASH=${UPG_RETRY_CRASH:-2}
-exec ${0:A:h}/mxrun.sh -v "$tb":"$tb":ro -- ${UPG_IMAGE10:-mig-mx10} $run "$@"
+img=${UPG_IMAGE10:-mig-mx10}
+if [[ -z ${UPG_IMAGE10:-} && $v == 10.* ]]; then  # CHK-1: mxbuild 10.6 (Gradle 7.6) and its runtime want JDK 11
+  m=${v#10.}; m=${m%%.*}
+  [[ $m -le 6 ]] && img=mig-mx10-j11
+  [[ -n $(print -l $tb/modeler/tools/gradle/lib/gradle-wrapper-shared-7.*(N)) ]] && img=mig-mx10-j11  # DVS: 10.9 bundles Gradle 7.6.3 too (dies on JDK 21)
+fi
+exec ${0:A:h}/mxrun.sh -v "$tb":"$tb":ro -- $img $run "$@"

@@ -1,0 +1,140 @@
+WARNING: This is a vibe-coded PoC, alpha quality, use with caution.
+VERSION  MIN MENDIX  PUBLISHED   NAME
+3.11.9   10.24.0     2026-11-17  Data Widgets
+3.11.8   10.24.0     2026-10-29  Data Widgets
+3.11.7   10.24.0     2026-10-06  Data Widgets
+3.11.6   10.24.0     2026-09-21  Data Widgets
+3.11.5   10.24.0     2026-09-17  Data Widgets
+3.11.4   10.24.0     2026-08-25  Data Widgets
+3.11.3   10.24.0     2026-07-28  Data Widgets
+3.11.2   10.24.0     2026-07-03  Data Widgets
+3.11.1   10.24.0     2026-06-18  Data Widgets
+3.11.0   10.24.0     2026-06-03  Data Widgets
+3.10.0   10.24.0     2026-05-07  Data Widgets
+3.9.0    10.24.0     2026-03-24  Data Widgets
+3.8.1    10.24.0     2026-02-19  Data Widgets
+3.8.0    10.24.0     2026-01-26  Data Widgets
+3.7.0    10.24.0     2025-11-11  Data Widgets
+3.6.1    10.24.0     2025-10-15  Data Widgets
+3.6.0    10.24.0     2025-10-01  Data Widgets
+3.5.0    10.24.0     2025-09-16  Data Widgets
+3.4.0    10.24.0     2025-09-12  Data Widgets
+3.3.0    10.24.0     2025-08-28  Data Widgets
+3.2.0    10.24.0     2025-08-18  Data Widgets
+3.1.1    10.24.0     2025-08-05  Data Widgets
+3.1.0    10.24.0     2025-07-24  Data Widgets
+3.0.2    10.24.0     2025-07-11  Data Widgets
+3.0.1    10.24.0     2025-07-01  Data Widgets
+3.0.0    10.24.0     2025-06-27  Data Widgets
+2.32.4   10.21.0     2025-08-27  Data Widgets
+2.32.3   10.21.0     2025-08-14  Data Widgets
+2.32.2   10.21.0     2025-07-01  Data Widgets
+2.32.1   10.21.0     2025-05-28  Data Widgets
+2.32.0   10.21.0     2025-05-26  Data Widgets
+2.31.1   10.21.0     2025-05-19  Data Widgets
+2.31.0   10.21.0     2025-04-16  Data Widgets
+2.30.9   10.12.6     2025-08-27  Data Widgets
+2.30.8   10.12.6     2025-08-14  Data Widgets
+2.30.7   10.12.6     2025-07-01  Data Widgets
+2.30.6   10.12.6     2025-06-03  Data Widgets
+2.30.5   10.12.6     2025-04-16  Data Widgets
+2.30.4   10.12.6     2025-04-01  Data Widgets
+2.30.3   10.12.6     2025-03-20  Data Widgets
+2.30.2   10.12.6     2025-03-17  Data Widgets
+2.30.1   10.12.6     2025-02-25  Data Widgets
+2.30.0   10.12.6     2025-02-20  Data Widgets
+2.29.1   10.12.6     2025-01-24  Data Widgets
+2.28.2   10.12.6     2024-12-12  Data Widgets
+2.28.1   10.12.6     2024-11-21  Data Widgets
+2.28.0   10.12.6     2024-11-13  Data Widgets
+2.26.0   10.12.6     2024-10-31  Data Widgets
+2.24.1   10.12.6     2024-10-14  Data Widgets
+2.24.0   10.12.0     2024-09-23  Data Widgets
+2.27.9   9.24.34     2026-01-30  Data Widgets
+2.27.8   9.24.34     2025-08-27  Data Widgets
+2.27.7   9.24.34     2025-08-13  Data Widgets
+2.27.6   9.24.0      2025-07-01  Data Widgets
+2.27.5   9.24.0      2025-06-05  Data Widgets
+2.27.4   9.24.0      2025-05-01  Data Widgets
+2.27.3   9.24.0      2025-01-21  Data Widgets
+2.27.2   9.24.0      2024-12-12  Data Widgets
+2.27.1   9.24.0      2024-11-21  Data Widgets
+2.27.0   9.24.0      2024-11-13  Data Widgets
+2.25.1   9.24.0      2024-11-04  Data Widgets
+2.23.2   9.24.0      2024-10-14  Data Widgets
+2.23.1   9.24.0      2024-09-25  Data Widgets
+2.23.0   9.24.0      2024-09-20  Data Widgets
+2.22.0   9.24.0      2024-09-13  Data Widgets
+2.21.4   9.24.0      2024-08-23  Data Widgets
+2.21.3   9.24.0      2024-08-15  Data Widgets
+2.21.2   9.24.0      2024-08-07  Data Widgets
+2.21.1   9.24.0      2024-07-10  Data Widgets
+2.21.0   9.24.0      2024-07-08  Data Widgets
+2.20.1   9.24.0      2024-06-26  Data Widgets
+2.20.0   9.24.0      2024-06-19  Data Widgets
+2.19.1   9.24.0      2024-05-27  Data Widgets
+2.19.0   9.24.0      2024-05-15  Data Widgets
+2.18.1   9.24.0      2024-05-14  Data Widgets
+2.18.0   9.24.0      2024-04-30  Data Widgets
+2.17.0   9.24.0      2024-04-17  Data Widgets
+2.16.1   9.24.0      2024-04-16  Data Widgets
+2.16.0   9.24.0      2024-04-09  Data Widgets
+2.15.0   9.24.0      2024-03-27  Data Widgets
+2.14.0   9.24.0      2024-03-06  Data Widgets
+2.13.0   9.24.0      2024-02-05  Data Widgets
+2.12.1   9.24.0      2024-01-23  Data Widgets
+2.12.0   9.24.0      2024-01-16  Data Widgets
+2.11.0   9.24.0      2023-12-06  Data Widgets
+2.10.4   9.24.0      2023-11-28  Data Widgets
+2.10.3   9.24.0      2023-11-21  Data Widgets
+2.10.2   9.24.0      2023-11-13  Data Widgets
+2.10.1   9.24.0      2023-11-02  Data Widgets
+2.10.0   9.24.0      2023-10-31  Data Widgets
+2.9.0    9.24.0      2023-10-13  Data Widgets
+2.8.8    9.24.0      2023-08-30  Data Widgets
+2.8.7    9.24.0      2023-08-25  Data Widgets
+2.8.6    9.24.0      2023-08-22  Data Widgets
+2.8.5    9.24.0      2023-08-10  Data Widgets
+2.8.4    9.24.0      2023-07-13  Data Widgets
+2.8.3    9.24.0      2023-06-28  Data Widgets
+2.8.2    9.24.0      2023-06-21  Data Widgets
+2.8.1    9.24.0      2023-06-09  Data Widgets
+2.8.0    9.24.0      2023-05-26  Data Widgets
+2.7.2    9.24.0      2023-05-02  Data Widgets
+2.7.1    9.24.0      2023-05-01  Data Widgets
+2.7.0    9.24.0      2023-03-29  Data Widgets
+2.6.1    9.17.0      2023-03-09  Data Widgets
+2.6.0    9.17.0      2023-02-17  Data Widgets
+2.5.9    9.6.0       2023-01-10  Data Widgets
+2.5.8    9.6.0       2022-12-12  Data Widgets
+2.5.7    9.6.0       2022-11-24  Data Widgets
+2.5.6    9.6.0       2022-09-29  Data Widgets
+2.5.5    9.6.0       2022-09-05  Data Widgets
+2.5.4    9.6.0       2022-08-11  Data Widgets
+2.5.3    9.6.0       2022-07-05  Data Widgets
+2.5.2    9.6.0       2022-06-29  Data Widgets
+2.5.0    9.6.0       2022-05-11  Data Widgets
+2.4.0    9.6.0       2022-04-22  Data Widgets
+2.3.1    9.6.0       2022-04-13  Data Widgets
+2.3.0    9.6.0       2022-02-10  Data Widgets
+2.2.2    9.6.0       2022-01-19  Data Widgets
+2.2.1    9.6.0       2022-01-06  Data Widgets
+2.2.0    9.6.0       2021-12-23  Data Widgets
+2.1.1    9.6.0       2021-12-10  Data Widgets
+2.1.0    9.6.0       2021-12-03  Data Widgets
+2.0.3    9.6.0       2021-11-16  Data Widgets
+2.0.2    9.6.0       2021-10-13  Data Widgets
+2.0.1    9.6.0       2021-10-07  Data Widgets
+2.0.0    9.6.0       2021-09-28  Data Widgets
+1.3.3    9.4.0       2021-08-12  Data grid 2
+1.3.2    9.4.0       2021-07-27  Data grid 2
+1.3.1    9.3.0       2021-07-16  Data grid 2
+1.3.0    9.3.0       2021-07-07  Data grid 2
+1.2.1    9.3.0       2021-07-01  Data grid 2
+1.2.0    9.3.0       2021-06-29  Data grid 2
+1.1.4    9.0.5       2021-05-12  Data grid 2
+1.1.3    9.0.5       2021-04-08  Data grid 2
+1.1.2    9.0.5       2021-03-31  Data grid 2
+1.1.1    9.0.4       2021-03-05  Data grid 2 (Mx9 Beta)
+1.1.0    9.0.3       2021-02-16  Data grid 2 (Mx9 Beta)
+1.0.0    9.0.2       2020-12-22  Data grid 2 (Mx9 Beta)

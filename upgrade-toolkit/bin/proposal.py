@@ -403,7 +403,7 @@ class Facts:
             held[m] = (f"{h['kind']} on the Marketplace: content {h['cid']} is now '{h['new']}' (installed {m} {h['version']}); "
                        f"no version update of {m} is planned. {h['route']}")
         for m, why in self.kept.items():
-            held[m] = f"kept at its version by the update step: {why}"
+            held[m] = f"the update step did not update it: {why}"
         for m, why in self.red.items():
             held.setdefault(m, f"RED local edit (data-bearing): {why}")
         for m, why in self.logic.items():

@@ -37,6 +37,11 @@ def norm(text):
 def code(text):
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     blocks = BLOCK.findall(text)
+    # A package whose Java action carries "// END EXTRA CODE" with no "// BEGIN EXTRA CODE" (field: ExternalDatabaseConnector
+    # 5.3.8, RegisterAdminAction.java) has an empty extra block nobody could write into. Studio Pro adds the missing begin
+    # marker when it regenerates the file, so the app's copy has an empty EXTRA block and a naive compare called it an edit.
+    if blocks and not any(k == "EXTRA" for k, _ in blocks) and re.search(r"//\s*END EXTRA CODE", text):
+        blocks.append(("EXTRA", ""))
     if blocks:
         return "\n----\n".join(f"{k}:{norm(b)}" for k, b in blocks)
     return norm(text)
