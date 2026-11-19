@@ -24,7 +24,7 @@
 #  3 dockerd (installed but not running in the cloud image)    8 Playwright module (Chromium is preinstalled there)
 #  4 base images via mirror.gcr.io (Docker Hub 429), toolkit   9 mxcli marketplace auth from $MENDIX_PAT
 #    images built with --network host                         10 upg-env.sh: proxy + CA for mxcli in its container
-#  5 mxcli built from source (GitHub release downloads 403); the ANTLR jar pre-placed in ~/.m2 first: Maven Central
+#  5 mxcli built from source (rsync is installed first: its Makefile needs it; GitHub release downloads 403); the ANTLR jar pre-placed in ~/.m2 first: Maven Central
 #    answers 429 from a shared egress IP and `make build` then fails (B4T2-1); mirror fallback
 #  11 check: toolcheck.sh --host AFTER step 7; REFUSED or no rsync = exit 1 (B4T2-1, B4N1-3)
 # The journey engine is vendored (../vendor/e2e): no other repo is cloned except mendixlabs/mxcli (public).
@@ -99,6 +99,14 @@ docker image inspect e5-mx9  >/dev/null 2>&1 || docker build --platform linux/am
 # BT-1: Mendix 9 before 9.20 has a Mono-era mxbuild: the same image plus Mono
 for v in "$@"; do [ "${v%%.*}" = 9 ] && [ "$(echo "$v" | cut -d. -f2)" -lt 20 ] && { docker image inspect e5-mx9-mono >/dev/null 2>&1 || docker build --platform linux/amd64 -q --network host -t e5-mx9-mono -f "$TK/bin/docker/Dockerfile.mx9-mono" "$TK/bin/docker"; break; }; done; }
 
+# rsync before the first thing that needs it: mxcli's Makefile calls it (step 5), design_props_guard.sh does (step 7). A fresh
+# container has none: "make: rsync: No such file or directory", exit 2, at the mxcli build. Idempotent; step 11 still refuses a run without it.
+ensure_rsync() {
+  command -v rsync >/dev/null && return 0
+  { apt-get update -q && apt-get install -y -q rsync; } >/dev/null 2>&1 || log "apt-get install rsync failed"
+  command -v rsync >/dev/null && log "rsync installed"
+  return 0
+}
 # 5 mxcli from source (public repo mendixlabs/mxcli; a release binary works too: put it at tools/mxcli-linux), at MXCLI_REF
 # default: 78bdfa5, the build the pipeline ran on. v0.28.0 is blocked (SETUP.md, "Known problem of v0.28.0")
 MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
@@ -121,6 +129,7 @@ if want mxcli; then
     ref_state "$R/tools/mxcli-linux" || [ $? = 2 ] || { log "tools/mxcli-linux is not $MXCLI_VER ($("$R/tools/mxcli-linux" --version 2>/dev/null | head -1)): rebuilding"; rm -f "$R/tools/mxcli-linux" "$R/tools/mxcli-bin/mxcli"; }
   fi
   if [ ! -x "$R/tools/mxcli-linux" ]; then
+    ensure_rsync   # the Makefile's build copies with rsync
     src=${MXCLI_SRC:-$HOME/mendixlabs/mxcli}
     mxcli_checkout "$src" || { echo "setup: could not fetch mxcli $MXCLI_REF from github.com/mendixlabs/mxcli" >&2; exit 1; }
     "$PY" -m pip install -q 'antlr4-tools==0.2.2'
@@ -164,9 +173,7 @@ if want host; then
   for m in bson:pymongo bcrypt:bcrypt PIL:pillow; do
     "$PY" -c "import ${m%%:*}" >/dev/null 2>&1 || "$PY" -m pip install -q "${m#*:}" || log "pip install ${m#*:} failed"
   done
-  if ! command -v rsync >/dev/null; then
-    { apt-get update -q && apt-get install -y -q rsync; } >/dev/null 2>&1 || log "apt-get install rsync failed"
-  fi
+  ensure_rsync
 fi
 
 # 8 Playwright module for smokewalk.js and the journeys (browsers: /opt/pw-browsers in the cloud image)
