@@ -8090,6 +8090,8 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
+ctl cockpit-status-idle-says-why-catch 0 '^no work file \| idle no-work-dir step=-$' '^no step \| idle no-step-running step=-$' '!null' -- $CK status-idle
+ctl cockpit-status-running-keeps-payload-pass 0 '^step running \| - - step=basewalk$' '^live page hides on idle: 1$' -- $CK status-idle
 ctl cockpit-stopped-bar-pass 0 'bar: The run stopped during this step: Clicking through every page of the old app\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \

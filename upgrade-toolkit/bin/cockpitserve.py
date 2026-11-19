@@ -6,7 +6,10 @@
 A file opened from disk cannot see that it changed; this tiny server can. It binds 127.0.0.1 on a free port (--port N: that one, so an open tab keeps working after a restart) and serves:
   /          D/COCKPIT-view.html (cockpitpage.py --standalone --live writes it)
   /status    the step running now (cockpitpage.running on the rung named in D/.cockpit-work): step, minutes, the script it
-             is in and its last line; the page fills its "Running now" bar from it every few seconds, without a reload
+             is in and its last line; the page fills its "Running now" bar from it every few seconds, without a reload.
+             Never null: with nothing to report it says why, {"state": "idle", "reason": "no-work-dir"} (D/.cockpit-work
+             is missing or empty: the pipeline has named no rung) or {"state": "idle", "reason": "no-step-running"}
+             (the rung has no live step). A running step has no "state" key; the page hides its bar on state idle.
   /stamp     the page's change stamp (mtime in ns); the page polls it every few seconds and reloads when it moves.
              Every /stamp request also touches D/.cockpit-seen: the pipeline reads that heartbeat to know a tab is open,
              and opens the page again at the next step when no tab has asked for a while (cockpit_live in upgrade-pipeline.sh).
@@ -86,9 +89,10 @@ def main():
                     os.utime(os.path.join(d, ".cockpit-seen"))
                 body = str(os.stat(view).st_mtime_ns if os.path.exists(view) else 0).encode()
                 ctype = "text/plain"
-            elif path == "/status":   # the step running now in the rung the pipeline named (.cockpit-work), or null
+            elif path == "/status":   # the step running now in the rung the pipeline named (.cockpit-work), else an idle object that says why (DV-14)
                 work = (cockpitpage.rd(os.path.join(d, ".cockpit-work")) or "").strip()
-                body = json.dumps(cockpitpage.running(work) if work else None).encode()
+                run = cockpitpage.running(work) if work else None
+                body = json.dumps(run or {"state": "idle", "reason": "no-step-running" if work else "no-work-dir"}).encode()
                 ctype = "application/json"
             elif path in ("/", "/" + VIEW) and os.path.exists(view):
                 with open(view, "rb") as f:
