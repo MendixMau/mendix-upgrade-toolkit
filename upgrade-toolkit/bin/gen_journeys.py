@@ -1077,7 +1077,9 @@ class ActionGen:
             return ["old-inventory"], "actions.json has no structured entry hop (written before E2E-10): rerun action_inventory.py"
         if not (e.get("profile_kind") or "").lower().startswith("responsive"):
             return ["profile"], f"the path enters through navigation profile {e.get('profile') or '?'}: the engine runs the Responsive profile"
-        if e.get("via") == "menu" and not all(e.get("menu") or [None]):
+        # a blank caption (" ", cold run 4: every item of the role menu) is as icon-only as an empty one; the nav verb
+        # looked for item " " and the journey failed on both apps as a baseline defect, not as this skip
+        if e.get("via") == "menu" and not all((c or "").strip() for c in e.get("menu") or [None]):
             return ["icon-menu"], "the path starts at a menu item without a caption (icon only): the nav verb finds items by caption"
         return None
 
@@ -1686,6 +1688,7 @@ def main():
         plan["actions"]["tabs"] = dict(t, checked=gen.model is not None, line=tline)
         print(line)
         print(tline)
+    out.mkdir(parents=True, exist_ok=True)   # every action skipped: no journey made the folder (cold run 4 fixture)
     (out / "plan.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
     print(f"{len(plan['journeys'])} journeys, {len(plan['not_browser'])} non-browser checks, "
           f"{len(plan['todo'])} todo, {len(plan['skipped'])} skipped, {len(plan['covered'])} covered, "
