@@ -77,7 +77,7 @@ ROUTES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 try:
     DEPRECATED_11 = [re.compile(r["match"]) for r in json.load(open(ROUTES, encoding="utf-8"))["routes"] if r.get("blocks_from") == 11]
 except (OSError, ValueError, KeyError, re.error) as _e:
-    sys.exit(f"missing_deps: cannot read {ROUTES}: {_e}")
+    print(f"missing_deps: INVALID, cannot read {ROUTES}: {_e}", file=sys.stderr); sys.exit(2)
 
 
 def deprecated_11(wid):
@@ -122,10 +122,13 @@ def units(path, with_ids=False):
     try:
         import bson
     except ImportError:
-        sys.exit("missing_deps: needs the 'bson' module (pip install pymongo)")
+        print("missing_deps: INVALID, needs the 'bson' module (pip install pymongo)", file=sys.stderr); sys.exit(2)
     proj = os.path.dirname(os.path.abspath(path))
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
+    try:   # an unreadable model is INVALID (exit 2); a traceback exits 1, which reads as findings
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
+    except sqlite3.Error as e:
+        print(f"missing_deps: INVALID, cannot read {path}: {e}", file=sys.stderr); sys.exit(2)
     blob_col = "Contents" if "Contents" in cols else "NULL"
     cid_col = "ContainerID" if "ContainerID" in cols else "NULL"
     if with_ids and cid_col == "NULL":

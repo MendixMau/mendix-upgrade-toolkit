@@ -353,6 +353,7 @@ ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/w
 ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
 # missing_deps places documents in modules by ContainerID: a Unit table without it stops as INVALID (exit 2), never maps all to '?'
 ctl missing-deps-no-containerid-catch 2 'INVALID, Unit table has no ContainerID' -- python3 $B/repair/missing_deps.py $WD/old
+ctl missing-deps-unreadable-catch 2 'INVALID, cannot read' '!Traceback' -- python3 $B/repair/missing_deps.py $WD/no-such.mpr
 # cold rfq: DataWidgets 3.11.8 took Gallery 1.0.0 -> 3.11.8 and a kept module's page had advanced=true, which 3.x does
 # not declare. The package is NEWER (.stepupdate/widgets.txt): "removed in the newer package", not "update the module"
 mkdir -p $WD/up/.stepupdate $WD/down/.stepupdate; cp -R $WD/old/. $WD/up/; cp -R $WD/old/. $WD/down/
@@ -821,7 +822,7 @@ ctl missing-deps-charts3-by-module-catch 1 '^  module Atlas_Core: 2 document\(s\
 # a written route (charts11.txt) or a 10.x target passes
 C11=$T/c11; mkdir -p $C11/w $C11/wr; echo 'own snippets: Charts 6 on the 10.24 rung' > $C11/wr/charts11.txt
 { sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
-  echo 'xo() { local f=$1; shift; "$@" > "$f"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
+  echo 'xo() { local f=$1; shift; "$@" > "$f" 2>&1; }'; echo 'note() { echo "NOTE $*"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
 # a removed widget is asked once: when widgetroute.py can read a route the triage stop stands down (the build routes it and asks its one OK);
 # the triage stop stays only when no route can be read (widgetroute exit 2). Here a stub widgetroute that exits 2 stands for that case.
 C11B=$T/c11b/bin; mkdir -p $C11B/repair; ln -sfn $B/../playbooks $T/c11b/playbooks; for f in $B/*; do [ "$f" = $B/repair ] || ln -sf $f $C11B/; done; for f in $B/repair/*; do ln -sf $f $C11B/repair/; done; rm -f $C11B/repair/widgetroute.py
@@ -832,6 +833,10 @@ ctl triage-charts11-routed-once-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pip
 ctl triage-charts11-widgetroute-asks-pass 1 '^ROUTE Atlas_Core: Pie chart' -- python3 $B/repair/widgetroute.py $(model charts3-mods) --target 11.12.7
 ctl triage-charts11-route-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/wr TARGET=11.12.7; charts11_check; echo done"
 ctl triage-charts11-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; WORK=$C11/w TARGET=10.24.28; charts11_check; echo done"
+# missing_deps exit 2 (INVALID: model unreadable) is said, never read as "no Charts 3.x" (it returned 0 silently before)
+ctl triage-charts11-invalid-catch 0 '^NOTE missing_deps exit 2: Charts 3\.x widgets not checked' '!^NJ' -- bash -c "set -Eeuo pipefail; . $C11/stub.sh; APP=$WD/old WORK=$C11/w TARGET=11.12.7; charts11_check; echo done"
+ctl pipeline-widgetdrop-invalid-noted-catch 0 'elif \[ "\$rc" -ge 2 \]; then   # input error' -- sed -n '/rm -f "\$WORK\/widgetdrop.json"/,/jarclash.py/p' $B/cloud/upgrade-pipeline.sh
+ctl pipeline-missing-deps-invalid-noted-catch 0 'elif \[ "\$DRY" != 1 \] && \[ "\$rc" -ge 2 \]; then   # INVALID' -- sed -n '/# row 4: missing or broken packages/,/# row 5, row 6/p' $B/cloud/upgrade-pipeline.sh
 ctl triage-charts11-wired-pass 0 '^  charts11_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
 # issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
 MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
