@@ -109,6 +109,8 @@ function pwLoad() {
   check('landedOk fake filter attribute error', /widget error is showing/.test(landedOk() || ''), true);
   global.document = fake([shown('.alert-danger', 'No filter store available')]);
   check('landedOk fake no filter store', /widget error is showing/.test(landedOk() || ''), true);
+  global.document = fake([shown('.alert-danger', '3 lots expire this week')]);
+  check('landedOk fake app alert text', landedOk(), null);
   global.document = fake([Object.assign(shown('.alert-danger', 'widget value required'), { className: 'alert alert-danger mx-validation-message' }), hidden('.alert-danger', 'widget broken')]);
   check('landedOk fake validation message', landedOk(), null);
   global.document = { querySelectorAll() { throw new Error('boom'); } };
