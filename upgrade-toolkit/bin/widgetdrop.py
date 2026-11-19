@@ -17,6 +17,8 @@ default there, and that the installed widgets/*.mpk no longer declares, is lost 
 
 Fix before update-widgets: update the module that ships the widget (here DataWidgets) in the same rung as the module
 whose pages brought the newer definition (steps/repair.md row 33). Excluded documents are skipped.
+When a module update in this rung made the widget package NEWER (.stepupdate/widgets.txt), the line says "removed in the
+newer package": the widget dropped the property upstream; check the page on the new widget and accept, no update helps.
 Exit: 0 = nothing would be dropped, 1 = a drop, 2 = input error.
 """
 import argparse, glob, json, os, re, sys, zipfile
@@ -25,8 +27,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "rep
 from missing_deps import units  # noqa: E402  the .mpr reader (v1 and v2)
 
 
-def installed_keys(proj):
-    """{widget id: set of property keys} declared by widgets/*.mpk."""
+def installed_keys(proj, files=None):
+    """{widget id: set of property keys} declared by widgets/*.mpk; `files` (a dict) gets {widget id: mpk file name}."""
     out = {}
     for f in glob.glob(os.path.join(proj, "widgets", "*.mpk")):
         try:
@@ -37,9 +39,37 @@ def installed_keys(proj):
                     x = z.read(n).decode("utf-8", "replace")
                     m = re.search(r'<widget\b[^>]*\bid="([^"]+)"', x)
                     if m:
+                        if files is not None:
+                            files[m.group(1)] = os.path.basename(f)
                         out[m.group(1)] = set(re.findall(r'<property\b[^>]*\bkey="([^"]+)"', x))
         except (OSError, zipfile.BadZipFile):
             continue
+    return out
+
+
+def vkey(v):
+    return [int(x) if x.isdigit() else x for x in re.split(r"[.\-]", v)]
+
+
+def newer_by_update(proj):
+    """{mpk file: "Gallery 1.0.0 -> 3.11.8 by DataWidgets 3.11.8"} for the widget packages a module update made NEWER
+    (stepupdate's .stepupdate/widgets.txt: "<Module> <ver>: <file> <Widget> <old> -> <new>; ...")."""
+    out = {}
+    try:
+        lines = open(os.path.join(proj, ".stepupdate", "widgets.txt")).read().splitlines()
+    except OSError:
+        return out
+    for l in lines:
+        mod, _, rest = l.partition(": ")
+        for part in rest.split(";"):
+            m = re.match(r"\s*(\S+\.mpk)\s+(\S+)\s+(\S+)\s+->\s+(\S+)", part)
+            if m:
+                try:
+                    up = vkey(m.group(4)) > vkey(m.group(3))
+                except TypeError:
+                    up = False
+                if up:
+                    out[m.group(1)] = f"{m.group(2)} {m.group(3)} -> {m.group(4)} by {mod.strip()}"
     return out
 
 
@@ -99,7 +129,9 @@ def main():
         p = mprs[0]
     if not os.path.isfile(p):
         print(f"widgetdrop: no project {p}", file=sys.stderr); return 2
-    have = installed_keys(os.path.dirname(os.path.abspath(p)))
+    files = {}
+    have = installed_keys(os.path.dirname(os.path.abspath(p)), files)
+    newer = newer_by_update(os.path.dirname(os.path.abspath(p)))
     found, seen = [], 0
     docs = []
     for d in units(p):
@@ -114,12 +146,19 @@ def main():
             seen += 1
             lost = drops(w, have[wid])
             if lost:
-                found.append({"document": name, "widget": w.get("Name"), "id": wid, "drops": lost})
+                found.append({"document": name, "widget": w.get("Name"), "id": wid, "drops": lost,
+                              "newer": newer.get(files.get(wid, ""))})
     lines = [f"# widgetdrop {p}", f"widget instances checked {seen}, installed widget ids {len(have)}"]
     for f in found:
-        lines.append(f"WIDGET-DROP {f['document']} {f['widget']} ({f['id']}, installed package lacks it): "
+        # cold rfq: DataWidgets 3.11.8 took Gallery 1.0.0 -> 3.11.8 and a kept module's page had advanced=true, a
+        # property 3.x no longer has. The package is newer, not older: no module update brings the setting back.
+        why = (f"removed in the newer package: {f['newer']}" if f.get("newer") else "installed package lacks it")
+        lines.append(f"WIDGET-DROP {f['document']} {f['widget']} ({f['id']}, {why}): "
                      + ", ".join(f"{k}={v}" for k, v in f["drops"]))
-    lines.append(f"widgetdrop: {'FAIL' if found else 'PASS'}, {len(found)} of {seen} widget instances would lose settings")
+    up = sum(1 for f in found if f.get("newer"))
+    lines.append(f"widgetdrop: {'FAIL' if found else 'PASS'}, {len(found)} of {seen} widget instances would lose settings"
+                 + (f"; {up} removed upstream by a widget update in this rung (check the page on the new widget, no"
+                    f" module update brings them back)" if up else ""))
     print("\n".join(lines))
     if a.json:
         json.dump(found, open(a.json, "w"), indent=1)

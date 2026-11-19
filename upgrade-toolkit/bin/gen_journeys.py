@@ -456,6 +456,8 @@ def create_journey(spec, data_rung=False):
     (E2E-9). path: clicks between the menu item and the New button, for a list page that no menu item opens (R1,
     Purchase Request: Vendors overview is a link on the admin home page)."""
     acts = [{"do": "nav", "group": spec["nav"].get("group"), "item": spec["nav"]["item"]}]
+    if spec["nav"].get("nth") is not None:  # an icon-only menu item: its position among the items with the same (blank) title
+        acts[0]["nth"] = spec["nav"]["nth"]
     acts += [{"do": "click", "widget": c["widget"], "label": c.get("label") or c["widget"]} for c in spec.get("path", [])]
     acts += [{"do": "click", "widget": spec["newButton"], "label": "New"}]
     # a field with "do": "select" picks from a reference selector ({"match": caption} or {"first": true}); the rest fill
@@ -1350,6 +1352,9 @@ def main():
                     m[k] = cand
                     break
     roles = m["roles"]
+    for r in roles:   # an impact file written before the blank-caption fix: " " is no caption path (cold rfq)
+        if roles[r].get("sign_out_item") and not all((c or "").strip() for c in roles[r]["sign_out_item"]):
+            roles[r] = dict(roles[r], sign_out_item=None, menu_visible=[c for c in roles[r].get("menu_visible") or [] if (c or "").strip()])
     guest = m["user_roles"].get("guest")
     have = [r.strip() for r in a.roles_with_users.split(",")] if a.roles_with_users else [r for r in roles if r != guest]
     if not a.roles_with_users and not a.impact and adoc is not None:
@@ -1472,7 +1477,8 @@ def main():
                 lso = I.layout_sign_out(model, p) if p in model.docs else None
                 if lso:
                     # T2R3-4: a caption path with an empty caption (icon-only item) cannot be navigated by caption
-                    named = lso.get("path") if lso.get("path") and all(lso["path"]) else None
+                    # a blank caption (" ", cold rfq) is as icon-only as an empty one
+                    named = lso.get("path") if lso.get("path") and all((c or "").strip() for c in lso["path"]) else None
                     roles[r] = dict(roles[r], sign_out_item=named, sign_out_button=lso.get("button"),
                                     sign_out_clicks=None if named else lso.get("clicks"),
                                     _sign_out_from=f"layout of {p}" + (f", menu widget {lso['widget']}" if lso.get("widget") else ""),
