@@ -913,7 +913,7 @@ LIVE_JS = """<script>window.UPG_LIVE=true;</script><script>
 (function(){var k="cockpit-scroll",s=null,due=false;
 try{var y=sessionStorage.getItem(k);if(y!==null){sessionStorage.removeItem(k);window.scrollTo(0,+y);}}catch(e){}
 function reload(){try{sessionStorage.setItem(k,String(window.scrollY));}catch(e){}location.reload();}
-function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r){b.hidden=true;return;}
+function run(r){var b=document.getElementById("nowrun");if(!b)return;if(!r||r.state==="idle"){b.hidden=true;return;}
 var w=[r.mins?r.mins+" min":"just started"];if(r.tool)w.push("now in "+r.tool);if(r.said)w.push(r.said);
 b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.querySelector("small").textContent=w.join(" \u00b7 ");b.hidden=false;}
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);

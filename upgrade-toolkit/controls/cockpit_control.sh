@@ -380,6 +380,15 @@ PY
          printf 'basewalk\t%s\t999999\n' "$(date +%s)" > "$W/state/running"; ck > /dev/null
          echo "dead pid: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")"
          rm "$W/state/running"; ck > /dev/null; echo "no file: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")" ;;
+  status-idle) # /status is never null: no .cockpit-work = idle/no-work-dir; a rung with no live step = idle/no-step-running; a running step keeps the old payload (no state key)
+         mkdir -p "$W/state" "$W/logs"; sv() { python3 "$B/cockpitserve.py" --dir "$T" --idle-exit 20 & sp=$!
+           for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/.cockpit-port" ] && break; sleep 0.3; done; curl -s "http://127.0.0.1:$(cat "$T/.cockpit-port")/status"; kill $sp; wait $sp 2> /dev/null; rm -f "$T/.cockpit-port"; }
+         js() { python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(sys.argv[2], "|", d.get("state","-"), d.get("reason","-"), "step=" + str(d.get("step","-")))' "$1" "$2"; }
+         rm -f "$T/.cockpit-work"; js "$(sv)" "no work file"
+         echo "$W" > "$T/.cockpit-work"; rm -f "$W/state/running"; js "$(sv)" "no step"
+         printf 'basewalk\t%s\t%s\n' "$(( $(date +%s) - 120 ))" "$$" > "$W/state/running"; js "$(sv)" "step running"
+         python3 "$B/cockpitpage.py" --work "$W" --out "$T/live.html" --standalone --live > /dev/null
+         echo "live page hides on idle: $(grep -c 'r.state==="idle"' "$T/live.html")" ;;
   stopped) # a judgment stop (cold test WM1): a red bar with each NEEDS-JUDGMENT.md section and the rerun command, one
          # needs-you row per section, and the matrix cell lists every section; no NEEDS-JUDGMENT.md = no bar
          printf '# NEEDS JUDGMENT: step basewalk, exit 11\n\nwork: %s\nRule: the items below are pending, not passed: ..., then rerun:\n\n    upgrade-pipeline.sh --work W --from basewalk\n\n## The smoke walk SKIPPED microflow steps (exit 11)\n\nRerun with UPG_SMOKE_MICROFLOWS=1.\n\n## Role Anonymous has no walk (exit 11)\n\nfile: x\n\n```\nAnonymous: none\n```\n' "$W" > "$W/NEEDS-JUDGMENT.md"; ck > /dev/null
