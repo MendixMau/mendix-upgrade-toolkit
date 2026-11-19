@@ -984,8 +984,8 @@ ctl pipeline-dry-build-widgetroute-pass 0 'widgetroute\.py .* --target 11\.15\.0
 FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
 for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
 for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
-ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'bin/cloud/resume\.sh <run folder>' '--only basewalk' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
-ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
+ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'rerun without --from' '--only propose' 'resume\.sh <run folder>' 'builds on it\. Nothing' '!^propose +running' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
+ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
 cat > $WR/stop.sh <<SH
@@ -4401,7 +4401,7 @@ ctl pipeline-kept-copied-pass 0 '^DataWidgets 2\.2\.1 kept$' -- bash -c "cp $KS/
 # run's markers were gone; main checks the pin before it clears anything
 FP=$T/frompin; mkdir -p $FP/w/state; for st in triage update build gate; do echo t > $FP/w/state/$st.done; done
 { awk '/^main\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
-  printf '%s\n' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
+  printf '%s\n' 'from_guard() { :; }' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
     'mxcli_pin() { echo "pin refused at $1" >&2; exit 3; }' 'run_step() { mxcli_pin "$1"; }' \
     'STEPS=(fetch triage baseline update build gate); ONLY=""; TARGET2=""; DRY=0; main'; } > $FP/fn.sh
 ctl pipeline-from-pin-before-clear-catch 0 '^rc=3$' '^left: build\.done gate\.done triage\.done update\.done$' -- bash -c "WORK=$FP/w FROM=update bash $FP/fn.sh 2> /dev/null; echo rc=\$?; echo left: \$(cd $FP/w/state && ls | tr '\n' ' ')"
@@ -4409,7 +4409,7 @@ ctl pipeline-from-pin-before-clear-catch 0 '^rc=3$' '^left: build\.done gate\.do
 # baseline..convert. --from X --only Y clears X..Y only; --from alone still clears X..gate
 FO=$T/fromonly; mkdir -p $FO
 { awk '/^main\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
-  printf '%s\n' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
+  printf '%s\n' 'from_guard() { :; }' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
     'mxcli_pin() { :; }' 'run_step() { :; }' 'STEPS=(fetch triage baseline convert update build gate); TARGET2=""; DRY=0; main'; } > $FO/fn.sh
 fo() { rm -rf "$FO/w"; mkdir -p $FO/w/state; for st in fetch triage baseline convert update; do echo t > $FO/w/state/$st.done; done; }
 fo

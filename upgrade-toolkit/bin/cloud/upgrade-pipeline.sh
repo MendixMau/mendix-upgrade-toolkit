@@ -12,7 +12,7 @@
 #   --work DIR       $WORK of steps/*.md (state/, logs/, evidence). Sources $WORK/env.sh or $RUN/env.sh (bin/cloud/setup.sh).
 #   --from STEP      forget the done markers of STEP and every later step, then run from there. An earlier step that is
 #                    not done is never run: heal and apidirect are skipped by name (optional); any other refuses the run
-#                    (exit 2, names the steps; resume a stopped run with bin/cloud/resume.sh, or run one step with --only)
+#                    (exit 2, names the steps; rerun without --from to continue, or run one step with --only)
 #   --only STEP      run just that step (even when done)
 #   --dry-run        print the commands, run nothing
 #   --cockpit        run no step: only regenerate $WORK/COCKPIT.html (needs just --work)
@@ -84,7 +84,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; shift ;;
     --cockpit) COCKPIT=1; shift ;;
     --brief) BRIEF=1; shift ;;
-    -h|--help) sed -n 2,41p "$SELF"; exit 0 ;;
+    -h|--help) sed -n 2,43p "$SELF"; exit 0 ;;
     *) usage_die "unknown argument: $1" ;;
   esac
 done
@@ -2402,12 +2402,12 @@ from_guard() {
     [ -f "$WORK/state/$s.done" ] || case "$s" in heal|apidirect) opt+=("$s") ;; *) miss+=("$s") ;; esac
   done
   if [ "${#miss[@]}" -gt 0 ]; then
-    echo "upgrade-pipeline.sh: --from $FROM refused: ${miss[*]} not done, and $FROM builds on it. Nothing was changed." >&2
-    echo "  To continue a stopped run: bin/cloud/resume.sh <run folder> (it starts at the first step not done)." >&2
-    echo "  To run the missing step first: --only ${miss[0]}. To run just $FROM: --only $FROM." >&2
+    local them=it; [ "${#miss[@]}" = 1 ] || them=them
+    echo "upgrade-pipeline.sh: --from $FROM refused: ${miss[*]} not done, and $FROM builds on $them. Nothing was changed." >&2
+    echo "  To run from the first step not done: rerun without --from (done markers skip the finished steps)." >&2
+    echo "  To run just $FROM: --only $FROM. After a container restart: bin/cloud/resume.sh <run folder>." >&2
     exit 2
   fi
-  SKIP_BEFORE_FROM=" ${opt[*]:-} "
   [ "${#opt[@]}" = 0 ] || echo "from      --from $FROM skips ${opt[*]} (not done, optional)"
 }
 
@@ -2429,10 +2429,12 @@ main() {
       [ -z "$ONLY" ] || [ "$s" != "$ONLY" ] || break
     done
   fi
-  local s
+  local s reached=0
   for s in "${STEPS[@]}"; do
     [ -z "$ONLY" ] || [ "$s" = "$ONLY" ] || continue
-    [[ "${SKIP_BEFORE_FROM:-}" != *" $s "* ]] || continue
+    # --from: every step before FROM stays as it is (from_guard has checked them); also under --dry-run
+    [ "$s" != "$FROM" ] || reached=1
+    [ -z "$FROM" ] || [ -n "$ONLY" ] || [ "$reached" = 1 ] || continue
     if [ "$s" != fetch ]; then resolve_app; fi
     run_step "$s"
   done
