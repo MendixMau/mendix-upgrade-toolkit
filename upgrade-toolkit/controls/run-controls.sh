@@ -119,6 +119,9 @@ unset UPG_EXTRA UPG_ENV_FILE UPG_CA UPG_DRYRUN UPG_NAME
 # .../copilot-chat/debugCommand") split it, and 11 controls failed exit 127 on a healthy toolkit (2026-11-17)
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v ' ' | paste -sd: -); export PATH
 export UPG_COCKPIT_OPEN=0   # a control run never opens browser tabs (the live-cockpit controls turn it on with a stub opener)
+# Two suites on one machine share the mig-pg container: with fixed database names one run dropped the other's fixture
+# mid-control and 3 park/smoke-users controls FAILed on healthy branches (2026-11-19). Each run has its own names.
+export CTLDB=$$
 npass=0; nfail=0; nskip=0; failed=""; skipped=""
 
 # ctl NAME EXIT [PATTERN ...] -- CMD ...      PATTERN: egrep regex that must occur; !REGEX must not occur
@@ -1573,7 +1576,7 @@ else skip smoke-users-ambiguous-catch "no python bcrypt"; skip smoke-users-auto-
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to
 # MendixSSO.MendixSSOUser by role); real Postgres, because the choice is made inside the DO block
 # PR-F32: --sole-target leaves each role with its smoke user only (the workflow targets "all users with role X")
-holders() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f28 -tA <<'SQL'
+holders() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f28_$CTLDB -tA <<'SQL'
 select 'holders ' || string_agg(r.name || '=' || u.name, ',' order by r.name, u.name) from "system$userroles" ur
   join "system$user" u on u.id = ur."system$userid" join "system$userrole" r on r.id = ur."system$userroleid";
 SQL
@@ -1583,40 +1586,42 @@ elif [ -n "$only" ] && ! printf '%s\n' smoke-users-per-role-pass smoke-users-sha
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then
   skip smoke-users-per-role-pass "no running mig-pg or no python bcrypt"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28 && docker exec mig-pg createdb -U mendix fx_ctl_f28 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f28 -v ON_ERROR_STOP=1 < $FX/smoke-users/per-role.sql > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_f28_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f28_$CTLDB -v ON_ERROR_STOP=1 < $FX/smoke-users/per-role.sql > /dev/null
   ctl smoke-users-per-role-pass 0 'smoke_approver -> role Approver \(MendixSSO\.MendixSSOUser\)' 'smoke_viewer -> role Viewer \(Administration\.Account\)' \
     'smoke_admin -> role Admin \(Administration\.Account\)' \
     'smoke_ops -> role Ops \(MendixSSO\.MendixSSOUser\)' \
-    -- python3 $B/smoke_users.py fx_ctl_f28 --apply
+    -- python3 $B/smoke_users.py fx_ctl_f28_$CTLDB --apply
   ctl smoke-users-shared-roles-catch 0 'Approver=demo_approver,' '!sole target' -- sh -c "cat $T/out/smoke-users-per-role-pass.txt; $(declare -f holders); holders"
   ctl smoke-users-sole-target-pass 0 'sole target: role Approver taken from 2 other' 'smoke_approver took 2 domain link\(s\) of user id 14' 'sole target: role Admin taken from 3 other' \
     'holders Admin=smoke_admin,Approver=smoke_approver,Ops=smoke_ops,Viewer=smoke_viewer$' \
-    -- sh -c "python3 $B/smoke_users.py fx_ctl_f28 --sole-target --apply && $(declare -f holders); holders"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28 > /dev/null
+    -- sh -c "python3 $B/smoke_users.py fx_ctl_f28_$CTLDB --sole-target --apply && $(declare -f holders); holders"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28_$CTLDB > /dev/null
 fi
 # PR-F33: the park fixture assigns a waiting task whose only target is one user to that user, and nothing else (a
 # task two users may take, one already assigned, one completed); real Postgres, the statement is one CTE
-assignees() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f33 -tA -c "select 'assignees ' || string_agg(t.name || '=' || u.name, ',' order by t.name) from \"system\$workflowusertask_assignees\" a join \"system\$workflowusertask\" t on t.id = a.\"system\$workflowusertaskid\" join \"system\$user\" u on u.id = a.\"system\$userid\""; }
+assignees() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f33_$CTLDB -tA -c "select 'assignees ' || string_agg(t.name || '=' || u.name, ',' order by t.name) from \"system\$workflowusertask_assignees\" a join \"system\$workflowusertask\" t on t.id = a.\"system\$workflowusertaskid\" join \"system\$user\" u on u.id = a.\"system\$userid\""; }
 if [ $fast = 1 ]; then skip journeys-park-assign-pass "--fast"
 elif [ -n "$only" ] && ! printf '%s\n' journeys-park-assign-pass journeys-park-assign-again-pass | grep -Eq "$only"; then :
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg; then skip journeys-park-assign-pass "no running mig-pg"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33 && docker exec mig-pg createdb -U mendix fx_ctl_f33 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f33 -v ON_ERROR_STOP=1 < $FX/park/tasks.sql > /dev/null
-  PKA="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_f33', 0))"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_f33_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f33_$CTLDB -v ON_ERROR_STOP=1 < $FX/park/tasks.sql > /dev/null
+  PKA="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_f33_$CTLDB', 0))"
   ctl journeys-park-assign-pass 0 '^assigned \(1, None\)$' '^assignees t1=smoke_approver,t3=demo_receiver$' \
     -- sh -c "python3 -c \"\$0\" && $(declare -f assignees); assignees" "$PKA"
   ctl journeys-park-assign-again-pass 0 '^assigned \(0, None\)$' -- python3 -c "$PKA"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33 > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33_$CTLDB > /dev/null
   # PR-P1 on the real statement: the newest waiting task of each user stays unassigned
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1 && docker exec mig-pg createdb -U mendix fx_ctl_p1 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_p1 -v ON_ERROR_STOP=1 < $FX/park/tasks-many.sql > /dev/null
-  PKP="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_p1'))"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_p1_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_p1_$CTLDB -v ON_ERROR_STOP=1 < $FX/park/tasks-many.sql > /dev/null
+  PKP="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_p1_$CTLDB'))"
   ctl journeys-park-keep-pg-pass 0 '^assigned \(3, None\)$' -- python3 -c "$PKP"
   ctl journeys-park-keep-pg-again-pass 0 '^assigned \(0, None\)$' -- python3 -c "$PKP"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1 > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1_$CTLDB > /dev/null
 fi
+# every database a control creates in mig-pg carries this run's suffix, so two suites side by side never share one
+ctl controls-db-per-run-pass 0 '^fixed 0$' -- sh -c "grep -oE 'createdb -U [m]endix fx_[^ ]+' '$here/run-controls.sh' | grep -vc '_[$]CTLDB$' | sed 's/^/fixed /'"
 # PR-P1: the park step leaves the newest M waiting tasks of each user unassigned (default 1), so "Assign to me" /
 # "Assign to user" (rendered only for a task nobody holds) has a target. Purchase Request: "park: assigned 14" left every
 # card on "Unassign" and 10 baseline defects. SQLite runs the selection (ASSIGN_PICK: the same CTEs and WHERE as the
