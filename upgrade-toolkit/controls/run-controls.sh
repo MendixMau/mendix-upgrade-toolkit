@@ -3170,7 +3170,7 @@ ctl setup-check-refused-catch 1 'REFUSED, python modules missing for /fake/pytho
 # cold rfq run on a Mac: cloud/setup.sh crashed in the mxcli step. retry logged "$1 $2" under set -u, and a one-word
 # call (retry mxcli_checkout) died on "$2: unbound variable"; MXCLI_SRC defaulted to /opt/mendixlabs, which a non-root
 # user can't create. Both functions are sourced straight out of setup.sh.
-CS=$T/cloudsetup; mkdir -p $CS/home $CS/ro; chmod 555 $CS/ro
+CS=$T/cloudsetup; mkdir -p $CS/home; : > $CS/ro   # a file where the base folder should be: mkdir fails for root too, unlike a chmod 555 folder
 awk '/^log\(\) /; /^retry\(\) \{/,/^\}/; /^mxcli_src_default\(\) \{/,/^\}/' $B/cloud/setup.sh > $CS/fns.sh
 ctl cloudsetup-retry-oneword-catch 1 'retry in 2s: false' 'retry in 8s: false' '!unbound variable' -- bash -c "set -euo pipefail; sleep() { :; }; . $CS/fns.sh; retry false"
 ctl cloudsetup-mxcli-src-readonly-catch 0 "^$CS/home/mendixlabs/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/ro"
