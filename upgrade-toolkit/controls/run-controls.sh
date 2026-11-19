@@ -401,6 +401,50 @@ WRT="python3 $B/repair/widgetrestore.py $WR/cur --from $WR/old/App.mpr --doc Adm
 ctl widgetrestore-dry-catch 0 '^  RESTORE baseType: attr -> ref$' '^  RESTORE refEntity: \(unset\) -> System\.UserRoles$' 'dry run, rerun with --apply' -- $WRT
 ctl widgetrestore-apply-pass 0 'written, 2 setting\(s\) back' '^again: +nothing differs' '^keep=attr$' '^ids-renewed$' -- bash -c "$WRT --apply; echo again: \$($WRT | tail -1); python3 $WR/show.py $WR/cur/App.mpr"
 ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets named drop_downFilter1' -- python3 $B/repair/widgetrestore.py $WR/cur --from $WR/other/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1
+# exprparam_source.py (repair row 35, cold rfq): an expression text parameter that kept a source variable (a snippet
+# parameter, pasted from a snippet; CE7005 after the convert) loses it; an attribute parameter keeps its source
+PV=$T/pv; mkdir -p $PV/a
+cat > $PV/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid
+def I(): return uuid.uuid4().bytes
+def var(snip): return {"$ID": I(), "$Type": "Forms$PageVariable", "LocalVariable": "", "PageParameter": "",
+                       "SnippetParameter": snip, "UseAllPages": False, "Widget": ""}
+def text(n, expr, attr, src): return {"$ID": I(), "$Type": "Forms$DynamicText", "Name": n, "Content": {"$ID": I(),
+    "$Type": "Forms$ClientTemplate", "Parameters": [2, {"$ID": I(), "$Type": "Forms$ClientTemplateParameter",
+    "AttributeRef": attr, "Expression": expr, "SourceVariable": src}]}}
+date = "formatDateTime($Order/Placed)"
+page = {"$ID": I(), "$Type": "Forms$Page", "Name": "Order_Done", "Excluded": False,
+        "Parameters": [2, {"$ID": I(), "$Type": "Forms$PageParameter", "Name": "Order"}],
+        "LayoutCall": {"Arguments": [2, {"Widgets": [2, text("text1", date, None, var("Order")),
+                                                     text("text2", "", {"$ID": I(), "Attribute": "Shop.Order.Number"}, var("Order")),
+                                                     text("text3", date, None, None)]}]}}
+mod = {"$ID": I(), "$Type": "Projects$ModuleImpl", "Name": "Shop"}
+con = sqlite3.connect(f"{sys.argv[1]}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+m = uuid.uuid4().bytes_le
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (m, None, bson.encode(mod)))
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uuid.uuid4().bytes_le, m, bson.encode(page)))
+con.commit()
+EOF
+cat > $PV/show.py <<'EOF'
+import bson, sqlite3, sys
+for (b,) in sqlite3.connect(sys.argv[1]).execute("select Contents from Unit"):
+    d = bson.decode(b)
+    def walk(x, name):
+        if isinstance(x, dict):
+            name = x.get("Name") if isinstance(x.get("Name"), str) else name
+            if x.get("$Type") == "Forms$ClientTemplateParameter":
+                print(f"{name}: source={'none' if x['SourceVariable'] is None else x['SourceVariable']['SnippetParameter']}")
+            [walk(v, name) for v in x.values()]
+        elif isinstance(x, list):
+            [walk(v, name) for v in x]
+    walk(d, "?")
+EOF
+python3 $PV/mk.py $PV/a
+ctl exprparam-source-dry-catch 0 "^FIX Shop\.Order_Done text1: expression 'formatDateTime\(\\\$Order/Placed\)' carries SnippetParameter Order: removed$" '1 fix\(es\); dry run' '!text2' '!text3' -- python3 $B/repair/exprparam_source.py $PV/a
+ctl exprparam-source-apply-pass 0 '1 fix\(es\); written' '^again: exprparam_source: 0 fix\(es\); nothing to write$' '^text1: source=none$' '^text2: source=Order$' '^text3: source=none$' -- bash -c "python3 $B/repair/exprparam_source.py $PV/a --apply; echo again: \$(python3 $B/repair/exprparam_source.py $PV/a | tail -1); python3 $PV/show.py $PV/a/App.mpr"
+ctl exprparam-source-noproject-pass 2 'exprparam_source: .*expected exactly one \.mpr' -- python3 $B/repair/exprparam_source.py $PV
+ctl pipeline-build-exprparam-row35-catch 0 'has_code CE7005' 'try_fix "expression parameter source" repair-row-35 CE7005 python3 "\$B/repair/exprparam_source.py" "\$APP" --apply' -- grep -A2 'row 35' $B/cloud/upgrade-pipeline.sh
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP

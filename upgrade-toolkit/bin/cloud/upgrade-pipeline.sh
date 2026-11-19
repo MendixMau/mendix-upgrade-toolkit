@@ -1427,6 +1427,10 @@ step_build() {
      { [ "$DRY" != 1 ] && has_code CE2513; }; then
     try_fix "JavaVersion Java21" repair-row-0 CE2513 mxcli_run -p "$MPR" -c "alter settings model JavaVersion = 'Java21'"
   fi
+  # row 35: an expression text parameter that kept a source variable (9.24 ignored it, 10 says CE7005)
+  if [ "$DRY" = 1 ] || has_code CE7005; then
+    try_fix "expression parameter source" repair-row-35 CE7005 python3 "$B/repair/exprparam_source.py" "$APP" --apply
+  fi
   # rows 2 and 3: always, before the first build
   rc=0; xo "$WORK/logs/sync-java.log" heavy sync "$TARGET" mx sync-java-dependencies "$MPR" || rc=$?
   if [ "$rc" != 0 ]; then
