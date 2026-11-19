@@ -43,6 +43,9 @@ Three rules, all dry-run unless --apply (commit first: git is the undo). Every j
     ADD-ON", and with it every jar of the same absent module (its runtime dependencies, jackson and codec, show in no
     import line); when an add-on's Java cannot be read (unreadable zip, or classes/jars and no .java), no STALE jar is
     removed: kept as UNPROVEN, review by hand.
+ GM-27: a marker token that is not a module name (a Maven artifact such as databroker-business-events-module) is mapped to
+    its module through the module's installed package (it ships the marker file) or the artifact's own jar (packages the
+    module's Java declares or imports); owner found = known. Owner not found = "KEEP UNKNOWN", never STALE.
  3. OLD-VERSION markers (N3-17, T1R-13): some modules version their markers, <jar>.<Module>.<version>.RequiredLib
     ('*.MendixSSO.4.1.0'). A module's version is the one installed in the .mpr (AppStoreVersion, read with mprmodel)
     when that is newer than its markers, else its newest marker version; a marker of an older version is a leftover. A
@@ -248,6 +251,53 @@ def module_known(project, mod, extra):
     return False
 
 
+IDENT = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def is_artifact_token(tok):
+    """A Mendix module name is an identifier. A marker token that is not one ('databroker-business-events-module',
+    a Maven artifact name, GM-27) names an artifact: it is never matched as a module name."""
+    return not IDENT.match(tok)
+
+
+def artifact_owner(project, tok, marker):
+    """The module a marker that names an ARTIFACT belongs to (GM-27), from data the app already holds, or None.
+    1. The module's own installed package ships the marker file (userlib/<jar>.<artifact>.RequiredLib in its .mpk).
+    2. The artifact's own jar (userlib/ or vendorlib/ <artifact>-<version>.jar) holds packages that a module's Java
+       (javasource/<module>/ or an add-on) declares or imports.
+    Nothing is guessed from the artifact's spelling: no match = None (the caller reports UNKNOWN, never STALE)."""
+    js = os.path.join(project, "javasource")
+    jmods = sorted(d for d in (os.listdir(js) if os.path.isdir(js) else []) if os.path.isdir(os.path.join(js, d)))
+    for m in sorted(set(installed_modules(project)) | set(jmods)):
+        pk = package_userlib(project, m)
+        if pk and marker in pk[0]:
+            return m
+    pkgs = set()
+    for d in ("userlib", "vendorlib"):
+        base = os.path.join(project, d)
+        for j in (os.listdir(base) if os.path.isdir(base) else []):
+            if j.endswith(".jar") and re.match(re.escape(tok) + r"-\d", j):
+                pkgs |= jar_packages(os.path.join(base, j))
+    if not pkgs:
+        return None
+    own = lambda i: any(i == q or i.startswith(q + ".") for q in pkgs)
+    for m in jmods:
+        for root, _, fs in os.walk(os.path.join(js, m)):
+            for f in fs:
+                if f.endswith(".java"):
+                    try:
+                        t = open(os.path.join(root, f), errors="replace").read()
+                    except OSError:
+                        continue
+                    pk = {x.group(1) for x in re.finditer(r"^\s*package\s+([\w.]+)\s*;", t, re.M)}
+                    if any(own(i) for i in java_imports(t) | pk):
+                        return m
+    for i, adds in addon_java(project)[0].items():
+        if own(i):
+            return sorted(adds)[0]
+    return None
+
+
 def imported_packages(project):
     """Every package that the app's own javasource imports (dotted prefixes)."""
     pk = set()
@@ -421,7 +471,20 @@ def plan(project, extra=frozenset()):
     for r in jars.values():
         if r["dir"] != "userlib" or not r["mods"]:
             continue
-        gone_m = sorted({mod for _, mod, _ in r["mv"] if not module_known(project, mod, extra)})
+        gone_m, unk_m = set(), set()
+        for f, mod, _ in r["mv"]:
+            if is_artifact_token(mod):   # GM-27: an artifact name is mapped to its module, never matched as one
+                if artifact_owner(project, mod, f) or module_known(project, mod, extra):
+                    continue
+                unk_m.add(mod)
+            elif not module_known(project, mod, extra):
+                gone_m.add(mod)
+        gone_m = sorted(gone_m)
+        if unk_m:   # the owner cannot be determined: never STALE on a guess
+            out.append(("KEEP", r, f"UNKNOWN: marker names artifact {', '.join(sorted(unk_m))}, whose module cannot be "
+                        f"determined (no installed package ships the marker, no javasource or add-on uses the artifact's "
+                        f"jar): review by hand", 2))
+            continue
         old = [(f, mod, v) for f, mod, v in r["mv"] if mod not in gone_m and v and vkey(v) < vkey(cur[mod])]
         live = [x for x in r["mv"] if x[1] not in gone_m and x not in old]
         if live:
