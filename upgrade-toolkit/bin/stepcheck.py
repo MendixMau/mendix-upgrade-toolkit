@@ -95,8 +95,8 @@ def main():
          f"before this update{' (' + says + ')' if says else ''}. The app would not build until they are repaired. What should we do?")
     print(f"Q\t{q}")
     print("R\tkeep")
-    print(f"O\tkeep|Keep {mod} at the installed version|The update is undone and {mod} stays as it is, so the app checks as clean as before; "
-          f"modules that need the newer {mod} are listed as kept")
+    print(f"O\tkeep|Keep {mod} at the installed version|The update is undone and {mod} stays as it is, so the app has no more errors than before; "
+          f"modules whose update needs the newer {mod} are reported before the build")
     print(f"O\taccept|Carry on with the update and repair these errors in the build step|The update stays, the app does not build until "
           f"each error is repaired (steps/repair.md), and these errors are listed there")
     print(f"O\thand|Stop here and look at the errors first|The update is undone and the run stays stopped; nothing else changes")

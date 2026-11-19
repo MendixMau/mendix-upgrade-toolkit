@@ -270,7 +270,10 @@ stepcheck_before() {  # the log of the app as it stands now (HEAD, nothing of th
   [ -n "$stepchk" ] || return 0
   local head; head=$(git -C "$app" rev-parse HEAD 2> /dev/null)
   if [ "$(cat "$st/check-head" 2> /dev/null)" != "$head" ] || [ ! -s "$st/check-prev.log" ]; then
-    stepcheck_run "$st/check-prev.log"; echo "$head" > "$st/check-head"
+    stepcheck_run "$st/check-prev.log"
+    # a crashed check says nothing about this HEAD: do not remember it, so the next step checks again
+    if grep -q '\[MXCHECK\]' "$st/check-prev.log" || ! grep -q 'The app contains:' "$st/check-prev.log"; then rm -f "$st/check-head"
+    else echo "$head" > "$st/check-head"; fi
   fi
 }
 BASELINE_GONE='range from 9.18.0 to 9.24.99|range from 10.21.0 to 10.24.99|expected redirect|re-run with --no-baseline|HTTP 500'

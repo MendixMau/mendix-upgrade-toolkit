@@ -1286,8 +1286,10 @@ run_stepupdate() { # run_stepupdate PLAN label
   if [ "$rc" = 4 ] && [ "$DRY" != 1 ]; then stepcheck_stop "$2" || true; fi
   # a batch-end finding is said here, with the cause still near; the stop stays the total idcheck after the routes and replays
   # (a route restores GUIDs, so stopping before them would stop on what they repair)
-  if [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+  if [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK original' "$WORK/stepupdate-$2.out" 2> /dev/null; then
     note "idcheck original -> now after the $2 batch has open finding(s): $(grep -c '^   BATCH-IDCHECK' "$WORK/stepupdate-$2.out") listed in $WORK/stepupdate-$2.out; the total idcheck decides after the routes and replays"
+  elif [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK could not run' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "batch idcheck not run after the $2 batch, see $WORK/stepupdate-$2.out; the total idcheck after the routes and replays still runs"
   fi
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0

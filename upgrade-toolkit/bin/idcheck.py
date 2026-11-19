@@ -19,7 +19,7 @@ Exit: 0 = no open data-bearing finding, 1 = open data-bearing findings (RED), 2 
 
 Step mode (one module update at a time): OLD = the previous commit (git show HEAD:app.mpr > prev.mpr), NEW = the
 working copy, --approved = findings already accepted in writing (one fnmatch pattern per line on the element name
-or on "FINDING kind name", then " # reason"), --baseline = the ORIGINAL app before the upgrade. A step finding is
+or on "FINDING kind name", then " # reason"). A bare element name approves a removal only; GUID_CHANGED and READDED_NEW_GUID need the keyed form "READDED_NEW_GUID attribute Mod.Entity.Attr", --baseline = the ORIGINAL app before the upgrade. A step finding is
 then approved automatically when it is net zero against the original: REMOVED of an element the original never had
 (a step added it, a later step removed it again; the GUID must be new too, not only the name), or GUID_CHANGED back to the original GUID. Every auto-approval is
 printed with its reason. Comparing every step against the original instead goes blind after the first accepted
@@ -299,8 +299,11 @@ def apply_approvals(findings, approved, base):
         if not x["data"]:
             continue
         key = f"{x['finding']} {x['kind']} {x['name']}"
+        # a bare element name approves a removal; it must not approve an identity finding: editroute writes bare names for
+        # replayed associations, and that line would otherwise hide the GUID that came back different (GM-24)
+        keyed_only = x["finding"] in ("READDED_NEW_GUID", "GUID_CHANGED")
         for pat, why in approved:
-            if fnmatch.fnmatch(x["name"], pat) or fnmatch.fnmatch(key, pat):
+            if fnmatch.fnmatch(key, pat) or (not keyed_only and fnmatch.fnmatch(x["name"], pat)):
                 x["approved"] = f"approved: {why}"
                 break
         if base is not None and "approved" not in x:
