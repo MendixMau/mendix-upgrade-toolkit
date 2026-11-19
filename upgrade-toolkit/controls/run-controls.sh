@@ -197,14 +197,15 @@ echo '{"from": "'$FX'/models/base.json", "ops": [["delete", "modules/1/entities/
 python3 $here/lib/mkmodel.py $T/rd-old.json $M/rd-old > /dev/null
 ctl idcheck-readded-new-guid-catch 1 '^RED +READDED_NEW_GUID +attribute +MFAmodule\.MFA\.QR_Url' 'verdict: FAIL' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr
 ctl idcheck-readded-same-guid-pass 0 'verdict: PASS' '!READDED_NEW_GUID' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/base/App.mpr --baseline $M/base/App.mpr
-# a bare element name (editroute writes these into approved-step.txt for a replayed association) must not approve the identity findings:
-# only the keyed form does. Bare name alone -> still FAIL; keyed form -> PASS
+# a bare element name (editroute writes these into approved-step.txt for a replayed association) must not approve READDED_NEW_GUID:
+# only the keyed form does. Bare name alone -> still FAIL; keyed form -> PASS. GUID_CHANGED keeps bare-name approvals (hand-written
+# approved.txt files rely on it; flipping it would change their verdicts with no hint)
 echo 'MFAmodule.MFA.QR_Url  # editroute XASSOC: replayed' > $T/ap-bare.txt
 echo 'READDED_NEW_GUID attribute MFAmodule.MFA.QR_Url  # owner accepted the new GUID' > $T/ap-keyed.txt
 echo 'GUID_CHANGED attribute MFAmodule.MFA.QR_Url  # owner accepted the new GUID' > $T/ap-keyed-gc.txt
 ctl idcheck-readded-bare-name-not-approved-catch 1 '^RED +READDED_NEW_GUID +attribute +MFAmodule\.MFA\.QR_Url' 'verdict: FAIL' '1 open' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr --approved $T/ap-bare.txt
 ctl idcheck-readded-keyed-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/rd-old/App.mpr $M/guid-changed/App.mpr --baseline $M/base/App.mpr --approved $T/ap-keyed.txt
-ctl idcheck-guid-changed-bare-name-not-approved-catch 1 '^RED +GUID_CHANGED +attribute +MFAmodule\.MFA\.QR_Url' 'verdict: FAIL' -- python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-bare.txt
+ctl idcheck-guid-changed-bare-name-still-approved-pass 0 'verdict: PASS' '!^RED ' -- python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-bare.txt
 ctl idcheck-guid-changed-keyed-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-keyed-gc.txt
 ctl idcheck-removed-bare-name-still-approved-pass 0 'verdict: PASS' -- python3 $B/idcheck.py $M/base/App.mpr $M/rd-old/App.mpr --approved $T/ap-bare.txt
 # GM-24: net zero needs the GUID too. Old has QR_Url2 carrying the ORIGINAL QR_Url's GUID (an earlier step renamed it), new drops it:

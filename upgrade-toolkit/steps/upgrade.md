@@ -34,8 +34,8 @@ Goal: reach the target version with every step proven not to change a runtime id
    GUID (a drop accepted at one step, the owner's update re-adding it at the next: the data stays in the old GUID's table;
    put the original GUID back with `restore_guid.py`). The net-zero auto-approval needs the GUID as well as the name.
    - approved.txt: one fnmatch pattern per line on the element or "FINDING kind name", then `# reason`. Only for
-     findings accepted in writing. A bare element name approves a removal only; `GUID_CHANGED` and `READDED_NEW_GUID` are
-     approved only by the keyed form, e.g. `READDED_NEW_GUID attribute Mod.Entity.Attr # reason` (a bare name, such as the
+     findings accepted in writing. A bare element name does not approve `READDED_NEW_GUID`; it is approved only by the
+     keyed form, e.g. `READDED_NEW_GUID attribute Mod.Entity.Attr # reason` (a bare name, such as the
      lines editroute writes into approved-step.txt, would otherwise hide a GUID that came back different).
    - Local edits refusal ("Save them first: --save-edits"). stepupdate names the edited element kinds. UI only
      (pages, layouts, snippets, images): rerun with `--force-ui <Module>`; the edits are saved under
