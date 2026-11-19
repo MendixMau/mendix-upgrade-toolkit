@@ -30,7 +30,8 @@
 # Judgment stops write $WORK/NEEDS-JUDGMENT.md. Exit codes:
 #    0 gate PASS, nothing left for a person
 #    2 usage / version-path error
-#    3 missing tool or setup (run bin/cloud/setup.sh), or an mxcli of another version than the run's (bin/mxcli_pin.sh)
+#    3 missing tool or setup (run bin/cloud/setup.sh), an mxcli of another version than the run's (bin/mxcli_pin.sh), or the app dir
+#      is not a working git tree at a step start (bin/apptree.sh, GM-10)
 #    4 a fixed step failed unexpectedly (see the log named in the message)
 #   10 mx check / mxbuild / quick start errors after convert+update: repair needed (steps/repair.md)
 #   11 journeys INVALID or FAIL on the old app or the new one: fix the journey or write the todo (steps/journeys.md)
@@ -2354,6 +2355,10 @@ run_step() { # run_step NAME
   decisions_apply
   if [ "$DRY" != 1 ] && [ -f "$WORK/state/$STEP.done" ] && [ "$ONLY" != "$STEP" ]; then
     printf '%-10s %s\n' "$STEP" "skipped (done $(cat "$WORK/state/$STEP.done"))"; return 0
+  fi
+  # GM-10: the app's git tree is checked at the start of every step after fetch (a worktree whose main clone was deleted mid-run)
+  if [ "$STEP" != fetch ] && [ "$DRY" != 1 ] && [ -d "${APP:-}" ] && ! bash "$B/apptree.sh" "$APP"; then
+    echo "upgrade-pipeline.sh: STOP before step '$STEP': the app's git tree is not usable (exit 3). Fix it, then rerun (finished steps are skipped)." >&2; exit 3
   fi
   mxcli_pin "$STEP"
   [ "$DRY" = 1 ] || { : > "$NJ_TMP"; rm -f "$WORK/parked/$STEP.md"; }   # a step that runs again parks afresh

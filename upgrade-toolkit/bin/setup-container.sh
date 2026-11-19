@@ -19,6 +19,11 @@
 # Outside the run folder (DV-1): a normal run first prints "This setup writes outside the run folder:", built from the variables
 #   the steps use (MX_HOME, MXCLI_SRC, ANTLR_JAR, PW_DIR, ...); --plan prints only that list and exits 0 before anything is changed
 #   (no folder is made, docker is only asked `docker info`).
+# Docker that does not answer (GM-4, a hung Docker Desktop used to block setup for good): every SHORT docker call (info, image inspect)
+#   is bounded by UPG_DOCKER_TIMEOUT seconds (default 20) and, on timeout, says "docker did not answer in 20 s: is the daemon hung?
+#   restart Docker Desktop / dockerd" and stops setup (exit 1; --plan only reports it and goes on). The bound is `timeout` or `gtimeout`
+#   when installed, else a background-and-kill fallback in plain bash 3.2 (macOS has no `timeout`). `docker pull` and `docker build` are
+#   NOT bounded: they legitimately run for minutes, and a dead daemon is caught by the bounded calls before them.
 #
 # Why this file (SETUP-1): every batch-1 to batch-3 worker copied T1's runs/t1-purchase-request/setup.sh by hand and
 # re-learned its traps. Each step below was needed in a real run (T1, T2, N1 JOURNAL.md):
@@ -42,6 +47,25 @@ fi
 shift
 TK=$(cd "$(dirname "$0")/.." && pwd); REPO=$(cd "$TK/.." && pwd)
 log(){ echo "[setup $(date -u +%H:%M:%S)] $*"; }
+# GM-4: bounded docker. upg_timeout SECS CMD...: CMD's exit code, or 124 when it was killed at SECS (bash 3.2: no declare -A, mapfile, GNU-only flags)
+UPG_DOCKER_TIMEOUT=${UPG_DOCKER_TIMEOUT:-20}
+upg_timeout() {
+  local secs=$1 tmo="" c pid wd flag rc; shift
+  for c in timeout gtimeout; do command -v "$c" >/dev/null 2>&1 && { tmo=$c; break; }; done
+  if [ -n "$tmo" ]; then "$tmo" "$secs" "$@"; return $?; fi
+  flag=$(mktemp "${TMPDIR:-/tmp}/upg-timeout.XXXXXX") || return 1; rm -f "$flag"
+  "$@" & pid=$!
+  ( sleep "$secs"; : > "$flag"; pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 & wd=$!
+  rc=0; wait "$pid" 2>/dev/null || rc=$?
+  pkill -P "$wd" 2>/dev/null; kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null || true
+  if [ -e "$flag" ]; then rm -f "$flag"; return 124; fi
+  return $rc
+}
+dk() { upg_timeout "$UPG_DOCKER_TIMEOUT" docker "$@"; }
+dk_hung_msg() { echo "setup: docker did not answer in ${UPG_DOCKER_TIMEOUT} s: is the daemon hung? restart Docker Desktop / dockerd, then rerun setup" >&2; }
+dk_hung_die() { dk_hung_msg; exit 1; }
+# have_image IMG: 0 = present, 1 = absent; a hung daemon stops setup (a pull or build against it would hang too)
+have_image() { local rc=0; dk image inspect "$1" >/dev/null 2>&1 || rc=$?; [ "$rc" != 124 ] || dk_hung_die; [ "$rc" = 0 ]; }
 want(){ [ -z "${UPG_SETUP_STEPS:-}" ] || [[ ",$UPG_SETUP_STEPS," == *",$1,"* ]]; }
 PY=${UPG_PYTHON:-python3}
 MX_HOME=$HOME/Mendix; TK_LINK=$MX_HOME/mxcli-project-toolkit   # step 1
@@ -58,7 +82,9 @@ outside_plan() {
   want link && echo "  - $TK_LINK (old-style link to this clone; created only if absent) in $MX_HOME"
   want zsh && ! command -v zsh >/dev/null && echo "  - system packages: zsh (apt-get install)"
   if want docker; then
-    if docker info >/dev/null 2>&1; then echo "  - dockerd: already running, not started (docker images are added to its store)"
+    prc=0; dk info >/dev/null 2>&1 || prc=$?
+    if [ $prc = 0 ]; then echo "  - dockerd: already running, not started (docker images are added to its store)"
+    elif [ $prc = 124 ]; then [ $PLAN = 0 ] || dk_hung_msg; echo "  - dockerd: did not answer in ${UPG_DOCKER_TIMEOUT} s (hung?); a real run stops here until it is restarted"
     else echo "  - dockerd: will be started (nohup dockerd; its log goes to the run folder)"; fi
   fi
   want images && echo "  - docker images in the docker store: eclipse-temurin:11-jdk, eclipse-temurin:21-jdk, postgres:16, mig-mx10, e5-mx9 (and e5-mx9-mono for Mendix 9 below 9.20)"
@@ -118,28 +144,30 @@ command -v zsh >/dev/null || { echo "setup: zsh missing and apt-get could not in
 
 # 3 docker daemon
 if want docker; then
-  if ! docker info >/dev/null 2>&1; then
+  irc=0; dk info >/dev/null 2>&1 || irc=$?
+  [ $irc != 124 ] || dk_hung_die   # a daemon that is there but hung: starting a second dockerd would not help
+  if [ $irc != 0 ]; then
     log "starting dockerd"
     (nohup dockerd > "$R/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 30); do dk info >/dev/null 2>&1 && break; sleep 1; done
   fi
-  docker info --format 'docker {{.ServerVersion}} {{.Driver}}'
+  dk info --format 'docker {{.ServerVersion}} {{.Driver}}' || { [ $? != 124 ] || dk_hung_die; echo "setup: docker is not answering (dockerd did not start; log $R/dockerd.log)" >&2; exit 1; }
 fi
 
 # 4 images: Docker Hub answers 429 from a shared egress IP, so pull from a mirror and retag
 want images && for img in eclipse-temurin:11-jdk eclipse-temurin:21-jdk postgres:16; do
-  docker image inspect $img >/dev/null 2>&1 && continue
+  have_image $img && continue
   docker pull --platform linux/amd64 -q $img >/dev/null 2>&1 && continue   # S2: mxrun.sh runs linux/amd64; an arm64 pull (Apple Silicon) would not match
   for m in mirror.gcr.io/library public.ecr.aws/docker/library; do
     docker pull --platform linux/amd64 -q $m/$img >/dev/null 2>&1 && docker tag $m/$img $img && break
   done
-  docker image inspect $img >/dev/null 2>&1 || { echo "setup: could not pull $img" >&2; exit 1; }
+  have_image $img || { echo "setup: could not pull $img" >&2; exit 1; }
 done
 # apt inside the build: plain http through the agent proxy is 405, direct port 80 works with --network host
-want images && { docker image inspect mig-mx10 >/dev/null 2>&1 || docker build --platform linux/amd64 -q --network host -t mig-mx10 -f "$TK/bin/docker/Dockerfile.mx10" "$TK/bin/docker"
-docker image inspect e5-mx9  >/dev/null 2>&1 || docker build --platform linux/amd64 -q --network host -t e5-mx9  -f "$TK/bin/docker/Dockerfile.mx9"  "$TK/bin/docker"
+want images && { have_image mig-mx10 || docker build --platform linux/amd64 -q --network host -t mig-mx10 -f "$TK/bin/docker/Dockerfile.mx10" "$TK/bin/docker"
+have_image e5-mx9 || docker build --platform linux/amd64 -q --network host -t e5-mx9  -f "$TK/bin/docker/Dockerfile.mx9"  "$TK/bin/docker"
 # BT-1: Mendix 9 before 9.20 has a Mono-era mxbuild: the same image plus Mono
-for v in "$@"; do [ "${v%%.*}" = 9 ] && [ "$(echo "$v" | cut -d. -f2)" -lt 20 ] && { docker image inspect e5-mx9-mono >/dev/null 2>&1 || docker build --platform linux/amd64 -q --network host -t e5-mx9-mono -f "$TK/bin/docker/Dockerfile.mx9-mono" "$TK/bin/docker"; break; }; done; }
+for v in "$@"; do [ "${v%%.*}" = 9 ] && [ "$(echo "$v" | cut -d. -f2)" -lt 20 ] && { have_image e5-mx9-mono || docker build --platform linux/amd64 -q --network host -t e5-mx9-mono -f "$TK/bin/docker/Dockerfile.mx9-mono" "$TK/bin/docker"; break; }; done; }
 
 # rsync before the first thing that needs it: mxcli's Makefile calls it (step 5), design_props_guard.sh does (step 7). A fresh
 # container has none: "make: rsync: No such file or directory", exit 2, at the mxcli build. Idempotent; step 11 still refuses a run without it.

@@ -8668,6 +8668,26 @@ ctl setup-prompt-attended-variant-catch 1 '^FAIL: no marked attended block$' -- 
 ctl setup-prompt-default-sentence-catch 1 '^FAIL: the unattended default sentence is missing$' -- bash -c "sed '/^Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says PASS\.$/d' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-default-sentence-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-default-sentence-catch.md"
 ctl setup-prompt-bad-flag-catch 1 '^FAIL: named flag is in no script: --sign-for-owner$' -- bash -c "sed 's/--source chat/--source chat --sign-for-owner/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-bad-flag-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-bad-flag-catch.md"
 ctl setup-prompt-never-sign-removed-catch 1 '^FAIL: attended block lacks: You never sign for me$' -- bash -c "sed 's/You never sign for me/You may sign for me/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-never-sign-removed-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-never-sign-removed-catch.md"
+# GM-4: a docker that never answers (hung Docker Desktop) must not hang setup-container.sh: its short docker calls are bounded
+# (UPG_DOCKER_TIMEOUT, 2 s here), the message says what to do, and the fallback without `timeout` on PATH does the same.
+DH=$TK/controls/docker_hang_control.sh
+ctl setup-docker-hang-bounded-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\? restart Docker Desktop / dockerd' -- bash $DH timeout
+ctl setup-docker-hang-no-timeout-fallback-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\?' -- bash $DH fallback
+ctl setup-docker-image-inspect-hang-catch 0 '^elapsed ok$' '^rc=1$' 'docker did not answer in 2 s: is the daemon hung\?' '!could not pull' -- bash $DH images
+ctl setup-docker-hang-plan-reports-pass 0 '^elapsed ok$' '^rc=0$' 'dockerd: did not answer in 2 s' -- bash $DH plan
+# GM-10: the app's git tree is checked at the start of every step. A worktree of a deleted clone: clear message, exit 2.
+G10=$T/gm10; mkdir -p $G10/main $G10/shim
+for v in step1-adds guid-changed; do mkdir -p $G10/$v; cp $M/$v/App.mpr $G10/$v/; done
+cp $M/base/App.mpr $G10/main/App.mpr
+(cd $G10/main && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base && git worktree add -q --detach $G10/app)
+printf '120743 1.6.0 step1-adds\n120743 1.7.0 guid-changed\n' > $G10/plan.txt
+rm -rf $G10/main
+ctl stepupdate-deleted-clone-worktree-catch 2 "$G10/app is not a working git tree" 'git said: fatal' 'git worktree prune' 're-clone app/' '!committed' -- env UPG_UPDATE_CMD="cp $G10/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $G10/app $G10/plan.txt
+# the same loss BETWEEN steps: a git that starts failing `rev-parse` once step 1 is done (the clone deleted mid-run)
+G10B=$T/gm10b; mkdir -p $G10B/app $G10B/shim; cp $M/base/App.mpr $G10B/app/App.mpr; cp $G10/plan.txt $G10B/plan.txt
+(cd $G10B/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+printf '#!/bin/sh\nif [ -e "%s/break" ] && [ "$1" = -C ] && [ "$3" = rev-parse ]; then echo "fatal: not a git repository: /gone/.git/worktrees/app" >&2; exit 128; fi\nexec %s "$@"\n' "$G10B" "$(command -v git)" > $G10B/shim/git; chmod +x $G10B/shim/git
+ctl stepupdate-clone-lost-between-steps-catch 2 'committed' "STOP at step 2 \\(guid-changed\\)" 'not a working git tree' 'fatal: not a git repository' 'rerun with --from guid-changed' -- env PATH="$G10B/shim:$PATH" UPG_UPDATE_CMD="cp $G10/{module}/App.mpr {mpr} && touch $G10B/break" bash $B/stepupdate.sh $G10B/app $G10B/plan.txt
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
