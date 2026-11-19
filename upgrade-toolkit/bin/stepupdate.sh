@@ -106,12 +106,21 @@
 # Kept-module dependencies (T6R-7): when kept.txt is not empty at the end of a pass, bin/keptdeps.py checks every module
 #   with a "step:" commit against every kept module, both ways (the updated one needs a name the kept one lacks; the kept
 #   one calls a name the update removed): FAIL / REVIEW lines with the pair, in .stepupdate/keptdeps.txt; exit 1.
+# Model check per step (GM-23, A-1): when UPG_STEPCHECK_CMD is set (the pipeline sets it to bin/stepcheck-run.sh), `mx check` runs on
+#   the app before the first step and after every step, BEFORE the commit; bin/stepcheck.py compares the two. An error the step
+#   added (a line the check before did not have) undoes the step, writes .stepupdate/stepcheck-stop.txt (the question, the options
+#   and what each writes, in the shape bin/widgetfix.py prints) and exits 4: nothing is committed. --unattended does not keep the
+#   module for this; a person answers (keep the module, or accept the errors for it: --check-accepted FILE, lines `<Module> <CODE,..>`).
+#   A check that cannot finish (mx died, no toolset) is NOT RUN, never "0 errors": said in the output and in the summary, exit 1.
+# Batch end (GM-24): with --baseline, idcheck ORIGINAL -> NOW runs when the batch ends, over --approved-total FILE (default
+#   --approved; the pipeline passes approved.txt without the step-only acceptances). A finding is printed as BATCH-IDCHECK and exits 1.
 # Exit: 0 = every line done, 1 = stopped on a finding (or, with --unattended, at least one module kept or NETWORK,
-#       or a kept-module dependency FAIL / REVIEW / INVALID),
-#       2 = input error or a failed update, 3 = TOOL ERROR (fix the toolchain and rerun with --from <Module>).
+#       or a kept-module dependency FAIL / REVIEW / INVALID, or a BATCH-IDCHECK finding, or a model check that did not run),
+#       2 = input error or a failed update, 3 = TOOL ERROR (fix the toolchain and rerun with --from <Module>),
+#       4 = a step added model errors (stepcheck-stop.txt; the step is undone, a person decides).
 set -u
 if [ "${STEPUPDATE_SNAPSHOT:-}" = "" ]; then
-  [ $# -ge 2 ] || { sed -n '2,76p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+  [ $# -ge 2 ] || { sed -n '2,120p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
   app=$(cd "$1" 2>/dev/null && pwd) || { echo "stepupdate: no app dir $1" >&2; exit 2; }
   src=$(cd "$(dirname "$0")" && pwd)
   mkdir -p "$app/.stepupdate"
@@ -123,7 +132,7 @@ bin=$(cd "$(dirname "$0")" && pwd)
 # kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
 steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
-approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""
+approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""; chkacc=""; apptotal=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --approved) approved=$2; shift 2;;
@@ -139,6 +148,8 @@ while [ $# -gt 0 ]; do
     --accept-unsaved) acceptun=",$2,"; shift 2;;
     --no-convert-made) convmade=0; shift;;
     --localedits) ledits=$2; shift 2;;
+    --check-accepted) chkacc=$2; shift 2;;
+    --approved-total) apptotal=$2; shift 2;;
     *) echo "stepupdate: unknown option $1" >&2; exit 2;;
   esac
 done
@@ -248,6 +259,20 @@ hasfiles() {  # hasfiles MODULE: does the app carry themesource/javascriptsource
 assoc_other() {  # assoc_other LOG MODULE: ASSOCIATION rows of the refusal that another module OWNS (mxcli v0.28.0, #1502)
   sed -n '/refusing to update/,/Save them first/p' "$1" | awk -v m="$2" '$1 == "ASSOCIATION" { split($2, a, "."); if (a[1] != m) print $2 }'
 }
+# GM-23: the model check around each step. stepcheck_run LOG runs UPG_STEPCHECK_CMD ({mpr} and {log} filled in, quoted).
+stepchk=${UPG_STEPCHECK_CMD:-}; nchknot=0; chknotrun=""
+stepcheck_run() {
+  local c; c=$(subst "$stepchk" mpr "$app/$mpr"); c=$(subst "$c" log "$1")
+  rm -f "$1"; (cd "$app" && bash -c "$c") > "$st/stepcheck-run.out" 2>&1 || true
+  [ -s "$1" ] || printf '[error] [MXCHECK] the check command wrote no log: %s\n' "$(head -1 "$st/stepcheck-run.out" | cut -c1-200)" > "$1"
+}
+stepcheck_before() {  # the log of the app as it stands now (HEAD, nothing of this step yet); reused when the last step's check was of this HEAD
+  [ -n "$stepchk" ] || return 0
+  local head; head=$(git -C "$app" rev-parse HEAD 2> /dev/null)
+  if [ "$(cat "$st/check-head" 2> /dev/null)" != "$head" ] || [ ! -s "$st/check-prev.log" ]; then
+    stepcheck_run "$st/check-prev.log"; echo "$head" > "$st/check-head"
+  fi
+}
 BASELINE_GONE='range from 9.18.0 to 9.24.99|range from 10.21.0 to 10.24.99|expected redirect|re-run with --no-baseline|HTTP 500'
 n=0; started=0
 [ -z "$from" ] && started=1
@@ -271,6 +296,7 @@ while read -r cid ver mod rest; do
   git -C "$app" archive HEAD -- "${prevp[@]}" | tar -x -C "$st/prevtree" || exit 2
   prevmpr="$st/prevtree/$mpr"
   fstate=none
+  stepcheck_before
   if hasfiles "$mod"; then
     # T5-17: files outside the model, compared with the installed package BEFORE the update, and kept as a snapshot
     # B4N1-4: the plan's content id goes along (an 11.x MPR records none: every module with files was FILES-UNKNOWN)
@@ -583,12 +609,27 @@ PY
       echo "STOP: $mod wrote $bsl file(s) with a backslash in the name and the move was refused (see .stepupdate/step$n-$mod.backslash). Nothing committed."; exit 2
     fi
   fi
+  # GM-23 / A-1: read the model check before the commit, never after it (a chained "update && git commit" committed 31 CE1613)
+  if [ -n "$stepchk" ]; then
+    stepcheck_run "$st/step$n-$mod.check"
+    python3 "$bin/stepcheck.py" "$st/check-prev.log" "$st/step$n-$mod.check" --module "$mod" --version "$ver" ${chkacc:+--accepted "$chkacc"} --fields > "$st/step$n-$mod.stepcheck" 2>&1; crc=$?
+    grep -E '^(NEW|stepcheck:)' "$st/step$n-$mod.stepcheck" | sed 's/^/   /'
+    case $crc in
+      0) cp "$st/step$n-$mod.check" "$st/check-prev.log.next";;
+      1) grep -E '^[QROWB]	' "$st/step$n-$mod.stepcheck" > "$st/stepcheck-stop.txt"
+         revert; rm -f "$st/check-prev.log.next"
+         echo "STOP: $mod $ver adds model errors (see .stepupdate/step$n-$mod.stepcheck). Step undone, nothing committed; a person decides (.stepupdate/stepcheck-stop.txt)."; exit 4;;
+      *) echo "   STEPCHECK NOT RUN: the model check after $mod did not finish ($(head -1 "$st/step$n-$mod.stepcheck" | cut -c1-160)); the step is committed on the data check alone"
+         nchknot=$((nchknot + 1)); chknotrun="${chknotrun:+$chknotrun,}$mod"; rm -f "$st/check-prev.log.next";;
+    esac
+  fi
   git -C "$app" add -A . || { echo "STOP: git add failed"; exit 2; }
   if git -C "$app" diff --cached --quiet; then
     echo "   no change to commit"
   else
     git -C "$app" commit -qm "step: $mod $ver (stepupdate, idcheck PASS$([ $conv = 1 ] && echo ", $forced"))" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: module-update stepupdate'; steptrailer module-update)" || { echo "STOP: git commit failed"; exit 2; }
     echo "   committed $(git -C "$app" rev-parse --short HEAD)"; ncommit=$((ncommit + 1))
+    if [ -f "$st/check-prev.log.next" ]; then mv "$st/check-prev.log.next" "$st/check-prev.log"; git -C "$app" rev-parse HEAD > "$st/check-head"; fi
     updated="${updated:+$updated,}$mod"
   fi
   unrec kept.txt "$mod"   # E6-12: a module a later pass commits is not kept any more
@@ -630,6 +671,23 @@ if [ $dry = 0 ] && [ $nrun -gt 0 ] && [ -z "${UPG_NO_JARCLEAN:-}" ] && [ -d "$ap
     fi
   fi
 fi
+# GM-24: the original-to-now idcheck at the end of every batch. Step mode compares each step with the one before, so a drop one
+# step accepted and a re-creation with new GUIDs at a later step each looked fine (MxModelReflection dropped 11 ExcelImporter
+# associations, ExcelImporter re-created them: step idcheck PASS twice, 11 GUID_CHANGED only at the end, data gone). Here the
+# comparison is against the ORIGINAL with the written approvals only (not the step-only ones).
+batchfail=""
+if [ $dry = 0 ] && [ $nrun -gt 0 ] && [ -n "$baseline" ] && [ -f "$baseline" ]; then
+  bargs=(--approved "$(cd "$(dirname "${apptotal:-$approved}")" && pwd)/$(basename "${apptotal:-$approved}")")
+  [ -n "${apptotal:-$approved}" ] && [ -f "${apptotal:-$approved}" ] || bargs=()
+  python3 "$bin/idcheck.py" "$baseline" "$app/$mpr" ${bargs[@]+"${bargs[@]}"} > "$st/batch.idcheck" 2>&1; brc=$?
+  if [ $brc = 1 ]; then
+    batchfail=1
+    echo "stepupdate: BATCH-IDCHECK original -> now has open data-bearing finding(s) (.stepupdate/batch.idcheck):"
+    grep -E '^RED ' "$st/batch.idcheck" | head -12 | sed 's/^/   BATCH-IDCHECK /'
+  elif [ $brc = 0 ]; then echo "stepupdate: batch idcheck original -> now: PASS"
+  else echo "stepupdate: BATCH-IDCHECK could not run (idcheck exit $brc, .stepupdate/batch.idcheck); the pipeline's total idcheck still runs"; fi
+fi
+[ -z "$chknotrun" ] || echo "stepupdate: STEPCHECK NOT RUN after: $chknotrun (the model check did not finish; those steps were committed on the data check alone)"
 # T6R-7: a module that stays while others move. An updated module that needs something the kept version lacks (T6R:
 # AmazonTranslateConnector 3.1.1 committed, AWSAuthentication kept at 2.1.2: 12 CE1613 and javac) or a kept module that
 # calls what the update removed showed up only at mx check. Every pass that leaves kept.txt non-empty runs keptdeps.py
@@ -683,4 +741,5 @@ if [ -n "$kdout" ]; then
   echo "$kdout" | sed 's/^/   /'
   exit 1
 fi
+[ -z "$batchfail$chknotrun" ] || exit 1
 exit 0
