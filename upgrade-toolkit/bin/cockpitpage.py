@@ -243,7 +243,7 @@ def accepted_reasons(work, rung, detail=""):
     if detail.startswith("noted, not a failure"):
         return [detail.split(";")[0]]
     got = {}
-    for ln in rd(os.path.join(work, f"{rung}.out")).splitlines():
+    for ln in (rd(os.path.join(work, f"{rung}.out")) or "").splitlines():
         m = re.match(r"^\|\s*PASS\*\s*\|[^|]*\|.*\((accepted|noted): (.+)\)\s*\|?\s*$", ln)
         if m:
             why = re.split(r"[:(]", m.group(2))[0].strip()[:90]
@@ -443,6 +443,94 @@ def running(work, now=None):
             "mins": max(0, int(((now or datetime.datetime.now().timestamp()) - since) // 60)), "tool": tool, "said": said}
 
 
+def stop_regressions(secs):
+    """The regressions a stop's own sections list ("  REGRESSION <role> | <kind> | <page> | <target>: old PASS 3 of 3, new not PASS ..." from a
+    walk of the new app), as [(what, n)]: one entry per page, n the roles it fails for. The final check has not run at such a stop, so
+    the page's broken box would say "nothing known broken" over a red stop (lane B, PSOP afterwalk). Only a line that STARTS with
+    REGRESSION counts: the preamble of every stop file says "a REGRESSION is fixed" and is not one."""
+    seen = {}
+    for _t, _c, body in secs:
+        for ln in body.splitlines():
+            m = re.match(r"^\s*[-*]?\s*REGRESSION\s+(.+?)(?::\s|$)", ln)
+            if not m:
+                continue
+            parts = [x.strip() for x in m.group(1).split(" | ")]
+            what, who = (parts[2], parts[0]) if len(parts) >= 4 else (re.sub(r"\s+", " ", m.group(1))[:60], "")
+            seen.setdefault(what, set()).add(who or ln)
+    return [(w, len(r)) for w, r in seen.items()]
+
+
+def stop_repeats(work, step, code):
+    """How many stops in a row, the latest included, said the same thing (state/stops.tsv: step, exit code, a fingerprint of the stop's text
+    without digits; one row per stop, written by nj_flush before the page is built). 1 = the first time, 0 = no record of this stop
+    (a run from before the file, or a parked end-of-run stop): never a claim. A new cause has a new fingerprint, so it is never called stuck."""
+    rows = [ln.split("\t") for ln in (rd(os.path.join(work, "state", "stops.tsv")) or "").splitlines()]
+    rows = [r for r in rows if len(r) >= 3]
+    if not rows or rows[-1][0] != step or rows[-1][1] != str(code):
+        return 0
+    n = 0
+    for r in reversed(rows):
+        if r[:3] != rows[-1][:3]:
+            break
+        n += 1
+    return n
+
+
+def stop_handoff(secs, meta, repeats):
+    """An agent-owned stop the agent cannot close alone: (why, needs), else None. Two shapes: (1) the always-on user paths FAIL on the OLD app
+    itself: the pipeline has no route past a baseline that does not pass (lane B, PMNT and LDMS basewalk), and no step the agent can
+    take changes how the old app behaves; (2) the same stop came back after a rerun, so the agent's own try did not close it."""
+    mine = [(s, m) for s, m in zip(secs, meta) if m["owner"] == "agent"]
+    if not mine:
+        return None
+    for (title, _c, body), _m in mine:
+        if "OLD app" not in title:
+            continue
+        names = [m.group(1) for m in (re.match(r"^\s*FAIL\s+(\S+)", ln) for ln in body.splitlines()) if m]
+        t = re.search(r"journeys: (\d+) PASS, (\d+) FAIL(?:, (\d+) INVALID)?", body)
+        if names and t:
+            tot = sum(int(x or 0) for x in t.groups())
+            k = len(names)
+            return (f"{k} of {tot} user paths {'fails' if k == 1 else 'fail'} on the old app itself ({', '.join(names[:3])}{', ...' if k > 3 else ''})",
+                    f"a person to confirm {'it is' if k == 1 else 'each is'} an old-app defect, or fix the old app")
+    if repeats >= 2:
+        t = re.split(r"\s*[:(]", mine[0][0][0])[0].strip()   # "mxbuild failed (exit 1, 7 ERROR at lines)" -> "mxbuild failed"
+        return (f"the same stop{f' ({t})' if t else ''} has come back {repeats} times in a row",
+                "a person to look at it, or a toolkit change")
+    return None
+
+
+def stop_meta(body):
+    """The lines nj_meta writes under a stop section's heading: owner, question, recommended, option (key|label|what it does).
+    A section without them is owner "" and is read as before."""
+    m = re.match(r"((?:(?:owner|question|recommended|why|option|writes): .*\n)+)\n?", body)
+    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "why": "", "options": [], "writes": [], "body": body}
+    if not m:
+        return out
+    out["body"] = body[m.end():]
+    for ln in m.group(1).splitlines():
+        k, v = ln.split(": ", 1)
+        if k == "owner" and v.strip() in ("agent", "info", "person"):
+            out["owner"] = v.strip()
+        elif k == "question":
+            out["question"] = v.strip()
+        elif k == "recommended":
+            out["rec"] = v.strip()
+        elif k == "why":   # no recommendation exists; this is the reason it is the reader's call
+            out["why"] = v.strip()
+        elif k == "writes":   # key|file|line: what answering that option writes into the work folder (decisions.py apply)
+            p = [x.strip() for x in v.split("|", 2)]
+            if len(p) == 3 and p[0] and re.match(r"^[\w.-]+$", p[1]) and p[2]:
+                out["writes"].append(p)
+        elif k == "option":
+            p = [x.strip() for x in v.split("|", 2)]
+            if len(p) == 3 and p[0] and p[1]:
+                out["options"].append(p)
+    if out["rec"]:
+        out["rec_text"] = next((o[2] for o in out["options"] if o[0] == out["rec"]), "")
+    return out
+
+
 def build_model(work):
     work = os.path.abspath(work)
     P = parse_proposal(rd(os.path.join(work, "PROPOSAL.md")))
@@ -459,7 +547,10 @@ def build_model(work):
     ledger = rj(os.path.join(work, "decisions.json")) or []
     last = {}
     for r in ledger:
-        last[r.get("item")] = r
+        if r.get("consumed"):
+            last.pop(r.get("item"), None)
+        else:
+            last[r.get("item")] = r
     nj = rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
     m = re.match(r"# NEEDS JUDGMENT: step (\w+), exit (\d+)", nj)
     stopped = (m.group(1), int(m.group(2))) if m else None
@@ -526,10 +617,22 @@ def build_model(work):
     if stopped:
         rerun = (re.search(r"then rerun:\n\n {4}(.+)", nj) or [None, ""])[1]
         secs = re.findall(r"^## (.+?) \(exit (\d+)\)\n\n(.*?)(?=^## |\Z)", nj, re.M | re.S)
-        stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun}
+        meta = [stop_meta(s[2]) for s in secs]   # who each section is for (owner: agent|info|person), see nj_meta in upgrade-pipeline.sh
+        stopinfo = {"step": stopped[0], "code": stopped[1], "titles": [s[0] for s in secs], "rerun": rerun,
+                    "owners": [m["owner"] for m in meta], "agent_titles": [s[0] for s, m in zip(secs, meta) if m["owner"] == "agent"],
+                    "regs": stop_regressions(secs), "repeats": stop_repeats(work, stopped[0], stopped[1]), "handoff": None}
+        stopinfo["handoff"] = stop_handoff(secs, meta, stopinfo["repeats"])
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
     if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
-        for k, (title, code, body) in enumerate(secs, 1):
+        for k, ((title, code, body), mt) in enumerate(zip(secs, meta), 1):
+            if mt["owner"] in ("agent", "info"):
+                continue   # the agent's own task or a result listing: nothing for a person to answer
+            if mt["owner"] == "person" and mt["question"] and mt["options"]:
+                add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
+                     "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
+                     "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"], "norec_why": mt["why"],
+                     "options": [dict({"key": o[0], "label": o[1], "causes": o[2]}, **({"writes": [{"file": w[1], "line": w[2]} for w in mt["writes"] if w[0] == o[0]]} if any(w[0] == o[0] for w in mt["writes"]) else {})) for o in mt["options"]]})
+                continue
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                  "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),
@@ -589,7 +692,8 @@ def build_model(work):
             assumed.append(pid)
         items.append({"id": pid, "kind": "plan-choice", "hidden": True, "dot": "warn", "title": f"{it['name']} ({it['kind']})", "step": "propose",
                       "meta": "Plan choice", "problem": short(it["sub"].get("evidence", ""), 260), "rec": "rec", "rec_text": short(rec_txt, 320),
-                      "options": opts, "decided": last.get(pid), "assumed": is_assumed, "effort": effort_of(rec_txt),
+                      "options": opts, "decided": last.get(pid), "assumed": is_assumed,
+                      "unattended": bool(row and len(row) > 5 and "ASSUMED (unattended)" in row[5]),   # nobody was asked: listed for review, no card (issue 11 item 4) "effort": effort_of(rec_txt),
                       "evidence": evidence.for_item(work, it["name"], it["kind"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
@@ -794,7 +898,9 @@ def build_model(work):
     total = sum(per.values())
     cost = (rj(os.path.join(work, "run-cost.json")) or {}).get("usd")
     runname = os.path.basename(os.path.dirname(work)) if os.path.basename(work) == "work" else os.path.basename(work)
-    sub = " · ".join(x for x in [versions, runname, dur(total) if total else "", f"${cost:g}" if cost else ""] if x)
+    # "60 min" alone read as nothing: say what it counts, and that a run still going has more to come
+    tlabel = (dur(total) + (" run time" if gate["overall"] == "PASS" and not run else " run time so far")) if total else ""
+    sub = " · ".join(x for x in [versions, runname, tlabel, f"${cost:g}" if cost else ""] if x)
     if stopped:
         sub += f" · stopped at {stopped[0]}"
     return {"title": f"{app_name(work)} upgrade", "sub": sub, "state": {"dot": state[0], "text": state[1]}, "planHash": P["hash"],
@@ -813,7 +919,7 @@ b.querySelector("b").textContent="Running now: "+r.text+" ("+r.step+")";b.queryS
 setInterval(function(){fetch("status",{cache:"no-store"}).then(function(r){return r.json();}).then(run).catch(function(){});},3000);
 setInterval(function(){var dr=document.getElementById("drawer"),qo=document.querySelector("dialog.qdlg[open]");if(due){if((!dr||dr.hidden)&&!qo)reload();return;}
 fetch("stamp",{cache:"no-store"}).then(function(r){return r.text();}).then(function(t){if(s===null)s=t;else if(t!==s){due=true;if((!dr||dr.hidden)&&!qo)reload();}}).catch(function(){});},3000);})();
-(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal)d.showModal();});});
+(function(){document.querySelectorAll(".resolve").forEach(function(r){r.addEventListener("click",function(){var d=document.getElementById(r.dataset.q);if(d&&d.showModal&&!d.open)d.showModal();});});
 document.querySelectorAll(".qclose").forEach(function(c){c.addEventListener("click",function(){c.closest("dialog").close();});});
 document.querySelectorAll(".qcard button[data-choice]").forEach(function(b){b.disabled=false;b.addEventListener("click",function(){
 var c=b.closest(".qcard"),m=c.querySelector("[data-qmsg]");c.querySelectorAll("button[data-choice]").forEach(function(x){x.disabled=true;});m.textContent="Saving...";
