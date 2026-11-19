@@ -1352,6 +1352,9 @@ def main():
                     m[k] = cand
                     break
     roles = m["roles"]
+    for r in roles:   # an impact file written before the blank-caption fix: " " is no caption path (cold rfq)
+        if roles[r].get("sign_out_item") and not all((c or "").strip() for c in roles[r]["sign_out_item"]):
+            roles[r] = dict(roles[r], sign_out_item=None, menu_visible=[c for c in roles[r].get("menu_visible") or [] if (c or "").strip()])
     guest = m["user_roles"].get("guest")
     have = [r.strip() for r in a.roles_with_users.split(",")] if a.roles_with_users else [r for r in roles if r != guest]
     if not a.roles_with_users and not a.impact and adoc is not None:
@@ -1474,7 +1477,8 @@ def main():
                 lso = I.layout_sign_out(model, p) if p in model.docs else None
                 if lso:
                     # T2R3-4: a caption path with an empty caption (icon-only item) cannot be navigated by caption
-                    named = lso.get("path") if lso.get("path") and all(lso["path"]) else None
+                    # a blank caption (" ", cold rfq) is as icon-only as an empty one
+                    named = lso.get("path") if lso.get("path") and all((c or "").strip() for c in lso["path"]) else None
                     roles[r] = dict(roles[r], sign_out_item=named, sign_out_button=lso.get("button"),
                                     sign_out_clicks=None if named else lso.get("clicks"),
                                     _sign_out_from=f"layout of {p}" + (f", menu widget {lso['widget']}" if lso.get("widget") else ""),

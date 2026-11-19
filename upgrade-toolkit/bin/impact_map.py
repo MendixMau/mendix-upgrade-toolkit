@@ -698,6 +698,8 @@ def role_facts(m, roles):
         home = next((h for h in web.get("homes", []) if h["role"] == r), None) or default
         visible, hidden = [], []
         for cap, items in tops.items():
+            if not (cap or "").strip():  # an icon-only item has no text to look for (cold rfq: caption " ")
+                continue
             targets = [i for i in items if i["target"]]
             ok = any(r in roles.of_doc(i["target"]) for i in targets)
             if not targets:  # sign-out, url, no target: always shown
@@ -711,7 +713,10 @@ def role_facts(m, roles):
                   "home_role_specific": home is not default,
                   "landing": landing_widget(m, hp, () if r == roles.guest else pre_login) if hp else None,
                   "menu_visible": visible, "menu_hidden": hidden,
-                  "sign_out_item": next((i["path"] for i in menu if i["kind"] == "SignOutClientAction"), None),
+                  # a caption path with a blank caption cannot be navigated; gen_journeys then takes the layout menu
+                  # widget that renders the item and clicks it by index (cold rfq: an icon-only sign-out, caption " ")
+                  "sign_out_item": next((i["path"] for i in menu if i["kind"] == "SignOutClientAction"
+                                         and all((c or "").strip() for c in i["path"])), None),
                   "is_admin": r == roles.admin, "is_guest": r == roles.guest}
     return out, web, nav
 
