@@ -110,6 +110,12 @@ class Model:
         blob_col = "Contents" if "Contents" in cols else "NULL"
         rows = con.execute(f"select UnitID, ContainerID, ContainmentName, {blob_col} from Unit").fetchall()
         v2files = {}
+        # GM-8: an MPR v2 .mpr keeps no unit contents in the file (no Contents column, or every one NULL); they are in
+        # mprcontents/ beside it. Without that folder the file holds no units: refuse, never return an empty model.
+        if rows and all(r[3] is None for r in rows) and not os.path.isdir(os.path.join(proj_dir, "mprcontents")):
+            sys.exit(f"mprmodel: {path} is an MPR v2 project file (its units live in mprcontents/) and there is no "
+                     f"mprcontents/ folder beside it: nothing can be read. Copy the .mpr with its mprcontents/ "
+                     f"(git archive of the tree, not `git show rev:<app>.mpr`).")
         if os.path.isdir(os.path.join(proj_dir, "mprcontents")):
             for f in glob.glob(os.path.join(proj_dir, "mprcontents", "**", "*.mxunit"), recursive=True):
                 v2files[os.path.basename(f)[:-7].lower()] = f
@@ -125,6 +131,10 @@ class Model:
                 self.units[bytes(uid)] = (bytes(cid) if cid else None, cname, bson.decode(blob))
             except Exception:
                 continue
+        # GM-8: a v2 file whose mprcontents/ holds none of its units (an empty folder) is as unreadable as a missing one.
+        if rows and all(r[3] is None for r in rows) and not self.units:
+            sys.exit(f"mprmodel: {path} is an MPR v2 file but the mprcontents/ beside it holds none of its units: "
+                     f"nothing can be read (an incomplete copy: use a git archive of the tree).")
 
     def _module_of(self, uid):
         """Walk containers up to the Projects$Module(Impl); return (module name, folder path)."""

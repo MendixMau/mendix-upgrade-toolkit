@@ -1396,13 +1396,13 @@ def main():
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import mprmodel
         model = mprmodel.Model.load(m["new"]) if m.get("new") else None
-    except Exception as e:  # journeys still generate; menu guards fall back to .mx-page
+    except (SystemExit, Exception) as e:  # journeys still generate; menu guards fall back to .mx-page
         print(f"note: new model not loaded ({e}); menu landing guards fall back to .mx-page", file=sys.stderr)
     old = None
     if model is not None and m.get("old") and m.get("old") != m.get("new"):
         try:  # before-picked runs on the OLD app: a guard must exist on both (E6-18)
             old = mprmodel.Model.load(m["old"])
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             print(f"note: old model not loaded ({e}); menu guards are checked against the new model only", file=sys.stderr)
     emitted_login = set()
     reach = None
@@ -1509,7 +1509,7 @@ def main():
             try:   # the model actions.json was read from (the OLD app): landing guards and tab steps come from it
                 import mprmodel
                 amodel = mprmodel.Model.load(apath)
-            except Exception as e:
+            except (SystemExit, Exception) as e:
                 print(f"note: actions model not loaded ({e}); action guards fall back to .mx-page", file=sys.stderr)
         if amodel is None:   # B4T2-11: say it, a journey without its tab step FAILs on a healthy app
             print(f"note: actions model {apath or '(none named)'} not loaded: tab steps NOT checked (a widget on a tab "
