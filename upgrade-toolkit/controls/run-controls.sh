@@ -2832,6 +2832,9 @@ if [ -f ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js ]; then
   ctl journeys-engine-ready-any-match-pass 0 'V\.reached\(page, page\.locator\(step\.ui\.ready\), 12000\)' '!locator\(step\.ui\.ready\)\.first' -- cat $T/engine-copy/journey-runner.js
   # PR-P4: the row verb's nth reaches the engine's note and sentence
   ctl journeys-engine-row-nth-pass 0 "clicked'\\} \\$\\{a\\.nth \\? 'row ' \\+ \\(a\\.nth \\+ 1\\) : 'the first row'\\} of \\$\\{a\\.widget\\}" "target: .\\$\\{a\\.nth \\? 'row ' \\+ \\(a\\.nth \\+ 1\\) : 'the first row'\\} of" -- cat $T/engine-copy/journey-runner.js
+  # an element still covering the click target names the open dialog behind it (an error box's underlay read only
+  # "covered by .mx-underlay"; its message was in the screenshot alone)
+  ctl journeys-engine-cover-names-dialog-catch 0 "const under = cover \\? await V\\.openDialog\\(page, 0\\) : null;" "under \\? .open dialog \\$\\{under\\}; . : ''\\) \\+ .\\.mx-name-\\$\\{a\\.widget\\} is covered by" -- cat $T/engine-copy/journey-runner.js
   mkdir -p $T/engine-old; sed 's/case .dismissModal.: await H.dismissModal(page); break;/case "dismiss": break;/' ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js > $T/engine-old/journey-runner.js
   for f in helpers.js config.js otel.js; do cp ${TOOLKIT_E2E:-$B/../vendor/e2e}/$f $T/engine-old/; done
   ctl journeys-engine-patch-drift-catch 1 '^NOT applied: act: toggle' -- env TOOLKIT_E2E=$T/engine-old python3 $B/run_journeys.py x --label x --work $T --patch-engine $T/engine-copy2
