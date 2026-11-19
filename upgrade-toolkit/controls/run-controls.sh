@@ -703,6 +703,58 @@ ctl diff-emit-allow-detail-pass 1 '^--emit-allow: 1 check' -- python3 $B/diff.py
 ctl diff-emit-allow-detail-line-pass 0 '^log\.new_error 1x ERROR Cache: NoiseError: cache warmup # start noise' -- cat $T/noise-npe.txt
 ctl diff-emit-allow-npe-catch 1 'FAIL \| log\.new_error \| 1x ERROR ACT_Save: NullPointerException' '!PASS\* \| log\.new_error \| 1x ERROR ACT_Save' -- python3 $B/diff.py $T/sb.json $T/sa-npe.json --allow $T/noise-npe.txt
 ctl diff-emit-allow-noise-accepted-pass 1 'PASS\* \| log\.new_error \| 1x ERROR Cache: NoiseError: cache warmup \(accepted: start noise' -- python3 $B/diff.py $T/sb.json $T/sa-npe.json --allow $T/noise-npe.txt
+# GM-35: the data rung derives allow rows from the entity removals idcheck approved (diff.py --idcheck-json; gate.sh passes the
+# idcheck rung's JSON). Built from real idcheck output on two synthetic models: MFAmodule.MFA removed outright, and renamed with
+# every GUID kept. The after snapshot has MFAmodule.MFA (entity and QR_Url column) gone, like the 43 DeepLink rows of the field run.
+echo '{"from": "'$FX'/models/base.json", "ops": [["delete", "modules/1/entities/0"]]}' > $T/mfa-gone.json
+python3 $here/lib/mkmodel.py $T/mfa-gone.json $M/mfa-gone > /dev/null
+gs=$(python3 -c "import sys, uuid; sys.path.insert(0, '$here/lib'); import mkmodel; print(*[uuid.uuid5(mkmodel.NS, n) for n in ('MFAmodule.MFA', 'MFAmodule.MFA.Secret', 'MFAmodule.MFA.QR_Url')])")
+read -r g1 g2 g3 <<< "$gs"
+echo '{"from": "'$FX'/models/base.json", "ops": [["set", "modules/1/entities/0/name", "MFA2"], ["set", "modules/1/entities/0/guid", "'$g1'"], ["set", "modules/1/entities/0/attributes/0/guid", "'$g2'"], ["set", "modules/1/entities/0/attributes/1/guid", "'$g3'"]]}' > $T/mfa-renamed.json
+python3 $here/lib/mkmodel.py $T/mfa-renamed.json $M/mfa-renamed > /dev/null
+echo 'MFAmodule.MFA  # owner: the MFA module is dropped by design' > $T/ap-mfa-removal.txt
+python3 $B/idcheck.py $M/base/App.mpr $M/mfa-gone/App.mpr --approved $T/ap-mfa-removal.txt --json $T/ic-removal-approved.json > $T/out/ic-removal-approved.txt 2>&1
+python3 $B/idcheck.py $M/base/App.mpr $M/mfa-gone/App.mpr --json $T/ic-removal-open.json > $T/out/ic-removal-open.txt 2>&1
+python3 $B/idcheck.py $M/base/App.mpr $M/mfa-renamed/App.mpr --approved $T/ap-mfa-removal.txt --json $T/ic-renamed-approved.json > $T/out/ic-renamed-approved.txt 2>&1
+python3 $B/idcheck.py $M/base/App.mpr $M/guid-changed/App.mpr --approved $T/ap-bare.txt --json $T/ic-guid-approved.json > $T/out/ic-guid-approved.txt 2>&1
+python3 - "$T" <<'EOF'
+import json, sys
+t = sys.argv[1]
+s = json.load(open(f"{t}/sa.json")); d = s["db"]
+del d["entities"]["MFAmodule.MFA"]; del d["attributes"]["MFAmodule.MFA.QR_Url"]; d["idsets"].pop("attr:MFAmodule.MFA.QR_Url")
+json.dump(s, open(f"{t}/s-mfa-gone.json", "w"))
+EOF
+ctl diff-idcheck-approved-removal-catch 0 'PASS\* \| db\.entity\.MFAmodule\.MFA \| 2 rows before, entity not in after model \(accepted: entity MFAmodule\.MFA removal approved in idcheck \(owner: the MFA module is dropped by design\)\)' 'PASS\* \| db\.attr\.MFAmodule\.MFA\.QR_Url \| column gone .*removal approved in idcheck' '^diff: 2 allow row\(s\) derived from idcheck approvals, accepting 2 row\(s\)' 'allowed: entity MFAmodule\.MFA removal approved in idcheck .*accepted 1 row\(s\)' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-removal-approved.json
+ctl diff-idcheck-no-approval-still-fails-catch 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before, entity not in after model' 'FAIL \| db\.attr\.MFAmodule\.MFA\.QR_Url \| column gone' '!approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-removal-open.json
+ctl diff-idcheck-flag-absent-still-fails-pass 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before' '!approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt
+ctl diff-idcheck-rename-approval-not-a-removal-catch 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before, entity not in after model' 'FAIL \| db\.attr\.MFAmodule\.MFA\.QR_Url \| column gone' '!approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-renamed-approved.json
+ctl diff-idcheck-guid-approval-not-a-removal-catch 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before' 'FAIL \| db\.attr\.MFAmodule\.MFA\.QR_Url \| column gone' '!approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-guid-approved.json
+# review round (PR #115): a prefix sibling is not allowed, a glob approval allows nothing, an approved entity's own sibling attribute
+# that merely changed is still a FAIL, and a JSON made for other inputs is refused. MFAmodule.MFA2 is a prefix sibling of MFA.
+python3 - "$T" <<'EOF'
+import json, sys
+t = sys.argv[1]
+b = json.load(open(f"{t}/sb.json"))
+b["db"]["entities"]["MFAmodule.MFA2"] = 3; b["db"]["attributes"]["MFAmodule.MFA2.Name"] = {"nonnull": 3, "md5": "n1"}
+json.dump(b, open(f"{t}/sb-sib.json", "w"))
+a = json.load(open(f"{t}/sa.json"))   # the approved entity is still there with fewer rows and a changed own column: not a removal
+a["db"]["entities"]["MFAmodule.MFA"] = 1; a["db"]["attributes"]["MFAmodule.MFA.QR_Url"] = {"nonnull": 2, "md5": "c2"}
+json.dump(a, open(f"{t}/sa-part.json", "w"))
+EOF
+echo '{"from": "'$FX'/models/base.json", "ops": [["append", "modules/1/entities", {"name": "MFA2", "attributes": [{"name": "Name"}]}]]}' > $T/mfa-sib.json
+echo '{"from": "'$FX'/models/base.json", "ops": [["set", "modules/1/entities", []]]}' > $T/mfa-none.json
+python3 $here/lib/mkmodel.py $T/mfa-sib.json $M/mfa-sib > /dev/null; python3 $here/lib/mkmodel.py $T/mfa-none.json $M/mfa-none > /dev/null
+python3 $B/idcheck.py $M/mfa-sib/App.mpr $M/mfa-none/App.mpr --approved $T/ap-mfa-removal.txt --json $T/ic-sib-literal.json > $T/out/ic-sib-literal.txt 2>&1
+echo 'MFAmodule.*  # owner: everything in the MFA module' > $T/ap-mfa-glob.txt
+python3 $B/idcheck.py $M/mfa-sib/App.mpr $M/mfa-none/App.mpr --approved $T/ap-mfa-glob.txt --json $T/ic-sib-glob.json > $T/out/ic-sib-glob.txt 2>&1
+ctl diff-idcheck-prefix-sibling-not-allowed-catch 1 'PASS\* \| db\.entity\.MFAmodule\.MFA \| .*approved in idcheck' 'FAIL \| db\.entity\.MFAmodule\.MFA2 \| 3 rows before, entity not in after model' 'FAIL \| db\.attr\.MFAmodule\.MFA2\.Name \| column gone' -- python3 $B/diff.py $T/sb-sib.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-sib-literal.json
+ctl diff-idcheck-glob-approval-allows-nothing-catch 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before' 'FAIL \| db\.entity\.MFAmodule\.MFA2 \| 3 rows before' "approval 'MFAmodule\.\*' is a glob; data rows not auto-allowed; add a literal approval or a hand allow row" '!accepted: entity' -- python3 $B/diff.py $T/sb-sib.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-sib-glob.json
+ctl diff-idcheck-values-changed-not-allowed-catch 1 'FAIL \| db\.entity\.MFAmodule\.MFA \| ' 'FAIL \| db\.attr\.MFAmodule\.MFA\.QR_Url \| ' '!accepted: entity' '!accepted: attribute' -- python3 $B/diff.py $T/sb.json $T/sa-part.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-removal-approved.json
+ctl diff-idcheck-recorded-paths-match-pass 0 'FAIL 0 \| REVIEW 0' 'approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-removal-approved.json --idcheck-old $M/base/App.mpr --idcheck-new $M/mfa-gone/App.mpr
+ctl diff-idcheck-recorded-paths-mismatch-catch 1 'WARNING .*no allow rows derived' 'FAIL \| db\.entity\.MFAmodule\.MFA \| 2 rows before' '!approved in idcheck' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/ic-removal-approved.json --idcheck-old $M/base/App.mpr --idcheck-new $M/guid-changed/App.mpr
+ctl diff-idcheck-unreadable-json-fails-catch 1 'WARNING --idcheck-json .*no allow rows derived' 'FAIL \| db\.entity\.MFAmodule\.MFA' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $FX/allow/narrow.txt --idcheck-json $T/no-such-idcheck.json
+{ cat $FX/allow/narrow.txt; printf 'db.entity.MFAmodule.MFA # hand: dropped by design\ndb.attr.MFAmodule.MFA.QR_Url # hand: dropped by design\n'; } > $T/allow-hand-mfa.txt
+ctl diff-hand-allow-unchanged-with-idcheck-pass 0 'PASS\* \| db\.entity\.MFAmodule\.MFA \| .*\(accepted: hand: dropped by design\)' 'PASS\* \| db\.attr\.MFAmodule\.MFA\.QR_Url \| .*\(accepted: hand: dropped by design\)' 'accepted 0 row\(s\)' '!accepted: entity MFAmodule\.MFA removal' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/s-mfa-gone.json --allow $T/allow-hand-mfa.txt --idcheck-json $T/ic-removal-approved.json
 ctl diff-contract-catch 1 'contract lost: POST /rest/notify/v1/message' 'model id gone' -- python3 $B/diff.py $T/sb.json $T/sbad.json --allow $FX/allow/narrow.txt
 # E6-11, E7-18: the mutant control compares a db-only snapshot; --db-only drops the http and log noise, keeps the planted FAIL
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); [d.pop(k, None) for k in ('http','log','admin')]; json.dump(d, open(sys.argv[2],'w'))" $T/s-owner-lost.json $T/s-mutant-dbonly.json
@@ -4754,6 +4806,17 @@ mkdir -p "$GI/w"
 ctl gate-dry-run-pass 0 '^\[build\]' '^\[idcheck\] .*idcheck\.py' '^\[const\] .*constcheck\.py' '^\[data\] .*diff\.py' '^\[rest\] .*restcontract\.py' \
   '^\[logdiff\] .*logdiff\.py' '^\[smoke\] .*smokewalk\.js .*--user' '^\[journeys\] .*run_journeys\.py .*--compare' '^\[screens\] .*shotdiff\.py' \
   '^\[release\] .*release_impact\.py --check' '!S3cret|adm1n-s3cret' 'dry-run: nothing was run' -- gcase dry --dry-run
+# GM-35: the idcheck rung writes its JSON; the data rung is given it only when that file exists (gate dir of the same run)
+mkdir -p "$GI/w/gateidj"; echo '{}' > "$GI/w/gateidj/idcheck.json"; touch -t 203001010000 "$GI/w/gateidj/idcheck.json"
+ctl gate-idcheck-writes-json-pass 0 '^\[idcheck\] .*idcheck\.py .*--md .*/idcheck\.md --json .*/idcheck\.json' -- gcase dryidj0 --dry-run
+ctl gate-data-reads-idcheck-json-catch 0 '^\[data\] .*diff\.py .*--idcheck-json .*/gateidj/idcheck\.json' -- gcase idj --dry-run
+# review round (PR #115): a JSON older than a file idcheck read (approved.txt lost a line since) is stale: a warning, no flag; the idcheck rung deletes the old file
+mkdir -p "$GI/w/gatestale" "$GI/w/gatermj"; echo 'MFAmodule.MFA # gone again' > $GI/ap-stale.txt; echo '{}' > $GI/w/gatestale/idcheck.json; echo '{}' > $GI/w/gatermj/idcheck.json
+touch -t 202001010000 $GI/w/gatestale/idcheck.json $GI/w/gatermj/idcheck.json
+ctl gate-data-stale-idcheck-json-not-passed-catch 0 'gate: WARNING .*/gatestale/idcheck\.json is not newer than .*/ap-stale\.txt: stale, no allow rows derived' '^\[data\] .*diff\.py' '!--idcheck-json' -- gcase stale --dry-run --only data APPROVED=$GI/ap-stale.txt
+gcase_rm() { gcase rmj "$@" > /dev/null 2>&1; test ! -e $GI/w/gatermj/idcheck.json && echo json-removed; }
+ctl gate-idcheck-rung-removes-old-json-catch 0 '^json-removed$' -- gcase_rm --only idcheck
+ctl gate-data-no-idcheck-json-no-flag-pass 0 '^\[data\] .*diff\.py' '!--idcheck-json' -- gcase dryidj1 --dry-run
 # T7R-12, T8R-8: SMOKE_REPEAT reaches smokewalk as --repeat N; without it no --repeat is passed
 ctl gate-smoke-repeat-pass 0 '^\[smoke\] .*smokewalk\.js .*--repeat 3' -- gcase dryrep --dry-run SMOKE_REPEAT=3
 ctl gate-smoke-login-path-catch 0 '^\[smoke\] .*smokewalk\.js .*--login-path /login-without-sso\.html' -- gcase dryloginp --dry-run SMOKE_LOGIN_PATH=/login-without-sso.html

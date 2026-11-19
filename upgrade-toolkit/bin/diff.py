@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two snapshots (before / after an upgrade) and give each check a verdict: PASS, FAIL, INVALID or INFO.
 
-  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--log-allow log-allow.txt] [--md report.md] [--db-only]
+  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--idcheck-json idcheck.json] [--log-allow log-allow.txt] [--md report.md] [--db-only]
 
 --db-only compares the db rows alone: the mutant control (a db-only snapshot of an unstarted copy) then shows the planted
 FAIL without http "endpoint not probed" and log rows next to it (E6-11, E7-18). System.User.Password and changedDate of
@@ -38,6 +38,13 @@ check pattern matches the check id, the optional detail pattern matches the row'
 acceptance can be narrower than a whole check ("db.attr.System.User.Password values changed (non-null 3 -> 3)").
 A matching FAIL, REVIEW, INVALID or NEW_ENDPOINT becomes PASS* (accepted, reason printed). Use it for changes the
 upgrade is SUPPOSED to make (a module that drops an entity by design), never to hide noise.
+--idcheck-json (GM-35): the --json of idcheck.py. Every REMOVED finding that idcheck marked "approved: <reason>" (an approved.txt line
+the owner wrote) becomes allow rows for that element's data rows, and nothing else: entity -> its "entity not in after model" row and
+its "column gone" attribute rows; association -> its "association gone" row; attribute -> its "column gone" row. Each accepted row
+says "removal approved in idcheck" and the report lists every derived row with the rows it accepted. Never derived: an element that
+idcheck did not approve, GUID_CHANGED / READDED_NEW_GUID / PERSISTENCE_LOST (the data is still there, under another identity),
+RENAMED (a rename or a move keeps the data), "transient" net-zero approvals (the original never had the element), "values changed" or
+"rows N -> M" rows (the element is still there). Hand-written allow.txt lines are read first and keep their own wording.
 log-allow.txt: the logdiff.py allow file ("<signature pattern> # reason"), applied to the log.start rows, so a line
 accepted once for logdiff is accepted here too and diff exits 0 with it (E4 23). A REVIEW row can also be accepted in
 allow.txt ("log.start.CHANGED *MFA* # reason").
@@ -81,11 +88,58 @@ def contract_diff(cb, ca):
     return lost, gained
 
 
+def _lit(name):
+    """a name as a literal fnmatch pattern"""
+    return "".join("[" + ch + "]" if ch in "*?[" else ch for ch in name)
+
+
+def derive_idcheck_allows(path, want_old=None, want_new=None):
+    """GM-35: allow rows from the removals idcheck approved. Reads idcheck.py --json; only a REMOVED finding that carries data and
+    an explicit "approved: <reason>" (an approved.txt line, never the "transient" or "restores" auto-approvals) is used.
+    ASSUMED: an unreadable or unexpected file derives nothing (a WARNING on stderr): fewer allows is the safe direction."""
+    try:
+        doc = json.load(open(path)); findings = doc["findings"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"WARNING --idcheck-json {path}: not read ({e.__class__.__name__}); no allow rows derived from idcheck", file=sys.stderr)
+        return [], []
+    for key, want in (("old", want_old), ("new", want_new)):
+        have = doc.get(key)
+        if want and have and os.path.realpath(str(have)) != os.path.realpath(want):
+            print(f"WARNING --idcheck-json {path}: it was made for {key} = {have}, this run's is {want}; no allow rows derived from idcheck", file=sys.stderr)
+            return [], []
+    out, notes = [], []
+    for f in findings:
+        if not isinstance(f, dict) or f.get("finding") != "REMOVED" or not f.get("data"): continue
+        ap_ = str(f.get("approved") or "")
+        if not ap_.startswith("approved:"): continue
+        qn, kind = str(f.get("name") or ""), f.get("kind")
+        if not qn: continue
+        pat = f.get("pattern")
+        if not isinstance(pat, str) or any(c in pat for c in "*?["):
+            # ASSUMED: a glob (or a JSON that does not say which pattern approved) is read as "this approval was not about data"
+            notes.append(f"approval '{pat if isinstance(pat, str) else '?'}' is a glob; data rows not auto-allowed; add a literal approval or a hand allow row"
+                         f" ({kind} {qn})" if isinstance(pat, str) else f"approval of {kind} {qn} does not record its pattern; data rows not auto-allowed; rerun idcheck or add a hand allow row")
+            continue
+        why = f"{kind} {qn} removal approved in idcheck ({ap_[len('approved:'):].strip() or 'no reason written'})"
+        if kind == "entity":
+            out.append((f"db.entity.{_lit(qn)}", "*entity not in after model", why))
+            out.append((f"db.attr.{_lit(qn)}.*", "column gone*", why))
+        elif kind == "association":
+            out.append((f"db.assoc.{_lit(qn)}", "association gone*", why))
+        elif kind == "attribute":
+            out.append((f"db.attr.{_lit(qn)}", "column gone*", why))
+    return out, notes
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("before"); ap.add_argument("after")
     ap.add_argument("--allow"); ap.add_argument("--md")
     ap.add_argument("--log-allow", help="logdiff allow file for the log.start rows")
+    ap.add_argument("--idcheck-json", dest="idcheck_json",
+                    help="idcheck.py --json output: removals idcheck approved become allow rows for that element's data rows (GM-35)")
+    ap.add_argument("--idcheck-old", dest="idcheck_old", help="the OLD path idcheck was run on; the JSON is refused when it records another")
+    ap.add_argument("--idcheck-new", dest="idcheck_new", help="the NEW path idcheck was run on; the JSON is refused when it records another")
     ap.add_argument("--db-only", action="store_true",
                     help="compare the db section only (the mutant control: a db-only snapshot of a copy; E6-11, E7-18)")
     ap.add_argument("--emit-allow", dest="emit_allow",
@@ -107,18 +161,23 @@ def main():
                 pat, _, why = l.partition("#")
                 cpat, _, dpat = pat.strip().partition(" ")
                 allow.append((cpat, dpat.strip(), why.strip())); allow_at.append((n, l.strip()))
+    n_hand = len(allow)
+    derived, dnotes = derive_idcheck_allows(a.idcheck_json, a.idcheck_old, a.idcheck_new) if a.idcheck_json else ([], [])
+    allow += derived
+    dcount = {}
     rows = []
 
     def add(check, verdict, detail):
         # WM1 2026-11-17: MendixSSO 4.2 -> 10.6 dropped AuthRequest.Nonce and MxModelReflection 7 -> 9 rewrote its own rows;
         # both read FAIL on the gate card though nothing of the app's data was lost. Only a vendor module's own attribute,
         # and only when the run updated that module; rows lost stay FAIL whatever the module
-        hit = None
+        hit, hit_k = None, None
         for k, (cpat, dpat, why) in enumerate(allow):
             if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
                 used.add(k)   # a line that matched a row, whatever its verdict, was read as meant (issue 21)
-                if hit is None: hit = why
+                if hit is None: hit, hit_k = why, k
         if hit is not None and verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
+            if hit_k >= n_hand: dcount[hit_k] = dcount.get(hit_k, 0) + 1   # GM-35: accepted by a derived allow row
             verdict, detail = "PASS*", f"{detail} (accepted: {hit})"
         mod = check.split(".")[2] if check.startswith("db.attr.") else ""
         if verdict == "FAIL" and mod in jumps and detail.startswith(("column gone", "values changed")):
@@ -284,6 +343,12 @@ def main():
         open(a.emit_allow, "w").write("".join(noise))
         print(f"--emit-allow: {len(noise)} check(s) written to {a.emit_allow}; read each one before the gate uses the file"
               + (f"; {refused} row(s) with no detail to match were NOT written (accept them by hand)" if refused else ""))
+    if derived or dnotes:
+        table += f"\n## Allow rows derived from idcheck approvals ({a.idcheck_json})\n\n"
+        table += "\n".join(f"- allowed: {w}: {c} [{d}], accepted {dcount.get(n_hand + i, 0)} row(s)" for i, (c, d, w) in enumerate(derived)) + ("\n" if derived else "")
+        table += "".join(f"- NOT allowed: {n}\n" for n in dnotes)
+        for n in dnotes: print(f"diff: {n}")
+        print(f"diff: {len(derived)} allow row(s) derived from idcheck approvals, accepting {sum(dcount.values())} row(s); each is named in the report")
     if unmatched:
         table += "\n## Allow lines that matched nothing\n\n" + "\n".join(f"- {u}" for u in unmatched) + "\n"
     for u in unmatched:
