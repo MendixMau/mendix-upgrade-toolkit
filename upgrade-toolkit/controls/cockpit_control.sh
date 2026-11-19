@@ -3,7 +3,7 @@
 # Builds a throwaway copy with an app git repo, then runs one case and prints what it saw.
 set -u
 here=$(cd "$(dirname "$0")" && pwd); B=$(cd "$here/.." && pwd)/bin
-case_=$1; T=${TMPDIR:-/tmp}/cockpit-ctl.$$; trap 'rm -rf "$T"' EXIT
+case_=$1; T=${TMPDIR:-/tmp}; T=${T%/}/cockpit-ctl.$$; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T"; cp -R "$here/fixtures/cockpit/run" "$T/run"; W=$T/run/work
 mkdir -p "$T/run/app"; (cd "$T/run/app" && git init -q && git config user.email t@t && git config user.name t \
   && for m in "original" "step: Widgetpack 2.0.0 (stepupdate, idcheck PASS)" "convert 11.1.0" "repair D2: remove the feedback button (VISIBLE UI change)" "build: regenerated stubs"; do
