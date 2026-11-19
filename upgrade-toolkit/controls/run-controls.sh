@@ -404,7 +404,7 @@ ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets 
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP
-for r in rep none old ack top; do git init -q $RP/$r; done
+for r in rep none old ack; do git init -q $RP/$r; done
 gc() { git -C $RP/$1 -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$2"; }
 gc rep 'convert 11.12.7'; gc rep 'step: DataWidgets 3.11.8 (stepupdate)'; gc rep 'replay: Atlas_Core'
 gc none 'convert 11.12.7'; gc none 'step: DataWidgets 3.11.8 (stepupdate)'
@@ -418,9 +418,11 @@ ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash 
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
 # under the pipeline's set -Eeuo pipefail the lookup must not end early: cold rfq rung 2 (convert the newest commit, the rung-1
 # history below it) died at this line, exit 4, when awk quit at the match and git log got SIGPIPE
-for k in $(seq 1 40); do gc top "step $k"; done; gc top 'convert 11.12.7'
-printf '%s\n' 'set -Eeuo pipefail' ". $RP/stub.sh" "WORK=$RP/w APP=$RP/top" 'f; echo reached' > $RP/top.sh
-ctl pipeline-update-convert-lookup-sigpipe-catch 0 '^reached 30 of 30$' -- bash -c "n=0; for i in \$(seq 1 30); do [ \"\$(bash $RP/top.sh 2> /dev/null)\" = reached ] && n=\$((n+1)); done; echo reached \$n of 30"
+# (git log only gets SIGPIPE when the log outgrows the pipe buffer, and some awks read on to the end, so the log is a long
+# stand-in stream, and the shell gets the default SIGPIPE back: a shell started by a tool that ignores it hides the bug)
+printf '%s\n' 'import signal, os, sys; signal.signal(signal.SIGPIPE, signal.SIG_DFL); os.execvp("bash", ["bash"] + sys.argv[1:])' > $RP/dfl.py
+printf '%s\n' 'set -Eeuo pipefail' ". $RP/stub.sh" 'git_app() { printf "%s\n" "abc1234 convert 11.12.7"; seq 1 300000 | sed "s/^/def5678 step /"; }' "WORK=$RP/w APP=$RP/top" 'f; echo reached' > $RP/top.sh
+ctl pipeline-update-convert-lookup-sigpipe-catch 0 '^reached 30 of 30$' -- bash -c "n=0; for i in \$(seq 1 30); do [ \"\$(python3 $RP/dfl.py $RP/top.sh 2> /dev/null)\" = reached ] && n=\$((n+1)); done; echo reached \$n of 30"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
