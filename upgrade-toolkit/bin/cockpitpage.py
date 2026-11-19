@@ -697,13 +697,21 @@ def build_model(work):
                       "evidence": evidence.for_item(work, it["name"], it["kind"])})
     plan_signed = bool(signed)
     if P["present"] and not plan_signed:
-        # Source of the count: every decision the agent recorded in AGENT-DECISIONS.md (len(AD), one per Dn) plus the plan choices
-        # in PROPOSAL.md / DECISIONS.md that nobody answered (len(assumed)).
-        n = len(AD) + len(assumed) if recs is None else sum(1 for r in recs if (r.get("approval") or {}).get("state") == "assumed")
+        # The list and the count are ONE source (DV-13): every decision the agent recorded in AGENT-DECISIONS.md (one per Dn) plus the plan
+        # choices in PROPOSAL.md / DECISIONS.md that nobody answered; with step records, the steps whose approval is assumed. n is len(list).
+        by_id = {i["id"]: i for i in items}
+        if recs is None:
+            arows = [{"id": k, "text": short(" ".join(x for x in (d["title"], d["choice"]) if x), 140)} for k, d in AD.items()]
+            for pid in assumed:
+                it_ = by_id.get(pid) or {}
+                arows.append({"id": pid, "text": short(" ".join(x for x in ((it_.get("title") or pid) + ":", (it_.get("options") or [{}])[0].get("label")) if x), 140)})
+        else:
+            arows = [{"id": r["id"], "text": short(r.get("title") or r["id"], 140)} for r in recs if (r.get("approval") or {}).get("state") == "assumed"]
+        n = len(arows)
         add({"id": "signoff", "kind": "signoff", "dot": "warn", "title": "Sign the plan",
              "meta": f"{pl(n, 'choice')} {'was' if n == 1 else 'were'} assumed by the agent" if n else "Nothing changes in the app before you approve",
              "step": "propose", "problem": "Nothing changes in the app before you approve the plan. Review it under Plan. To change one choice first, answer its question or say so in chat (decisions.py pending lists them).",
-             "rec": "sign", "rec_text": "", "options": [{"key": "sign", "label": "Approve and continue"}], "plan_hash": P["hash"]})
+             "rec": "sign", "rec_text": "", "options": [{"key": "sign", "label": "Approve and continue"}], "plan_hash": P["hash"], "assumed_rows": arows})
     visible = [i for i in items if not i.get("hidden")]
     open_visible = [i for i in visible if not (i.get("decided") and i["kind"] != "signoff") and i.get("open", 1)]
     order = {"bad": 0, "warn": 1}
