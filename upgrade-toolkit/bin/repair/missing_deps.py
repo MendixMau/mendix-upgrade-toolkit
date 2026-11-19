@@ -129,7 +129,8 @@ def units(path, with_ids=False):
     blob_col = "Contents" if "Contents" in cols else "NULL"
     cid_col = "ContainerID" if "ContainerID" in cols else "NULL"
     if with_ids and cid_col == "NULL":
-        sys.exit("missing_deps: INVALID, Unit table has no ContainerID column, so documents cannot be placed in modules")
+        print("missing_deps: INVALID, Unit table has no ContainerID column, so documents cannot be placed in modules",
+              file=sys.stderr); sys.exit(2)
     v2 = {os.path.basename(f)[:-7].lower(): f
           for f in glob.glob(os.path.join(proj, "mprcontents", "**", "*.mxunit"), recursive=True)}
     for uid, cid, blob in con.execute(f"select UnitID, {cid_col}, {blob_col} from Unit"):
