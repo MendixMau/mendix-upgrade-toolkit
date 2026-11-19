@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time
+import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -338,10 +338,10 @@ PATCHES = [
     # and an item without a title attribute is found by its exact text
     ("navTo: also menu bars, and exact text when no title matches (T2-11)",
      "    const a = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a')]\n"
-     "      .find((x) => x.getAttribute('title') === title);",
+     "      .filter((x) => x.getAttribute('title') === title)[k || 0];",
      "    const all = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a, .mx-menubar a, .mx-simplemenubar a')];\n"
-     "    const a = all.find((x) => x.getAttribute('title') === title)\n"
-     "      || all.find((x) => (x.innerText || '').trim() === title);",
+     "    const a = all.filter((x) => x.getAttribute('title') === title)[k || 0]\n"
+     "      || (k ? undefined : all.find((x) => (x.innerText || '').trim() === title));",
      "helpers.js"),
     # E2E-9 / E5b-11: `mxcli oql --direct` does not answer on a runapp runtime; ask the app's Postgres (pgdata.js)
     ("oql: SQL through UPG_PSQL (pgdata.js + pgmap.py), not mxcli oql --direct (E2E-9, E5b-11)",
@@ -1551,7 +1551,15 @@ def main():
                                         "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
-        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)):
+        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        # issue 26 (SNOW, 435 user paths): a progress line while the runner walks them, and the expected duration before the first; said only, no verdict
+        prog = None
+        if not a.positive_control and waves:
+            import journeys_progress
+            prog = journeys_progress.Progress(a.label, sum(len(w[3]) for w in waves), os.environ.get("UPG_PROGRESS_FILE") or str(out / "progress.json"),
+                                              os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
+            prog.start()
+        for key, role, role_dir, files in waves:
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
@@ -1605,7 +1613,11 @@ def main():
             while True:
                 if art.exists():
                     shutil.rmtree(art)
-                p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
+                if prog:
+                    p = types.SimpleNamespace()
+                    p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
+                else:
+                    p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
                 (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
@@ -1684,6 +1696,8 @@ def main():
                         s.update(verdict="INVALID", why=DOWN_WHY, app_down=True, before_down=s.get("not_pass", [])[:2]); n += 1
                 summary["roles"][key]["app_down"] = True
                 print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
+        if prog:
+            prog.finish(prog.base)
         # a hand-written journey may close plan items: "closes": ["menu:Wizard", ...] (E7-3)
         for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
             d = read_journey(f)
@@ -1768,6 +1782,22 @@ def main():
             if not erows:
                 eline += " (INVALID: no journey PASSes on both runs)"
             summary["effects"] = dict(ec, line=eline, rows=erows)
+    if not a.compare and not a.positive_control and a.label.startswith("before") and evidence:
+        # the baseline walk judges its own FAILs by the SAME checked evidence the compare run applies (check_evidence:
+        # file+line, fixture JSON, two reruns), never on the line's word: a journey that fails on the old app for a reason
+        # the old app's own log shows is a listed baseline defect (PASS*), not a stop with no way past (run PMNT)
+        import fnmatch
+        for j, s in summary["journeys"].items():
+            if s["verdict"] != "FAIL" or s.get("scope_class"):
+                continue
+            hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
+            if hit is None:
+                continue
+            good, detail = check_evidence(j, hit[1], hit[2])
+            if good:
+                s["compare"] = f"BASELINE DEFECT {hit[1]} ({detail})"
+            else:
+                s["evidence_refused"] = f"evidence line {hit[4]}: {detail}"
     cov = None
     if not a.positive_control:   # E2E-11: the coverage line, and with --compare the rules that keep INVALID honest
         cur_set = (summary.get("journey_set") if a.rejudge else None) or journey_set(a.gen_dir)
@@ -1842,6 +1872,7 @@ def main():
         tag += f" effect {s['effect'][:120]}" if s.get("effect", "PASS").split()[0] not in ("PASS",) else ""
         tag += f" [UNREACHABLE refused, {s['unreachable_refused'][:300]}]" if s.get("unreachable_refused") else ""
         what = s.get("unreachable") or ('; '.join(s.get('not_pass', [])) or s.get('why', ''))[:150]
+        tag += f" [evidence refused, {s['evidence_refused'][:300]}]" if s.get("evidence_refused") else ""
         tag += shown_tag(s)
         tag += f" [DESTRUCTIVE({s['destructive']})]" if s.get("destructive") else ""
         print(f"  {s['verdict']:7} {j:55} {what}{tag}")
@@ -1857,7 +1888,8 @@ def main():
         fail = any(s.get("compare") in ("REGRESSION", "NOT IN BASELINE (run it on the old app too)", "SCREEN REVIEW", "EFFECT REVIEW")
                    for s in summary["journeys"].values())   # SCREEN / EFFECT INVALID is INVALID, never FAIL (N1R2-8)
     else:
-        fail = "FAIL" in vs
+        fail = any(s["verdict"] == "FAIL" and not re.match(r"BASELINE DEFECT (FIXTURE|OLD-APP|FLAKY)\b", str(s.get("compare", "")))
+                   for s in summary["journeys"].values())
     counts = {v: vs.count(v) for v in ("PASS", "FAIL", "INVALID", "INFO", "NOT CHECKED", "UNREACHABLE", "CONTAMINATED", "SKIPPED")}
     # E2E-11: a baseline defect with checked evidence is PASS* (listed), not INVALID; without evidence it stays INVALID.
     # B4N1-13: the headline counts it as PASS* (baseline defect), not as FAIL next to "= N PASS*" two lines down;

@@ -318,7 +318,7 @@ ctl widgetskew-catch 1 '^WIDGET-SKEW Datagrid 2\.2\.2 -> 2\.30\.6 \(by Atlas_Web
 ctl widgetskew-nothing-kept-pass 0 '!WIDGET-SKEW' '0 kept module\(s\), 0 widget' -- python3 $B/widgetskew.py $WS/solo --plan $WS/plan.txt --cache $WS/cache
 # step_update parks on it, unless widgetskew-ack.txt accepts it
 awk '/xo "\$WORK\/widgetskew.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WS/nj.sh
-printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_park() { echo PARK; }' 'export UPG_CACHE='"$WS"'/cache; rc=0' > $WS/stub.sh
+printf '%s\n' 'xo() { o=$1; shift; "$@" > "$o"; }' 'nj_file() { echo "NJ $1 $2"; grep -E "$5" "$3"; }' 'nj_meta() { :; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_park() { echo PARK; }' 'export UPG_CACHE='"$WS"'/cache; rc=0' > $WS/stub.sh
 mkdir -p $WS/w1 $WS/w2; cp $WS/plan.txt $WS/w1/; cp $WS/plan.txt $WS/w2/; : > $WS/w2/widgetskew-ack.txt
 ctl pipeline-update-widgetskew-catch 0 '^NJ 13 A module update replaced a widget whose styles stay with a kept module \(steps/repair\.md row 32\)$' '^WIDGET-SKEW Datagrid' '^NJ 13 Decision: Update the kept module' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WS/w1 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
 ctl pipeline-update-widgetskew-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WS/w2 APP=$WS/app B=$B; . $WS/nj.sh; echo done"
@@ -349,11 +349,36 @@ ctl widgetdrop-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.me
 ctl widgetdrop-declared-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS, 0 of 1 widget' -- python3 $B/widgetdrop.py $WD/new
 ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/widgetdrop.py $WD/dflt
 ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
+# cold rfq: DataWidgets 3.11.8 took Gallery 1.0.0 -> 3.11.8 and a kept module's page had advanced=true, which 3.x does
+# not declare. The package is NEWER (.stepupdate/widgets.txt): "removed in the newer package", not "update the module"
+mkdir -p $WD/up/.stepupdate $WD/down/.stepupdate; cp -R $WD/old/. $WD/up/; cp -R $WD/old/. $WD/down/
+echo 'DataWidgets 3.11.8: com.mendix.widget.web.DatagridDropdownFilter.mpk DatagridDropdownFilter 2.4.0 -> 3.11.8; com.mendix.widget.web.Gallery.mpk Gallery 1.0.0 -> 3.11.8' > $WD/up/.stepupdate/widgets.txt
+echo 'DataWidgets 2.2.1: com.mendix.widget.web.DatagridDropdownFilter.mpk DatagridDropdownFilter 3.11.8 -> 2.2.1' > $WD/down/.stepupdate/widgets.txt
+ctl widgetdrop-newer-package-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.mendix\.widget\.web\.datagriddropdownfilter\.DatagridDropdownFilter, removed in the newer package: DatagridDropdownFilter 2\.4\.0 -> 3\.11\.8 by DataWidgets 3\.11\.8\): baseType=ref' '1 removed upstream by a widget update in this rung' '!lacks it' -- python3 $B/widgetdrop.py $WD/up
+ctl widgetdrop-older-package-pass 1 'installed package lacks it\): baseType=ref' '!removed' -- python3 $B/widgetdrop.py $WD/down
 # step_update parks on it, unless widgetdrop-ack.txt accepts it
 awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WD/nj.sh
 mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
 ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+mkdir -p $WD/w3
+ctl pipeline-update-widgetdrop-newer-catch 0 '^NJ 13 Widget settings the newer widget no longer has: a module update in this rung replaced the widget' '^NJ 13 Decision: No module update brings these settings back' '!Update the module that ships' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w3 APP=$WD/up B=$B; . $WD/nj.sh; echo done"
+# run DVS (StarterApp 10.9 -> 10.24, update step): the stop named no module and no version, said nothing about what users lose, gave "No
+# recommendation" although DataWidgets 2.32.4 fits, worded its options as agent instructions, and "update" wrote nothing. bin/widgetfix.py
+# gets the facts from widgetdrop --json, the installed modules, `mxcli marketplace versions` (fixtures/widgetfix/versions-116540.txt is a
+# verbatim capture) and the candidate package (a real 2.32.4 module package cut to its Datagrid widget). The page and the chat read it.
+WF=$here/fixtures/widgetfix
+ctl widgetfix-names-module-and-version-catch 0 '^Q	7 data grids would forget the column layout people saved, and 1 more kind of loss\. Update DataWidgets to 2\.32\.4 first\?$' '^R	update$' '^O	update\|Update DataWidgets to 2\.32\.4\|' '^W	update\|plan\.txt\|116540 2\.32\.4 DataWidgets$' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+ctl widgetfix-options-are-reader-consequences-catch 0 'Users keep what they saved on 7 of the 8 widgets' 'The other 1 \(combo box\) is not in this package' '!Before the build' '!Create widgetdrop-ack' '!Write widgetdrop-ack' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+sed 's/2\.30\.6/2.32.4/' $WF/modules-dvs.json > $T/modules-nofit.json
+ctl widgetfix-no-fit-says-why-catch 0 '^R	none:No newer DataWidgets fits Mendix 10\.24\.0 and has these settings' '^O	accept\|Go on and lose them\|Users notice it: 7 data grids would forget the column layout people saved' '^O	fix\|' '!^W	update' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $T/modules-nofit.json --versions $WF/versions-116540.txt --target 10.24.0 --no-download
+ctl widgetfix-unchecked-package-does-not-promise-catch 0 '^O	update\|Update DataWidgets to 2\.30\.9\|The package could not be checked here, so what users keep is not promised\.' '!Users keep what they saved' -- env UPG_CACHE=$WF python3 $B/widgetfix.py x --drops $WF/drops-dvs.json --modules $WF/modules-dvs.json --versions $WF/versions-116540.txt --target 10.12.6 --no-download --cache $T/empty-cache
+ctl cockpit-dvs-stop-names-module-recommends-catch 0 '^7 data grids would forget the column layout people saved, and 1 more kind of loss\. Update DataWidgets to 2\.32\.4 first\?$' '^We recommend: Update DataWidgets to 2\.32\.4$' '^Your choices: Update DataWidgets to 2\.32\.4 or Go on without updating\.$' '!No recommendation' '^cards: 1$' -- bash $here/cockpit_control.sh dvs-stop
+ctl cockpit-dvs-stop-no-fit-says-why-catch 0 '^No recommendation: this one is your call\. No newer DataWidgets fits Mendix 10\.24\.0' 'Only you know whether losing them matters' -- bash $here/cockpit_control.sh dvs-stop-nofit
+ctl cockpit-dvs-stop-answer-writes-plan-line-catch 0 '^    chat: decisions\.py add .* --item stop:update:1 --choice update --by NAME --source chat$' '^116540 2\.32\.4 DataWidgets # \[item:stop:update:1\] by Ana via page' '^stepupdate reads: cid=116540 ver=2\.32\.4 module=DataWidgets$' -- bash $here/cockpit_control.sh dvs-stop-update
+ctl cockpit-dvs-stop-answer-acts-once-catch 0 '^ack: accepted: 7 data grids' '^asked after the run went on: 0$' '^asked by the next stop with the same id: 1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-twice
+# the pipeline's own stop site goes through widget_drop_stop; a failing widgetfix falls back to the generic wording (the controls above)
+ctl pipeline-update-widgetdrop-uses-widgetfix-catch 0 'nj_writes "\$\{ws\[@\]\}"' '--json "\$WORK/widgetdrop\.json"' '^  decisions_apply   # resume' -- grep -E 'nj_writes "\$\{ws|--json "\$WORK/widgetdrop.json"|^  decisions_apply   # resume' $B/cloud/upgrade-pipeline.sh
 # widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
 # mode gets the widget back from an earlier commit: settings restored, fresh ids, the rest of the page untouched
 WR=$T/wr; mkdir -p $WR/cur $WR/old $WR/other
@@ -392,6 +417,50 @@ WRT="python3 $B/repair/widgetrestore.py $WR/cur --from $WR/old/App.mpr --doc Adm
 ctl widgetrestore-dry-catch 0 '^  RESTORE baseType: attr -> ref$' '^  RESTORE refEntity: \(unset\) -> System\.UserRoles$' 'dry run, rerun with --apply' -- $WRT
 ctl widgetrestore-apply-pass 0 'written, 2 setting\(s\) back' '^again: +nothing differs' '^keep=attr$' '^ids-renewed$' -- bash -c "$WRT --apply; echo again: \$($WRT | tail -1); python3 $WR/show.py $WR/cur/App.mpr"
 ctl widgetrestore-missing-refused-pass 2 'REFUSED: earlier: 0 pluggable widgets named drop_downFilter1' -- python3 $B/repair/widgetrestore.py $WR/cur --from $WR/other/App.mpr --doc Administration.Account_Overview --widget drop_downFilter1
+# exprparam_source.py (repair row 35, cold rfq): an expression text parameter that kept a source variable (a snippet
+# parameter, pasted from a snippet; CE7005 after the convert) loses it; an attribute parameter keeps its source
+PV=$T/pv; mkdir -p $PV/a
+cat > $PV/mk.py <<'EOF'
+import bson, sqlite3, sys, uuid
+def I(): return uuid.uuid4().bytes
+def var(snip): return {"$ID": I(), "$Type": "Forms$PageVariable", "LocalVariable": "", "PageParameter": "",
+                       "SnippetParameter": snip, "UseAllPages": False, "Widget": ""}
+def text(n, expr, attr, src): return {"$ID": I(), "$Type": "Forms$DynamicText", "Name": n, "Content": {"$ID": I(),
+    "$Type": "Forms$ClientTemplate", "Parameters": [2, {"$ID": I(), "$Type": "Forms$ClientTemplateParameter",
+    "AttributeRef": attr, "Expression": expr, "SourceVariable": src}]}}
+date = "formatDateTime($Order/Placed)"
+page = {"$ID": I(), "$Type": "Forms$Page", "Name": "Order_Done", "Excluded": False,
+        "Parameters": [2, {"$ID": I(), "$Type": "Forms$PageParameter", "Name": "Order"}],
+        "LayoutCall": {"Arguments": [2, {"Widgets": [2, text("text1", date, None, var("Order")),
+                                                     text("text2", "", {"$ID": I(), "Attribute": "Shop.Order.Number"}, var("Order")),
+                                                     text("text3", date, None, None)]}]}}
+mod = {"$ID": I(), "$Type": "Projects$ModuleImpl", "Name": "Shop"}
+con = sqlite3.connect(f"{sys.argv[1]}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+m = uuid.uuid4().bytes_le
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (m, None, bson.encode(mod)))
+con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uuid.uuid4().bytes_le, m, bson.encode(page)))
+con.commit()
+EOF
+cat > $PV/show.py <<'EOF'
+import bson, sqlite3, sys
+for (b,) in sqlite3.connect(sys.argv[1]).execute("select Contents from Unit"):
+    d = bson.decode(b)
+    def walk(x, name):
+        if isinstance(x, dict):
+            name = x.get("Name") if isinstance(x.get("Name"), str) else name
+            if x.get("$Type") == "Forms$ClientTemplateParameter":
+                print(f"{name}: source={'none' if x['SourceVariable'] is None else x['SourceVariable']['SnippetParameter']}")
+            [walk(v, name) for v in x.values()]
+        elif isinstance(x, list):
+            [walk(v, name) for v in x]
+    walk(d, "?")
+EOF
+python3 $PV/mk.py $PV/a
+ctl exprparam-source-dry-catch 0 "^FIX Shop\.Order_Done text1: expression 'formatDateTime\(\\\$Order/Placed\)' carries SnippetParameter Order: removed$" '1 fix\(es\); dry run' '!text2' '!text3' -- python3 $B/repair/exprparam_source.py $PV/a
+ctl exprparam-source-apply-pass 0 '1 fix\(es\); written' '^again: exprparam_source: 0 fix\(es\); nothing to write$' '^text1: source=none$' '^text2: source=Order$' '^text3: source=none$' -- bash -c "python3 $B/repair/exprparam_source.py $PV/a --apply; echo again: \$(python3 $B/repair/exprparam_source.py $PV/a | tail -1); python3 $PV/show.py $PV/a/App.mpr"
+ctl exprparam-source-noproject-pass 2 'exprparam_source: .*expected exactly one \.mpr' -- python3 $B/repair/exprparam_source.py $PV
+ctl pipeline-build-exprparam-row35-catch 0 'has_code CE7005' 'try_fix "expression parameter source" repair-row-35 CE7005 python3 "\$B/repair/exprparam_source.py" "\$APP" --apply' -- grep -A2 'row 35' $B/cloud/upgrade-pipeline.sh
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP
@@ -402,11 +471,34 @@ gc none 'convert 11.12.7'; gc none 'step: DataWidgets 3.11.8 (stepupdate)'
 gc old 'convert 10.24.28'; gc old 'replay: Atlas_Core'; gc old 'convert 11.12.7'
 gc ack 'convert 11.12.7'; gc ack 'replay: Atlas_Core'; mkdir -p $RP/wack; : > $RP/wack/replay-keep.txt
 awk '/replay-keep\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $RP/nj.sh
-printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
+printf '%s\n' 'git_app() { git -C "$APP" "$@"; }' 'nj_meta() { :; }' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; }' 'DRY=0 TARGET=11.12.7' 'f() { . '"$RP"'/nj.sh; }' > $RP/stub.sh
 ctl pipeline-update-replay-rerun-catch 0 '^NJ 12 Update rerun on an app that holds replay commits: Since convert [0-9a-f]+: [0-9a-f]+ replay: Atlas_Core;' '^NJ 12 Decision: Tag a backup, then rewind the app to [0-9a-f]+ ' '^FLUSH$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/rep; f; echo done"
 ctl pipeline-update-replay-none-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/none; f; echo done"
 ctl pipeline-update-replay-earlier-rung-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/w APP=$RP/old; f; echo done"
 ctl pipeline-update-replay-keep-pass 0 '!^NJ' '!FLUSH' '^done$' -- bash -c ". $RP/stub.sh; WORK=$RP/wack APP=$RP/ack; f; echo done"
+# step_build commits the regenerated stubs before a build stop (cold rfq rung 2: a javac stop left them uncommitted, the rerun
+# from update died in stepupdate's clean-tree check)
+ctl pipeline-build-stubs-before-stop-catch 0 '^stubs stop$' -- bash -c "awk '/^step_build\\(\\) \\{/{p=1} p&&/commit_app \"build: regenerated stubs\"/{printf \"stubs \"} p&&/nj_add 10 \"mxbuild failed/{print \"stop\"} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh"
+# triage stops a plan that keeps a module whose Java calls Runtime API that 11 removed (cold rfq rung 2: 34 javac errors at
+# the build in three kept Marketplace modules); planned, ported (java-port.txt) or clean modules and a 10.x target pass
+KJ=$T/kj; mkdir -p $KJ/app/javasource/keptmod/reader $KJ/app/javasource/planmod $KJ/app/javasource/ownok $KJ/app/javasource/ownok/proxies $KJ/w $KJ/wp
+echo 'class A { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/keptmod/reader/A.java
+echo 'class B { boolean f() { return Core.isSubClassOf("A", "B"); } }' > $KJ/app/javasource/planmod/B.java
+echo 'class C { void f() { Core.createXPathQuery("//X").execute(ctx); } }' > $KJ/app/javasource/ownok/C.java
+echo 'class P { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/ownok/proxies/P.java
+printf '# kept: KeptMod\n1 2.0.0 PlanMod\n' | tee $KJ/w/plan.txt > $KJ/wp/plan.txt; echo 'KeptMod no 11 release' > $KJ/wp/java-port.txt
+{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
+ctl triage-kept-java-removed-api-catch 0 '^NJ 13 Kept module calls Java API Mendix 11\.12\.7 removed' '^keptmod: 1 file\(s\), e\.g\. javasource/keptmod/reader/A\.java $' '!^planmod' '!^ownok' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=11.12.7; kept_java_check"
+ctl triage-kept-java-ported-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/wp TARGET=11.12.7; kept_java_check; echo done"
+ctl triage-kept-java-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=10.24.28; kept_java_check; echo done"
+ctl triage-kept-java-wired-pass 0 '^  kept_java_check$' -- sed -n '/^step_triage() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
+# under the pipeline's set -Eeuo pipefail the lookup must not end early: cold rfq rung 2 (convert the newest commit, the rung-1
+# history below it) died at this line, exit 4, when awk quit at the match and git log got SIGPIPE
+# (git log only gets SIGPIPE when the log outgrows the pipe buffer, and some awks read on to the end, so the log is a long
+# stand-in stream, and the shell gets the default SIGPIPE back: a shell started by a tool that ignores it hides the bug)
+printf '%s\n' 'import signal, os, sys; signal.signal(signal.SIGPIPE, signal.SIG_DFL); os.execvp("bash", ["bash"] + sys.argv[1:])' > $RP/dfl.py
+printf '%s\n' 'set -Eeuo pipefail' ". $RP/stub.sh" 'git_app() { printf "%s\n" "abc1234 convert 11.12.7"; seq 1 300000 | sed "s/^/def5678 step /"; }' "WORK=$RP/w APP=$RP/top" 'f; echo reached' > $RP/top.sh
+ctl pipeline-update-convert-lookup-sigpipe-catch 0 '^reached 30 of 30$' -- bash -c "n=0; for i in \$(seq 1 30); do [ \"\$(python3 $RP/dfl.py $RP/top.sh 2> /dev/null)\" = reached ] && n=\$((n+1)); done; echo reached \$n of 30"
 # the build stop quotes owngone.out when mx check has CE1613 (and only then)
 mkdir -p $T/og; printf '%s\n' 'crosscalls: own modules 1' 'OWN AuthMod 3.2.0 -> 4.1.0: 1 target(s) own modules use are gone from the 4.1.0 package' '  GONE page AuthMod.Login_Page (used by own Shop.ACT_Open)' > $T/og/owngone.out
 printf '%s\n' '[error] [CE1613] "The selected page no longer exists." at Microflow ACT_Open' > $T/og/check-1613.log; printf '%s\n' '[error] [CE0117] "x"' > $T/og/check-0117.log
@@ -623,6 +715,14 @@ ctl smokewalk-gen-demodata-excluded-catch 0 '^Admin: 2 page steps' '1 steps skip
 ctl smokewalk-gen-demodata-skipped-reason-pass 0 'excluded by pattern DemoData\*' '^Overview$' '!^DemoData_CreateByAdmin$' -- python3 -c "import json; p=json.load(open('$T/smoke-excl-plan.json'))['roles'][0]; print(p['skipped'][0]['why']); [print(s['caption']) for s in p['steps'] if s['via']=='menu']"
 ctl smokewalk-gen-no-default-excludes-pass 0 '^Admin: 3 page steps' '0 steps skipped' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-excl-plan2.json --no-default-excludes
 ctl smokewalk-gen-exclude-option-catch 0 '^Admin: 1 page steps' '2 steps skipped' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-excl-plan3.json --exclude 'Overview'
+# a home-page button shown only after a row is selected (Expression) is not on the page for the walk: LISTED as not walked, never silently dropped
+ctl smokewalk-gen-conditional-button-listed-catch 0 '^Admin: not walked: conditionally visible: 1 button\(s\): closePreview -> Shop\.Overview$' '^Admin: 3 page steps' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-button)/App.mpr -o $T/smoke-cond-plan.json
+ctl smokewalk-gen-visible-button-kept-pass 0 '^Admin: 2 page steps' '!not walked' -- python3 $B/smokewalk_gen.py $(model smoke-exclude)/App.mpr -o $T/smoke-cond-plan2.json
+ctl smokewalk-gen-same-name-visible-button-walked-pass 0 '^User: 2 page steps' '!^User: not walked' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-samename)/App.mpr -o $T/smoke-cond-plan3.json
+ctl smokewalk-gen-per-row-button-listed-catch 0 '^Admin: not walked: per-row widget content: 1 button\(s\): editRow -> Shop\.Overview$' '^Admin: 4 page steps' -- python3 $B/smokewalk_gen.py $(model smoke-per-row-button)/App.mpr -o $T/smoke-row-plan.json
+ctl smokewalk-gen-plain-widget-property-button-walked-pass 0 '^Admin: 4 page steps' '!inProp' -- python3 $B/smokewalk_gen.py $(model smoke-per-row-button)/App.mpr -o $T/smoke-row-plan2.json
+# a container plug-in widget (Accordion group, popup menu) nests like a grid but holds no data source: its button is always drawn, so it is walked
+ctl smokewalk-gen-accordion-button-walked-pass 0 '^Admin: 4 page steps' '!not walked' -- python3 $B/smokewalk_gen.py $(model smoke-accordion-button)/App.mpr -o $T/smoke-row-plan3.json
 ctl smokewalk-gen-excluded-widget-pass 0 '^DemoData\*$' '^$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import smokewalk_gen as g; print(g.excluded('Shop.DemoData_X','w')); print(g.excluded('Shop.Orders','actionButton1'))"
 ctl localedits-proxy-catch 1 'PROXY: compared with 4\.0\.0' -- python3 $B/localedits.py $M/local-edit/App.mpr --module Administration --proxy Administration=4.0.0
 # E5b-5: a proxy a major version away says so; a proxy in the same major does not
@@ -638,6 +738,19 @@ mkdir -p $T/cache-lay
 (cd $M/layout-edit-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-lay/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
 ctl localedits-layout-content-catch 0 'ui +CHANGED +layout +Administration\.Layout_Main +content differs from the package; local: .*RegionTopbar; package only: .*FeedbackCall' 'force-ui: Administration' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-edit-app/App.mpr --module Administration
 ctl localedits-layout-content-pass 0 'UI edits \(pages, layouts\): 0' 'force-ui: none' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-same-app/App.mpr --module Administration
+# cold rfq: Encryption snippets flagged "local: SnippetParameter PasswordData". The package (before conversion) has Entity,
+# the converted app a Forms$SnippetParameter for the same entity: no local edit. A real snippet widget still counts.
+SNIPSIG="import sys; sys.path.insert(0,'$B'); import localedits as L
+class D: pass
+class Mo: pass
+def doc(data): d=D(); d.data=data; return d
+pkg={'\$Type':'Forms\$Snippet','Entity':'Encryption.PasswordData','Widgets':[{'\$Type':'Forms\$TextBox','Name':'pw'}]}
+app={'\$Type':'Forms\$Snippet','Parameters':[{'\$Type':'Forms\$SnippetParameter','Name':'PasswordData','ParameterType':{'\$Type':'DataTypes\$ObjectType','Entity':'Encryption.PasswordData'}}],'Widgets':[{'\$Type':'Forms\$TextBox','Name':'pw'}]}
+m=Mo(); m.docs={'pkg':doc(pkg),'app':doc(app)}"
+ctl localedits-snippetparam-converted-catch 0 '^app-only: \[\]$' '^pkg-only: \[\]$' -- python3 -c "$SNIPSIG
+a=L.content_signature(m,'app'); p=L.content_signature(m,'pkg'); print('app-only:', sorted(a-p)); print('pkg-only:', sorted(p-a))"
+ctl localedits-snippetparam-widget-kept-pass 0 "widget TextBox pw" "ref Encryption.PasswordData" -- python3 -c "$SNIPSIG
+print(sorted(L.content_signature(m,'app')))"
 # PV-1: a constant that shares its qualified name with a page (MFAmodule.Shared) is found by type, not shadowed
 model const-shadowed > /dev/null
 ctl mprmodel-constant-shadowed-catch 0 "^\{'default': 'True', 'type': 'Boolean', 'exposed': False\}$" '^Forms\$Page$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import mprmodel; m=mprmodel.Model.load('$M/const-shadowed'); print(m.constant('MFAmodule.Shared')); print(m.docs['MFAmodule.Shared'].type)"
@@ -698,6 +811,17 @@ ctl missing-deps-target-pass 1 '!above target' -- python3 $B/repair/missing_deps
 # pipeline run 3 (T7-29): Charts 3.x widgets build on 11 but fail at runtime: DEPRECATED-11 before the 11 rung, quiet below 11
 ctl missing-deps-charts3-11-catch 1 'DEPRECATED-11 widget com.mendix.widget.custom.PieChart.PieChart: used 1x in Account_Overview' '!MISSING' -- python3 $B/repair/missing_deps.py --target 11.15.0 $(model charts3)
 ctl missing-deps-charts3-10-pass 0 '!DEPRECATED-11' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $(model charts3)
+# issue 24 (SNOW: Atlas_Core 4.7.0 needs FeedbackModule, stepupdate only updates): detected before the build, said as a person's decision, never installed
+MMC="bash $here/missing_module_control.sh"; MMA="$B/repair/missing_deps.py $M/missing-deps $FX/catalog/catalog.json $B"
+ctl missing-module-stop-names-module-and-version-catch 0 '^Q	The update of Atlas_Core needs a module this app does not have: UserCommons\.' '^O	install\|Install UserCommons 2\.4\.0 from the Marketplace\|.*mxcli marketplace install 223053 --version 2\.4\.0' '^R	install$' '^exit 1$' -- $MMC update-introduced $MMA
+ctl missing-module-stop-offers-keep-old-version-catch 0 '^O	keep\|Keep the old version of Atlas_Core\|Revert its update \(git revert [0-9a-f]+\)' '^B	  UserCommons: Marketplace content 223053, version 2\.4\.0; introduced by Atlas_Core 4\.7\.0 \(' -- $MMC update-introduced $MMA
+ctl missing-module-stop-says-nothing-is-installed-pass 0 'Nothing is installed until you say so\.' -- $MMC update-introduced $MMA
+ctl missing-module-above-target-recommends-keep-catch 0 '^R	keep$' '^B	  UserCommons: .*NOT usable on the target' '!--version 2\.4\.0' -- $MMC above-target $MMA
+ctl missing-module-already-dangling-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC already-dangling $MMA
+ctl missing-module-acked-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC acked $MMA
+ctl missing-module-nothing-missing-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC nothing-missing $MMA
+ctl missing-module-no-git-history-no-stop-pass 0 '^exit 0$' '!^Q' -- $MMC no-git $MMA
+ctl cockpit-missing-module-stop-is-the-card-catch 0 '^The update of Atlas_Core needs a module this app does not have: UserCommons' '^We recommend: Install UserCommons 2\.4\.0 from the Marketplace$' '^question cards: 1$' '!Nothing you can answer here' -- bash $here/cockpit_control.sh p24-stop
 ctl widget-descriptor-catch 1 'BROKEN.*data descriptor missing' -- python3 $B/repair/missing_deps.py $M/widget-descriptor
 ctl widget-crc-catch 1 'BROKEN' -- python3 $B/repair/missing_deps.py $M/widget-crc
 
@@ -965,6 +1089,23 @@ ctl jarclash-owner-catch 1 'userlib/pdfreader-1\.0\.0\.jar \[no maven metadata; 
 ctl jarclash-shaded-pass 0 '^no clash' -- python3 $B/repair/jarclash.py $T/jarclean
 ctl jarclash-input-catch 2 -- python3 $B/repair/jarclash.py $T/empty-nothing
 
+# --- repair: add-on cache folder case on Linux (LDMS, row 34) ------------------------------------------------------------
+MC=$T/mxmc; mkdir -p $MC/modules $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource
+touch $MC/modules/ExampleTwinConnector.mxmodule $MC/.mendix-cache/modules/exampletwinconnector.mxmodule/javasource/A.java
+ctl mxmodulecase-check-catch 1 'WOULD LINK .*modules/ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' 'summary: 1 ' -- python3 $B/repair/mxmodulecase.py $MC --check
+ctl mxmodulecase-check-wrote-nothing 0 -- test ! -e $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-link 0 'LINK .*ExampleTwinConnector\.mxmodule -> exampletwinconnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC
+ctl mxmodulecase-link-resolves 0 -- test -f $MC/.mendix-cache/modules/ExampleTwinConnector.mxmodule/javasource/A.java
+ctl mxmodulecase-idempotent 0 'summary: 0 ' '!LINK' -- python3 $B/repair/mxmodulecase.py $MC
+# the name from the build log alone (no modules/ file), the golden log of the failure
+MC2=$T/mxmc2; mkdir -p $MC2/.mendix-cache/modules/exampletwinconnector.mxmodule
+ctl mxmodulecase-log-catch 1 'WOULD LINK .*ExampleTwinConnector\.mxmodule' -- python3 $B/repair/mxmodulecase.py $MC2 --log $here/fixtures/mxmodulecase/build-9.24.log --check
+# no cache folder in any case yet (the build makes it): nothing is invented
+MC3=$T/mxmc3; mkdir -p $MC3/modules $MC3/.mendix-cache/modules; touch $MC3/modules/ExampleTwinConnector.mxmodule
+ctl mxmodulecase-no-folder-pass 0 'summary: 0 ' -- python3 $B/repair/mxmodulecase.py $MC3
+ctl mxmodulecase-input-catch 2 -- python3 $B/repair/mxmodulecase.py $T/empty-nothing
+ctl pipeline-mxmodulecase-wired-pass 0 -- bash -c "[ \$(grep -c 'modcase_fix \"' $B/cloud/upgrade-pipeline.sh) = 2 ]"
+
 # --- repair: backslash paths (E5 F14, E1 17) --------------------------------------------------------------------------
 P=$T/bs; mkdir -p $P/javasource/oql/actions
 printf 'class A {}\n' > "$P/javasource\\oql\\actions\\AddBooleanParameter.java"
@@ -1206,14 +1347,25 @@ ctl smokewalk-react-pass 0 '^ok +react loggedIn when ready' '^ok +react homeRead
 # cold CMM 2026-11-17: Atlas styles .mx-window position:fixed (offsetParent null): every "Switch user" popup menu item FAILed
 ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +landedWhere hidden popup window' -- node $here/smokewalk_predicates.js
 # T3-6: a step is judged by what the browser shows: the login form and the "An error occurred" dialog FAIL, a clean page passes
-ctl smokewalk-landedok-pass 0 '^ok +landedOk login form page .*FAIL wanted' '^ok +landedOk error dialog .*FAIL wanted' '^ok +landedOk clean page .*PASS wanted' \
-  '^ok +landedOk hidden login form .*PASS wanted' '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
+# The (chromium) lines need Playwright with a browser (the CI runner has none): there the fake-document lines are the
+# control and smokewalk-landedok-chromium is a SKIP, never a silent pass
+if node $here/smokewalk_predicates.js 2> /dev/null | grep -q '^note  landedOk: no Playwright/Chromium here'; then
+  LOK_LOGIN='^ok +landedOk fake login form: got true'; LOK_DIALOG='^ok +landedOk fake error dialog: got true'
+  LOK_CLEAN='^ok +landedOk fake clean page: got null'; LOK_HIDDEN=$LOK_CLEAN
+  LOK_FILTER='^ok +landedOk fake filter attribute error: got true'; LOK_ALERT='^ok +landedOk fake app alert text: got null'
+  skip smokewalk-landedok-chromium "no playwright with a browser"
+else
+  LOK_LOGIN='^ok +landedOk login form page .*FAIL wanted'; LOK_DIALOG='^ok +landedOk error dialog .*FAIL wanted'
+  LOK_CLEAN='^ok +landedOk clean page .*PASS wanted'; LOK_HIDDEN='^ok +landedOk hidden login form .*PASS wanted'
+  LOK_FILTER='^ok +landedOk filter attribute error .*FAIL wanted'; LOK_ALERT='^ok +landedOk app alert text .*PASS wanted'
+fi
+ctl smokewalk-landedok-pass 0 "$LOK_LOGIN" "$LOK_DIALOG" "$LOK_CLEAN" "$LOK_HIDDEN" '^ok +landedOk when inspection throws is not a pass' '!^FAIL' -- node $here/smokewalk_predicates.js
 # cold CMM: a page full of widget error boxes ("The Text filter widget must be placed inside the header ...") PASSed 23/23
 ctl smokewalk-landedok-widget-error-catch 0 '^ok +landedOk fake widget error box: got true' '^ok +landedOk fake validation message: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 # cold CMM 10.24 and 11: the Data Widgets 3.x filter's own errors do not say "widget" ("The attribute is not filterable.
 # Please choose a different attribute.") and the MaterialHandler dashboard PASSed; an app's own red alert still passes
-ctl smokewalk-landedok-filter-error-catch 0 '^ok +landedOk filter attribute error .*FAIL wanted' '^ok +landedOk fake filter attribute error: got true' \
-  '^ok +landedOk fake no filter store: got true' '^ok +landedOk app alert text .*PASS wanted' '!^FAIL' -- node $here/smokewalk_predicates.js
+ctl smokewalk-landedok-filter-error-catch 0 "$LOK_FILTER" '^ok +landedOk fake filter attribute error: got true' \
+  '^ok +landedOk fake no filter store: got true' "$LOK_ALERT" '^ok +landedOk fake app alert text: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
 # T6R-9: the compare pools repeated walks (fixtures/smoke/, --rejudge = no browser). A new error the old walks never showed
 # is a REGRESSION, also when intermittent; the old app's own intermittent error on the new side is FLAKY on both (exit 2)
 SW="node $B/smokewalk.js"; SF=$FX/smoke
@@ -1738,6 +1890,20 @@ ctl jarclean-stepupdate-earlier-pass-removed 0 'jar cleanup \(jardedupe --apply\
 ctl jarclean-stepupdate-earlier-pass-result 0 -- bash -c "[ ! -f $S/jc3/userlib/pdfbox-2.0.30.jar ] && [ -f $S/jc3/vendorlib/pdfbox-3.0.7.jar ]"
 ctl jarclean-stepupdate-no-step-commit-kept 0 '!REMOVE +userlib/pdfbox' -- bash -c "env UPG_VENDORLIB_SYNCED=1 bash $B/stepupdate.sh $S/jc4 $S/jc4.plan; grep -E 'KEEP +userlib/pdfbox-2\.0\.30\.jar +CONFLICT' $S/jc4/.stepupdate/jardedupe.log && [ -f $S/jc4/userlib/pdfbox-2.0.30.jar ]"
 ctl jarclean-stepupdate-stale-names-jars 0 "jars marked 'rests on vendorlib' in .*jardedupe\.log" -- bash $B/stepupdate.sh $S/jc2 $S/jc2.plan --from 1
+# TLT (9.24 to 10.24): a 9.x app has no vendorlib/ yet. `git add -A userlib vendorlib` staged nothing, the removed jars stayed
+# uncommitted and the routed pass refused ("uncommitted changes", exit 4). The jar commit must name only folders that exist.
+newapp jc5 '1 1.0 Fine\n'
+mkdir -p $S/jc5/userlib; : > $S/jc5/userlib/lucene-core-8.9.0.jar; : > $S/jc5/userlib/lucene-core-8.9.0.jar.GoneMod.RequiredLib
+(cd $S/jc5 && git add userlib && git commit -qm "base jars")
+ctl jarclean-stepupdate-no-vendorlib-commit 0 'jar cleanup \(jardedupe --apply\)' 'REMOVE +userlib/lucene-core-8\.9\.0\.jar' -- bash $B/stepupdate.sh $S/jc5 $S/jc5.plan
+ctl jarclean-stepupdate-no-vendorlib-clean-tree 0 'jar: jardedupe --apply' '!^ D userlib' -- bash -c "git -C $S/jc5 log --format=%s; git -C $S/jc5 status --short"
+# SNOW (10.24 to 11.12): userlib/ exists but is EMPTY (git tracks nothing in it), the duplicates are in vendorlib/. `git commit -- userlib`
+# was a pathspec error, the commit failed, the vendorlib deletions stayed staged and the routed pass refused (exit 4).
+newapp jc6 '1 1.0 Fine\n'
+mkdir -p $S/jc6/userlib $S/jc6/vendorlib; : > $S/jc6/vendorlib/pdfbox-3.0.6.jar; : > $S/jc6/vendorlib/pdfbox-3.0.7.jar
+(cd $S/jc6 && git add vendorlib && git commit -qm "base jars")
+ctl jarclean-stepupdate-empty-userlib-commit 0 'jar cleanup \(jardedupe --apply\)' 'REMOVE +vendorlib/pdfbox-3\.0\.6\.jar' -- env UPG_VENDORLIB_SYNCED=1 bash $B/stepupdate.sh $S/jc6 $S/jc6.plan
+ctl jarclean-stepupdate-empty-userlib-clean-tree 0 'jar: jardedupe --apply' '!^D  vendorlib' -- bash -c "git -C $S/jc6 log --format=%s; git -C $S/jc6 status --short"
 # NS-6: the Email Connector import swapped shared widgets (notification-service cdd62cc5: Datagrid 2.28.3 -> 2.30.6)
 python3 $here/lib/mkwidgetmpk.py $S/widgets-new/com.mendix.widget.web.Datagrid.mpk Datagrid 2.30.6
 for k in wg wgok; do newapp $k "1 1.0 $([ $k = wg ] && echo Widg || echo Fine)\n"
@@ -1860,6 +2026,7 @@ ctl pipeline-appdir-outside-catch 3 'is outside the run folder' '!step ' -- bash
 # and a frozen database whose owner stamp names another run (or that has no stamp and no ledger line here) is refused
 mkdir -p $V/dbn1/run/app $V/dbn2/run/app; touch $V/dbn1/run/app/App.mpr $V/dbn2/run/app/App.mpr
 ctl pipeline-db-name-per-run-catch 0 '^2$' -- bash -c "for d in dbn1 dbn2; do bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/\$d/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/\$d/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'; done | sort -u | wc -l | tr -d ' '"
+ctl pipeline-baseline-scsscase-before-old-build-catch 0 'scsscase\.py .*/papp' 'repair-row-11' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.1.1 --target 10.24.0.1 --work $V/pwsc --only baseline --dry-run
 ctl pipeline-db-name-kept-pass 0 '^upg_keep$' -- bash -c "mkdir -p $V/dbn3/run/app $V/dbn3/run/work/state; touch $V/dbn3/run/app/App.mpr; echo upg_keep > $V/dbn3/run/work/state/db-prefix; bash \${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $V/dbn3/run/app --source 10.24.26.1 --target 11.15.0.1 --work $V/dbn3/run/work --only baseline --dry-run 2>&1 | sed -n 's/.*createdb -U mendix -T \([a-z0-9_]*\) .*_frozen\$/\1/p'"
 # cold WM1: a wrapper's RUN=13 in the environment became the run folder (13/tools/..., exit 3); an inherited RUN counts
 # only when --work lies inside it, the RUN setup.sh exports still does
@@ -1912,6 +2079,7 @@ SDEOF
 SD="env PIPE=${PIPE:-$B/cloud/upgrade-pipeline.sh} SDB=$V/sdm/bin SDW=$V/sdm/w SDA=$V/sdm/app"
 ctl pipeline-seed-demo-unmapped-falls-back-catch 0 '^rc=1$' 'demo data NOT loaded' -- $SD SD_RC=1 SD_OUT='nothing was loaded' bash $V/sdm/sd.sh
 ctl pipeline-seed-demo-loaded-pass 0 '^rc=0$' 'demo data loaded from data-snapshot.zip \(applied: 9 rows in 2 tables\)' '^00$' -- bash -c "rm -f $V/sdm/w/state/notes.txt; $SD SD_RC=0 SD_OUT='applied: 9 rows in 2 tables; every table' bash $V/sdm/sd.sh"
+ctl pipeline-seed-demo-empty-snapshot-falls-back-catch 0 '^rc=1$' 'demo data NOT loaded \(the snapshot holds no rows' -- bash -c "rm -f $V/sdm/w/state/notes.txt; $SD SD_RC=0 SD_OUT='applied: 0 rows in 4 tables; every table' bash $V/sdm/sd.sh"
 # F1: force-ui.txt reaches stepupdate as --force-ui (else --unattended keeps every edited module), replay/<Module>.mdl runs after the updates
 mkdir -p $V/pw3/replay; printf '# update anyway, replay\nMendixSSO\nAtlas_Core\n' > $V/pw3/force-ui.txt; echo 'alter entity X.Y drop validation rule;' > $V/pw3/replay/MendixSSO.mdl; : > $V/pw3/replay/Atlas_Core.patch
 ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-ui MendixSSO.?,Atlas_Core --saved-edits .*/pw3/saved-edits' 'exec .*/pw3/replay/MendixSSO\.mdl -p ' 'git -C .*/papp apply --check .*/pw3/replay/Atlas_Core\.patch' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw3 --only update --dry-run
@@ -1932,6 +2100,17 @@ ctl pipeline-ladder-refuses-to-with-target-catch 2 'give one or the other' -- en
 ctl pipeline-dry-smoke-microflows-pass 0 'smokewalk\.js .* --microflows --login-path' -- env UPG_SMOKE_MICROFLOWS=1 bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf1 --only basewalk --dry-run
 ctl pipeline-dry-smoke-microflows-off-catch 0 'smokewalk\.js .* --login-path' '!--microflows' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pmf0 --only basewalk --dry-run
 ctl pipeline-dry-noforceui-catch 0 '!--force-ui' '!replay/' 'stepupdate\.sh .* --unattended' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run
+# cold rfq: java-port.txt reaches stepupdate as --port-java; the build waits for java-port-done.txt while a step listed PORT-JAVA
+mkdir -p $V/pw5; printf '# port by hand\nSapConnector\n' > $V/pw5/java-port.txt
+ctl pipeline-dry-port-java-pass 0 'stepupdate\.sh .* --unattended .*--port-java SapConnector' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw5 --only update --dry-run
+PJ=$T/pj; mkdir -p $PJ/w $PJ/wd $PJ/wn
+awk '/java-port-done\.txt" \]; then$/{p=1} p{print} p&&/^  fi$/{exit}' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $PJ/blk.sh
+printf '%s\n' '   PORT-JAVA SapConnector javasource/sap/Utils.java (old file under /a/saved/SapConnector): the update replaces it' > $PJ/w/stepupdate-1.out
+cp $PJ/w/stepupdate-1.out $PJ/wd/; echo 'Utils.java: Accept header ported' > $PJ/wd/java-port-done.txt; echo '   committed abc1234' > $PJ/wn/stepupdate-1.out
+printf '%s\n' 'nj_add() { echo "NJ $1 $2: $3"; }' 'nj_flush() { echo FLUSH; exit 13; }' 'DRY=0' 'f() { . '"$PJ"'/blk.sh; }' > $PJ/stub.sh
+ctl pipeline-build-port-java-stop-catch 13 '^NJ 13 Local Java edits to port by hand before the build' '^PORT-JAVA SapConnector javasource/sap/Utils\.java' '^FLUSH$' '!^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/w; f; echo built"
+ctl pipeline-build-port-java-done-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wd; f; echo built"
+ctl pipeline-build-port-java-none-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wn; f; echo built"
 # the update step runs crosscalls --own on the original model BEFORE the module updates (cold CMM: 3 CE1613 found only at the build)
 ctl pipeline-dry-update-owngone-catch 0 '^own-before-update$' -- bash -c "bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run | awk '/crosscalls\.py .*\/pw\/original\.mpr --kept .*--own --plan-file .*\/pw\/plan\.txt/{if(!c)c=NR} /stepupdate\.sh/{if(!s)s=NR} END{print (c && c<s) ? \"own-before-update\" : \"no c=\" c \" s=\" s}'"
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
@@ -1963,12 +2142,15 @@ ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
+# a rung-2 hint carries the env rung 1 gave it (cold rfq: without RUN the run folder became <work>, the app outside it, exit 3)
+ctl pipeline-nj-rung2-env-catch 0 'needs judgment \(exit 13\)' "^    env RUN=$NJ UPG_PHASE=11\.15\.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT\.html .*upgrade-pipeline\.sh .*--work $NJ/work/rung2 .*--from update\$" -- bash -c "env RUN=$NJ UPG_PHASE=11.15.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT.html MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work/rung2 --only update; cat $NJ/work/rung2/NEEDS-JUDGMENT.md"
+ctl pipeline-nj-rung1-no-env-pass 0 '^    /.*upgrade-pipeline\.sh .*--from update$' '!^    env ' -- cat $NJ/work/NEEDS-JUDGMENT.md
 # a step log keeps earlier runs: the stop quotes only the lines this run wrote (cold test WM1: an afterwalk stop quoted yesterday's
 # failed walk under today's 9 of 9 PASS); any other file is quoted whole
 printf 'FAIL old walk\nINVALID old role\n' > $T/nj-step.log; printf 'FAIL in another file\n' > $T/nj-other.log
 cat > $T/nj-quote.sh <<SH
 eval "\$(sed -n '/^nj_file() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)"
-nj_add() { echo "\$3"; }
+nj_meta() { :; }; nj_add() { echo "\$3"; }
 LOG=$T/nj-step.log; LOG_START=\$(wc -l < \$LOG); echo 'FAIL new walk' >> \$LOG
 nj_file 12 t "\$LOG" 40 'FAIL|INVALID'; nj_file 12 t $T/nj-other.log 40 FAIL
 SH
@@ -2035,6 +2217,8 @@ printf '%s\n' 'Checking app for errors...' 'The app contains: 0 errors.' > $V/cw
 ctl pipeline-mxcheck-crash-catch 0 '^\[error\] \[MXCHECK\] mx check ended without a result .*KeyNotFoundException' '^errors 1$' -- bash -c "B=$B WORK=$V/cw/crash TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/crash.log; return 1; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
 ctl pipeline-mxcheck-clean-pass 0 '^errors 0$' '!MXCHECK' -- bash -c "B=$B WORK=$V/cw/clean TARGET=11.12.7 MPR=x.mpr DRY=0; . $V/cw/stub.sh; heavy() { cat $V/cw/clean.log; }; . $V/cw/mxcheck.sh; . $V/cw/openerr.sh; mxcheck; cat \$CHECK_LOG; echo errors \$(open_errors \$CHECK_LOG)"
 ctl pipeline-dry-check-json-catch 0 'mx10\.sh 11\.15\.0\.1 mx check .*/papp/App\.mpr -j .*/pwle/check-1\.json > ' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwle --only build --dry-run
+ctl pipeline-row0-java-10-6-source-catch 0 'mxcli_run .*JavaVersion' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.6.3.1 --target 10.24.0.1 --work $V/pwr0 --only build --dry-run
+ctl pipeline-row0-java-10-24-source-pass 0 '!JavaVersion' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr0b --only build --dry-run
 # v3.1 E6-7: a removal (idcheck verdict REVIEW) is named REVIEW in the KEPT line, a GUID change stays a plain finding
 mkdir -p $S/base; cp $M/base/App.mpr $S/base/
 newapp rv '1 1.0 Removes\n'; cp $M/step1-adds/App.mpr $S/rv/App.mpr; git -C $S/rv commit -qam 'start at step1-adds'
@@ -2226,6 +2410,12 @@ ctl stepupdate-files-clean-pass 0 'files: [0-9]+ file\(s\) of Administration cha
 # files are compared (clean: committed) instead of FILES-UNKNOWN; a plan line with no id is still FILES-UNKNOWN.
 THMPR=$M/cid-zero/App.mpr newapp_th e6 $TH/vars-same.scss
 ctl stepupdate-files-plan-cid-pass 0 'files: [0-9]+ file\(s\) of Administration changed by the new package itself' 'committed' '!FILES-UNKNOWN' '!FILES-EDITED' -- thstep bash $B/stepupdate.sh $S/e6 $S/e6.plan
+# cold rfq: a module with a local Java USER CODE edit is always kept unattended; when its newer version must come in
+# (the kept Java no longer compiles on the target), --port-java updates it and lists the edited files to port by hand
+thapp jp $TH/vars-same.scss 'export const a = 1;' $TH/Act-edit.java; cp $TH/jp.plan $S/jp.plan; rm -rf $S/jp $S/jk; cp -R $TH/jp $S/jp; cp -R $TH/jp $S/jk
+ctl stepupdate-port-java-catch 0 '^ +PORT-JAVA Administration javasource/administration/actions/Act\.java \(old file under .*/\.stepupdate/saved/Administration\)' 'committed' '!KEPT' '!theme/JavaScript file edits' -- thstep bash $B/stepupdate.sh $S/jp $S/jp.plan --unattended --port-java Administration
+ctl stepupdate-port-java-saved-pass 0 'int a = 2' -- cat $S/jp/.stepupdate/saved/Administration/javasource/administration/actions/Act.java
+ctl stepupdate-java-edit-kept-pass 1 'port the edits by hand \(--port-java Administration\)' 'KEPT: Administration' '!PORT-JAVA' -- thstep bash $B/stepupdate.sh $S/jk $S/jp.plan --unattended
 # QW-3 (backlog #31): a package that answers HTTP 500 cannot be compared with, but git can prove the theme/JS/Java files
 # unedited: the install commit C (the newest commit touching the module's folders that also changes the module's recorded
 # version) has the same files as now. Built here: a real git repo, App.mpr 4.0.0 then 4.1.0 (mkmodel from base)
@@ -2383,6 +2573,17 @@ ctl stepupdate-java-action-commit-pass 0 'step: JavaAct 2.0 \(stepupdate, idchec
 javaapp jc '\t\tLog.info("local tweak"); return Login.start(this.ctx);'
 ctl stepupdate-java-action-changed-usercode-keep-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' 'local LOGIC edits \(JAVA_ACTION' 'KEPT: JavaAct' '!committed [0-9a-f]{7}' '0 committed, 1 kept' -- env UPG_CACHE=$UC/cache bash $B/stepupdate.sh $S/jc $S/jc.plan --localedits $UC/le.json --unattended
 ctl usercode-no-package-catch 2 'CANNOT COMPARE: installed package JavaAct 1\.1 not cached' -- env UPG_CACHE=$UC/cache UPG_MXCLI=$(command -v false) python3 $B/usercode.py $S/ja JavaAct --cid 999 --version 1.1
+# A package file with "END EXTRA CODE" and no "BEGIN EXTRA CODE" (field: ExternalDatabaseConnector 5.3.8): Studio Pro adds the begin
+# marker, the app's EXTRA block is empty, and that is not an edit; a changed USER CODE line still is.
+SE=$T/se; mkdir -p $SE/cache $SE/pkg/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin {\n\t// BEGIN USER CODE\n\t\treturn Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// END EXTRA CODE\n}\n' > $SE/pkg/javasource/javaact/actions/StartLogin.java
+(cd $SE/pkg && python3 -m zipfile -c $SE/cache/997-1.0.mpk javasource)
+newapp se1 '997 1.0 JavaAct\n'; mkdir -p $S/se1/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin extends UserAction<Boolean> {\n\t// BEGIN USER CODE\n\t\treturn Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// BEGIN EXTRA CODE\n\t// END EXTRA CODE\n}\n' > $S/se1/javasource/javaact/actions/StartLogin.java
+newapp se2 '997 1.0 JavaAct\n'; mkdir -p $S/se2/javasource/javaact/actions
+printf 'package javaact.actions;\npublic class StartLogin extends UserAction<Boolean> {\n\t// BEGIN USER CODE\n\t\tLog.info("x"); return Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// BEGIN EXTRA CODE\n\t// END EXTRA CODE\n}\n' > $S/se2/javasource/javaact/actions/StartLogin.java
+ctl usercode-package-stray-end-extra-pass 0 'IDENTICAL: user code of 1 Java files of JavaAct 1\.0' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se1 JavaAct --cid 997 --version 1.0
+ctl usercode-package-stray-end-extra-edit-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se2 JavaAct --cid 997 --version 1.0
 if [ -d "$LAB/f1/runs/e4/work" ] && [ -d "$LAB/e5/run2/work" ]; then
   # field: replay the real refusal output (E4 ExcelImporter local edits, E5b NanoflowCommons pre-9.18 baseline)
   newapp fe4 '1 1.0 ExcelImporter\n'
@@ -2678,6 +2879,8 @@ ctl gen-fn-save-menu-guard-pass 0 '^ok +save lands on the menu that holds the op
 if command -v node > /dev/null; then
   ctl journeys-verbs-catch 0 '^ok +select missing option catch' '^ok +toggle stuck catch' '^ok +confirm without dialog catch' '^ok +topmost picks the popup button' '^ok +topmost picks the page widget over the layout one' '^ok +select first on empty list catch' '^ok +row on empty list catch' '^ok +row on missing list catch' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-pass 0 '^ok +select exact option' '^ok +toggle to true' '^ok +confirm clicks primary' '^ok +select first option' '^ok +row clicks the first grid row' '^ok +topmost skips a hidden page widget' '!^FAIL' -- node $here/journey_verbs_control.js
+  ctl nav-nth-catch 0 '^ok +nav nth picks the 4th blank item' '^ok +nav nth past the last item clicks nothing' '!^FAIL' -- node $here/nav_nth_control.js
+  ctl nav-nth-pass 0 '^ok +nav without nth keeps the first match' '^ok +nav by caption unchanged' '!^FAIL' -- node $here/nav_nth_control.js
   # FN-4, FN-12, FN-13: a Dropdown container is opened by its toggle; a read-only reference selector holding a value is
   # complete; a message box that answers a confirm in the same place is an answer, an error box is not
   ctl journeys-verbs-fn-pass 0 '^ok +confirm answered by a new dialog' '^ok +select read-only holding a value, first asked' '^ok +select read-only holding the wanted value' '^ok +menu opens a dropdown container' '^ok +menu dropdown container already open' '!^FAIL' -- node $here/journey_verbs_control.js
@@ -2695,7 +2898,13 @@ if command -v node > /dev/null; then
   VBNP=${PLAYWRIGHT_NODE_PATH:-$HOME/mendix-playwright/node_modules}
   NODE_PATH=$VBNP node -e "require('playwright')" 2> /dev/null || VBNP=$(npm root -g 2> /dev/null)
   if NODE_PATH=$VBNP node -e "process.exit(require('fs').existsSync(require('playwright').chromium.executablePath()) ? 0 : 1)" 2> /dev/null; then
-    VB="env NODE_PATH=$VBNP node $here/verbs_browser_control.js"
+    # the script runs every case in one go (a browser launch, minutes on a loaded host), and 30 controls each ran it again:
+    # it runs once, on first use, and each control reads its output and exit code
+    vb_once() {
+      [ -f "$T/vb.rc" ] || { echo run >> "$T/vb.runs"; env NODE_PATH=$VBNP node $here/verbs_browser_control.js > "$T/vb.out" 2>&1; echo $? > "$T/vb.rc"; }
+      cat "$T/vb.out"; return "$(cat "$T/vb.rc")"
+    }
+    VB=vb_once
     ctl journeys-verbs-browser-row-pass 0 '^ok +dg2 rows \(display: contents\): .*clicked row1' '^ok +dg2 rows load late' '^ok +dg2 cells with role="cell"' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-catch 0 '^ok +dg2 empty placeholder: threw .*the list is empty, a fixture gap' '^ok +rows render, unknown markup: threw .*an instrument gap' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-row-dg22-pass 0 '^ok +dg2\.2 cells without a role: returned .*clicked row1' '^ok +dg2\.2 row nth without a role: clicked row2nth' '!^FAIL' -- $VB
@@ -2734,7 +2943,8 @@ if command -v node > /dev/null; then
     # PR-C1 (run 4): a journey that must open an unassigned task takes the list item that states no assignee
     ctl journeys-verbs-browser-unassigned-pass 0 '^ok +unassigned picks the item showing Assign to me, not the first: picked Appr F42B' '^ok +unassigned picks the item that states no assignee, also without the button' '^ok +unassigned absent takes the first \(the old pick\)' '^ok +unassigned with every item unassigned takes the first' '!^FAIL' -- $VB
     ctl journeys-verbs-browser-unassigned-catch 0 '^ok +unassigned is not the assigned first item \(catch\): not Appr F42A' '^ok +unassigned with every item assigned keeps the first \(the step guard says it\)' '!^FAIL' -- $VB
-  else for c in row-pass row-catch row-dg22-pass tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
+    ctl journeys-verbs-browser-script-once-catch 0 '^ *1$' -- bash -c "wc -l < $T/vb.runs"
+  else for c in row-pass row-catch row-dg22-pass tab-pass item-pass item-catch combo-pass combo-catch menu-pass menu-catch fill-pass fill-catch near-pass near-catch ack-pass ack-catch menu-settle-pass menu-settle-catch menu-notice-pass menu-notice-catch tabpane-pass tabpane-catch unassigned-pass unassigned-catch script-once-catch; do skip journeys-verbs-browser-$c "no playwright with a browser"; done; fi
 else for c in catch pass row-instrument-gap-catch row-hidden-first-pass tab-pass tab-catch date-pass date-catch browser-row-pass browser-row-catch browser-tab-pass browser-item-pass browser-item-catch browser-combo-pass browser-combo-catch browser-menu-pass browser-menu-catch browser-fill-pass browser-fill-catch browser-near-pass browser-near-catch browser-ack-pass browser-ack-catch; do
   skip journeys-verbs-$c "no node"; done; fi
 ctl journeys-fill-colon-pass 0 '^"https://idp.example.com:8443/sso\?run=0102"$' -- python3 -c "import sys,json; sys.path.insert(0,'$B'); import run_journeys as r; t=r.run_copy_text(json.dumps({'do':'fill','value':'https://idp.example.com:8443/sso?run=\${RUN_ID}'}), {}, '0102'); print(json.dumps(json.loads(t)['value']))"
@@ -2888,6 +3098,13 @@ ctl journeys-coverage-closed-row-defect-pass 0 'FAIL +plan-row .*\[BASELINE DEFE
 ctl journeys-coverage-closed-row-no-evidence-catch 1 'FAIL +plan-row ' '!plan-row .*BASELINE DEFECT' 'coverage INVALID: 1 baseline defects without evidence' -- $RJC --work $CV/d3c "${CVD[@]}"
 ctl journeys-coverage-defect-old-app-line-catch 3 'OLD-APP .*old-app.log:9: the file has 3 lines' 'coverage INVALID: 1 baseline defects' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-old9.txt
 ctl journeys-coverage-defect-old-app-file-catch 3 'OLD-APP .*gone.log: no such file' -- $RJC --work $CV/d3n "${CVD[@]}" --baseline-evidence $CV/ev-oldgone.txt
+# basewalk (run PMNT): the baseline walk judges its own FAILs by the same checked evidence, never on a line's word
+RJB="python3 $B/run_journeys.py $CV/gen --label before --rejudge --work $CV/d3"
+ctl journeys-basewalk-evidence-no-line-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- $RJB
+ctl journeys-basewalk-evidence-old-app-pass 0 'FAIL +j3-Administrator .*\[BASELINE DEFECT OLD-APP \(OLD-APP: old-app.log:2' '1 PASS\* \(baseline defect\)' -- $RJB --baseline-evidence $CV/ev-old.txt
+ctl journeys-basewalk-evidence-bad-line-catch 1 'evidence refused, evidence line 1: OLD-APP .*old-app.log:9: the file has 3 lines' '!BASELINE DEFECT' -- $RJB --baseline-evidence $CV/ev-old9.txt
+ctl journeys-basewalk-evidence-no-file-catch 1 'evidence refused, evidence line 1: OLD-APP .*gone.log: no such file' -- $RJB --baseline-evidence $CV/ev-oldgone.txt
+ctl journeys-basewalk-evidence-after-label-catch 1 'FAIL +j3-Administrator' '!BASELINE DEFECT' -- python3 $B/run_journeys.py $CV/gen --label after --rejudge --work $CV/d3n --baseline-evidence $CV/ev-old.txt
 # Field run: a rerun reorders the old-app output, so a cited line can drift onto another journey's row. One line naming
 # this journey elsewhere in the file is accepted (with the new line); none, or a cited line naming another journey, is not
 printf '  FAIL    j4-Administrator x\n  FAIL    j3-Administrator y\n' > $CV/jout.txt; printf '  FAIL    j4-Administrator x\n' > $CV/jout4.txt
@@ -3089,6 +3306,72 @@ ctl setup-mirror-credentials-nocurl-pass 1 -- grep -q s3cr3t $SC/curl.log
 ctl setup-auth-run-pass 0 '!pat-XYZ' -- setup home-au PATH=$SC/bin:$NR MENDIX_PAT=pat-XYZ UPG_SETUP_STEPS=auth
 ctl setup-auth-stdin-catch 0 '^argv: auth login$' '^stdin: pat-XYZ$' '!argv: .*pat-XYZ' -- cat $SC/mxcli.log
 ctl setup-check-refused-catch 1 'REFUSED, python modules missing for /fake/python3: pymongo' 'NOT READY: toolcheck\.sh --host refused' '!done: source' -- setup home-rf PATH=$SC/bin2:$NR UPG_PYTHON=$T/py-nobson UPG_SETUP_STEPS=host,check
+# cold rfq run on a Mac: cloud/setup.sh crashed in the mxcli step. retry logged "$1 $2" under set -u, and a one-word
+# call (retry mxcli_checkout) died on "$2: unbound variable"; MXCLI_SRC defaulted to /opt/mendixlabs, which a non-root
+# user can't create. Both functions are sourced straight out of setup.sh.
+CS=$T/cloudsetup; mkdir -p $CS/home; : > $CS/ro   # a file where the base folder should be: mkdir fails for root too, unlike a chmod 555 folder
+awk '/^log\(\) /; /^retry\(\) \{/,/^\}/; /^mxcli_src_default\(\) \{/,/^\}/' $B/cloud/setup.sh > $CS/fns.sh
+ctl cloudsetup-retry-oneword-catch 1 'retry in 2s: false' 'retry in 8s: false' '!unbound variable' -- bash -c "set -euo pipefail; sleep() { :; }; . $CS/fns.sh; retry false"
+ctl cloudsetup-mxcli-src-readonly-catch 0 "^$CS/home/mendixlabs/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/ro"
+ctl cloudsetup-mxcli-src-writable-pass 0 "^$CS/rw/mxcli\$" -- env HOME=$CS/home bash -c ". $CS/fns.sh; mxcli_src_default $CS/rw"
+# same run: step_mxcli rm -f'd a binary that didn't report the pinned ref (a Linux build on a Mac never does), and with
+# mxcli-bin linked to another run's tools it deleted that run's binary. Fake git and sleep keep the step offline and fast.
+mkdir -p $CS/bin $CS/other $CS/link/tools $CS/own/tools/mxcli-bin
+printf '#!/bin/sh\nexit 1\n' > $CS/bin/git; printf '#!/bin/sh\nexit 0\n' > $CS/bin/sleep
+printf '#!/bin/sh\necho "mxcli version other-build"\n' > $CS/other/mxcli; cp $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli
+chmod +x $CS/bin/* $CS/other/mxcli $CS/own/tools/mxcli-bin/mxcli; ln -sfn $CS/other $CS/link/tools/mxcli-bin
+cloudsetup() { local r=$1; env HOME=$CS/home PATH=$CS/bin:$PATH MXCLI_SRC=$CS/src bash $B/cloud/setup.sh --run-dir $r --source 9.24.10.18073 --target 10.24.28.129343 --only mxcli; }
+ctl cloudsetup-mxcli-link-refused-catch 1 'REFUSED, .*/link/tools/mxcli-bin is a link' 'FAILED mxcli' -- cloudsetup $CS/link
+ctl cloudsetup-mxcli-link-kept-pass 0 'other-build' -- $CS/other/mxcli
+ctl cloudsetup-mxcli-stale-aside-catch 1 'moved to .*/own/tools/mxcli-bin/mxcli\.not-' -- cloudsetup $CS/own
+ctl cloudsetup-mxcli-stale-kept-pass 0 'other-build' -- sh -c "cat $CS/own/tools/mxcli-bin/mxcli.not-*"
+# cold predictive-maintenance run on a Mac: tools/mxcli-linux was the Mac build; mxcli-container.sh mounted it into the
+# linux/amd64 container and the first module update died, "Exec format error" (exit 126). On a host that is not Linux the
+# container binary is a cross build next to the host one. Fake uname, make and go: make writes a host script, go an ELF stub.
+CM=$CS/mac; mkdir -p $CM/bin $CM/src
+printf '#!/bin/sh\necho "${FAKE_UNAME:-Darwin}"\n' > $CM/bin/uname
+printf '#!/bin/sh\nexit 0\n' > $CM/bin/git; cp $CM/bin/git $CM/bin/sleep; cp $CM/bin/git $CM/bin/antlr4
+cat > $CM/bin/make <<'EOF2'
+#!/bin/sh
+for a; do case $a in VERSION=*) v=${a#VERSION=};; BUILD_DIR=*) d=${a#BUILD_DIR=};; esac; done
+echo "make $*" >> "$FAKELOG/make.log"; mkdir -p "$d"; printf '#!/bin/sh\necho "mxcli version %s"\n' "$v" > "$d/mxcli"; chmod +x "$d/mxcli"
+EOF2
+cat > $CM/bin/go <<'EOF2'
+#!/bin/sh
+echo "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$FAKELOG/go.log"
+o=""; v=""; for a; do [ "$prev" = -o ] && o=$a; case $a in *main.Version=*) v=${a##*main.Version=}; v=${v%% *};; esac; prev=$a; done
+printf '\177ELF fake linux mxcli %s\n' "$v" > "$o"
+EOF2
+chmod +x $CM/bin/*
+cloudmac() { local r=$1; shift; mkdir -p $r/home/.m2/repository/org/antlr/antlr4/4.13.2; echo jar > $r/home/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4.13.2-complete.jar
+  env HOME=$r/home PATH=$CM/bin:$PATH MXCLI_SRC=$CM/src FAKELOG=$r "$@" bash $B/cloud/setup.sh --run-dir $r --source 9.24.10.18073 --target 10.24.28.129343 --only mxcli; }
+ctl cloudsetup-mxcli-mac-linux-link-catch 0 'container mxcli: .*/mac1/tools/mxcli-linux -> .*/mac1/tools/mxcli-bin/mxcli-linux-amd64 \(linux/amd64 cross build, Darwin host\)' -- cloudmac $CM/mac1
+ctl cloudsetup-mxcli-mac-link-elf-catch 0 '^177ELF$' -- bash -c "head -c 4 \$(readlink $CM/mac1/tools/mxcli-linux) | od -An -c | tr -d ' \n'; echo"
+ctl cloudsetup-mxcli-mac-go-env-catch 0 '^GOOS=linux GOARCH=amd64 build -ldflags -s -w -X main.Version=78bdfa5 -o .*/mxcli-linux-amd64 \./cmd/mxcli$' -- cat $CM/mac1/go.log
+ctl cloudsetup-mxcli-mac-host-link-pass 0 '/mac1/tools/mxcli-bin/mxcli$' -- readlink $CM/mac1/home/.local/bin/mxcli
+# the state the cold run left: the host build is the pinned ref, mxcli-linux points at it; the old check called that done
+mkdir -p $CM/mac2/tools/mxcli-bin $CM/mac2/home/.local/bin; printf '#!/bin/sh\necho "mxcli version 78bdfa5"\n' > $CM/mac2/tools/mxcli-bin/mxcli
+chmod +x $CM/mac2/tools/mxcli-bin/mxcli; ln -sfn $CM/mac2/tools/mxcli-bin/mxcli $CM/mac2/tools/mxcli-linux; ln -sfn $CM/mac2/tools/mxcli-bin/mxcli $CM/mac2/home/.local/bin/mxcli
+ctl cloudsetup-mxcli-mac-host-only-rebuilt-catch 0 'container mxcli: .*/mac2/tools/mxcli-bin/mxcli-linux-amd64' '!already done' -- cloudmac $CM/mac2
+ctl cloudsetup-mxcli-linux-host-one-binary-pass 0 '!container mxcli' -- cloudmac $CM/lin1 FAKE_UNAME=Linux
+ctl cloudsetup-mxcli-linux-host-link-pass 0 '/lin1/tools/mxcli-bin/mxcli$' '!go\.log' -- bash -c "readlink $CM/lin1/tools/mxcli-linux; command ls $CM/lin1"
+# same run: setup.sh wrote TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit into env.sh (the toolkit has its own repo now)
+# and its journeys step rm -rf'd that path and cloned a repo without upgrade-toolkit; env.sh's TK then replaced the
+# pipeline's own, "dockerhost.sh: No such file", exit 2
+mkdir -p $CS/envrun $CS/home/Mendix/mxcli-project-toolkit
+cloudsetup2() { env HOME=$CS/home PATH=$CS/bin:$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only "$1"; }
+ctl cloudsetup-envsh-tk-own-catch 0 "^export TK=\"$(cd $B/.. && pwd)\"\$" -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $CS/envrun --source 9.24.10.18073 --target 10.24.28.129343 --only envsh >/dev/null; grep '^export TK=' $CS/envrun/env.sh"
+ctl cloudsetup-journeys-vendored-catch 0 'ok journeys \(already done\)' '!run journeys' -- cloudsetup2 journeys
+ctl cloudsetup-journeys-home-kept-pass 0 'kept' -- sh -c "[ -d $CS/home/Mendix/mxcli-project-toolkit ] && echo kept"
+awk '/^# ---- env.sh from bin\/cloud\/setup.sh/,/^: "\$\{UPG_TOOLS:=/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/envblock.sh
+mkdir -p $CS/tkrun/work; echo 'export TK=/stale/mxcli-project-toolkit/upgrade-toolkit' > $CS/tkrun/env.sh
+ctl pipeline-envsh-tk-ignored-catch 0 '^tk=/own/toolkit$' 'ignoring TK=/stale/mxcli-project-toolkit/upgrade-toolkit from env.sh' -- bash -c "WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+ctl pipeline-envsh-tk-same-pass 0 '^tk=/own/toolkit$' '!ignoring TK' -- bash -c "echo 'export TK=/own/toolkit' > $CS/tkrun/env.sh; WORK=$CS/tkrun/work; RUN=; TK=/own/toolkit; . $CS/envblock.sh; echo tk=\$TK"
+# same run: env.sh's MXCLI was the Linux build; on the Mac -x held, the exec did not (exit 126). It now goes to the container.
+awk '/^mxcli_host_check\(\) \{/,/^\}/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $CS/hostcheck.sh
+printf '#!/bin/sh\nexit 126\n' > $CS/mx-foreign; printf '#!/bin/sh\necho mxcli version 1\n' > $CS/mx-host; chmod +x $CS/mx-foreign $CS/mx-host
+ctl pipeline-mxcli-foreign-container-catch 0 "does not run on this host" "^m=, mxc=$CS/mx-foreign, u=\$" -- bash -c "set -euo pipefail; MXCLI=$CS/mx-foreign; UPG_MXCLI=$CS/mx-foreign; . $CS/hostcheck.sh; mxcli_host_check; echo \"m=\$MXCLI, mxc=\${MXC_MXCLI:-}, u=\${UPG_MXCLI:-}\""
+ctl pipeline-mxcli-host-kept-pass 0 "^m=$CS/mx-host\$" '!does not run' -- bash -c "set -euo pipefail; MXCLI=$CS/mx-host; . $CS/hostcheck.sh; mxcli_host_check; echo m=\$MXCLI"
 rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
@@ -3127,6 +3410,18 @@ ctl setup-playwright-skip-nextstep-catch 0 'NEXT-STEP: Chromium not installed .*
 ctl setup-playwright-skip-no-npx-pass 1 -- test -e $SC/mac-pws/npx.log
 ctl setup-playwright-cloud-pass 0 '!installing Chromium' '!NEXT-STEP' -- macsetup mac-pwc UPG_PW_OPT=$SC/haspw UPG_SETUP_STEPS=playwright
 ctl setup-playwright-cloud-no-npx-pass 1 -- test -e $SC/mac-pwc/npx.log
+# a fresh container has no rsync and mxcli's Makefile needs it: "make: rsync: No such file or directory", exit 2 (found 2026-11-18, step 5 ran before the rsync install of step 7)
+MR=$T/mrs; mkdir -p $MR; cp -a $MAC/. $MR/
+printf '#!/bin/sh\ncommand -v rsync >/dev/null || { echo "make: rsync: No such file or directory" >&2; exit 2; }\n' > $MR/make; sed -n '2,$p' $MAC/make >> $MR/make
+printf '#!/bin/sh\necho "apt-get $*" >> "$HOME/apt.log"\ncase "$*" in *install*) printf "#!/bin/sh\\n" > '$MR'/rsync; chmod +x '$MR'/rsync;; esac\nexit 0\n' > $MR/apt-get; chmod +x $MR/make $MR/apt-get
+mrsetup() { local h=$1; shift; mkdir -p $SC/$h/.local/bin; env HOME=$SC/$h PATH=$MR:$NM MXCLI_SRC=$SC/mxsrc UPG_PYTHON=$T/py-ok FAKE_UNAME=Linux "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
+ctl setup-rsync-before-mxcli-build-catch 0 'rsync installed' '!make: rsync' -- mrsetup mr-fresh UPG_SETUP_STEPS=mxcli
+ctl setup-rsync-before-mxcli-build-make-ran-pass 0 '^GOOS=linux GOARCH=amd64 build ' -- cat $SC/mr-fresh/make.log
+ctl setup-rsync-before-mxcli-apt-once-pass 0 '^apt-get update -q$' '^apt-get install -y -q rsync$' -- cat $SC/mr-fresh/apt.log
+printf '#!/bin/sh\n' > $MR/rsync; chmod +x $MR/rsync
+ctl setup-rsync-present-no-apt-pass 0 '!rsync installed' -- mrsetup mr-has UPG_SETUP_STEPS=mxcli
+ctl setup-rsync-present-no-apt-log-pass 1 -- test -e $SC/mr-has/apt.log
+rm -f $MR/rsync
 mkdir -p $SC/tc-home
 ctl toolcheck-host-chromium-warn-catch 0 'WARNING, no Chromium for Playwright .*cd ~/mendix-playwright && npx --yes playwright@1\.56\.1 install chromium' 'host OK' '!REFUSED' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/nopw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 ctl toolcheck-host-chromium-pass 0 'host OK' '!Chromium' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/haspw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
@@ -3144,6 +3439,21 @@ ctl mx10-no-toolset-bare-catch 2 'no .*mxbuild-9\.9\.9/modeler/check' -- env "PA
 ctl mx10-preload-arm64-catch 0 '^docker run .* sh -c .*libuuid\.so\.1.*libfreetype\.so\.6.*libfontconfig\.so\.1.*LD_PRELOAD.*exec "\$@" sh .*mxbuild-11\.12\.2/modeler/mx check x\.mpr' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 zsh $B/mx10.sh 11.12.2 mx check x.mpr
 ctl mx10-preload-amd64-pass 0 '^docker run .*mxbuild-11\.12\.2/modeler/mx check x\.mpr' '!LD_PRELOAD' '!sh -c' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=x86_64 zsh $B/mx10.sh 11.12.2 mx check x.mpr
 ctl mx10-preload-10x-arm64-pass 0 '^docker run .*mxbuild-10\.24\.16/modeler/mx check x\.mpr' '!LD_PRELOAD' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 zsh $B/mx10.sh 10.24.16 mx check x.mpr
+# CHK-1: mxbuild 10.6 ships Gradle 7.6, which dies on JDK 21 ("Unsupported class file major version 65") and its runtime wants Java 11: a 10.0 to 10.6 builds in the JDK 11 image
+mkdir -p $TS/ok/mxbuild-10.6.3/modeler/runtemplates/deployment $TS/ok/mxbuild-10.6.3/modeler/tools/node/node_modules
+for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.6.3/modeler/$x; chmod +x $TS/ok/mxbuild-10.6.3/modeler/$x; done
+ctl mx10-old10-jdk11-image-catch 0 '^docker run .* mig-mx10-j11 .*mxbuild-10\.6\.3/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
+ctl mx10-old10-image-env-wins-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.6\.3/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-mx10 zsh $B/mx10.sh 10.6.3 mx check x.mpr
+mkdir -p $TS/ok/mxbuild-10.9.0/modeler/runtemplates/deployment $TS/ok/mxbuild-10.9.0/modeler/tools/node/node_modules $TS/ok/mxbuild-10.9.0/modeler/tools/gradle/lib
+for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.9.0/modeler/$x; chmod +x $TS/ok/mxbuild-10.9.0/modeler/$x; done
+: > $TS/ok/mxbuild-10.9.0/modeler/tools/gradle/lib/gradle-wrapper-shared-7.6.3.jar
+ctl mx10-gradle7-toolset-jdk11-image-catch 0 '^docker run .* mig-mx10-j11 .*mxbuild-10\.9\.0/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.9.0 mxbuild --target=package x.mpr
+ctl mx10-24-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.24\.16/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
+ctl mx10-11-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-11\.12\.2/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 11.12.2 mx check x.mpr
+ctl runapp-image-10-9-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.9.0.31198'))"
+ctl runapp-image-10-6-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.6.3.26585'))"
+ctl runapp-image-10-24-java21-pass 0 '^eclipse-temurin:21-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.24.0.73019'))"
+ctl runapp-image-9-java11-pass 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('9.24.3.8044'))"
 ctl mx10-preload-caller-wins-pass 0 'LD_PRELOAD=/x\.so' '!sh -c' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_HOST_ARCH=arm64 UPG_EXTRA="-e LD_PRELOAD=/x.so" zsh $B/mx10.sh 11.12.2 mx check x.mpr
 # NR2-15: mxbuild 11.12 segfaults (rc 139) about one call in three: mx10.sh retries a crash before it counts. A fake docker
 # crashes the first N calls (counter file), then succeeds; the retry sleep is 0.
@@ -3252,6 +3562,9 @@ ctl gen-create-data-rung-pass 0 '"creates": "Shop.Item"' -- sh -c "$GJ --out-dir
 # E2E-9: a field that names its attribute adds the own-row check (the run's own ${RUN_ID} row, expect 1); none is warned
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'][0]['attr']='Name'; json.dump(d, open('$T/create-spec-attr.json', 'w'))"
 ctl gen-create-own-row-pass 0 "SELECT COUNT\\(\\*\\) AS n FROM Shop.Item WHERE Name = 'Item \\$\\{RUN_ID\\}'" '"expect": 1' -- sh -c "$GJ --out-dir $T/gen-create3 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create3/journeys/Admin/create-save.journey.json"
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['nav']['nth']=4; json.dump(d, open('$T/create-spec-nth.json', 'w'))"
+ctl gen-create-nav-nth-catch 0 '"nth": 4' -- sh -c "$GJ --out-dir $T/gen-create-nth --create $T/create-spec-nth.json > /dev/null 2>&1; cat $T/gen-create-nth/journeys/Admin/create-save.journey.json"
+ctl gen-create-nav-no-nth-pass 0 '!"nth"' -- sh -c "cat $T/gen-create/journeys/Admin/create-save.journey.json"
 ctl gen-create-own-row-missing-catch 0 'no field names its attribute.*own .*row' -- $GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json --data-rung
 # cold test WM1: a "do": "select" field picks from a reference selector (by caption, else its first option) and is no own-row attribute
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'] += [{'widget':'referenceSelector2','do':'select','match':'Europe/Amsterdam'},{'widget':'referenceSelector3','do':'select'}]; json.dump(d, open('$T/create-spec-select.json', 'w'))"
@@ -3340,6 +3653,17 @@ ctl gen-journeys-guard-generic-name-catch 0 '"ready": ".mx-name-label12"' '!time
 ctl gen-journeys-guard-visible-widget-pass 0 '"ready": ".mx-name-label9"' -- cat $GI/journeys/Inspector/login-Inspector.journey.json
 ctl gen-journeys-layout-signout-icon-catch 0 '^click menuBar2-1 None$' '^click menuBar2-1-1 Sign out$' '^from layout of Shop.Dashboard, menu widget menuBar2$' '!nav' -- python3 -c "import json; j=json.load(open('$G2/journeys/Desk/sign-out.journey.json')); [print(a['do'], a.get('widget'), a.get('label')) for a in j['steps'][0]['actions']]; print('from', j['_sign_out_from'])"
 ctl gen-journeys-layout-signout-icon-pass 0 "^\{'path': \['Account', 'Sign out'\], 'widget': 'menuBar2', 'clicks': \['menuBar2-0', 'menuBar2-0-1'\], 'by': 'action', 'detail': 'Forms\\\$SignOutClientAction'\}$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I, mprmodel; m=mprmodel.Model.load('$M/guard'); print(I.layout_sign_out(m, 'Shop.Inbox'))"
+# cold rfq: every role-menu item icon-only, caption " " (blank, not empty). The sign-out journey navigated to item " " and
+# checked textAbsent " ", so it FAILed on the healthy OLD app. Now: no caption path, the layout navigation tree's item
+# is clicked by index; blank captions are no menu text. Also from an impact file the old impact_map wrote.
+model iconnav > /dev/null
+IN=$T/iconnav; mkdir -p $IN; python3 $B/impact_map.py $M/iconnav/App.mpr $M/iconnav/App.mpr --out $IN/impact.json > /dev/null 2>&1
+python3 -c "import json; d=json.load(open('$IN/impact.json')); d['roles']['Desk'].update(menu_visible=[' '], sign_out_item=[' ']); json.dump(d, open('$IN/impact-old.json','w'))"
+(cd / && python3 $B/gen_journeys.py $IN/impact.json --out-dir $IN/gen --roles-with-users Desk > /dev/null 2>&1; python3 $B/gen_journeys.py $IN/impact-old.json --out-dir $IN/gen-old --roles-with-users Desk > /dev/null 2>&1)
+ISO="import json,sys; j=json.load(open(sys.argv[1])); s=j['steps'][0]; [print(a['do'], a.get('widget') or a.get('item'), a.get('label')) for a in s['actions']]; print('absent', s['ui'].get('textAbsent')); print('from', j.get('_sign_out_from'))"
+ctl impact-iconnav-blank-caption-catch 0 "^visible \[\] signout None$" -- python3 -c "import json; r=json.load(open('$IN/impact.json'))['roles']['Desk']; print('visible', r['menu_visible'], 'signout', r['sign_out_item'])"
+ctl gen-journeys-iconnav-signout-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' '^from layout of Shop.Home, menu widget navigationTree3$' '!^nav' -- python3 -c "$ISO" $IN/gen/journeys/Desk/sign-out.journey.json
+ctl gen-journeys-iconnav-old-impact-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' -- python3 -c "$ISO" $IN/gen-old/journeys/Desk/sign-out.journey.json
 ctl gen-journeys-home-texts-placeholder-catch 0 '"Find a work order"' '!Type search text' '!"Home"' -- cat $G2/journeys/Inspector/login-Inspector.journey.json
 ctl gen-journeys-home-texts-title-widget-pass 0 '"Orders overview"' '!Type search text' -- cat $G2/journeys/Clerk/login-Clerk.journey.json
 ctl gen-journeys-home-texts-popup-title-pass 0 "^Shop.Popup_Title \['Confirm your account', 'Enter the code'\]$" "^Shop.Search_Home \['Find a work order'\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import gen_journeys as G, mprmodel; m=mprmodel.Model.load('$M/guard2'); [print(q, G.home_texts(m, q)) for q in ('Shop.Popup_Title', 'Shop.Search_Home')]"
@@ -3697,7 +4021,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -3765,6 +4089,10 @@ ctl replace-mxlogger-catch 1 '^HIT +R38 ' 'evidence: widgets/Logger\.mpk 1\.3\.1
 ctl replace-mxlogger-blocker-catch 1 '^HIT +R38 ' 'evidence: BLOCKER \(no newer version: logger\): widgets/Logger\.mpk' '^blockers: R38: no update can fix these' -- $RC $M/replace-mxlogger --to 11.12.6 --no-newer Logger
 ctl replace-mxlogger-unused-pass 1 '^clear +R38 ' 'package\(s\) with /.*mx.*logger.* in their JavaScript, but no page uses them: widgets/Spare\.mpk' '!^HIT +R38' -- $RC $M/replace-mxlogger-quiet --to 11.12.6
 ctl replace-mxlogger-jump-na-pass 0 '^NOT APPLICABLE R38 ' '!^HIT +R38' -- $RC $M/replace-mxlogger --to 10.24.16
+# Run TLT rung 2: Mendix 11 also removed the bare global `logger` (Bootstrap Tooltip 3.2.5 calls logger.debug / window.logger.warn: every page blank,
+# five smoke REGRESSIONs, not a planned item). The golden JS is the real call sites; the pass control holds look-alikes (this.logger, mylogger, a local var).
+ctl replace-mxlogger-global-catch 1 '^HIT +R38 ' 'evidence: widgets/BootstrapTooltip\.mpk 3\.2\.5 runs /' 'BootstrapTooltip\.widget\.BootstrapTooltip is used 1 time\(s\) on MyOwn\.Home' -- $RC $M/replace-mxlogger-global --to 11.12.6
+ctl replace-mxlogger-global-lookalike-pass 1 '^clear +R38 ' '!^HIT +R38' '!widgets/Quiet\.mpk' -- $RC $M/replace-mxlogger-global-quiet --to 11.12.6
 # cold CMM: the pipeline never ran replacement_check.py (agent-only triage item 10), so R38 never named MicroflowTimer's
 # mx.logger before the 11.12.7 build. replacement_report runs it against the last rung; propose fills a missing report
 RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
@@ -3801,6 +4129,17 @@ FP=$T/frompin; mkdir -p $FP/w/state; for st in triage update build gate; do echo
     'mxcli_pin() { echo "pin refused at $1" >&2; exit 3; }' 'run_step() { mxcli_pin "$1"; }' \
     'STEPS=(fetch triage baseline update build gate); ONLY=""; TARGET2=""; DRY=0; main'; } > $FP/fn.sh
 ctl pipeline-from-pin-before-clear-catch 0 '^rc=3$' '^left: build\.done gate\.done triage\.done update\.done$' -- bash -c "WORK=$FP/w FROM=update bash $FP/fn.sh 2> /dev/null; echo rc=\$?; echo left: \$(cd $FP/w/state && ls | tr '\n' ' ')"
+# cold rfq: --from triage --only triage cleared every later marker though only triage ran; the next --from build redid
+# baseline..convert. --from X --only Y clears X..Y only; --from alone still clears X..gate
+FO=$T/fromonly; mkdir -p $FO
+{ awk '/^main\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'preflight() { :; }' 'resolve_app() { :; }' 'decisions_apply() { :; }' 'park_finish() { :; }' 'say() { echo "$*"; }' \
+    'mxcli_pin() { :; }' 'run_step() { :; }' 'STEPS=(fetch triage baseline convert update build gate); TARGET2=""; DRY=0; main'; } > $FO/fn.sh
+fo() { rm -rf "$FO/w"; mkdir -p $FO/w/state; for st in fetch triage baseline convert update; do echo t > $FO/w/state/$st.done; done; }
+fo
+ctl pipeline-from-only-keeps-later-catch 0 '^left: baseline\.done convert\.done fetch\.done update\.done$' -- bash -c "WORK=$FO/w FROM=triage ONLY=triage bash $FO/fn.sh; echo left: \$(cd $FO/w/state && ls | tr '\n' ' ')"
+fo
+ctl pipeline-from-alone-clears-later-pass 0 '^left: fetch\.done$' -- bash -c "WORK=$FO/w FROM=triage ONLY= bash $FO/fn.sh; echo left: \$(cd $FO/w/state && ls | tr '\n' ' ')"
 # cold WM1 gap 5: a rung-1 rerun on a rewound app kept rung2/state/{triage,baseline}.done, and rung 2 would skip its baseline
 # of the new rung-1 app; rung2_stale moves them aside when the recorded rung-1 HEAD left the app's history
 RS=$T/r2stale; mkdir -p $RS
@@ -4831,6 +5170,11 @@ nse ev-base "$(model base)/App.mpr"; nse ev-guard "$(model guard)/App.mpr"; nse 
 RJN() { python3 $B/run_journeys.py $NS/$1 --label after --work $NS/w --rejudge --baseline-evidence $NS/$2.txt; }
 ctl journeys-no-signout-pass 0 '^  UNREACHABLE sign-out +NO-SIGNOUT: no page, layout, snippet, menu or navigation profile of App\.mpr has a sign-out item' \
   '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 1 PASS\* \(unreachable in the OLD UI, evidence checked\)$' -- RJN gen ev-base
+nse ev-spare "$(model nosignout-spare-layout)/App.mpr"; nse ev-usedlay "$(model nosignout-used-layout)/App.mpr"
+# SNOW: a sign-out button in a layout no page renders inside is no sign-out UI (pass); the same button in a layout a page uses is (catch)
+ctl journeys-no-signout-unused-layout-pass 0 '^  UNREACHABLE sign-out +NO-SIGNOUT: no page, layout, snippet, menu or navigation profile of App\.mpr has a sign-out item' \
+  '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 1 PASS\* \(unreachable in the OLD UI, evidence checked\)$' -- RJN gen ev-spare
+ctl journeys-no-signout-used-layout-catch 3 'UNREACHABLE refused, .*NO-SIGNOUT: Shop\.Layout_Spare\.signOutButton signs out' '!PASS\* \(unreachable' -- RJN gen ev-usedlay
 ctl journeys-no-signout-has-one-catch 3 'sign-out .*NO-SIGNOUT refused|UNREACHABLE refused, .*NO-SIGNOUT: Shop\.User_Menu: menu item Account > Sign out signs out \(action' '!PASS\* \(unreachable' -- RJN gen ev-guard
 ctl journeys-no-signout-unreadable-menu-catch 3 'UNREACHABLE refused, .*the todo lists a menu the model cannot read' '!PASS\* \(unreachable' -- RJN gen-addon ev-base
 ctl journeys-no-signout-no-model-catch 3 'UNREACHABLE refused, .*gone\.mpr is not readable' '!PASS\* \(unreachable' -- RJN gen ev-gone
@@ -6065,7 +6409,7 @@ bash $PR/prop.sh $PR/kept > /dev/null; bash $PR/prop.sh $PR/plain > /dev/null
 # the catch: kept module, RED local edit, stranded module and a widget with no successor are decisions, never "done by the toolkit"
 ctl proposal-unsigned-exit14-catch 14 'proposal awaits sign-off' 'PROPOSAL\.md' -- bash $PR/prop.sh $PR/kept
 ctl proposal-kept-widget-section3-catch 0 '^- \[P-[0-9]+\] module: DataWidgets$' '^- \[P-[0-9]+\] widget: Stuck\.mpk' '^- \[P-[0-9]+\] module: Administration$' '^- \[P-[0-9]+\] module: PDFReader$' \
-  'evidence: .*kept at its version by the update step' -- bash $PR/sec.sh $PR/kept 3
+  'evidence: .*the update step did not update it' -- bash $PR/sec.sh $PR/kept 3
 ctl proposal-kept-widget-not-in-section2-catch 0 'module update Plainmod 0\.9\.0 -> 1\.0\.0' 'predicted repair R37 .*repair row 21 \(CE6779\)' '!DataWidgets' '!Stuck' '!Administration' '!PDFReader' -- bash $PR/sec.sh $PR/kept 2
 ctl proposal-plain-module-section2-pass 0 'module update DataWidgets 2\.30\.4 -> 3\.11\.7' 'module update Plainmod' -- bash $PR/sec.sh $PR/plain 2
 ctl proposal-plain-module-not-section3-pass 0 '!module: DataWidgets' '!module: Plainmod' 'widget: Stuck\.mpk' -- bash $PR/sec.sh $PR/plain 3
@@ -6476,7 +6820,7 @@ WORK=$1; TIMES=$2; shift 2
 date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { :; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; }
 step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
@@ -6513,10 +6857,16 @@ ctl timing-resume-appends-never-rewrites-pass 0 'prefix=same' 'build-rows=1' 'jo
   -- sh -c "n=\$(wc -l < $TM/wa-first.tsv); head -n \$n $TM/wa/state/timing.tsv | cmp -s - $TM/wa-first.tsv && echo prefix=same; echo build-rows=\$(grep -c '^build' $TM/wa/state/timing.tsv); echo journeys-rows=\$(grep -c '^journeys' $TM/wa/state/timing.tsv)"
 # the stop keeps its own exit code (the judgment stop is the pipeline's result, timing never changes it)
 ctl timing-stop-keeps-exit-code-pass 0 'rc=11' '!rc=4' -- tmrun $TM/wc $TM/times-a.txt build journeys
+# the page written AT a stop (nj_flush calls cockpit_regen) must not still see the step as running (lane reviews 02 and 03, TLT)
+ctl cockpit-stop-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wr $TM/times-a.txt build journeys > /dev/null 2>&1; echo regen saw: \$(cat $TM/wr/regen-saw)"
 # an unexpected failure (ERR trap, exit 4) still leaves its row, with exit 4; the rerun a few hours later gets its own row
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1; touch $TM/wb/fixed
 STUB_FAIL=1 tmrun $TM/wb $TM/times-b.txt build > /dev/null 2>&1
 ctl timing-failed-step-row-catch 0 'rows=2' '^build 2026-10-20T10:00:00Z 2026-10-20T10:05:00Z 4$' '^build 2026-10-20T12:05:00Z 2026-10-20T12:17:00Z 0$' -- tmshow $TM/wb/state/timing.tsv
+# exit 4 writes no stop file, so the page written at the failure must not still say a step is running (MTA lane B: page "The agent is working",
+# brief "Waiting for 1 answer"); cleanup regenerates it after timing_close ended the running marker
+STUB_FAIL=1 tmrun $TM/wf $TM/times-b.txt build > /dev/null 2>&1
+ctl cockpit-exit4-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wf/regen-saw 2> /dev/null || echo never)"
 # a dry run writes no timing file
 DRY=1 tmrun $TM/wd $TM/times-a.txt build > /dev/null 2>&1
 ctl timing-dry-run-no-file-pass 0 'timing=absent' -- sh -c "[ -e $TM/wd/state/timing.tsv ] && echo timing=present || echo timing=absent"
@@ -6610,6 +6960,16 @@ mkdir -p "$DG/w2/e2e-after/after" "$DG/w2/e2e-before-picked" "$DG/w2/journeys"; 
 dgcase2() { bash -c "set -Eeu; . $DG/fn.sh; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=1; APP=$DG/plain; step_diff"; }
 ctl pipeline-diff-journeys-rejudge-catch 0 "^  JOURNEYS_DIR=$DG/w2/journeys\$" "^  JOURNEYS_BEFORE=$DG/w2/e2e-before-picked\$" '^  JOURNEYS_REJUDGE=1$' "^  ACTIONS=$DG/w2/actions\.json\$" -- dgcase2 $DG/w2
 ctl pipeline-diff-journeys-none-pass 0 '^  BUILD_LOG=' '!JOURNEYS' -- dgcase2 $DG/w
+# TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
+# Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
+for c in stale fresh; do mkdir -p "$DG/al-$c"; done
+printf 'log.new_error *MigrateOldFiles* # known queued-task error, accepted per playbook 10-to-11\n' > "$DG/al-stale/allow.txt"
+printf '# written by heal.py\nlog.start.CHANGED *Foo* # twin\n' > "$DG/al-stale/heal-allow.txt"
+printf '# written by heal.py\nlog.start.CHANGED *Foo* # twin\n' > "$DG/al-stale/allow-effective.txt"
+printf 'log.new_error *MigrateOldFiles* # a person wrote this, no heal ran\n' > "$DG/al-fresh/allow.txt"
+dgcase3() { bash -c "set -Eeu; . $DG/fn.sh; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=1; APP=$DG/plain; step_diff >/dev/null; if [ -f $1/allow-effective.txt ]; then cat $1/allow-effective.txt; else echo no-effective-file; fi"; }
+ctl pipeline-diff-allow-merged-catch 0 '^log\.new_error \*MigrateOldFiles\* # known queued-task error' '^log\.start\.CHANGED \*Foo\* # twin' -- dgcase3 $DG/al-stale
+ctl pipeline-diff-allow-no-heal-pass 0 '^no-effective-file$' '!MigrateOldFiles' -- dgcase3 $DG/al-fresh
 
 # --- PRC-6 (Purchase Request run 4): a page widget named like a LAYOUT widget is not generated (the guard `.mx-name-<w>` is
 # met by the layout on any page). Golden: MyRequests.container6 / Atlas_TopBar_Customized.container6 in the real run's
@@ -6689,7 +7049,7 @@ ctl bt10-pipeline-baseline-gate-catch 3 "step 'baseline': DISK FULL: only 12 MB 
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
-  nj_add() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }; . $BTR/disk-fn.sh; "$@"; echo "rc=$?" ); }
+  nj_meta() { :; }; nj_add() { printf '%s|%s|%s\n' "$1" "$2" "$3"; }; . $BTR/disk-fn.sh; "$@"; echo "rc=$?" ); }
 ctl bt10-disk-cause-enospc-catch 0 '^10\|DISK FULL, not an app defect\|DISK FULL: the log holds' -- env UPG_FREE_MB=50000 bash -c "$(declare -f btdisk); B=$B BTF=$BTF BTR=$BTR T=$T; btdisk disk_cause"
 ctl bt10-disk-cause-plain-failure-pass 0 '!DISK FULL' 'rc=0' -- env UPG_FREE_MB=50000 bash -c "$(declare -f btdisk); B=$B BTF=$BTF BTR=$BTR T=$T; btdisk disk_cause $BTF/baseline-plain-fail.log"
 ctl bt10-pipeline-steps-wired-pass 0 '^ +disk_gate baseline$' '^ +disk_cause$' '^  disk_gate build$' '^    disk_cause "\$WORK/build-\$TARGET.log"$' '^  disk_gate convert$' -- grep -E '^ *disk_(gate|cause)' $B/cloud/upgrade-pipeline.sh
@@ -7071,6 +7431,23 @@ ctl heal-toolkit-gaps-pass 0 '^# Toolkit gaps: ' '`data:Shop\.Customer\.name` \(
 echo '{"journeys": {"j-flake": {"verdict": "PASS"}}}' > $HL/ro3/before-picked/summary.json
 python3 $B/heal.py merge --work $HL/h3 --old $HL/ro3 --new $HL/rn3 > /dev/null 2>&1; python3 $B/heal.py finalize --work $HL/h3 > /dev/null 2>&1
 ctl heal-rerun-regression-catch 0 'REGRESSION: passes on the old app, fails on the new one' 'real-regression' -- sh -c "python3 -I -c \"import json;r=[r for r in json.load(open('$HL/h3/heal.json'))['rows'] if r['id']=='journey:j-flake'][0];print(r['result'], r['class'])\""
+# TLT 2026-11-18: twin-old.md notes a known row (the harness's own admin login) as PASS*; heal read only FAIL/REVIEW there,
+# so the row stayed likely-real ("start noise does not explain it") while the twin had just explained it. And a row the gate
+# accepted in writing (PASS* in diff.md) kept stopping the run as "may be a real defect".
+python3 $here/lib/mkheal.py $HL/h6 > /dev/null 2>&1
+printf '# twin\n\n## All rows\n- FAIL Shop.Item.changedDate: 3 rows differ\n- PASS* Shop.Customer.name: 2 rows differ (noted: the harness login sets it)\n' > $HL/h6/twin-old.md
+python3 $B/heal.py plan --work $HL/h6 --round 1 > $HL/plan6.out 2>&1
+hcls6() { python3 -I -c "
+import json,sys
+for r in json.load(open('$HL/h6/heal.json'))['rows']:
+    if r['id']==sys.argv[1]: print(r['id'], '=>', r['class'], '/', r['result'])" "$1"; }
+ctl heal-twin-pass-star-is-noise-catch 0 'data:Shop\.Customer\.name => startup-noise' '!likely-real' -- hcls6 data:Shop.Customer.name
+python3 $here/lib/mkheal.py $HL/h7 > /dev/null 2>&1
+python3 $B/heal.py plan --work $HL/h7 --round 1 > /dev/null 2>&1
+sed -i.bak 's/^- FAIL Shop.Customer.name: 2 rows differ$/- PASS* Shop.Customer.name: 2 rows differ (accepted: harness)/' $HL/h7/diff.md
+python3 $B/heal.py finalize --work $HL/h7 > /dev/null 2>&1
+ctl heal-gate-accepted-row-closed-catch 0 '!Shop\.Customer\.name' -- python3 $B/heal.py nj --work $HL/h7
+ctl heal-gate-accepted-keeps-others-open-pass 0 'Shop\.Order\.total' -- python3 $B/heal.py nj --work $HL/h7
 # seedname (a seeded value used as an entity or member name): the classifier, the plan, the owner note, and bin/seedname_fix.py itself
 python3 $here/lib/mkheal.py $HL/h4 > /dev/null 2>&1
 python3 -I - $HL/h4 <<'PY'
@@ -7181,17 +7558,22 @@ ctl proposal-testing-plan-no-inventory-says-so-pass 0 'external calls: not measu
 ctl pipeline-build-loop-bounded-pass 0 'UPG_BUILD_ROUNDS:-2' 'no progress: stop' -- sh -c "sed -n '/^step_build() {/,/^}/p' $B/cloud/upgrade-pipeline.sh | grep -oE 'UPG_BUILD_ROUNDS:-2|no progress: stop' | sort -u"
 ctl pipeline-build-loop-skipped-in-dry-run-pass 0 'DRY" != 1 .*UPG_BUILD_ROUNDS' -- sh -c "sed -n '/^step_build() {/,/^}/p' $B/cloud/upgrade-pipeline.sh | grep -E 'DRY.* != 1 .*UPG_BUILD_ROUNDS'"
 ctl pipeline-heal-step-order-pass 0 'journeys heal apidirect diff gate' -- sh -c "grep -E '^STEPS=' $B/cloud/upgrade-pipeline.sh | sed 's/.*afterwalk //; s/)//'"
+# cold rfq: apidirect copied the frozen db as <X>_apid_old and smoke_users.py refused it ("not a copy"), so the step died with exit 4;
+# each db the pipeline gives test users is made by fresh_name with a _smoke_ name just before
+ctl pipeline-smoke-users-on-smoke-copy-catch 0 '^ok \$\{X\}_smoke_apid_\$side$' '^ok \$\{X\}_smoke_jold$' '!^NOT-A-SMOKE-COPY' -- awk '/(^|[ ;(])db=\$\(fresh_name "/{n=$0; sub(/.*fresh_name "/,"",n); sub(/".*/,"",n)} /smoke_users\.py" "\$db"/{print (n ~ /_smoke/ ? "ok " : "NOT-A-SMOKE-COPY ") n}' $B/cloud/upgrade-pipeline.sh
 
 # --- cockpit page (bin/cockpitpage.py) and the decision ledger (bin/decisions.py) on fixtures/cockpit (a made-up shop app) -------------
 CK="bash $here/cockpit_control.sh"
 ctl cockpit-render-five-phases-catch 0 '"id": "find"' '"id": "plan"' '"id": "upgrade"' '"id": "test"' '"id": "golive"' -- $CK render
 ctl cockpit-render-versions-from-run-pass 0 '10\.24\.1\.1 \\u2192 11\.1\.0|10\.24\.1\.1 .{1,3} 11\.1\.0' '!HTMLSnippet' -- $CK render
 ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id": "regression:Gridmod"' '"id": "confirm:D2"' '"id": "signoff"' '"id": "P-1"' -- $CK render
-ctl cockpit-render-effort-from-proposal-catch 0 '"Gridmod", "kept at its version|"Gridmod", "local edits refuse the update[^"]*", "M"' '"Themepack styles", "[^"]*", "S"' -- $CK render
+ctl cockpit-render-effort-from-proposal-catch 0 '"Gridmod", "the update step did not update it|"Gridmod", "local edits refuse the update[^"]*", "M"' '"Themepack styles", "[^"]*", "S"' -- $CK render
 ctl cockpit-render-upgrade-from-git-log-catch 0 '"Widgetpack 2\.0\.0", "Automatic module update' '"Repair D2"' '"Rebuilds"' -- $CK render
 ctl cockpit-render-gate-and-heal-catch 0 'Click through pages|"Smoke"' '[0-9] real problem' '"1 check not run"' '1 of 2 page checks fails\. Cause: Gridmod\.' 'Replace Gridmod' 'Overlay blocks 2 clicks' -- $CK render
 # WM1 2026-11-17: "All pass, 1 with accepted differences" said nothing about what was accepted; each reason is on the card
 ctl cockpit-render-accepted-reasons-pass 0 'Accepted, no loss: start noise; the Vendmod update 1\.0\.0 -> 2\.0\.0 changed its own attribute' -- $CK render
+# a PASS* rung whose <rung>.out is not in the folder (a run copied from committed evidence) crashed the page build (cockpit clarity, run pr6)
+ctl cockpit-render-without-rung-out-catch 0 '^rendered with a PASS\* rung and no data.out$' '!Traceback' -- $CK no-rung-out
 # the Test stage shows what ran on the old and the new app; a new-app file older than the old one is not this run's
 ctl cockpit-test-runs-both-pass 0 '^row: Journeys \| 2 journeys: 2 passed \| 2 journeys: 1 passed, 1 failed \| 1 pass on both, 1 passed on the old app and not on the new one$' '^list Journeys: b-User \| passed \| failed$' '^row: Page walk \| 1 page: 1 passed' -- python3 $here/test_runs_control.py $T/trb both
 ctl cockpit-test-runs-stale-catch 0 '^row: Journeys \| 2 journeys: 2 passed \| not run yet in this run \| needs both apps$' '!1 passed, 1 failed' -- python3 $here/test_runs_control.py $T/trs stale
@@ -7203,6 +7585,60 @@ ctl cockpit-case-file-pass 0 "^case files: \['regression_module-X\.json'\]$" '^o
 # step, the carried screen edits as the first place to look; a written case file wins
 ctl cockpit-auto-case-pass 0 '^auto: 2 actions that work on the old app fail on the new one \(M\.P, M\.Q\)\. \| tiles: \[2, 2, 1\] \| shots: True True \| carried: .*screen edits in Theme\. .*options: \[.accept., .fix., .old-wrong.\]$' '^written case kept: Seven break$' -- python3 $here/found_means_control.py $T/fmc2 cases
 ctl cockpit-render-time-from-timing-pass 0 'Shop|App upgrade' '1 h 40|1 h 30' -- $CK render
+# cockpit clarity (10-second test, runs TLT / pr6 / fixture): the page opens with one plain sentence, what is broken apart from what is not measured,
+# ONE action with its recommended choice, who changed what; the rest is folded. Stop files are real captures with paths replaced (fixtures/cockpit/stops).
+ctl cockpit-brief-status-sentence-catch 0 '^Upgrade from Mendix 10\.24\.1 to 11\.1\.0: 13 of 14 steps done\. Paused, waiting for 6 answers from you\.$' -- $CK brief
+ctl cockpit-brief-broken-apart-from-unmeasured-catch 0 '^Broken for your users$' '^2 things worked on the old app and fail on the new one\.$' '^Not measured yet$' -- $CK brief
+ctl cockpit-brief-one-action-with-choice-catch 0 '^Do this now$' '^Decide: Overlay blocks 2 clicks$' '^We recommend: Fix the app$' '^One click, then 5 more$' -- $CK brief
+ctl cockpit-brief-gate-lines-pass 0 '^Upgrade from Mendix 10\.24\.1 to 11\.1\.0: 5 of 10 checks closed \(50%\)\.' '^2 checks have not run yet\. That is not a failure: nobody knows yet\. 1 needs a decision\.$' "^30 changes to the app so far: 5 by the toolkit's automatic tools, 1 by the AI agent, 0 by a person, 24 not labelled" -- $CK brief-who
+ctl cockpit-brief-agent-stop-not-yours-catch 0 '^Upgrade: just started\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!Resolve' '!waiting for' -- $CK brief-stop-agent
+ctl cockpit-brief-stop-title-plain-catch 0 '^Decide: Journeys on the upgraded app$' '!NEW app' '!REGRESSION' '!INVALID' '!exit 1' '^The run stopped during this step: Running the user paths on old and new\.$' '!user user' -- $CK brief-stop-judgment
+ctl cockpit-brief-nothing-measured-not-green-catch 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Nothing found broken' -- $CK brief-stop-judgment
+ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold closed$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
+ctl cockpit-brief-who-approved-catch 0 "Nobody has approved the plan yet; the AI made 2 choices on its own \(unattended run\)\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' '!ASSUMED' -- $CK brief-approval
+ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' 'running bar detail: \.nowrun small\{display:none' 'tap opens it: nr\.addEventListener\("click"' -- $CK brief-live-bits
+# stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
+ctl cockpit-nj-meta-format-pass 0 '^## T1 \(exit 13\)$' '^owner: person$' '^question: Q one\?$' '^recommended: a$' '^option: a\|Alpha\|does a$' '^option: b\|Beta\|does b$' '^## T2 \(exit 13\)$' '^## T3 \(exit 13\)$' '^owner: agent$' -- $CK nj-format
+ctl cockpit-brief-owner-person-real-question-catch 0 '^Widget settings would be dropped\. What should we do\?$' '^We recommend: Update the module that ships the widget$' '^cards: 1$' '!Decide:' '!Widget list' -- $CK brief-owner-person
+ctl cockpit-brief-owner-agent-no-card-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the app model check found 3 errors after convert\) and rerun\.$' '^cards: 0$' '^bar: <div class="stopbar agent"$' '!Resolve' -- $CK brief-owner-agent
+# round 3 (cockpit clarity): every stop site of upgrade-pipeline.sh says who it is for; a sample per exit code is rendered from the source's own nj_meta text
+ctl cockpit-stop-sites-all-marked-catch 0 '^unmarked sites: 0$' -- $CK site-unmarked
+printf '%s\n' 'nj_add 13 "x" "y"' 'nj_meta agent; nj_add 13 "z" "w"' 'foo || nj_file 10 "q" f' 'nj_meta info' 'nj_file 10 "r" f   # nj_file mentioned in a comment' > $T/unmarked-sites.sh
+ctl cockpit-stop-sites-unmarked-listed-pass 0 '^1: nj_add 13 "x"' '^3: foo' '^unmarked sites: 2$' '!^2: nj_meta' -- $CK site-unmarked $T/unmarked-sites.sh
+ctl cockpit-stop-site-exit10-disk-no-default-catch 0 '^The disk is full, so the step cannot go on\. This is the machine, not the app\. What should we do\?$' '^No recommendation: this one is your call\. Only you know what else lives on this disk' '^dialog: No recommendation:</b> this one is your call\. Only you know' '^cards: 1$' -- $CK site 'The disk is full' 10
+ctl cockpit-stop-site-exit11-journeys-recommends-fix-catch 0 '^Journeys that passed on the old app fail or look different on the new one\. What should we do\?$' '^We recommend: Fix the app, then rerun the user paths$' '!No recommendation' '^cards: 1$' -- $CK site 'Journeys that passed on the old app' 11
+ctl cockpit-stop-site-exit12-gate-recommends-repair-catch 0 '^The final check has open failures\. What should we do\?$' '^We recommend: Repair the cause, then rerun the final check$' '^cards: 1$' -- $CK site 'The final check has open failures' 12
+ctl cockpit-stop-site-exit13-host-app-no-default-catch 0 '^The source is a module template, not an app' '^No recommendation: this one is your call\. Whether a host app exists is something only you know\.$' '^cards: 1$' -- $CK site 'The source is a module template' 13
+ctl cockpit-nj-meta-none-why-pass 0 '^question: Q one\?$' '^why: Only you know\.$' '!^recommended:' -- $CK nj-none
+ctl cockpit-hero-not-runs-on-with-regressions-catch 0 'hero: → The app builds, but not everything works yet 2 regressions to fix: it worked on the old app and fails on the new one\.' '!The app runs on' -- $CK hero-regression
+ctl cockpit-brief-ai-choices-while-running-are-optional-catch 0 '^Upgrade: just started\. The agent is working: building the new app\.$' '^Nothing needed from you now\.$' '^The AI made 1 choice on its own$' '!waiting for' '!choice is open' -- $CK brief-optional
+# round 4 (lead user test on CHK, running): a real unattended run's files (fixtures/cockpit/chk-unattended); wording, order, ranking and folding only
+ctl cockpit-brief-testing-now-not-contradicted-catch 0 '^Testing now: running the user journeys on old and new\. Results appear here when they finish\.$' '^Nothing is known to be broken so far\. The tests are running now\.$' '!has not started' '!nothing has been measured' -- $CK chk-testing
+ctl cockpit-brief-tests-not-started-pass 0 '^The tests run in the Test step, which has not started\.$|^The old app is recorded as the reference\. The new app is tested against it after the conversion\.$|^Some tests have run\. The results are added up in the final check, which has not run yet\.$' '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Testing now' -- $CK chk-idle
+ctl cockpit-brief-tests-stopped-not-unstarted-catch 0 '^The tests stopped during this step: running the user paths on old and new\. Results appear here after it reruns\.$' '!has not started' -- $CK chk-stopped-test
+ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from you now\.$' '^The AI made 18 choices on its own\. Open this to see the 3 with the most impact$' '^ranked: Atlas_Web_Content: held back at its old version, a person has to look\. \| DeepLink: held back at its old version, a person has to look\. \| AmazonTranslateConnector: your own edits are kept or carried over\.$' '^The other 15 are routine version updates and rules\.' '!choices are open for your review' -- $CK chk-chosen
+ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
+ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
+ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
+# round 5 (lead user test on PSOP and TLT; issue drafts 15 and 17): the stop's owner decides the top card, recording the old app is not testing,
+# the second rung's page keeps the first rung's result; wording, order and folding only, no verdict changes
+ctl cockpit-brief-agent-stop-before-signoff-catch 0 '^Upgrade from Mendix 10\.6\.3 to 10\.24\.0: 7 of 14 steps done\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(mxbuild failed\) and rerun\.$' '^The plan still waits for your sign-off; the run does not wait for it\. Review the plan →$' '!Approve the plan' '!waiting for 1 answer' '!\(exit' '^cards: 1$' -- $CK chk-agent-stop
+ctl cockpit-brief-build-stop-says-new-app-pass 0 '^Nothing is broken for your users: the old app is unchanged\. The new app does not build yet\.$' '!nothing has been measured yet' -- $CK chk-agent-stop
+ctl cockpit-brief-person-stop-keeps-top-card-pass 0 '^The disk is full, so the step cannot go on\. What should we do\?$' '^No recommendation: this one is your call\. Only you know what else lives on this disk\.$' '^All 2 questions waiting for you$' '!The plan still waits' -- $CK chk-person-stop
+ctl cockpit-brief-recording-old-app-not-testing-catch 0 '^Recording the old app as the reference: clicking through every page of the old app\. The new app is compared against it later; nothing is tested yet\.$' '^Nothing is known to be broken so far\. The old app is only being recorded; nothing is tested yet\.$' '!Testing now' '!tests are running' -- $CK chk-recording
+ctl cockpit-brief-recording-stopped-not-tests-catch 0 '^Recording the old app stopped during this step: clicking through every page of the old app\. It goes on after it reruns; nothing is tested yet\.$' '!tests stopped' '!Results appear here' -- $CK chk-recording-stopped
+ctl cockpit-brief-old-app-recorded-not-some-tests-catch 0 '^The old app is recorded as the reference\. The new app is tested against it after the conversion\.$' '!Some tests have run' -- $CK chk-recorded-idle
+ctl cockpit-brief-no-changes-yet-catch 0 '^No changes to the app yet\.$' '!every change is a commit' -- $CK chk-recorded-idle
+ctl cockpit-brief-changes-after-convert-pass 0 '^Shown after the final check\. So far every change is a commit you can review\.' '!No changes to the app yet' -- $CK chk-who
+ctl cockpit-brief-second-rung-shows-first-catch 0 '^On Mendix 10\.24\.0: nothing broke \(1 not measured\)\. Mendix 11\.12\.5 is not tested yet\.$' '!nothing has been measured yet' -- $CK rung2-first-rung
+ctl cockpit-brief-second-rung-own-gate-pass 0 '^2 things worked on the old app and fail on the new one\.$' '!On Mendix' -- $CK rung2-own-gate
+ctl cockpit-brief-second-rung-no-first-gate-pass 0 '^Nothing is known to be broken so far\. The tests are running now\.$' '!On Mendix' -- $CK rung2-no-first-gate
+ctl cockpit-fragment-has-charset-catch 0 '^metas: 1$' '^<meta charset="utf-8">$' -- $CK charset
+# issue 11 item 4: an unattended run asked nobody, so its plan items are no cards (only the sign-off is); an attended run keeps its cards
+ctl cockpit-unattended-plan-items-no-cards-catch 0 '^cards: 1$' '^The plan still waits for your sign-off; the run does not wait for it\.' '^Nothing needed from you now\.$' '!Approve the plan' '^attended:$' '^cards: 19$' -- $CK chk-cards
+ctl cockpit-plan-item-counted-once-catch 0 "^step rows: 3 \\| not already a card: \\['R99 A rule with no card'\\]$" -- $CK own-asks
+# Q9 of the user test: the chat list (decisions.py pending) and the page list are one list; a plan item decided by the signed plan was open in chat only (run APPR)
+ctl decisions-pending-matches-page-catch 0 '^chat: confirm:D2 regression:Gridmod regression:overlay$' '^page: confirm:D2 regression:Gridmod regression:overlay$' -- $CK pending-signed
 ctl cockpit-page-content-only-pass 0 'no page skeleton tags' '^<title>' -- $CK nodoc
 ctl cockpit-no-hardcoded-run-pass 0 'no hard-coded run names' -- $CK nohard
 ctl cockpit-check-ghost-catch 0 '^ghost-step S-4 \(P-99, Keep or update module Oldmod\)' 'rc=1' -- $CK check-ghost
@@ -7215,6 +7651,24 @@ printf '[{"name": "Shopmod", "files": [{"change": "CHANGED", "kind": "theme", "p
 ctl evidence-check-release-notes-catch 0 '^- release_impact: no brain version tables' '^files: work/release-impact\.out$' -- python3 $B/evidence.py --work $T/evw/work --kind check "Release notes"
 ctl evidence-theme-files-catch 0 '^- themesource/shopmod/web/main\.scss: changed \(1 variable' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Shopmod themesource edits"
 ctl evidence-theme-other-module-pass 1 '\(no evidence found\)' '!main\.scss' -- python3 $B/evidence.py --work $T/evw/work --kind theme "Othermod themesource edits"
+# cold rfq: 14 replacement cards ("R18 Runtime Java API removals (Java)") and a Java card whose only edit is one Java file were
+# ask-no-evidence: the row's evidence column in replacements.md and the module's file rows in localedits.json are shown now
+cat > $T/evw/work/replacements.md <<'MD'
+| id | status | pattern | replacement | evidence | unchecked | effort | risk | verified | handled |
+|---|---|---|---|---|---|---|---|---|---|
+| R5 | HIT | Old client API in Java | the new API | /\bCore\.oldCall\w*\|\bOld\.thing\b/ in javasource/shopmod/A.java (2), javasource/shopmod/B.java (1); Forms$GlyphIcon: 3 in Shopmod.Home (own) | - | S | - | yes |  |
+MD
+printf '[{"name": "Javamod", "logic": [], "files": [{"change": "CHANGED", "kind": "java", "path": "javasource/javamod/Utils.java", "detail": "user code differs from the installed package (logic edit)"}]}]' > $T/evw/work2.json
+mkdir -p $T/evw2/work; cp $T/evw/work2.json $T/evw2/work/localedits.json
+ctl evidence-recipe-row-catch 0 '^- replacements\.md row R5: HIT$' '^- found in javasource/shopmod/A\.java \(2\), javasource/shopmod/B\.java \(1\)$' '^- Forms\$GlyphIcon: 3 in Shopmod\.Home' '^files: work/replacements\.md$' '!oldCall' -- python3 $B/evidence.py --work $T/evw/work --kind Java "R5 Old client API in Java"
+ctl evidence-recipe-no-row-pass 1 '\(no evidence found\)' -- python3 $B/evidence.py --work $T/evw/work --kind widget "R6 Something else"
+ctl evidence-module-java-file-catch 0 '^- javasource/javamod/Utils\.java: changed \(user code differs' '^files: work/localedits\.json$' -- python3 $B/evidence.py --work $T/evw2/work --kind Java Javamod
+# a copy of a work folder: state/app-dir still names the original run (a path that is gone); the evidence files are found beside work/ and shown from the app folder, never as ../../..
+mkdir -p $T/evc/run/work/state $T/evc/run/app/.stepupdate; printf '/gone/elsewhere/runs/X1/app\n' > $T/evc/run/work/state/app-dir
+printf 'RED REMOVED Entity Mod.Thing\n' > $T/evc/run/app/.stepupdate/step1-Mod.idcheck
+ctl evidence-copied-work-folder-no-dotdot-catch 0 '^files: app/\.stepupdate/step1-Mod\.idcheck$' '!\.\./' '!gone' -- python3 $B/evidence.py --work $T/evc/run/work Mod
+mkdir -p $T/evd/run/work/state; printf '/gone/elsewhere/runs/X1/app\n' > $T/evd/run/work/state/app-dir
+ctl evidence-no-app-folder-no-evidence-pass 1 '\(no evidence found\)' '!\.\./' -- python3 $B/evidence.py --work $T/evd/run/work Mod
 ctl cockpitpage-evidence-passes-kind-pass 0 'evidence\.for_item\(work, it\["name"\], it\["kind"\]\)' -- grep -F 'evidence.for_item(work, it["name"], it["kind"])' $B/cockpitpage.py
 # editroute.py (cold test WM1): a module the update refused is routed to an update; only a real logic edit, Java code, a removal
 # something still uses or a tool fault stays kept. A stub mxcli answers describe and refs.
@@ -7228,6 +7682,10 @@ ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: 
 ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan
 ctl editroute-xassoc-pass 0 '^ROUTE Target XASSOC' '^approved-step.txt: Other.A_B ' -- $ER plan
 ctl editroute-java-held-catch 0 '^ROUTE Javamod HOLD' '!route-plan.txt: .* Javamod$' -- $ER plan
+# cold rfq: Administration was held as a "real logic edit" for entity Account, whose only difference was its User grant
+# reading the association EmployeeManagement owns into it; routed XASSOC with every association a module off the plan owns in
+ctl editroute-access-only-entity-xassoc-catch 0 '^ROUTE Accmod XASSOC: entity access only: its grants name Emp\.Emp_Acct' '^force-ui\.txt: Accmod # editroute XASSOC$' '^approved-step\.txt: Demo\.Demo_Acct ' '^approved-step\.txt: Emp\.Emp_Acct ' '^route-plan\.txt: 7 2\.0\.0 Accmod$' -- $ER access
+ctl editroute-access-plus-attribute-held-pass 0 '^ROUTE Holdmod HOLD: real logic edit: entity H' '!route-plan\.txt: .*Holdmod' '!approved-step\.txt: Emp\.Emp_H' -- $ER access
 ctl editroute-collect-pass 0 'Uimod.mdl: create or modify snippet Uimod.L1' 'Uimod.mdl: create or modify constant Uimod.K' '!NotRefused' 'Target.mdl: create or modify association Other.A_B' '^Target.guids: Other.A_B$' -- $ER collect
 # cold test WM1 Atlas_Core: a saved whole element lost the master-layout link and carried the old widget's properties; the change
 # is merged onto the new element instead, and a result mxcli check refuses is held, never executed
@@ -7267,7 +7725,7 @@ ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
 ctl cockpit-serve-stamp-heartbeat-pass 0 'page served: True' 'heartbeat written: True' 'stamp moved after a change: True' -- $CK serve
 ctl cockpit-running-bar-pass 0 'bar: Running now: Clicking through every page of the old app \(basewalk\) \| 5 min · now in runapp\.py · starting the old app on db_x' '"dot": "bad"' 'status: \{"step": "basewalk".*"tool": "runapp\.py"' 'dead pid: hidden 1' 'no file: hidden 1' -- $CK running
-ctl cockpit-stopped-bar-pass 0 'bar: The run stopped at basewalk \(exit 11\) and waits for you\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
+ctl cockpit-stopped-bar-pass 0 'bar: The run stopped during this step: Clicking through every page of the old app\.' 'sections: The smoke walk SKIPPED microflow steps\|Role Anonymous has no walk$' \
   'rerun: upgrade-pipeline\.sh --work W --from basewalk' 'rows: "id": "stop:basewalk:1" "id": "stop:basewalk:2"' 'cell: "l": "2 decisions needed"' 'no file: bars 0' -- $CK stopped
 ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod confirm:D2 P-1 P-2 signoff$' 'keep twice: data-choice="rec" data-choice="o2" data-choice="o3"$' \
   'rows: 6' 'says: 1' 'bad option: "ok": false' 'form post: 404' 'answer: {"ok": true, "said": "Saved: P-2 by Ana"}' \
@@ -7300,6 +7758,7 @@ ctl decisions-step-bad-choice-catch 0 'approve or reject' '^rc=2$' '^S-3: none b
 ctl decisions-step-signoff-still-refused-pass 0 'sign the plan with the page button' '^rc=2$' '^steps untouched$' '^ledger untouched$' -- $CK step-signoff-refused
 ctl decisions-step-apply-notes-step-pass 0 'S-3: a step, its approval is in steps.jsonl' '^S-3: approved by Ana via chat$' '^approvals after apply: 1$' -- $CK step-apply
 ctl decisions-pending-lists-ids-options-catch 0 'open items \(6\)' '^regression:overlay ' 'fix \(recommended\)' 'chat: decisions\.py add .*--source chat' 'sign the plan with the page button' -- $CK pending
+ctl decisions-pending-no-rec-names-keys-catch 0 '--item stop:update:2 --choice <update\|accept> --by NAME' '!--choice  --by' -- $CK pending-norec
 ctl decisions-pending-drops-decided-pass 0 'open items \(5\)' '!^P-2 ' -- $CK pending-after
 ctl cockpit-words-no-plural-marker-pass 0 'plural-marker count: 0' 'raw gate text count: 0' 'Testing found 2 real problems, 4 things need you' -- $CK words
 ctl decisions-signed-plan-leaves-needs-you-pass 0 '^0$' -- $CK signed-page
@@ -7674,7 +8133,80 @@ ctl submit-pushed-branch-pass 0 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-ha
 ctl submit-inbox-emptied-pass 0 '^README\.md TEMPLATE\.md $' -- sh -c "ls $SI | tr '\n' ' '"
 ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-current
 
+# apidirect names its database copy so smoke_users accepts it (the old name _apid_<side> was refused: "not a copy")
+ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- python3 $B/smoke_users.py upg_t_apid_old --roles Administrator --container no-such-ctr
+ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
 
+
+# --- cockpit clarity, round 6: lane B's final findings (fixtures/cockpit/lane-b: captured stop files and a final check, paths replaced) ---
+# 1. the broken box reads a regression a step found before the final check ran (PSOP afterwalk: "nothing is known to be broken" over 3 regressions)
+ctl cockpit-broken-box-names-stop-regression-catch 0 '^1 thing worked on the old app and fails on the new one: Production \(for 3 roles\)\.$' '!Nothing is known to be broken' -- $CK lb-box psop-afterwalk-stop.md
+ctl cockpit-broken-box-rule-line-is-no-regression-pass 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!worked on the old app' -- $CK lb-norun
+ctl term-brief-names-stop-regression-catch 0 '^Broken for your users: 1 thing worked on the old app and fails on the new one: Production' -- $CK lb-term psop-afterwalk-stop.md
+# 2. an agent-owned stop with no route the agent can take is a hand-off, said as one (PMNT, LDMS: user paths that fail on the OLD app)
+ctl cockpit-agent-stop-no-route-handoff-catch 0 '^Upgrade: just started\. Paused: the agent cannot get past this alone\.$' '^The agent cannot get past this alone: 2 of 6 user paths fail on the old app itself \(sign-out, login-WebServiceUser\)\.$' '^It needs: a person to confirm each is an old-app defect, or fix the old app\.$' '^<div class="stopbar"$' '!Nothing you can answer here' '!stopbar agent' -- $CK lb-brief pmnt-basewalk-stop.md
+ctl cockpit-agent-stop-no-route-one-path-catch 0 '^The agent cannot get past this alone: 1 of 3 user paths fails on the old app itself \(login-User\)\.$' '^It needs: a person to confirm it is an old-app defect, or fix the old app\.$' -- $CK lb-brief ldms-basewalk-stop.md
+ctl cockpit-agent-stop-with-a-route-stays-agents-pass 0 '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!cannot get past' -- $CK brief-stop-agent
+ctl term-brief-handoff-keeps-what-it-needs-catch 0 'It needs: a person to confirm each is an old-app defect' -- $CK lb-term pmnt-basewalk-stop.md
+ctl term-brief-handoff-size-pass 0 'ok: True' -- $CK lb-term-size pmnt-basewalk-stop.md
+# 3. the same stop again after a rerun is called stuck; a stop with a new cause is not (stops.tsv is written by the pipeline's own nj_flush)
+ctl cockpit-same-stop-three-times-says-stuck-catch 0 'Paused: the agent cannot get past this alone\. Stopped here 3 times in a row, each time for the same reason\.' '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+ctl cockpit-repeated-plain-agent-stop-handoff-catch 0 '^The agent cannot get past this alone: the same stop \(mxbuild failed\) has come back 3 times in a row\.$' '^It needs: a person to look at it, or a toolkit change\.$' -- $CK lb-stuck-agent
+ctl cockpit-repeated-person-stop-says-stuck-catch 0 'Paused, waiting for 1 answer from you\. Stopped here 3 times in a row' '^A step that passed on the old app fails or breaks on the new one\. What should we do\?$' -- $CK lb-stuck-person
+ctl cockpit-stop-new-cause-is-not-stuck-pass 0 '^Paused: the agent has to do something and rerun\. Nothing for you to answer\.$|^Upgrade: just started\. Paused: the agent has to do something and rerun' '!Stopped here' '!cannot get past' -- $CK lb-stuck-new-cause
+ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
+ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
+# 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
+ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
+ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
+ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
+# --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
+# terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end
+ctl term-brief-equals-cockpit-pass 0 'fields on the page: 5 of 5' 'printed paragraphs: 5, off the page: 0' -- $CK term-brief-equal
+ctl term-brief-differs-from-stale-page-catch 0 'not on the page: status, unmeasured' 'off the page: [1-9]' -- $CK term-brief-stale
+ctl term-brief-size-pass 0 '!ok: False' 'ok: True' -- $CK term-brief-size
+ctl term-brief-size-cap-catch 0 'uncapped lines: (9|1[0-9])' -- $CK term-brief-size-uncapped
+ctl term-brief-count-equal-pass 0 'status 6 footer 6 same' '!DIFFERENT' -- $CK term-brief-count
+ctl term-brief-count-split-catch 0 'status 6 footer 6 same' '2 more named: True' '!DIFFERENT' -- $CK term-brief-count-extra
+ctl term-brief-open-questions-pass 0 '^Open questions: 6\. Answer them here or on the cockpit page\.' 'fix \(recommended\): Fix the app' 'pending: open items \(6\)' -- $CK term-brief-pending
+ctl term-brief-flag-pass 0 'rc=0' 'same text as brief.py' -- $CK term-brief-cli
+ctl term-brief-printed-at-stops-pass 0 '^nj_flush: 1$' '^park_finish: 1$' '^main: [12]$' -- $CK term-brief-at-stops
+# issue 20 (TBUD): 0 regressions says so and recommends handing the open rows over; any other count keeps "repair"
+ctl gate-open-zero-regressions-catch 0 'No regression was found\. 57 checks could not be measured yet and 4 still need a yes or no' 'We recommend: Hand the open lists to the owner' '!Repair the cause' -- $CK gate-open-0
+ctl gate-open-regressions-repair-pass 0 'The final check has open failures' 'We recommend: Repair the cause' '!No regression was found' -- $CK gate-open-3
+ctl gate-open-no-count-repair-pass 0 'The final check has open failures' 'We recommend: Repair the cause' -- $CK gate-open-none
+# issue 21 (TBUD): `data <check> *` matched nothing and said nothing; now each such line is named, with the check it probably meant, and the page shows it
+ctl diff-allow-malformed-warns-catch 1 'WARNING allow line 1 matched nothing: data db\.attr\.Administration\.Account\.Email \*' 'did you mean db\.attr\.Administration\.Account\.Email\?' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '## Allow lines that matched nothing' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/malformed.txt
+ctl diff-allow-all-matched-silent-pass 0 '!matched nothing' 'FAIL 0 \| REVIEW 0' -- python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt
+ctl diff-allow-unmatched-file-catch 0 'allow line 1 matched nothing' -- sh -c "python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/malformed.txt --md $T/out/allow-md.md > /dev/null 2>&1; cat $T/out/allow-unmatched.txt"
+ctl diff-allow-unmatched-file-removed-pass 0 'no file' -- sh -c "python3 $B/diff.py $T/sb.json $T/sa.json --allow $FX/allow/narrow.txt --md $T/out/allow-md.md > /dev/null 2>&1; [ -e $T/out/allow-unmatched.txt ] && echo stale || echo no file"
+ctl cockpit-allow-unmatched-fold-catch 0 'fold section: 1' 'allow line 1 matched nothing: data db\.attr\.X\.Y' -- $CK allow-unmatched
+ctl cockpit-allow-matched-no-section-pass 0 'fold section: 0' -- $CK allow-all-matched
+
+# --- cockpit clarity, round 7 (SNOW, issue 25): a decision for a person is the top card, with its choices said in it ---
+ctl cockpit-person-stop-card-names-choices-catch 0 '^The update rerun finds replay commits already in the app\. What should we do\?$' '^Your choices: Rewind the app to the convert commit or Keep the replays\.$' '^The run is paused until you answer\. One click$' '^cards: 1$' '!Nothing you can answer' -- $CK p7-replay
+ctl cockpit-person-stop-three-choices-catch 0 '^Your choices: Update the kept module, Put the old widget back or Accept the skew\.$' '!Nothing you can answer' -- $CK p7-widgetskew
+ctl cockpit-one-option-question-no-choices-line-pass 0 '^Continue with the old jar\?$' '!Your choices' -- $CK p7-one-option
+ctl cockpit-agent-stop-headline-no-file-name-catch 0 '^Nothing you can answer here\. The agent has to finish this \(the list of add-on updates that go before the Mendix 11 conversion is missing\) and rerun\.$' '!plan-pre' -- $CK p7-agent-file
+ctl cockpit-agent-stop-mxcheck-count-plain-catch 0 'The agent has to finish this \(the app model check found 1 error after convert' '!mx check' '!1 errors' -- $CK p7-agent-mxcheck
+ctl term-brief-person-stop-lists-choices-pass 0 '^Do this now: The update rerun finds replay commits already in the app\. What' '^    rewind: Rewind the app to the convert commit$' '^    keep: Keep the replays$' -- $CK p7-term-person
+
+
+# journeys progress line (issue 26): a long walk says how far it is, so a slow run is not taken for a hung one (SNOW: 435 user paths, no output for 90 min)
+JPC="python3 $here/journeys_progress_control.py"
+ctl journeys-progress-start-unknown-catch 0 '^progress: 435 user paths to walk\. Expected duration: unknown \(no earlier run here' -- $JPC start-unknown
+ctl journeys-progress-start-known-pass 0 'Expected duration: about 435 min \(earlier runs here: 60 s per path\)' '!unknown' -- $JPC start-known
+ctl journeys-progress-tiny-earlier-run-unknown-catch 0 'Expected duration: unknown' '!about' -- $JPC pace-ignores-tiny
+ctl journeys-progress-line-every-25-paths-pass 0 '^progress: 209 of 435 user paths done, about 15 min left$' '^log: progress: 209 of 435 user paths done, about 15 min left$' '^state: \{"done": 209, "total": 435, "left_min": 15, "finished": false\}$' '^lines: 15$' -- $JPC ticks
+ctl journeys-progress-line-every-minute-catch 0 '^lines after 160 s: 2$' -- $JPC by-minute
+ctl journeys-progress-pace-kept-for-next-run-pass 0 '^pace row: new	10	60$' '^finished: True$' '^next start: about 10 min$' -- $JPC finish-keeps-pace
+ctl journeys-progress-counts-markers-in-real-child-pass 0 '^batch 0 rc=0 journeys in output=3$' '^batch 1 rc=0 journeys in output=3$' '^done=6$' '^live files left: 0$' -- $JPC walk-counts
+ctl journeys-progress-read-line-pass 0 '^Testing now: 212 of 435 user paths done, about 40 min left$' -- $JPC read-line
+ctl journeys-progress-read-over-says-nothing-pass 0 '^\[\]$' -- $JPC read-over
+ctl cockpit-journeys-progress-in-test-box-and-terminal-catch 0 '^Testing now: 212 of 435 user paths done, about 40 min left\. Results appear here when they finish\.$' '^terminal: Testing now: 212 of 435 user paths done, about 40 min left' -- $CK prog-box
+ctl cockpit-journeys-progress-unknown-time-catch 0 '^Testing now: 3 of 435 user paths done, time left unknown' -- $CK prog-unknown
+ctl cockpit-journeys-progress-over-falls-back-pass 0 '^Testing now: running the user journeys' '!user paths done' -- $CK prog-over
+ctl cockpit-journeys-progress-other-step-ignored-pass 0 '!user paths done' -- $CK prog-other-step
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
