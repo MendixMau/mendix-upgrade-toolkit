@@ -1203,7 +1203,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
   for f in "$WORK/replay"/*.mdl "$WORK/replay"/*.patch; do
     [ -f "$f" ] || continue
     mod=$(basename "$f"); mod=${mod%.*}
-    if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
+    if [ "${1:-}" = pre ] && grep -qE "^[0-9]+ [^ ]+ $mod([[:space:]]+#.*)?\$" "$WORK/plan.txt" 2> /dev/null; then continue; fi
     # one replay per module per rung: the 10.24 rung's replay must not skip the 11 rung's (editroute writes a new replay/ each rung)
     # no -q: grep must read the whole log, or git dies of SIGPIPE and pipefail makes the check false
     if [ "$DRY" != 1 ] && git_app log --format=%s 2> /dev/null | grep -xF "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" > /dev/null; then note "replay $mod skipped: replayed already"; continue; fi
