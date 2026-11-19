@@ -503,8 +503,8 @@ def stop_handoff(secs, meta, repeats):
 def stop_meta(body):
     """The lines nj_meta writes under a stop section's heading: owner, question, recommended, option (key|label|what it does).
     A section without them is owner "" and is read as before."""
-    m = re.match(r"((?:(?:owner|question|recommended|why|option): .*\n)+)\n?", body)
-    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "why": "", "options": [], "body": body}
+    m = re.match(r"((?:(?:owner|question|recommended|why|option|writes): .*\n)+)\n?", body)
+    out = {"owner": "", "question": "", "rec": "", "rec_text": "", "why": "", "options": [], "writes": [], "body": body}
     if not m:
         return out
     out["body"] = body[m.end():]
@@ -518,6 +518,10 @@ def stop_meta(body):
             out["rec"] = v.strip()
         elif k == "why":   # no recommendation exists; this is the reason it is the reader's call
             out["why"] = v.strip()
+        elif k == "writes":   # key|file|line: what answering that option writes into the work folder (decisions.py apply)
+            p = [x.strip() for x in v.split("|", 2)]
+            if len(p) == 3 and p[0] and re.match(r"^[\w.-]+$", p[1]) and p[2]:
+                out["writes"].append(p)
         elif k == "option":
             p = [x.strip() for x in v.split("|", 2)]
             if len(p) == 3 and p[0] and p[1]:
@@ -543,7 +547,10 @@ def build_model(work):
     ledger = rj(os.path.join(work, "decisions.json")) or []
     last = {}
     for r in ledger:
-        last[r.get("item")] = r
+        if r.get("consumed"):
+            last.pop(r.get("item"), None)
+        else:
+            last[r.get("item")] = r
     nj = rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
     m = re.match(r"# NEEDS JUDGMENT: step (\w+), exit (\d+)", nj)
     stopped = (m.group(1), int(m.group(2))) if m else None
@@ -624,7 +631,7 @@ def build_model(work):
                 add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
                      "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                      "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"], "norec_why": mt["why"],
-                     "options": [{"key": o[0], "label": o[1], "causes": o[2]} for o in mt["options"]]})
+                     "options": [dict({"key": o[0], "label": o[1], "causes": o[2]}, **({"writes": [{"file": w[1], "line": w[2]} for w in mt["writes"] if w[0] == o[0]]} if any(w[0] == o[0] for w in mt["writes"]) else {})) for o in mt["options"]]})
                 continue
             add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",

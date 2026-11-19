@@ -219,6 +219,23 @@ PY
             ck >/dev/null && brief_text | sed -n '/^Do this/,/^Who/p' ;;
   p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
             python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
+  # run DVS: the widget-drop stop through the pipeline's own widget_drop_stop (bin/widgetfix.py), the page, the chat line and the answer
+  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
+            mods=$F/modules-dvs.json; [ "$case_" != dvs-stop-nofit ] || { mods=$T/mods.json; sed 's/2\.30\.6/2.32.4/' "$F/modules-dvs.json" > "$mods"; }
+            mkdvs() { mkstop 'eval "$(sed -n "/^nj_writes() /p;/^widget_drop_stop() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; nj_file() { :; }
+              export WORK=$W APP=x TARGET=10.24.0 UPG_CACHE=$F UPG_WIDGETFIX_MODULES=$mods UPG_WIDGETFIX_VERSIONS=$F/versions-116540.txt; widget_drop_stop'; }
+            mkdvs
+            ck >/dev/null
+            case "$case_" in
+              dvs-stop|dvs-stop-nofit) brief_text | sed -n '/^Do this/,/^Who/p'; grep -o 'No recommendation:</b> [^<]*' "$T/out.html" | head -1; cards ;;
+              dvs-stop-update) python3 "$B/decisions.py" pending --work "$W" | grep -- '--choice'
+                  dec add --item stop:update:1 --choice update --by Ana --source page >/dev/null; dec apply | tail -1; cat "$W/plan.txt"
+                  awk '$1 ~ /^[0-9]+$/ {print "stepupdate reads: cid=" $1 " ver=" $2 " module=" $3}' "$W/plan.txt" ;;
+              dvs-stop-twice) dec add --item stop:update:1 --choice accept --by Ana --source page >/dev/null; dec apply >/dev/null; echo "ack: $(cut -c1-40 "$W/widgetdrop-ack.txt")"
+                  rm -f "$W/NEEDS-JUDGMENT.md"; echo "asked after the run went on: $(python3 "$B/decisions.py" pending --work "$W" | grep -c 'stop:update:1')"
+                  rm -f "$W/widgetdrop-ack.txt"; mkdvs; echo "asked by the next stop with the same id: $(python3 "$B/decisions.py" pending --work "$W" | grep -c -- '--item stop:update:1')"
+                  dec add --item stop:update:1 --choice update --by Ana --source page >/dev/null; dec apply | tail -1; grep -c '^116540 2.32.4 DataWidgets' "$W/plan.txt" ;;
+            esac ;;
   brief-owner-person) mkstop 'nj_meta info; nj_add 13 "Widget list" "file: x"; nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update or accept."'
             ck >/dev/null && brief_text && cards ;;
   nj-format) mkstop 'nj_meta person "Q one?" "a" "a|Alpha|does a" "b|Beta|does b"; nj_add 13 "T1" "body one"; nj_add 13 "T2" "body two"; nj_meta agent; nj_add 13 "T3" "body three"'
@@ -311,7 +328,7 @@ PY
   apply)    dec add --item P-1 --choice o2 --by Ana --source chat >/dev/null; dec add --item regression:overlay --choice accept --by Ana --source chat --reason "intended" >/dev/null
             dec apply; echo ---; grep '^P-1' "$W/DECISIONS.md"; cat "$W/regression-decisions.txt" ;;
   apply-idem) dec add --item regression:overlay --choice accept --by Ana --source chat >/dev/null; dec apply >/dev/null; cp "$W/regression-decisions.txt" "$T/a"; dec apply >/dev/null; cmp "$T/a" "$W/regression-decisions.txt" && echo "same after second apply"; cnt 'item:regression:overlay' "$W/regression-decisions.txt" ;;
-  apply-change) dec add --item regression:overlay --choice accept --by Ana --source chat >/dev/null; dec apply >/dev/null; dec add --item regression:overlay --choice fix --by Ana --source chat >/dev/null; dec apply >/dev/null; cnt 'Shop.Home' "$W/regression-decisions.txt" ;;
+  apply-change) dec add --item regression:overlay --choice accept --by Ana --source chat >/dev/null; dec apply >/dev/null; dec add --item regression:overlay --choice fix --by Ana --source chat >/dev/null; dec apply >/dev/null; { [ -f "$W/regression-decisions.txt" ] && cnt 'Shop.Home' "$W/regression-decisions.txt" || echo 0; } ;;  # the file goes with its last line
   signoff-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo Vos"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply; dec apply >/dev/null; grep '^Signed-off:' "$W/PROPOSAL.md"; cnt '^Signed-off:' "$W/PROPOSAL.md"; python3 "$B/proposal.py" --status --work "$W" ;;
   signoff-stale) echo '{"signoffs":[{"id":"u_1","plan":"bbbb","at":"2026-01-03T08:00:00Z","source":"page"}]}' > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
