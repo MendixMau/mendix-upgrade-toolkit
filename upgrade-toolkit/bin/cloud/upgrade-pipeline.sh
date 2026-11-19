@@ -1200,6 +1200,13 @@ run_stepupdate() { # run_stepupdate PLAN label
     local amods; amods=$( { grep -vE '^[[:space:]]*(#|$)' "$WORK/accept-unsaved.txt" || true; } | awk '{print $1}' | paste -sd, -)
     [ -z "$amods" ] || au=(--accept-unsaved "$amods")
   fi
+  # cold rfq: $WORK/java-port.txt names modules whose local Java edits a person ports by hand onto the newer version
+  # (stepupdate --port-java); the build waits for $WORK/java-port-done.txt
+  local pj=()
+  if [ -f "$WORK/java-port.txt" ]; then
+    local jmods; jmods=$( { grep -vE '^[[:space:]]*(#|$)' "$WORK/java-port.txt" || true; } | awk '{print $1}' | paste -sd, -)
+    [ -z "$jmods" ] || pj=(--port-java "$jmods")
+  fi
   # F14: approved-step.txt holds step-only acceptances (a removal the replay restores): the step idcheck reads them,
   # the total idcheck (original vs final) never does, so a restore that did not happen still stops the run
   local apf="$WORK/approved.txt"
@@ -1211,7 +1218,7 @@ run_stepupdate() { # run_stepupdate PLAN label
   local le=()
   [ ! -s "$WORK/localedits.json" ] || le=(--localedits "$WORK/localedits.json")
   xo "$WORK/stepupdate-$2.out" env "${envs[@]}" bash "$B/stepupdate.sh" "$APP" "$plan" --approved "$apf" \
-    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} ${le[@]+"${le[@]}"} || rc=$?
+    --baseline "$WORK/original.mpr" --unattended ${fu[@]+"${fu[@]}"} ${au[@]+"${au[@]}"} ${pj[@]+"${pj[@]}"} ${le[@]+"${le[@]}"} || rc=$?
   [ "$DRY" = 1 ] || cat "$WORK/stepupdate-$2.out" >> "$LOG"
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0
@@ -1470,6 +1477,17 @@ try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep w
 }
 step_build() {
   local n=0 rc=0
+  # cold rfq: an update with --port-java replaced Java files that carried a local edit; mxbuild would pass without it
+  # (javac knows nothing of the edit), so the build waits until a person ports it and writes $WORK/java-port-done.txt
+  if [ "$DRY" != 1 ] && [ ! -f "$WORK/java-port-done.txt" ]; then
+    local pjl; pjl=$(cat "$WORK"/stepupdate-*.out 2> /dev/null | grep -E '^ *PORT-JAVA ' | sed 's/^ *//' | sort -u || true)
+    if [ -n "$pjl" ]; then
+      nj_add 13 "Local Java edits to port by hand before the build" "The update replaced these files; the old edited copy is under the path shown. Port each edit onto the new file, commit it in the app, then write $WORK/java-port-done.txt (one line per file: what was ported) and rerun.
+
+$pjl"
+      nj_flush
+    fi
+  fi
   CHECK_N=0
   local f
   for f in "$WORK"/check-*.log; do if [ -e "$f" ]; then CHECK_N=$((CHECK_N + 1)); fi; done

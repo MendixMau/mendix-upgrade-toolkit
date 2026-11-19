@@ -6,7 +6,7 @@
 # read scripts lazily), and an idcheck against the original went blind after the first accepted finding.
 #
 #   stepupdate.sh <app dir> <plan.txt> [--approved approved.txt] [--baseline original.mpr] [--dry-run]
-#                 [--force-ui Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--unattended] [--no-fallback]
+#                 [--force-ui Mod,Mod] [--port-java Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--unattended] [--no-fallback]
 #                 [--accept-unsaved Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
 #
 # plan.txt: one update per line, "<content id> <version> <ModuleName>", # comments allowed. Order matters: put the
@@ -123,13 +123,14 @@ bin=$(cd "$(dirname "$0")" && pwd)
 # kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
 steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
-approved=""; baseline=""; dry=0; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""
+approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --approved) approved=$2; shift 2;;
     --baseline) baseline=$2; shift 2;;
     --dry-run) dry=1; shift;;
     --force-ui) forceui=",$2,"; shift 2;;
+    --port-java) portjava=",$2,"; shift 2;;
     --saved-edits) saved=$2; shift 2;;
     --from) from=$2; shift 2;;
     --skip) skipm=",$2,"; shift 2;;
@@ -295,9 +296,21 @@ while read -r cid ver mod rest; do
     if [ $fstate = edited ]; then
       grep '^FILES-EDITED ' "$st/step$n-$mod.files" | sed 's/^/   /'
       if grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files"; then
-        echo "   $mod has local Java USER CODE edits (logic): keep the module at the installed version, or port the edits by hand"
-        keep "$mod" "local Java user code edits (FILES-EDITED javasource)" && continue
-        echo "STOP: update of $mod refused for local file edits ($st/step$n-$mod.files); nothing changed"; exit 2
+        if [ -n "$(echo "$portjava" | grep ",$mod,")" ]; then
+          # cold rfq: a kept module's Java no longer compiled on 11 and its newer version had to come in; its one Java edit
+          # (a forced Accept header) is ported by hand onto the new code. The snapshot holds no javasource: copy the edited files.
+          for jf in $(grep '^FILES-EDITED javasource/' "$st/step$n-$mod.files" | awk '{ print $2 }'); do
+            mkdir -p "$(dirname "$st/saved/$mod/$jf")"; cp "$app/$jf" "$st/saved/$mod/$jf"
+          done
+          grep '^FILES-EDITED javasource/' "$st/step$n-$mod.files" | awk -v m="$mod" -v d="$st/saved/$mod" '{ print "   PORT-JAVA " m " " $2 " (old file under " d "): the update replaces it, port the edit by hand before the build" }'
+        else
+          echo "   $mod has local Java USER CODE edits (logic): keep the module at the installed version, or port the edits by hand (--port-java $mod)"
+          keep "$mod" "local Java user code edits (FILES-EDITED javasource)" && continue
+          echo "STOP: update of $mod refused for local file edits ($st/step$n-$mod.files); nothing changed"; exit 2
+        fi
+      fi
+      if ! grep '^FILES-EDITED ' "$st/step$n-$mod.files" | grep -qv '^FILES-EDITED javasource/'; then
+        :
       elif [ -z "$(echo "$forceui" | grep ",$mod,")" ]; then
         echo "   $mod has local theme/JavaScript file edits (UI edits the update replaces silently): rerun with --force-ui $mod; the files"
         echo "   are saved under $st/saved/$mod, the changed SCSS variables go to theme/web/custom-variables.scss (if it exists)."
