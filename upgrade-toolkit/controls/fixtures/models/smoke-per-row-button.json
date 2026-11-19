@@ -1,6 +1,6 @@
 {
  "version": "11.12.6.1",
- "_why": "home page: a plain button (walked), a button in a grid column's content (in_row 2: drawn once per data row, listed as not walked) and a button in a plain widget property (in_row 1: always drawn, walked)",
+ "_why": "home page: a plain button (walked), a button in a data grid column's content (the widget holds a DataSource: drawn once per data row, listed as not walked) and a button in a plain widget property (always drawn, walked)",
  "security": {
   "user_roles": {
    "Admin": [
@@ -28,12 +28,12 @@
       {
        "name": "editRow",
        "page": "Shop.Overview",
-       "in_row": 2
+       "in": "grid"
       },
       {
        "name": "inProp",
        "page": "Shop.Demo",
-       "in_row": 1
+       "in": "prop"
       }
      ]
     },

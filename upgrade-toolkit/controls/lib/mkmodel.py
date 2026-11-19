@@ -57,15 +57,29 @@ def gid(name, override=None):
     return (uuid.UUID(override) if override else uuid.uuid5(NS, name)).bytes_le
 
 
-def wrap_row(key, depth, btn):
-    """depth N: the button inside N levels of CustomWidget > WidgetObject > WidgetProperty > WidgetValue (2 = a grid column's
-    content, shown once per data row; 1 = a plain widget property holding widgets, always shown); 0: unchanged."""
-    for lv in range(depth):
-        btn = {"$ID": gid(f"cw:{key}.{lv}"), "$Type": "CustomWidgets$CustomWidget", "Name": f"grid{lv}",
-               "Object": {"$ID": gid(f"wo:{key}.{lv}"), "$Type": "CustomWidgets$WidgetObject", "Properties": lst([
-                   {"$ID": gid(f"wp:{key}.{lv}"), "$Type": "CustomWidgets$WidgetProperty", "Value": {
-                       "$ID": gid(f"wv:{key}.{lv}"), "$Type": "CustomWidgets$WidgetValue", "Widgets": lst([btn])}}])}}
-    return btn
+def wrap_row(key, kind, btn):
+    """Where a home button sits, as a real model nests it (shape read from Data grid 2, Gallery, Accordion and Popup menu
+    in real 10.x/11.x apps): kind "grid": inside a CustomWidget whose WidgetObject has a property value with a DataSource
+    (XPath source) and a list property of column Objects holding the content (drawn once per data row); "container": the
+    same two-level nesting (a list property of Objects holding Widgets) with NO DataSource, as an Accordion group or a
+    popup menu item (always drawn); "prop": one level, a plain widget property holding widgets (always drawn); "": unchanged."""
+    if kind not in ("grid", "container", "prop"):
+        return btn
+    def val(k, **kw):
+        return {"$ID": gid(f"wv:{key}.{k}"), "$Type": "CustomWidgets$WidgetValue", **kw}
+    def prop(k, v):
+        return {"$ID": gid(f"wp:{key}.{k}"), "$Type": "CustomWidgets$WidgetProperty", "Value": v}
+    if kind == "prop":
+        props = [prop("w", val("w", Widgets=lst([btn])))]
+    else:
+        item = {"$ID": gid(f"wo:{key}.item"), "$Type": "CustomWidgets$WidgetObject",
+                "Properties": lst([prop("c", val("c", Widgets=lst([btn])))])}
+        props = [prop("o", val("o", Objects=lst([item])))]
+        if kind == "grid":
+            props.insert(0, prop("ds", val("ds", DataSource={"$ID": gid(f"ds:{key}"), "$Type": "CustomWidgets$CustomWidgetXPathSource",
+                                                             "EntityRef": None, "XPathConstraint": ""})))
+    return {"$ID": gid(f"cw:{key}"), "$Type": "CustomWidgets$CustomWidget", "Name": "grid" if kind == "grid" else "box",
+            "Object": {"$ID": gid(f"wo:{key}"), "$Type": "CustomWidgets$WidgetObject", "Properties": lst(props)}}
 
 
 def lst(xs):
@@ -268,8 +282,7 @@ def build(spec, out):
             if p.get("home_buttons"):  # buttons in the layout call's arguments, as a real page holds them; "when": a
                 # ConditionalVisibilitySettings Expression (shape of a real 10.3 ActionButton)
                 page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p.get("layout", ""),
-                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([wrap_row(f"{mn}.{p['name']}.{i}", b.get("in_row", 0),
-
+                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([wrap_row(f"{mn}.{p['name']}.{i}", b.get("in", ""),
                     {"$ID": gid(f"hb:{mn}.{p['name']}.{i}"), "$Type": "Forms$ActionButton", "Name": b["name"],
                      "ConditionalVisibilitySettings": ({"$ID": gid(f"hv:{mn}.{p['name']}.{i}"), "$Type": "Forms$ConditionalVisibilitySettings",
                                                         "Expression": b["when"]} if b.get("when") else None),

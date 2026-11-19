@@ -629,6 +629,8 @@ ctl smokewalk-gen-visible-button-kept-pass 0 '^Admin: 2 page steps' '!not walked
 ctl smokewalk-gen-same-name-visible-button-walked-pass 0 '^User: 2 page steps' '!^User: not walked' -- python3 $B/smokewalk_gen.py $(model smoke-conditional-samename)/App.mpr -o $T/smoke-cond-plan3.json
 ctl smokewalk-gen-per-row-button-listed-catch 0 '^Admin: not walked: per-row widget content: 1 button\(s\): editRow -> Shop\.Overview$' '^Admin: 4 page steps' -- python3 $B/smokewalk_gen.py $(model smoke-per-row-button)/App.mpr -o $T/smoke-row-plan.json
 ctl smokewalk-gen-plain-widget-property-button-walked-pass 0 '^Admin: 4 page steps' '!inProp' -- python3 $B/smokewalk_gen.py $(model smoke-per-row-button)/App.mpr -o $T/smoke-row-plan2.json
+# a container plug-in widget (Accordion group, popup menu) nests like a grid but holds no data source: its button is always drawn, so it is walked
+ctl smokewalk-gen-accordion-button-walked-pass 0 '^Admin: 4 page steps' '!not walked' -- python3 $B/smokewalk_gen.py $(model smoke-accordion-button)/App.mpr -o $T/smoke-row-plan3.json
 ctl smokewalk-gen-excluded-widget-pass 0 '^DemoData\*$' '^$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import smokewalk_gen as g; print(g.excluded('Shop.DemoData_X','w')); print(g.excluded('Shop.Orders','actionButton1'))"
 ctl localedits-proxy-catch 1 'PROXY: compared with 4\.0\.0' -- python3 $B/localedits.py $M/local-edit/App.mpr --module Administration --proxy Administration=4.0.0
 # E5b-5: a proxy a major version away says so; a proxy in the same major does not
@@ -3241,8 +3243,13 @@ mkdir -p $TS/ok/mxbuild-10.6.3/modeler/runtemplates/deployment $TS/ok/mxbuild-10
 for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.6.3/modeler/$x; chmod +x $TS/ok/mxbuild-10.6.3/modeler/$x; done
 ctl mx10-old10-jdk11-image-catch 0 '^docker run .* mig-mx10-j11 .*mxbuild-10\.6\.3/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
 ctl mx10-old10-image-env-wins-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.6\.3/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-mx10 zsh $B/mx10.sh 10.6.3 mx check x.mpr
+mkdir -p $TS/ok/mxbuild-10.9.0/modeler/runtemplates/deployment $TS/ok/mxbuild-10.9.0/modeler/tools/node/node_modules $TS/ok/mxbuild-10.9.0/modeler/tools/gradle/lib
+for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.9.0/modeler/$x; chmod +x $TS/ok/mxbuild-10.9.0/modeler/$x; done
+: > $TS/ok/mxbuild-10.9.0/modeler/tools/gradle/lib/gradle-wrapper-shared-7.6.3.jar
+ctl mx10-gradle7-toolset-jdk11-image-catch 0 '^docker run .* mig-mx10-j11 .*mxbuild-10\.9\.0/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.9.0 mxbuild --target=package x.mpr
 ctl mx10-24-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.24\.16/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
 ctl mx10-11-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-11\.12\.2/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 11.12.2 mx check x.mpr
+ctl runapp-image-10-9-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.9.0.31198'))"
 ctl runapp-image-10-6-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.6.3.26585'))"
 ctl runapp-image-10-24-java21-pass 0 '^eclipse-temurin:21-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.24.0.73019'))"
 ctl runapp-image-9-java11-pass 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('9.24.3.8044'))"
