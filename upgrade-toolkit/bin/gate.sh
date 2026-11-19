@@ -310,7 +310,9 @@ cmd_rung() {
       opt --actions "$V_ACTIONS"; opt --no-actions "$V_ACTIONS_WAIVE"; opt --baseline-evidence "$V_JOURNEY_EVIDENCE"   # E2E-11
       opt --bar "$V_JOURNEY_BAR"   # B5-3
       [ -z "$V_APIMOCK" ] || { CMD+=(--apimock-log "$V_APIMOCK/requests.jsonl"); opt --exclude-systems "$V_EXCLUDE_SYSTEMS"; };;   # E2E-14
-    screens) CMD=("$PY" "$B/shotdiff.py" "$V_SMOKE_BEFORE_SHOTS" "$G/smoke-after-shots"); opt --accept "$V_SMOKE_SHOT_ACCEPT"; CMD+=(--md "$G/shotdiff-smoke.md");;
+    screens) CMD=("$PY" "$B/shotdiff.py" "$V_SMOKE_BEFORE_SHOTS" "$G/smoke-after-shots"); opt --accept "$V_SMOKE_SHOT_ACCEPT"
+      [ -f "$V_WORK/screen-causes.txt" ] && CMD+=(--causes "$V_WORK/screen-causes.txt")   # known layout causes (repair/gridlayout.py)
+      CMD+=(--md "$G/shotdiff-smoke.md");;
     layout) CMD=("$PY" "$B/layoutdiff.py" "$V_LAYOUT_OLD" "$V_LAYOUT_NEW"); opt --accept "$V_LAYOUT_ACCEPT"; CMD+=(--md "$G/layoutdiff.md");;
     release) CMD=("$PY" "$B/release_impact.py" --check "$V_RELEASE_IMPACT");;
     widgets) CMD=("$PY" "$B/widgetcover.py" "$V_WIDGETS_APP"); [ -f "$G/smoke-after.json" ] && CMD+=(--smoke "$G/smoke-after.json")
@@ -389,8 +391,10 @@ human_of() {
         has_pos $w "$f" && { echo regression; return; }
       done
       if has_pos REVIEW "$f" || [ $fb = 0 ]; then echo decision; else echo regression; fi;;
-    INVALID)
-      if { [ $r = release ] && grep -Eq 'open: [1-9]' "$f" 2>/dev/null; } || { [ $r = widgets ] && grep -q 'UNRENDERED' "$f" 2>/dev/null; }; then echo decision; else echo unmeasured; fi;;
+    INVALID) # screens: one unpaired shot makes the rung INVALID, but the REVIEW pairs beside it (a changed screen) still
+      # wait on a person; "not measured yet" hid a broken Data grid 2 on a cold run
+      if { [ $r = release ] && grep -Eq 'open: [1-9]' "$f" 2>/dev/null; } || { [ $r = widgets ] && grep -q 'UNRENDERED' "$f" 2>/dev/null; } \
+        || { [ $r = screens ] && has_pos REVIEW "$f"; }; then echo decision; else echo unmeasured; fi;;
     'NOT RUN') if optional $r; then echo none; else echo unmeasured; fi;;
     *) echo unmeasured;;
   esac

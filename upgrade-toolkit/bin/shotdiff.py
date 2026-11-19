@@ -470,6 +470,34 @@ def run(ro, rn, threshold=0.06, lost=0.03, accept=()):
     return res
 
 
+def read_causes(path):
+    """'pattern # cause' lines; a missing file is no causes (the gate passes it only when it exists)."""
+    out = []
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return out
+    for ln in lines:
+        pat, _, cause = ln.partition("#")
+        if pat.strip() and cause.strip() and not ln.lstrip().startswith("#"):
+            out.append((pat.strip(), re.sub(r"\s*\[[\w-]+\]$", "", cause.strip())))   # writer tag "[gridlayout]" off
+    return out
+
+
+def add_causes(res, causes):
+    """An open REVIEW on pixels only (layout moved, text the same) names the first matching known cause, so the person is
+    pointed at the repair instead of a bare '17% changed' (cold run: every Data grid 2 cell on its own row, text equal).
+    A REVIEW with a visible text change is a different kind of difference and gets no cause."""
+    for r in res:
+        if r["verdict"] != "REVIEW" or "visible text changed" in r["detail"]:
+            continue
+        for pat, cause in causes:
+            if fnmatch.fnmatch(r["pair"], pat):
+                r["cause"] = cause
+                r["detail"] += f" -> likely cause: {cause}"
+                break
+
+
 def counts_line(res):
     """'screens: N PASS, N PASS*, N REVIEW, N INVALID' (+ unpinned accepts): the line the gate cites (T1-26, T4-17)."""
     c = {k: sum(1 for r in res if r["verdict"] == k) for k in ("PASS", "PASS*", "REVIEW", "INVALID")}
@@ -488,6 +516,8 @@ def main():
                                      "(or a looked-at STUCK / BASELINE DEFECT pair) becomes PASS*")
     ap.add_argument("--threshold", type=float, default=0.06, help="changed-cell fraction above which a pair is REVIEW")
     ap.add_argument("--lost", type=float, default=0.03, help="lost-content fraction above which a pair is REVIEW")
+    ap.add_argument("--causes", help="'fnmatch-pattern # cause', one per line (repair/gridlayout.py writes one): a known "
+                                     "layout cause the toolkit found, named on each open pixel REVIEW of a matching pair")
     ap.add_argument("--md"); ap.add_argument("--json")
     a = ap.parse_args()
     if a.hash:
@@ -508,6 +538,8 @@ def main():
     res = run(ro, rn, a.threshold, a.lost, read_accept(a.accept) if a.accept else [])
     if not res:
         print(f"shotdiff: INVALID, no screenshots under {ro} or {rn}", file=sys.stderr); sys.exit(2)
+    if a.causes:
+        add_causes(res, read_causes(a.causes))
     order = {"INVALID": 0, "REVIEW": 1, "PASS*": 2, "PASS": 3}
     res.sort(key=lambda r: (order[r["verdict"]], r["pair"]))
     counts = {k: sum(1 for r in res if r["verdict"] == k) for k in order}

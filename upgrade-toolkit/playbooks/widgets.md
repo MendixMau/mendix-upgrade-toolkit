@@ -97,7 +97,7 @@ replaced and listed as approximated. An Any Chart straight on a snippet paramete
 CE7006 on its attributes) gets a data view on that one object parameter first. A module that holds only pages,
 snippets and building blocks, no entities, and that nothing opens is removed (`keep-module M` puts it back). Cold app:
 all 36 handled (15 replaced, 3 wrapped and replaced, the sample module removed), mx check 0 errors. Every item reads
-"Found / Searched / Candidates (one recommended) / Applied", never a bare "no replacement". The pipeline (build, row 4b)
+"Found / Searched / Candidates (one recommended) / Applied", never a bare "no replacement". The pipeline (build, row 37)
 runs replace, wrap and remove as separate repair commits (each undone if mx check gets worse; the route then proposes
 its next candidate) and asks one OK per item: "N charts replaced by Charts 6.x (Custom chart), M approximated: OK?";
 B (`route-b R`, `keep-module M`) reverts that commit on the rerun.

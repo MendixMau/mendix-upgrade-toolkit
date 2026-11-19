@@ -59,6 +59,31 @@ def gid(name, override=None):
     return (uuid.UUID(override) if override else uuid.uuid5(NS, name)).bytes_le
 
 
+def wrap_row(key, kind, btn):
+    """Where a home button sits, as a real model nests it (shape read from Data grid 2, Gallery, Accordion and Popup menu
+    in real 10.x/11.x apps): kind "grid": inside a CustomWidget whose WidgetObject has a property value with a DataSource
+    (XPath source) and a list property of column Objects holding the content (drawn once per data row); "container": the
+    same two-level nesting (a list property of Objects holding Widgets) with NO DataSource, as an Accordion group or a
+    popup menu item (always drawn); "prop": one level, a plain widget property holding widgets (always drawn); "": unchanged."""
+    if kind not in ("grid", "container", "prop"):
+        return btn
+    def val(k, **kw):
+        return {"$ID": gid(f"wv:{key}.{k}"), "$Type": "CustomWidgets$WidgetValue", **kw}
+    def prop(k, v):
+        return {"$ID": gid(f"wp:{key}.{k}"), "$Type": "CustomWidgets$WidgetProperty", "Value": v}
+    if kind == "prop":
+        props = [prop("w", val("w", Widgets=lst([btn])))]
+    else:
+        item = {"$ID": gid(f"wo:{key}.item"), "$Type": "CustomWidgets$WidgetObject",
+                "Properties": lst([prop("c", val("c", Widgets=lst([btn])))])}
+        props = [prop("o", val("o", Objects=lst([item])))]
+        if kind == "grid":
+            props.insert(0, prop("ds", val("ds", DataSource={"$ID": gid(f"ds:{key}"), "$Type": "CustomWidgets$CustomWidgetXPathSource",
+                                                             "EntityRef": None, "XPathConstraint": ""})))
+    return {"$ID": gid(f"cw:{key}"), "$Type": "CustomWidgets$CustomWidget", "Name": "grid" if kind == "grid" else "box",
+            "Object": {"$ID": gid(f"wo:{key}"), "$Type": "CustomWidgets$WidgetObject", "Properties": lst(props)}}
+
+
 def lst(xs):
     return [3] + list(xs)  # Mendix BSON lists carry a leading type marker
 
@@ -287,7 +312,17 @@ def build(spec, out):
                     for k, vs in p.get("refs", {}).items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])]
             page = {"$ID": pid, "$Type": "Forms$Page", "Name": p["name"], "Excluded": p.get("excluded", False),
                     "Widgets": lst(widgets + refs + named(f"{mn}.{p['name']}", p.get("named", [])))}
-            if p.get("layout"):
+            if p.get("home_buttons"):  # buttons in the layout call's arguments, as a real page holds them; "when": a
+                # ConditionalVisibilitySettings Expression (shape of a real 10.3 ActionButton)
+                page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p.get("layout", ""),
+                                    "Arguments": lst([{"$ID": gid(f"fa:{mn}.{p['name']}"), "$Type": "Forms$FormCallArgument", "Widgets": lst([wrap_row(f"{mn}.{p['name']}.{i}", b.get("in", ""),
+                    {"$ID": gid(f"hb:{mn}.{p['name']}.{i}"), "$Type": "Forms$ActionButton", "Name": b["name"],
+                     "ConditionalVisibilitySettings": ({"$ID": gid(f"hv:{mn}.{p['name']}.{i}"), "$Type": "Forms$ConditionalVisibilitySettings",
+                                                        "Expression": b["when"]} if b.get("when") else None),
+                     "Action": {"$ID": gid(f"ha:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormAction",
+                                "FormSettings": {"$ID": gid(f"hs:{mn}.{p['name']}.{i}"), "$Type": "Forms$FormSettings", "Form": b["page"]}}})
+                    for i, b in enumerate(p["home_buttons"])])}])}
+            elif p.get("layout"):
                 page["FormCall"] = {"$ID": gid(f"fc:{mn}.{p['name']}"), "$Type": "Forms$LayoutCall", "Form": p["layout"]}
             if p.get("allowed"):
                 page["AllowedModuleRoles"] = lst(p["allowed"])

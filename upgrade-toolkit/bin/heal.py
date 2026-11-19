@@ -24,8 +24,9 @@ Classes (every failing row gets exactly one):
                    entity: seedname_fix.py makes the seeded entity/member names valid on both sides, owner note written
                    (heal-gate-notes.txt, gate-notes-effective.txt).
   test-setup       the harness, not the app: a runner that did not run (rerun), a button that exists only for a selected
-                   row (a row-select step is inserted), a known harness log line (accepted with its reason), or a failure
-                   the old app has too (listed, no heal).
+                   row (a row-select step is inserted), a known harness log line (accepted with its reason), a known
+                   platform line at its one-time count (PLATFORM_LOG, accepted with its reason), or a failure the old app
+                   has too (listed, no heal).
   real-regression  the old app passes and the new one does not, or data/log rows were lost or a new ERROR appeared. No heal.
   likely-real      anything the rules above could not explain, and any heal that did not work. No heal.
 """
@@ -33,7 +34,7 @@ import argparse, glob, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CLASSES = ("startup-noise", "no-test-data", "no-click-path", "outside-call", "test-setup", "real-regression", "likely-real")
+CLASSES = ("startup-noise", "accepted", "no-test-data", "no-click-path", "outside-call", "test-setup", "real-regression", "likely-real")
 OPEN_CLASSES = ("real-regression", "likely-real")
 JOURNEY_HEALS = ("rerun", "seed", "standin", "patch", "seedname")
 # A log line the HARNESS causes, with the reason that goes next to it. Each entry carries the check on the run (the evidence).
@@ -48,13 +49,22 @@ HARNESS_LOG = [
      "needs": "the harness starts every app with SessionTimeout {timeout} ms (runapp.py UPG_SESSION_TIMEOUT) and the line itself names SessionTimeout",
      "reason": "test harness: runapp.py starts every app with SessionTimeout {timeout} ms, so the runtime derives the cluster action interval; production sets its own"},
 ]
+# A new ERROR the PLATFORM writes once on the first start of a version jump, over a database copied from the old app (not
+# app code). Accepted only at its known count; a line that repeats stays open. Each entry carries why that holds.
+PLATFORM_LOG = [
+    # cold WM1 and cold rfq rung 2 (10.24 -> 11): 11 has no System action MigrateOldFiles; the copied database holds a
+    # queued run of it marked running by a 10.24 node that is gone, and the runtime fails it once when it reschedules
+    {"match": re.compile(r"^1x ERROR TaskQueue: Failed to execute task 'ClusterManagement-MigrateOldFiles\(\)'"),
+     "needs": "once, on the first start of Mendix 11 over a 10.24 database copy (playbooks/10-to-11.md)",
+     "reason": "platform: Mendix 11 dropped the System action ClusterManagement-MigrateOldFiles; the copied 10.24 database holds a queued run of it and the runtime fails it once at reschedule (no app code)"},
+]
 SELECT_GATED = re.compile(r"\$currentObject/[\w.]+\s*!=\s*empty")
 EMPTY_LIST = re.compile(r"(no (items|data|results|rows|records)( found)?|showing 0|0 of 0|nothing to show)", re.I)
 NEVER = re.compile(r"FAIL open (\S+): reached \"([^\"]+)\" never appeared")
 SEEDED_NAME = re.compile(r"does not exist: (s\d+x\d+)\b")   # a synthetic seeded value (seed_pg.py: s<short>x<seq>) used as a model name
 ERROR_DIALOG = re.compile(r"An error occurred|mx-underlay")
 NEW_APP_LOGS = ("runtime-newjp.log", "runtime-healnew.log")
-ROW = re.compile(r"^- (FAIL|REVIEW|INVALID|NEW_ENDPOINT) (\S+): (.*)$")
+ROW = re.compile(r"^- (FAIL|REVIEW|INVALID|NEW_ENDPOINT|PASS\*) (\S+): (.*)$")
 
 
 def jload(p, default=None):
@@ -149,7 +159,7 @@ class Run:
         plan = jload(self.W / "journeys" / "plan.json", {})   # the CURRENT plan: why a journey is skipped now (not the stored text)
         self.skipped = {x.get("id"): x for x in plan.get("skipped", []) if isinstance(x, dict)}
         self.twin_present = (self.W / "twin-old.md").is_file()
-        self.twin = {r["check"]: r for r in parse_diff_rows(str(self.W / "twin-old.md")) if r["verdict"] in ("FAIL", "REVIEW")}
+        self.twin = {r["check"]: r for r in parse_diff_rows(str(self.W / "twin-old.md")) if r["verdict"] in ("FAIL", "REVIEW", "PASS*")}   # PASS*: twin-old.md notes a known row (the harness's own admin login) as accepted, still start noise
         self.prev = jload(self.W / "heal.json", {"rounds": [], "rows": []})
         self.done = {(r["id"], r["heal_kind"]) for r in self.prev.get("rows", []) if r.get("heal_kind") in JOURNEY_HEALS}
         # a row that was healed and is classified again keeps no heal_kind: the memory of what ran lives in its own file
@@ -165,7 +175,7 @@ class Run:
         out = []
         pre = self.W / "heal-pre-diff.md"   # the heal step runs diff.py itself: it comes before the gate writes diff.md
         for r in parse_diff_rows(str(pre if pre.is_file() else self.W / "diff.md")):
-            if r["check"].startswith(("journeys", "screens", "smoke")):
+            if r["check"].startswith(("journeys", "screens", "smoke")) or r["verdict"] == "PASS*":   # PASS* is accepted, not a failing row
                 continue
             out.append(self.log_row(r) if r["check"].startswith("log.") else self.data_row(r))
         return out
@@ -191,6 +201,11 @@ class Run:
     def log_row(self, r):
         c, det = r["check"], r["detail"]
         id_ = "log:" + c + ":" + re.sub(r"\W+", "_", det)[:48]
+        for h in PLATFORM_LOG:
+            if c == "log.new_error" and h["match"].search(det):
+                return self.row(id_, c, "test-setup", f"known platform line: {h['needs']}",
+                                heal="allow line written to heal-allow.txt, accepted with its reason", kind="allow",
+                                allow=f"{c} {allow_pattern(det)} # {h['reason']}")
         if c.endswith(("NEW_ERROR", "NEW_CRITICAL")) or det.startswith(("ERROR", "CRITICAL")):
             return self.row(id_, c, "real-regression", f"a new error signature after the upgrade: {det[:200]}")
         timeout = os.environ.get("UPG_SESSION_TIMEOUT", "30000")
@@ -539,6 +554,12 @@ def finalize(W):
         if x["id"].startswith("journey:") and x["class"] in OPEN_CLASSES and x.get("heal_kind") in JOURNEY_HEALS \
                 and x["result"].startswith("passes"):
             x["class"] = "test-setup"
+    # a data/log row the gate has since accepted in writing (allow file, PASS* in diff.md) is not an open question any more;
+    # without this the stop kept listing it as "may be a real defect" after the person had answered it (TLT 2026-11-18)
+    acc = {r["check"]: r for r in parse_diff_rows(str(W / "diff.md")) if r["verdict"] == "PASS*"}
+    for x in res["rows"]:
+        if x["id"].startswith(("data:", "log:")) and x["class"] == "likely-real" and x.get("check") in acc:
+            x["class"], x["result"] = "accepted", "accepted in writing: gate row is PASS* (allow file)"
     gs = (W / "gate-summary.md").read_text(errors="replace") if (W / "gate-summary.md").is_file() else ""
     res["gate_rungs"] = {m.group(1): m.group(2).strip() for m in re.finditer(r"^\| \d+ \| (\w+) \| ([A-Z* ]+?) \|", gs, re.M)}
     write_text(W / "heal.json", json.dumps(res, indent=1) + "\n")
