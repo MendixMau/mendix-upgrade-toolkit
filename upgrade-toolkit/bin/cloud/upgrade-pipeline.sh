@@ -1353,8 +1353,13 @@ step_update() {
     rc=0
     xo "$WORK/widgetdrop.out" python3 "$B/widgetdrop.py" "$APP" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetdrop-ack.txt" ]; then
-      nj_meta info; nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
-      nj_meta person "Widget settings would be dropped: the installed widget package is older than the pages. What should we do?" "" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
+      if grep -q '^WIDGET-DROP .*installed package lacks it' "$WORK/widgetdrop.out"; then
+        nj_meta info; nj_file 13 "Widget settings that update-widgets would drop: the installed widget package is older than the pages (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+        nj_meta person "Widget settings would be dropped: the installed widget package is older than the pages. What should we do?" "" "update|Update the module that ships the widget|Before the build." "accept|Accept the loss|Create widgetdrop-ack.txt."; nj_add 13 "Decision" "Update the module that ships the widget (stepupdate with a one-line plan) before the build; to accept the loss, create $WORK/widgetdrop-ack.txt."
+      else   # cold rfq: every drop is a property a widget update in this rung removed upstream
+        nj_meta info; nj_file 13 "Widget settings the newer widget no longer has: a module update in this rung replaced the widget (steps/repair.md row 33)" "$WORK/widgetdrop.out" 10 '^WIDGET-DROP'
+        nj_meta person "A widget update in this rung removed settings the pages used. Have the pages been checked on the new widget?" "" "accept|Accept the loss after checking each page|Write widgetdrop-ack.txt with the reason."; nj_add 13 "Decision" "No module update brings these settings back. Check each page on the new widget (the listed setting now has the new widget's behaviour), then accept with a reason in $WORK/widgetdrop-ack.txt."
+      fi
       nj_park
     fi
   else

@@ -349,11 +349,20 @@ ctl widgetdrop-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.me
 ctl widgetdrop-declared-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS, 0 of 1 widget' -- python3 $B/widgetdrop.py $WD/new
 ctl widgetdrop-default-pass 0 '!WIDGET-DROP' '^widgetdrop: PASS' -- python3 $B/widgetdrop.py $WD/dflt
 ctl widgetdrop-noproject-pass 2 'expected one \.mpr' -- python3 $B/widgetdrop.py $WD
+# cold rfq: DataWidgets 3.11.8 took Gallery 1.0.0 -> 3.11.8 and a kept module's page had advanced=true, which 3.x does
+# not declare. The package is NEWER (.stepupdate/widgets.txt): "removed in the newer package", not "update the module"
+mkdir -p $WD/up/.stepupdate $WD/down/.stepupdate; cp -R $WD/old/. $WD/up/; cp -R $WD/old/. $WD/down/
+echo 'DataWidgets 3.11.8: com.mendix.widget.web.DatagridDropdownFilter.mpk DatagridDropdownFilter 2.4.0 -> 3.11.8; com.mendix.widget.web.Gallery.mpk Gallery 1.0.0 -> 3.11.8' > $WD/up/.stepupdate/widgets.txt
+echo 'DataWidgets 2.2.1: com.mendix.widget.web.DatagridDropdownFilter.mpk DatagridDropdownFilter 3.11.8 -> 2.2.1' > $WD/down/.stepupdate/widgets.txt
+ctl widgetdrop-newer-package-catch 1 '^WIDGET-DROP Account_Overview drop_downFilter1 \(com\.mendix\.widget\.web\.datagriddropdownfilter\.DatagridDropdownFilter, removed in the newer package: DatagridDropdownFilter 2\.4\.0 -> 3\.11\.8 by DataWidgets 3\.11\.8\): baseType=ref' '1 removed upstream by a widget update in this rung' '!lacks it' -- python3 $B/widgetdrop.py $WD/up
+ctl widgetdrop-older-package-pass 1 'installed package lacks it\): baseType=ref' '!removed' -- python3 $B/widgetdrop.py $WD/down
 # step_update parks on it, unless widgetdrop-ack.txt accepts it
 awk '/xo "\$WORK\/widgetdrop.out"/{p=1} p{print} p&&/^    fi$/{exit}' $B/cloud/upgrade-pipeline.sh > $WD/nj.sh
 mkdir -p $WD/w1 $WD/w2; : > $WD/w2/widgetdrop-ack.txt
 ctl pipeline-update-widgetdrop-catch 0 '^NJ 13 Widget settings that update-widgets would drop: the installed widget package is older than the pages \(steps/repair\.md row 33\)$' '^WIDGET-DROP Account_Overview' '^NJ 13 Decision: Update the module that ships the widget' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w1 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
 ctl pipeline-update-widgetdrop-ack-pass 0 '!^NJ' '!PARK' '^done$' -- bash -c ". $WS/stub.sh; WORK=$WD/w2 APP=$WD/old B=$B; . $WD/nj.sh; echo done"
+mkdir -p $WD/w3
+ctl pipeline-update-widgetdrop-newer-catch 0 '^NJ 13 Widget settings the newer widget no longer has: a module update in this rung replaced the widget' '^NJ 13 Decision: No module update brings these settings back' '!Update the module that ships' '^PARK$' -- bash -c ". $WS/stub.sh; WORK=$WD/w3 APP=$WD/up B=$B; . $WD/nj.sh; echo done"
 # widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
 # mode gets the widget back from an earlier commit: settings restored, fresh ids, the rest of the page untouched
 WR=$T/wr; mkdir -p $WR/cur $WR/old $WR/other
