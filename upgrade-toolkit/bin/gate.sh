@@ -391,8 +391,10 @@ human_of() {
         has_pos $w "$f" && { echo regression; return; }
       done
       if has_pos REVIEW "$f" || [ $fb = 0 ]; then echo decision; else echo regression; fi;;
-    INVALID)
-      if { [ $r = release ] && grep -Eq 'open: [1-9]' "$f" 2>/dev/null; } || { [ $r = widgets ] && grep -q 'UNRENDERED' "$f" 2>/dev/null; }; then echo decision; else echo unmeasured; fi;;
+    INVALID) # screens: one unpaired shot makes the rung INVALID, but the REVIEW pairs beside it (a changed screen) still
+      # wait on a person; "not measured yet" hid a broken Data grid 2 on a cold run
+      if { [ $r = release ] && grep -Eq 'open: [1-9]' "$f" 2>/dev/null; } || { [ $r = widgets ] && grep -q 'UNRENDERED' "$f" 2>/dev/null; } \
+        || { [ $r = screens ] && has_pos REVIEW "$f"; }; then echo decision; else echo unmeasured; fi;;
     'NOT RUN') if optional $r; then echo none; else echo unmeasured; fi;;
     *) echo unmeasured;;
   esac
