@@ -18,8 +18,25 @@ Goal: reach the target version with every step proven not to change a runtime id
    (`git show --stat HEAD`) before going on, or revert the step and update the module with Studio Pro.
    `info MODULE_RECREATED` is the same with every element identity kept (WM1: mxcli's update copies the documents
    with new unit ids; 28 of 28 such lines had no GUID change): the data is safe, only the page diff remains.
+   Model check per step (GM-23 / A-1; the pipeline turns it on, `UPG_NO_STEPCHECK=1` off): after each update and BEFORE the
+   commit, `bin/stepcheck-run.sh` runs `mx check` and `bin/stepcheck.py` compares it with the check of the app as it stood
+   before the step. An error the step added undoes the step (nothing committed), writes `.stepupdate/stepcheck-stop.txt` and
+   stops with exit 4 as a NEEDS-JUDGMENT question in reader words: keep the module at the installed version (writes
+   `step-keep.txt`, the next run skips it), carry on and repair the errors in step 4 (writes `stepcheck-accepted.txt`, `<Module>
+   <CODES>`), or look first. `--unattended` does not keep the module on its own for this. A check that does not finish is
+   `STEPCHECK NOT RUN` (exit 1, in the summary): the step was committed on the data check alone, never "0 errors".
+   Cost: one full `mx check` per committed step, run under the heavy lock, so a long plan waits once per step; not yet measured on a
+   field run (no number is claimed here). Off switch: `UPG_NO_STEPCHECK=1` in the environment of the pipeline run; the steps then
+   commit on the data check alone and the build is where model errors first show.
+   Batch end (GM-24): with `--baseline`, `idcheck original -> now` runs when each batch ends over `approved.txt` only (not the
+   step-only acceptances) and prints `BATCH-IDCHECK` lines; the pipeline notes them and the total idcheck after the routes and
+   replays decides. Step mode also lists `READDED_NEW_GUID`: a step re-created an element under the original's name with a new
+   GUID (a drop accepted at one step, the owner's update re-adding it at the next: the data stays in the old GUID's table;
+   put the original GUID back with `restore_guid.py`). The net-zero auto-approval needs the GUID as well as the name.
    - approved.txt: one fnmatch pattern per line on the element or "FINDING kind name", then `# reason`. Only for
-     findings accepted in writing.
+     findings accepted in writing. A bare element name does not approve `READDED_NEW_GUID`; it is approved only by the
+     keyed form, e.g. `READDED_NEW_GUID attribute Mod.Entity.Attr # reason` (a bare name, such as the
+     lines editroute writes into approved-step.txt, would otherwise hide a GUID that came back different).
    - Local edits refusal ("Save them first: --save-edits"). stepupdate names the edited element kinds. UI only
      (pages, layouts, snippets, images): rerun with `--force-ui <Module>`; the edits are saved under
      `.stepupdate/saved-edits/<Module>` and the update is forced. Replay them from there after the step, then commit
@@ -186,7 +203,7 @@ Goal: reach the target version with every step proven not to change a runtime id
 4. Edited modules (RED or logic lines in localedits) are not on the plan unless the edited-modules playbook route is
    taken.
 
-Check after every step: step idcheck exit 0. After the last step: `python3 $B/idcheck.py $W/original/<app>.mpr app/ --md $W/idcheck-total.md`
+Check after every step: step idcheck exit 0 and no new model error (the per-step `mx check` above). After the last step: `python3 $B/idcheck.py $W/original/<app>.mpr app/ --md $W/idcheck-total.md`
 for the written acceptance (the default output lists every finding; `--red-only` shows only the data-bearing ones).
 A module update can make an entity non-persistent (Atlas_Web_Content 3.7.0 LoginContext in E4, E4-19): the step
 idcheck lists it as REVIEW (removed or made non-persistent); accept it in writing or keep the module.
