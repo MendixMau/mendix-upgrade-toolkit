@@ -8104,6 +8104,14 @@ ctl cockpit-decide-cards-pass 0 'cards: regression:overlay regression:Gridmod co
   'rows: 6' 'says: 1' 'bad option: "ok": false' 'form post: 404' 'answer: {"ok": true, "said": "Saved: P-2 by Ana"}' \
   'ledger: P-2=o1 by Ana via page$' 'sign: {"ok": true' 'signed: 1' 'page cards: regression:overlay regression:Gridmod confirm:D2 P-1$' 'decided log: 2' -- $CK decide
 ctl cockpit-live-opens-after-triage-catch 0 'before triage: opened 0' 'stopped in triage: opened 1' 'after triage: opened 1' 'tab polling: opened 1' 'tab gone: opened 2' 'off: opened 2' -- $CK live-open
+# DV-4: no browser opener (headless host): the server still starts, /status and the page answer, and the log says where it is
+ctl cockpit-live-no-opener-starts-server-catch 0 '^cockpit: server up at http://127\.0\.0\.1:PORT/ \(no browser opener here' '^port file: yes$' '^pid alive: 1$' '^\.cockpit-work: WORK$' '^status: idle no-step-running$' '^page served: True$' -- env NOOPENER_MODE=auto $CK live-noopener
+ctl cockpit-live-no-opener-forced-starts-server-catch 0 '^cockpit: server up at http://127\.0\.0\.1:PORT/' '^pid alive: 1$' '!no browser opener here \(open, xdg-open\); set' -- env NOOPENER_MODE=1 $CK live-noopener
+ctl cockpit-live-server-failure-is-logged-catch 0 '^cockpit: no cockpit is running: cockpitserve\.py wrote no port \(cannot bind: boom\), see WORK/\.cockpit-serve\.log$' -- $CK live-noserver
+# DV-10: the pipeline's docker message names resume.sh; resume.sh starts the cockpit server (once: a second resume starts no second)
+DK=$T/nodockerbin; mkdir -p $DK; printf '#!/bin/sh\nexit 1\n' > $DK/docker; chmod +x $DK/docker
+ctl pipeline-docker-down-message-names-resume-catch 3 'docker daemon not running .*bin/cloud/resume\.sh <run folder>' 'restarts dockerd and the cockpit server' -- env PATH=$DK:$PATH bash $B/cloud/upgrade-pipeline.sh --app-dir $DK --source 10.24.26.1 --target 11.15.0.1 --work $T/dkw
+ctl resume-starts-cockpit-once-catch 0 '^cockpit: server started at http://127\.0\.0\.1:PORT/' '^cockpit: server running at http://127\.0\.0\.1:PORT/' '^same server after second resume: yes$' '^servers on this folder: 1$' '^no work folder: \.cockpit-pid none$' '^open=0 cockpit lines: 0$' -- $CK resume-cockpit
 # doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
 ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh
 ctl doctor-toolset-missing-catch 1 'FAIL  toolset     9\.24\.99\.1: no .*/mxbuild-9\.24\.99\.1' -- env DOCKER_HOST=unix://$T/no.sock UPG_TOOLS=$T bash $B/doctor.sh 9.24.99.1
