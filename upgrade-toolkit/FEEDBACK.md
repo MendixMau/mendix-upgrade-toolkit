@@ -18,6 +18,8 @@ branches `origin/runs/<slug>`, their SCORECARD, COMPARE, JOURNAL and TOOLKIT-FEE
 
 GM = the 10.24.21 to 11.12.7 attended run on a community gamification app (PDS, 314 entities, MPR v2, 46 widget packages) on a toolkit about two weeks old (macOS arm64). Rows GM-1 to GM-42 (ids GM-2, GM-22, GM-34, GM-36 and GM-37 were never written) and the agent mistakes GM-A1 to GM-A5 (A-1 to A-5 in the run's own file); statuses are read against the main branch of 19 Nov, with file evidence in each row. The run's lesson: the planner picks the newest version whose minimum Mendix fits, which was wrong for 6 of 19 modules, and steps were committed while mx check was red (GM-23).
 
+DV = the 10.9.0 to 10.24.29 to 11.12.8 attended run on a small Marketplace starter app with data versioning (stopped at sign-off with PROPOSAL.md and 17 decisions). Rows DV-1 to DV-14, all open; same-item rows are named in each row.
+
 NS = notification-service git history study, ~/upgrade-lab/notif-history/FINDINGS.md (a team's real 9.24 to 10.24 to 11.12.4
 upgrade read from its commits; no toolkit run).
 
@@ -637,6 +639,20 @@ Add new items at the end with status open; the next triage round gives each one 
 | GM-A3 | Agent mistake: placeholder widgets read as skeletons from describe output (GM-19) | open | follows from GM-19; fixed by the form-property listing. Lesson: read the package XML for form, widgets and action properties before removing a pluggable widget | - |
 | GM-A4 | Agent mistake: a repair copied a container including its visibility rule; the restored page stayed empty for most users | open | the copydoc and BSON copies do not reset behavioural properties (visibility, conditions) to the original's. Wanted: the copy resets them, with a control | - |
 | GM-A5 | Agent mistake: the baseline database was frozen before the old app was checked to start cleanly | open (partly fixed) | bin/cloud/upgrade-pipeline.sh freezes only after `app_up old` succeeds; steps/baseline.md item 2 does not require a clean after-startup and the after-startup log is not read before the freeze. Wanted: check the log before `copy_db ... X_FROZEN` | - |
+| DV-1 | The SKILL.md and steps/triage.md `Paths:` lines point at a folder under the user's home in a sibling toolkit checkout (`.../mxcli-project-toolkit/upgrade-toolkit`) that exists only as a setup symlink; bin/setup-container.sh writes outside the run folder (the Mendix tools folder, the mxcli source build folder, the Maven cache) and starts dockerd | open | SKILL.md line 48, steps/triage.md line 5, bin/setup-container.sh steps 3 and 5. Wanted: paths derived from the toolkit's own location, and a list of what setup writes outside the run folder printed before it starts. Related: SETUP-1, GM-3 | - |
+| DV-2 | SKILL.md and steps/triage.md name 11.12.6 as the target; 11.12.8 was the newest 11.12 patch on 18 Nov 2026 | open | SKILL.md line 88, steps/triage.md step 2. The rule (LTS-1) says newest patch, but the number written in the text goes stale. Wanted: the text names no patch number, or the pipeline checks the number against the newest patch it can see. Related: LTS-1 | - |
+| DV-3 | The company brain was not found automatically: release_impact said "no brain version tables" until UPG_BRAIN was set by hand | open | bin/brainpath.py (looks at UPG_BRAIN, local.env, then a `*-brain` folder in the Mendix tools folder); the run's brain sat elsewhere. Wanted: the pipeline prints which brain it found or that it found none, at triage and in the gate summary, not only inside the release-impact text. Related: GM-6, GM-18 | - |
+| DV-4 | The cockpit did not start on a headless host: UPG_COCKPIT_OPEN=1 with no opener returned silently, and the pipeline log never said whether the cockpit server was up | open | bin/cloud/upgrade-pipeline.sh (the cockpit open function, UPG_COCKPIT_OPEN, UPG_COCKPIT_OPENER). Wanted: one log line per run stating server up or down, its port, and that no opener exists | - |
+| DV-5 | The MPK shipped no jars; baseline exited 10; `mx sync-java-dependencies` failed on the Gradle plugin resolve because the build container's Java had no proxy or CA trust (fixed by passing JAVA_TOOL_OPTIONS and mounting the host Java CA store) | open | steps/baseline.md (known case MPK without vendorlib), bin/mxrun.sh `UPG_ENV_FILE`. The env route exists (B1-E); the CA store mount does not. Same item: T8R-4, T6R-6, MC-1. Wanted: the baseline step detects the resolve failure, says it is trust and not the app, and mounts the CA store | - |
+| DV-6 | The app git tree was dirty after baseline (theme cache modified; .classpath, .project and app.launch untracked) while triage asks for a clean tree | open | steps/baseline.md leaves build output in the tree; steps/triage.md asks for clean. Wanted: baseline puts these files in a git exclude, or triage names them as accepted. Related: MC-3 | - |
+| DV-7 | SETUP-PROMPT.md describes an unattended run, which conflicts with an attended run where the owner signs the proposal | open | SETUP-PROMPT.md lines 8 and 19. Wanted: one prompt variant for an attended run that stops at sign-off, or a switch at the top of the file | - |
+| DV-8 | basewalk create-save FAILs on the OLD app when the create is a 3-step wizard that commits only at step 3: a one-page create-spec cannot express it, and the only options are fix the journey, drop it, or todo. The owner chose to skip the gate for this test | open | bin/gen_journeys.py create-spec (one page), bin/basewalk. Wanted: a create-spec with ordered steps and a commit step, or an automatic todo with the reason stated. Related: E4-14, E5b-21, E7-3, FN-14 | - |
+| DV-9 | `--from propose` re-ran earlier not-done steps (basewalk) instead of starting at propose; only `--only propose` worked | open | bin/cloud/upgrade-pipeline.sh `--from`: it forgets done markers of the step and later ones but runs every step that has no marker. Wanted: `--from STEP` skips earlier steps that are not done, or refuses and names them | - |
+| DV-10 | After a container restart dockerd and the cockpit server were down; the pipeline only said "docker daemon not running (setup.sh step docker)" and did not restart either | open | bin/cloud/upgrade-pipeline.sh preflight (docker info check). bin/cloud/resume.sh restarts dockerd (PRG-2) but the pipeline message does not name it, and nothing restarts the cockpit server. Wanted: the message names resume.sh, and resume.sh starts the cockpit server. Related: PRG-2 | - |
+| DV-11 | The agent appended a note to PROPOSAL.md after propose; a rerun of propose overwrites it, and there is no place for agent notes that survive | open | bin/proposal.py writes the whole file. Wanted: an agent-notes file the proposal and the cockpit include and propose never overwrites | - |
+| DV-12 | Proposal item P-3 (R30, changedDate and changedBy attributes) showed the same recommendation text as P-2 and P-7, "OIDC with the IdP once the IdP decision is made", which is wrong for that item | open | bin/proposal.py recommendation text per item. Related: GM-20 (recommendation text per item chosen by the wrong rule). Cause under investigation | - |
+| DV-13 | The cockpit brief said "1 choice was assumed by the agent" but no item identifies which choice that was | open | bin/proposal.py, cockpit page. Wanted: the assumed choice is marked on its item | - |
+| DV-14 | The cockpit `/status` endpoint returned null | open | bin/cockpit server. Wanted: /status returns the run state, or an error naming why it has none | - |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -946,3 +962,16 @@ Recounted from the table on 19 Nov after GM-1 to GM-42 (730 rows: the 688 above 
 | backlog | 176 |
 | open | 25 |
 | total | 730 |
+
+Recounted from the table on 19 Nov after DV-1 to DV-14 (744 rows: the 730 above plus 14; counted by the first word of the status column: 403 fixed, 97 doc, 14 closed, 7 won't fix, 8 unproved, 176 backlog, 39 open). All 14 DV rows are open: none is fixed by this change.
+
+| status | count |
+|---|---|
+| fixed | 403 |
+| doc (closed by guidance) | 97 |
+| closed | 14 |
+| won't fix | 7 |
+| unproved | 8 |
+| backlog | 176 |
+| open | 39 |
+| total | 744 |
