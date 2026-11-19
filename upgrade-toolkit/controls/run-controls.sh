@@ -1447,6 +1447,8 @@ ctl seed-enum-fill-pass 0 "\"certificatetype\", \"reference\"\\) VALUES \\('[0-9
     'enum columns with a value from the model: 2; LEFT NULL: 1 \(MendixSSO\.Token\.Scope\)' '!: pass --mpr' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $SE/App.mpr
 ctl seed-enum-null-named-catch 0 'LEFT NULL: 3 \(Encryption\.PGPCertificate\.CertificateType, MendixSSO\.Token\.Scope, MendixSSO\.Token\.TokenType\): pass --mpr' '!PublicKey' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run
 ctl seed-filedocs-skipped-pass 0 'FileDocument entities NOT seeded .*: 2 \(Encryption\.KeyFile, Encryption\.LogoImage\)' '!INSERT INTO "system\$filedocument"' '!pgpcertificate_keyfile' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $SE/App.mpr
+ctl seed-filedocs-skipped-says-not-exercised-pass 0 'FileDocument entities NOT seeded .*; file storage not exercised by this data' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $SE/App.mpr
+ctl seed-filedocs-optin-no-not-exercised-pass 0 '!file storage not exercised' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $SE/App.mpr --with-filedocuments
 ctl seed-filedocs-optin-catch 0 'INSERT INTO "system\$filedocument" .*Encryption\.LogoImage' 'INSERT INTO "encryption\$pgpcertificate_keyfile"' '!NOT seeded' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $SE/App.mpr --with-filedocuments
 ctl seed-mpr-missing-catch 1 'no such file' -- python3 $B/seed_pg.py --psql "$FPE" --dry-run --mpr $T/nope.mpr
 # N3-7, T7-9, T7R-3, T6-3: System objects are never seeded (also with --skip-module), nor singletons (1 row); override wins
@@ -4100,6 +4102,19 @@ ctl release-impact-facts-from-mpr-odata-connector-catch 0 'odata_consumed = 0' '
 ctl release-impact-facts-from-mpr-odata-connector-unused-pass 0 'odata_consumed_connector = 0' -- python3 $B/release_impact.py --facts-from-mpr $M/odata-conn-unused/App.mpr --facts-out $RI/fou.json
 ctl release-impact-facts-from-mpr-odata-connector-clean-pass 0 'odata_consumed_connector = 0' -- python3 $B/release_impact.py --facts-from-mpr $M/facts-clean/App.mpr --facts-out $RI/fcl.json
 ctl release-impact-odata-connector-end-to-end-catch 1 '^OPEN Studio Pro row [0-9]+: 10\.5\.0 deprecation Fixture consumed OData' '!Fixture consumed OData.*not relevant \(auto\)' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $M/odata-conn/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --facts-out $RI/foc2.json >/dev/null; $RIO --facts $RI/foc2.json --out $RI/ode.md >/dev/null; python3 $B/release_impact.py --check $RI/ode.md"
+# GM-42: Mendix 11.0.0 refuses to start while a pre-5.12 file document exists in the data. The 11.0.0 requirement row
+# must stay open when the model has FileDocument entities (also through --evidence), and close only when it has none.
+model fd-files > /dev/null
+cp -R $RA $RI/brain-fd; echo '| 10.5.0 | Jun 26 | requirement | other | Blocks starting app when file documents exist from before Mendix 5.12; migrate files before upgrading. | file documents, Mendix 5.12 | [notes](https://docs.mendix.com/releasenotes/studio-pro/10.5/) |' >> $RI/brain-fd/baseline/versions/studio-pro-upgrade-10.md
+RIF="python3 $B/release_impact.py --brain $RI/brain-fd --from 9.24.2 --to 10.8.0 --plan $RF/plan-auto.txt --auto"
+ctl release-impact-file-documents-fact-catch 0 'file_documents = 2' -- python3 $B/release_impact.py --facts-from-mpr $M/fd-files/App.mpr --facts-out $RI/ffd.json
+ctl release-impact-file-documents-fact-absent-pass 0 'file_documents = 0' '!file_documents = [1-9]' -- python3 $B/release_impact.py --facts-from-mpr $M/facts-clean/App.mpr --facts-out $RI/ffd0.json
+ctl release-impact-file-documents-row-open-pass 1 '^OPEN Studio Pro row [0-9]+: 10\.5\.0 requirement Blocks starting app when file documents exist' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $M/fd-files/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --facts-out $RI/ffd2.json >/dev/null 2>&1; $RIF --facts $RI/ffd2.json --out $RI/fdo.md >/dev/null; python3 $B/release_impact.py --check $RI/fdo.md"
+ctl release-impact-file-documents-row-open-evidence-catch 1 '^OPEN Studio Pro row [0-9]+: 10\.5\.0 requirement Blocks starting app when file documents exist' '!not-used' -- sh -c "$RIF --evidence --facts-from-mpr $M/fd-files/App.mpr --out $RI/fde.md >/dev/null 2>&1; python3 $B/release_impact.py --check $RI/fde.md"
+model fd-marketplace > /dev/null
+ctl release-impact-file-documents-marketplace-fact-pass 0 'file_documents = 1' -- python3 $B/release_impact.py --facts-from-mpr $M/fd-marketplace/App.mpr --facts-out $RI/ffm.json
+ctl release-impact-file-documents-marketplace-evidence-catch 1 '^OPEN Studio Pro row [0-9]+: 10\.5\.0 requirement Blocks starting app when file documents exist' '!not-used' -- sh -c "$RIF --evidence --facts-from-mpr $M/fd-marketplace/App.mpr --out $RI/fdm.md >/dev/null 2>&1; python3 $B/release_impact.py --check $RI/fdm.md"
+ctl release-impact-file-documents-none-closes-pass 0 'Blocks starting app when file documents exist.*not relevant \(auto\): feature-absent: row is about file documents; file_documents=0' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $M/facts-clean/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --facts-out $RI/ffd3.json >/dev/null 2>&1; $RIF --facts $RI/ffd3.json --out $RI/fdn.md >/dev/null; cat $RI/fdn.md"
 if python3 -c "import sqlite3" 2>/dev/null; then
   OC=$T/ti-odc; mkdir -p $OC/.mxcli
   python3 - $OC/.mxcli/catalog.db <<'PYEOF'
@@ -4227,7 +4242,7 @@ ctl release-impact-inventory-rest-none-pass 0 '^\(0, .inv-nocalls\.json.\)$' -- 
 ctl release-impact-inventory-rest-unknown-catch 0 '^None$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import release_impact as r; print(r.load_facts(['$RF/inventory.json']).get('rest_consumed'))"
 # N1-9: --auto with one mpr (or none, with a facts file): works, and says what is lost
 ctl release-impact-auto-one-mpr-pass 0 'facts: 1[0-9] counted from .*facts-clean/App\.mpr' 'auto cannot use: module rows and the kept/stranded rule: only one of --from-mpr/--to-mpr given' 'auto cannot use: runtime_os: unknown' 'auto cannot use: db_vendor: unknown' 'language-code' '!dotnet-ide-host' -- sh -c "$RIN --auto --from-mpr $M/facts-clean/App.mpr --out $RI/one.md; cat $RI/one.md"
-ctl release-impact-auto-one-mpr-flags-pass 0 'facts: 1[0-9] counted from' '!auto cannot use: runtime_os' '!auto cannot use: db_vendor' 'dotnet-ide-host' 'other-db-version: row is about postgresql 13' -- sh -c "$RIN --auto --from-mpr $M/facts-clean/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --out $RI/one2.md; cat $RI/one2.md"
+ctl release-impact-auto-one-mpr-flags-pass 0 'facts: 20 counted from' '!auto cannot use: runtime_os' '!auto cannot use: db_vendor' 'dotnet-ide-host' 'other-db-version: row is about postgresql 13' -- sh -c "$RIN --auto --from-mpr $M/facts-clean/App.mpr --db-vendor postgresql --db-version 16 --runtime-os linux --out $RI/one2.md; cat $RI/one2.md"
 ctl release-impact-one-mpr-no-auto-catch 1 'go together' -- $RIN --from-mpr $M/facts-clean/App.mpr --out $RI/one3.md
 # T2F-4: an entry whose row the brain reworded is listed, kept across reruns, and returns with its row
 cp -r $RN $RI/brain-n19b; sedi 's/Intel-based Macs are no longer supported/Intel Macs are dropped/' $RI/brain-n19b/baseline/versions/studio-pro-upgrade-11.md
@@ -4468,6 +4483,13 @@ ctl readiness-journeys-57-catch 3 '^# Test readiness \(baseline\)' '^best reacha
 echo '{"coverage": {"G": 100, "D": 20, "A": 90}}' > $T/rd-under-bar.json
 ctl readiness-journeys-under-bar-pass 4 '\| journeys \| READY \| 20 of 100 fail on the old app \(<= 30%\)' '!CANNOT JUDGE' \
   -- python3 $RD $RDW/seeded-57 --app $RDM --journeys-summary $T/rd-under-bar.json
+# GM-42: a data rung over rows without files says that file storage was not exercised
+RDF=$(model fd-files); cp -R $RDW/seeded-57 $RDW/fd-empty; cp -R $RDW/seeded-57 $RDW/fd-filled
+echo '{"db": {"entities": {"Shop.Order": 3, "Shop.Attachment": 0, "Shop.Photo": 0, "System.User": 4}}}' > $RDW/fd-empty/before.json
+echo '{"db": {"entities": {"Shop.Order": 3, "Shop.Attachment": 4, "Shop.Photo": 0, "System.User": 4}}}' > $RDW/fd-filled/before.json
+ctl readiness-file-storage-not-exercised-catch 3 'file storage not exercised: 0 rows in the 2 FileDocument entities \(Shop\.Attachment, Shop\.Photo\)' 'on seeded rows; file storage not exercised\)' -- python3 $RD $RDW/fd-empty --app $RDF
+ctl readiness-file-storage-exercised-pass 3 '!file storage not exercised' -- python3 $RD $RDW/fd-filled --app $RDF
+ctl readiness-no-file-entities-no-note-pass 3 '!file storage not exercised' -- python3 $RD $RDW/seeded-57 --app $RDM
 ctl readiness-unknown-apis-catch 3 '^# Test readiness \(triage\)' '^best reachable verdict: INVALID unless apis: test-system URLs for Ledger, Payments' \
   '\| apis \| NEEDS 3 UNKNOWN endpoints classified or test-system URLs \(blocks\)' \
   '1 URL constant no modelled call reads \(classify with a reason\), 1 location from data \(seed the /a/ URL\), 1 hard-coded URL' \
@@ -6718,6 +6740,14 @@ ctl proposal-kept-widget-section3-catch 0 '^- \[P-[0-9]+\] module: DataWidgets$'
 ctl proposal-kept-widget-not-in-section2-catch 0 'module update Plainmod 0\.9\.0 -> 1\.0\.0' 'predicted repair R37 .*repair row 21 \(CE6779\)' '!DataWidgets' '!Stuck' '!Administration' '!PDFReader' -- bash $PR/sec.sh $PR/kept 2
 ctl proposal-plain-module-section2-pass 0 'module update DataWidgets 2\.30\.4 -> 3\.11\.7' 'module update Plainmod' -- bash $PR/sec.sh $PR/plain 2
 ctl proposal-plain-module-not-section3-pass 0 '!module: DataWidgets' '!module: Plainmod' 'widget: Stuck\.mpk' -- bash $PR/sec.sh $PR/plain 3
+# GM-42: an app with FileDocument entities on a 10 -> 11 route gets a BLOCKER item that asks which environment databases it runs on
+model fd-files > /dev/null; model facts-clean > /dev/null
+for n in fd fdclean fd11; do rm -rf $PR/$n; cp -R $PR/plain $PR/$n; done
+bash $PR/prop.sh $PR/fd --original $M/fd-files/App.mpr > /dev/null; bash $PR/prop.sh $PR/fdclean --original $M/facts-clean/App.mpr > /dev/null
+bash $PR/prop.sh $PR/fd11 --original $M/fd-files/App.mpr --source 11.0.0 > /dev/null
+ctl proposal-file-documents-blocker-catch 0 '^- \[P-[0-9]+\] data: BLOCKER: pre-5\.12 file documents in each environment.s database' 'FileDocument specializations: Shop\.Attachment, Shop\.Photo' 'which databases do the app.s environments' 'to be confirmed on a real database' 'recommendation: I cannot read an environment.s database: hand to a named person; the convert waits for their answer' 'the convert goes ahead' 'as the 11\.0 release note describes' 'first created on Mendix 5\.12 or later' '!local file system' '!10\.x only' -- bash $PR/sec.sh $PR/fd 3
+ctl proposal-file-documents-no-entities-pass 0 '!BLOCKER' '!file documents' -- bash $PR/sec.sh $PR/fdclean 3
+ctl proposal-file-documents-already-on-11-pass 0 '!BLOCKER' -- bash $PR/sec.sh $PR/fd11 3
 # re-architecture catalogue (playbooks/rearchitecture.md): a section-3 item that fits RA-1's match gets the RA options and cites the id; a non-matching item does not
 mkw ra kept; python3 - "$PR/ra/dojo-react.md" <<'PY'
 import re, sys
