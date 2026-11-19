@@ -1,0 +1,18 @@
+{
+ "modules": [
+  {
+   "name": "AppMod",
+   "docs": [
+    {
+     "type": "JavaActions$JavaAction",
+     "name": "Present"
+    }
+   ]
+  }
+ ],
+ "files": {
+  "javasource/appmod/actions/Present.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\n// Present\npublic class Present extends CustomJavaAction<Boolean> {\n  public Boolean executeAction() { return true; }\n}\n",
+  "javasource/appmod/actions/Gone.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\n// Gone\npublic class Gone extends CustomJavaAction<Boolean> {\n  public Boolean executeAction() { return true; }\n}\n",
+  "javasource/appmod/actions/Helper.java": "package appmod.actions;\n// extends CustomJavaAction in a comment only\npublic class Helper { static String x() { return \"extends CustomJavaAction\"; } }\n"
+ }
+}
