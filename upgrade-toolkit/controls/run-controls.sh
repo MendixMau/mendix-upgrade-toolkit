@@ -1253,6 +1253,22 @@ else skip jarstale-mpr-installed-catch 'no bson'; skip jarstale-mpr-installed-ap
 ctl jarstale-t1r-userlib-pairs 1 'summary: 6 jars to remove \(6 duplicate versions' 'REMOVE +userlib/accessors-smart-2\.4\.7\.jar +DUPLICATE net\.minidev:accessors-smart: older than userlib/accessors-smart-2\.4\.9\.jar' -- python3 $B/repair/jardedupe.py $JS/t1r
 ctl jarstale-n3-vendorlib-pairs 1 'summary: 7 jars to remove \(7 duplicate versions' 'REMOVE +vendorlib/accessors-smart-2\.4\.9\.jar +DUPLICATE net\.minidev:accessors-smart: older than vendorlib/accessors-smart-2\.5\.2\.jar' \
     'REMOVE +userlib/nimbus-jose-jwt-9\.12\.1\.jar\.MendixSSO\.4\.1\.0\.RequiredLib +ORPHAN marker' -- python3 $B/repair/jardedupe.py $JS/n3
+# GM-27: a marker that names an ARTIFACT (databroker-business-events-module), not a module, is mapped to the module that
+# owns it. Owner found = the jar is known, not STALE; no owner = KEEP UNKNOWN; a removed module's jar is still STALE.
+for k in artifact artifact-pkg artifact-unknown artifact-extras artifact-shaded artifact-addon artifact-leftover; do python3 $here/lib/mkjarstale.py $JS/$k $k; done
+ctl jarstale-artifact-marker-catch 1 'summary: 1 jars to remove' 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +OWNER-GUESS: businessevents \(package com\.mendix\.businessevents\.runtime\)' 'KEEP +userlib/annotations-13\.0\.jar +OWNER-GUESS' '!STALE.*databroker' '!UNKNOWN' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact
+ctl jarstale-artifact-marker-removed-mod-pass 1 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE: module\(s\) OldMod not in the app' 'summary: 1 jars to remove' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact
+ctl jarstale-artifact-unknown-owner-pass 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' 'KEEP +userlib/annotations-13\.0\.jar +UNKNOWN' 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE: module\(s\) OldMod' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-unknown
+# GM-27 review: the filename anchor (<artifact>-<digit>), a package another jar also provides, an add-on owner, a leftover folder
+ctl jarstale-artifact-extras-not-claimed-pass 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-extras
+ctl jarstale-artifact-shaded-package-catch 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact databroker-business-events-module' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-shaded
+ctl jarstale-artifact-addon-owner-guess 1 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +OWNER-GUESS: businessevents \(package com\.mendix\.businessevents\.runtime\)' '!UNKNOWN' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-addon
+ctl jarstale-artifact-leftover-folder-not-owner-pass 0 'KEEP +userlib/kotlin-stdlib-1\.9\.10\.jar +UNKNOWN: marker names artifact' '!OWNER-GUESS' '!REMOVE +userlib/(kotlin-stdlib|annotations)' -- python3 $B/repair/jardedupe.py $JS/artifact-leftover
+if python3 -c 'import bson' 2>/dev/null; then
+  echo '{"version": "10.24.16.96987", "modules": [{"name": "BusinessEvents", "appstore": [170, "3.12.1"]}]}' > $T/jarstale-art.json
+  python3 $here/lib/mkmodel.py $T/jarstale-art.json $JS/artifact-pkg-mpr > /dev/null; cp -r $JS/artifact-pkg/userlib $JS/artifact-pkg/javasource $JS/artifact-pkg-mpr/
+  ctl jarstale-artifact-package-ships-marker-catch 1 'summary: 1 jars to remove' '!(kotlin-stdlib|annotations)' 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE' -- env UPG_CACHE=$JS/artifact-pkg/pkgcache python3 $B/repair/jardedupe.py $JS/artifact-pkg-mpr
+else skip jarstale-artifact-package-ships-marker-catch 'no bson'; fi
 ctl jarstale-relpath-pass 1 'summary: 6 jars to remove' '!no userlib' -- bash -c "cd $JS/t1r && python3 $B/repair/jardedupe.py ."
 ctl jarstale-relpath-bad-catch 2 'not a folder \(resolved from' -- bash -c "cd $JS && python3 $B/repair/jardedupe.py no-such-app"
 mkdir -p $JS/empty; ctl jarstale-no-libs-catch 2 'no userlib/ and no vendorlib/' -- python3 $B/repair/jardedupe.py $JS/empty
@@ -3091,8 +3107,11 @@ if command -v node > /dev/null; then
   ctl settle-wait-catch 0 '^ok +progress bar never goes away -> not settled' '^ok +DOM keeps changing' '^ok +indicator stays, DOM still -> stuck' '^ok +indicator stays, DOM changing -> loading, not stuck' '!^FAIL' -- node $here/settle_control.js
   # B4N1-14: a thin top bar on a page with text is ignored (said); a blank page, another indicator or a changing DOM is not
   ctl settle-topbar-pass 0 '^ok +top bar only, page has text, DOM still -> settled' '^ok +top bar only, blank page -> stuck' '^ok +top bar plus a grid loading state -> stuck' '^ok +top bar, DOM still changing -> loading' '!^FAIL' -- node $here/settle_control.js
+  ctl settle-lazy-catch 0 '^ok +lazy placeholder never goes away -> not settled, says placeholders present' '^ok +placeholder goes away, then stable' '^ok +permanent placeholder, DOM unchanged -> diagnostic names the false match' '^ok +SETTLE_LAZY_OFF \(opts.lazyOff\)' '^ok +SETTLE_LAZY_OFF=1 env' '!^FAIL' -- node $here/settle_lazy_control.js
+  ctl settle-lazy-pass 0 '^ok +no placeholder -> settled, unchanged' '!^FAIL' -- node $here/settle_lazy_control.js
+  ctl settle-lazy-drift-pass 0 '^ok +drift guard: LAZY is the pinned list' '^ok +drift guard: pageSettled queries the list it is handed' '^ok +drift guard: with no argument pageSettled falls back to LAZY' '^ok +drift guard: class-substring selectors appear once' '!^FAIL' -- node $here/settle_lazy_control.js -- node $here/settle_lazy_control.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
-else skip settle-wait-catch "no node"; skip smokewalk-settle-pass "no node"; fi
+else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
 if command -v node > /dev/null; then ctl filecheck-compare 0 '^SAME: upload, download' '^rc=0' '^DIFFERENT' '^  dl_sha: old "aa" new "bb"' '^  new side did not complete: login' '^rc=1' -- bash $here/filecheck_compare_control.sh
 else skip filecheck-compare "no node"; fi
