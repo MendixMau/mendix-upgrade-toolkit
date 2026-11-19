@@ -1,0 +1,25 @@
+{
+ "from": "replace-clean.json",
+ "ops": [
+  [
+   "set",
+   "modules/0/pages/0/widgets",
+   [
+    "BootstrapTooltip.widget.BootstrapTooltip"
+   ]
+  ],
+  [
+   "set",
+   "widget_packages",
+   {
+    "BootstrapTooltip.mpk": {
+     "ids": [
+      "BootstrapTooltip.widget.BootstrapTooltip"
+     ],
+     "version": "3.2.5",
+     "js": "postCreate:function(){logger.debug(this.id+\".postCreate\"),this._chec;update:function(t,e){var n=this;logger.debug(this.id+\".update\"),this.tooltipMe;else window.logger.warn(\"Form input not available at the m"
+    }
+   }
+  ]
+ ]
+}
