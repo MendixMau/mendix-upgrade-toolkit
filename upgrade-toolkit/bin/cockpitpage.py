@@ -765,6 +765,9 @@ def build_model(work):
         rows.append([it["name"], what, effort_of(it["sub"].get("recommendation", "")), st])
     rows.append(["Sign-off", f"Signed by {signed[0]} on {signed[1]}." if signed else ("Paused by the owner." if P["paused"] else "Waiting for your name."), "N", "ok" if signed else "warn"])
     cnt = {k: sum(1 for r in rows[:-1] if r[2] == k) for k in "CMSN"}
+    notes = (rd(os.path.join(work, "AGENT-NOTES.md")) or "").strip()   # free text the agent keeps across proposal reruns
+    if notes:
+        rows.insert(len(rows) - 1, ["Agent notes", short(notes, 400), "N", "idle"])
     pcls = "done" if signed else ("wait" if done["propose"] else "")
     phases.append({"id": "plan", "n": "Plan", "cls": pcls, "time": phase_time(PHASES[1][2]),
                    "s": "Signed" if signed else ("Choices, not signed" if done["propose"] else "Not started"),

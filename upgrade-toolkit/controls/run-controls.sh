@@ -6791,6 +6791,11 @@ ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
 ctl proposal-six-sections-in-order-pass 0 '^## 1\. Summary\|## 2\. Done by the toolkit\|## 3\. Needs your decision before we start\|## 4\. Needs a person anyway\|## 5\. Human effort\|## Testing plan\|## 6\. Sign-off\|$' -- sh -c "grep -E '^## ' $PR/kept/PROPOSAL.md | tr '\n' '|'; echo"
+# DV-11: the agent's notes live in W/AGENT-NOTES.md, which propose only reads: a rerun keeps them, PROPOSAL.md and the cockpit show them
+mkw notes; printf 'Checked the widget list by hand.\n\n- the old theme is unused\n' > $PR/notes/AGENT-NOTES.md; bash $PR/prop.sh $PR/notes > /dev/null; bash $PR/prop.sh $PR/notes > /dev/null
+ctl proposal-agent-notes-survive-rerun-catch 0 '^## Agent notes$' '^> Checked the widget list by hand\.$' '^> - the old theme is unused$' '^headings: 1$' 'Testing plan\|## Agent notes\|## 6\. Sign-off\|' -- sh -c "cat $PR/notes/AGENT-NOTES.md > /dev/null && sed -n '/^## Agent notes/,/^## 6\\./p' $PR/notes/PROPOSAL.md; grep -c '^## Agent notes' $PR/notes/PROPOSAL.md | sed 's/^/headings: /'; grep -E '^## ' $PR/notes/PROPOSAL.md | tr '\n' '|'"
+ctl proposal-no-agent-notes-no-section-pass 0 '!Agent notes' -- cat $PR/plain/PROPOSAL.md
+ctl proposal-agent-notes-in-cockpit-catch 0 'Agent notes' 'Checked the widget list by hand' -- sh -c "python3 $B/cockpitpage.py --work $PR/notes --out $PR/notes/out.html > /dev/null && grep -o 'Agent notes.\{0,80\}' $PR/notes/out.html | head -3"
 # signed -> 0 (the unanswered items take their recommendation, P-n lines CONFIRMED); the same folder first answered P-1 by hand
 mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md

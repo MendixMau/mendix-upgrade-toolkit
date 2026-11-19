@@ -28,6 +28,7 @@ human effort; sign-off). A comment line stores the hash of the plan inputs. Sect
   Signed-off: <name> <yyyy-mm-dd>        or        Status: PAUSED <reason>
 Exit: 0 signed (the section-3 items nobody answered take their recommendation, recorded P-n CONFIRMED in DECISIONS.md),
       or unattended (nothing signed; ASSUMED (unattended) lines in DECISIONS.md), 14 unsigned, 15 PAUSED, 2 usage.
+W/AGENT-NOTES.md (agent notes, free text) is shown in an "Agent notes" section; this script only reads it, so a rerun keeps the notes.
 A rerun after sign-off whose plan inputs hash differently rewrites the file with a "Changed since signed" block, clears the
 sign-off and exits 14 (asked again). kept.txt, DECISIONS.md and the count of open release rows are not in the hash: the
 update step writes kept.txt and people close release rows after the sign-off.
@@ -731,8 +732,18 @@ def render(F, hashval, changed_block, signoff_text):
           "- unknown at this point:"]
     L += [f"  - not measured: {n}: {w}" for n, w in F.not_measured] or ["  - nothing: every input was read"]
     L += testing_plan(F)
+    notes = agent_notes(F.W)
+    if notes:
+        L += ["", "## Agent notes", "",
+              "From AGENT-NOTES.md in the work folder, written by the agent and kept on every rerun; this section is not part of the plan hash.", ""]
+        L += ["> " + ln if ln.strip() else ">" for ln in notes.splitlines()]
     L += ["", "## 6. Sign-off", "", signoff_text, ""]
     return "\n".join(L)
+
+
+def agent_notes(work):
+    """The text of W/AGENT-NOTES.md (free text, written by the agent, never written by this script), or ''."""
+    return (read(os.path.join(work, "AGENT-NOTES.md")) or "").strip()
 
 
 def signoff_default():
