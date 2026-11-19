@@ -46,6 +46,7 @@ want(){ [ -z "${UPG_SETUP_STEPS:-}" ] || [[ ",$UPG_SETUP_STEPS," == *",$1,"* ]];
 PY=${UPG_PYTHON:-python3}
 MX_HOME=$HOME/Mendix; TK_LINK=$MX_HOME/mxcli-project-toolkit   # step 1
 MXCLI_SRC=${MXCLI_SRC:-$HOME/mendixlabs/mxcli}                   # step 5: the mxcli source build folder
+MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
 MXCLI_HOSTBIN=$HOME/.local/bin/mxcli                             # step 5: only a Linux host with no mxcli gets this link
 PW_DIR=$HOME/mendix-playwright                                   # step 8
 MXCLI_AUTH=$HOME/.mxcli/auth.json                                # step 9
@@ -62,16 +63,18 @@ outside_plan() {
   fi
   want images && echo "  - docker images in the docker store: eclipse-temurin:11-jdk, eclipse-temurin:21-jdk, postgres:16, mig-mx10, e5-mx9 (and e5-mx9-mono for Mendix 9 below 9.20)"
   want antlr && [ ! -x "$R/tools/mxcli-linux" ] && echo "  - Maven cache: $ANTLR_JAR"
-  if want mxcli && [ ! -x "$R/tools/mxcli-linux" ]; then
+  if want mxcli && { [ ! -x "$R/tools/mxcli-linux" ] || [ "$(readlink -f "$R/tools/mxcli-linux")" = "$(readlink -f "$R/tools/mxcli-bin/mxcli" 2>/dev/null || echo -)" ]; }; then
     echo "  - mxcli source build folder: $MXCLI_SRC (git checkout of mendixlabs/mxcli; the binary itself lands in the run folder)"
+    echo "  - Go caches of the mxcli build: ${GOMODCACHE:-$HOME/go/pkg/mod} (modules), ${GOCACHE:-$HOME/.cache/go-build} (build cache); GOTOOLCHAIN=auto may also download a Go toolchain into the module cache"
+    [ -x "$R/tools/mxcli-linux" ] && echo "  - note: $R/tools/mxcli-linux is a build made here; if it is not MXCLI_REF ($MXCLI_REF) it is deleted and rebuilt (checked when the step runs)"
     command -v rsync >/dev/null || echo "  - system packages: rsync (apt-get install)"
     echo "  - python packages: antlr4-tools (pip, $PY)"
   fi
   want mxcli && [ "$(uname -s)" = Linux ] && ! command -v mxcli >/dev/null && { [ ! -e "$MXCLI_HOSTBIN" ] || [ -L "$MXCLI_HOSTBIN" ]; } && echo "  - $MXCLI_HOSTBIN (link to the run folder's mxcli, a Linux host with no mxcli)"
   want host && echo "  - python packages for $PY (pip): pymongo, bcrypt, pillow when missing; rsync (apt-get) when missing"
-  want playwright && [ ! -d "$PW_DIR/node_modules/playwright" ] && echo "  - $PW_DIR (npm install playwright)"
-  want playwright && [ ! -d "${UPG_PW_OPT:-/opt/pw-browsers}" ] && [ -z "${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-}" ] && echo "  - Chromium in the Playwright browser cache (npx playwright install chromium)"
-  want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f "$MXCLI_AUTH" ] && echo "  - $MXCLI_AUTH (mxcli auth login)"
+  want playwright && [ ! -d "$PW_DIR/node_modules/playwright" ] && echo "  - $PW_DIR (npm install playwright; npm cache ${npm_config_cache:-$HOME/.npm})"
+  want playwright && [ ! -d "${UPG_PW_OPT:-/opt/pw-browsers}" ] && [ -z "${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-}" ] && echo "  - Chromium in the Playwright browser cache (${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}; npx playwright install chromium)"
+  want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f "$MXCLI_AUTH" ] && command -v mxcli >/dev/null && echo "  - $MXCLI_AUTH (mxcli auth login)"
   return 0
 }
 outside_plan
@@ -148,7 +151,6 @@ ensure_rsync() {
 }
 # 5 mxcli from source (public repo mendixlabs/mxcli; a release binary works too: put it at tools/mxcli-linux), at MXCLI_REF
 # default: 78bdfa5, the build the pipeline ran on. v0.28.0 is blocked (SETUP.md, "Known problem of v0.28.0")
-MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
 MXCLI_VER=$MXCLI_REF; [[ $MXCLI_REF =~ ^[0-9a-f]{40}$ ]] && MXCLI_VER=${MXCLI_REF:0:7}   # a full commit id reports as its 7-digit form
 # ref_state BIN: 0 = BIN reports MXCLI_REF, 1 = another version, 2 = cannot tell (does not run here, e.g. a Linux binary on a Mac)
 ref_state() {
@@ -185,8 +187,8 @@ if want mxcli; then
     *) log "mxcli: tools/mxcli-linux does not run on this host ($(uname -s)); its version is checked inside the container";;
   esac
   # S1: the host mxcli is the user's own; only a Linux host with none gets this (Linux) binary, never a Mac or a host that has one
-  if [ "$(uname -s)" = Linux ] && ! command -v mxcli >/dev/null && { [ ! -e ~/.local/bin/mxcli ] || [ -L ~/.local/bin/mxcli ]; }; then
-    mkdir -p ~/.local/bin && ln -sfn "$(readlink -f "$R/tools/mxcli-linux")" ~/.local/bin/mxcli
+  if [ "$(uname -s)" = Linux ] && ! command -v mxcli >/dev/null && { [ ! -e "$MXCLI_HOSTBIN" ] || [ -L "$MXCLI_HOSTBIN" ]; }; then
+    mkdir -p "$(dirname "$MXCLI_HOSTBIN")" && ln -sfn "$(readlink -f "$R/tools/mxcli-linux")" "$MXCLI_HOSTBIN"
   else
     log "host mxcli left alone ($(command -v mxcli || echo "none on PATH; $(uname -s) host")); the container uses $R/tools/mxcli-linux"
   fi
@@ -232,12 +234,12 @@ fi
 
 # 9 marketplace auth (host and container both read ~/.mxcli/auth.json); the token never lands in a file here, nor on a
 #   command line (ps shows argv to every user): `mxcli auth login` without --token reads it from stdin (B4T2-1)
-if want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f ~/.mxcli/auth.json ] && ! command -v mxcli >/dev/null; then
+if want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f "$MXCLI_AUTH" ] && ! command -v mxcli >/dev/null; then
   log "NEXT-STEP: no host mxcli on PATH: install one, then: printf %s \"\$MENDIX_PAT\" | mxcli auth login"
-elif want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f ~/.mxcli/auth.json ]; then
+elif want auth && [ -n "${MENDIX_PAT:-}" ] && [ ! -f "$MXCLI_AUTH" ]; then
   printf '%s\n' "$MENDIX_PAT" | mxcli auth login >/dev/null
 fi
-want auth && [ ! -f ~/.mxcli/auth.json ] && log "WARNING: no MENDIX_PAT and no ~/.mxcli/auth.json: Marketplace downloads and module updates will fail"
+want auth && [ ! -f "$MXCLI_AUTH" ] && log "WARNING: no MENDIX_PAT and no $MXCLI_AUTH: Marketplace downloads and module updates will fail"
 
 # 10 environment for the container wrappers (cloud: the agent proxy and its CA; harmless where they are absent)
 ca=/root/.ccr/ca-bundle.crt

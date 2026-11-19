@@ -8655,13 +8655,19 @@ ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -
 # DV-1: the docs derive the toolkit folder from SKILL.md's own location (no sibling checkout or home path), and setup
 # prints what it writes outside the run folder; --plan prints only that and changes nothing.
 DV1=$T/dv1; mkdir -p $DV1
-ctl docs-no-sibling-toolkit-path-catch 0 '^none$' -- sh -c "cd $TK && grep -nE 'Mendix/mxcli-project-toolkit|mxcli-project-toolkit/upgrade-toolkit' SKILL.md SETUP.md steps/*.md playbooks/*.md READING-THE-VERDICT.md || echo none"
+ctl docs-no-sibling-toolkit-path-catch 0 '^none$' -- sh -c "cd $TK && grep -nE 'Mendix/mxcli-project-toolkit|mxcli-project-toolkit/upgrade-toolkit' SKILL.md SETUP.md SETUP-PROMPT.md steps/*.md playbooks/*.md READING-THE-VERDICT.md || echo none"
 ctl docs-toolkit-path-from-skill-folder-pass 0 'TK. = the folder that holds this SKILL\.md' 'B=\$TK/bin' -- sh -c "cd $TK && grep -h 'Paths:' SKILL.md steps/triage.md"
-ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mxcli-project-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'dockerd' -- env HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
+ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mxcli-project-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-changes-nothing-pass 0 '^nothing$' -- sh -c "ls -A $DV1 | grep -vx nopw | grep . || echo nothing"
 ctl setup-plan-follows-variables-pass 0 "$DV1/src2" -- env HOME=$DV1/h MXCLI_SRC=$DV1/src2 bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-no-args-refused-pass 2 'run folder' -- bash $B/setup-container.sh --plan
 
+# DV-7: SETUP-PROMPT.md keeps the unattended default and carries a marked attended variant; every file, variable and flag it names exists
+ctl setup-prompt-attended-variant-pass 0 '^setup-prompt: ok$' -- bash $TK/controls/setup_prompt_control.sh
+ctl setup-prompt-attended-variant-catch 1 '^FAIL: no marked attended block$' -- bash -c "sed '/^<!-- ATTENDED-START -->\$/,/^<!-- ATTENDED-END -->\$/d' '$TK/SETUP-PROMPT.md' > $T/sp-noblock.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-noblock.md"
+ctl setup-prompt-default-sentence-catch 1 '^FAIL: the unattended default sentence is missing$' -- bash -c "sed '/^Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says PASS\.$/d' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-default-sentence-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-default-sentence-catch.md"
+ctl setup-prompt-bad-flag-catch 1 '^FAIL: named flag is in no script: --sign-for-owner$' -- bash -c "sed 's/--source chat/--source chat --sign-for-owner/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-bad-flag-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-bad-flag-catch.md"
+ctl setup-prompt-never-sign-removed-catch 1 '^FAIL: attended block lacks: You never sign for me$' -- bash -c "sed 's/You never sign for me/You may sign for me/' '$TK/SETUP-PROMPT.md' > $T/sp-setup-prompt-never-sign-removed-catch.md; bash '$TK/controls/setup_prompt_control.sh' $T/sp-setup-prompt-never-sign-removed-catch.md"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
