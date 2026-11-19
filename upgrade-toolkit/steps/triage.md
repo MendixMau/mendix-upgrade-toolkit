@@ -7,7 +7,7 @@ Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
 with version tables; the scripts find it the same way).
 Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <path> (from ...)` or
-`brain: none found (looked: ...)`) in your first triage message and in `$W/versions.txt` (DV-3).
+`brain: none found (looked: ...)`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).

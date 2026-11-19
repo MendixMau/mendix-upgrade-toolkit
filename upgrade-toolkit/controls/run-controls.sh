@@ -6718,7 +6718,9 @@ gbr() ( export HOME="$BPH/empty"; unset UPG_BRAIN; gcase "$@" )
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
-ctl gate-summary-brain-in-file-pass 0 '^brain: ' -- sh -c "grep '^brain: ' $GI/w/gatebrn/gate-summary.md"
+# a brainpath.py that crashes must not stop triage (the pipeline runs under set -Eeuo pipefail)
+TKB=$B; mkdir -p $BPH/crash; printf 'import sys\nsys.exit(3)\n' > $BPH/crash/brainpath.py
+ctl pipeline-triage-brain-crash-continues-catch 0 '^continued$' 'brain: not reported' -- bash -c "set -Eeuo pipefail; B=$BPH/crash; WORK=\$(mktemp -d); DRY=0; say() { printf '%s\n' \"\$*\"; }; eval \"\$(sed -n '/# DV-3: which company brain/,/brain.txt/p' \${PIPE:-$TKB/cloud/upgrade-pipeline.sh})\"; echo continued"
 ctl gate-changes-ledger-written-pass 0 '^Changes: 5 ' -- sh -c "head -3 $GI/w/CHANGES.md | tail -1"
 ctl gate-changes-accept-files-pass 0 '\| ALLOW \| x \| \(no reason written\)' '\| SMOKE_SHOT_ACCEPT \| x \|' '\| LOG_ALLOW \| x \|' '!\| JOURNEY_SHOT_ACCEPT' -- sh -c "grep -E 'ALLOW|ACCEPT' $GI/w/CHANGES.md"
 # stepupdate and the pipeline: the toolkit's own commits carry the trailers
