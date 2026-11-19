@@ -980,6 +980,12 @@ ctl pipeline-widgetroute-ok-asked-once-pass 0 '^run 2 sections: 0$' -- bash -c "
 ctl pipeline-widgetroute-keep-undoes-catch 0 '^git revert h2$' '!git revert h1' "^commit: repair: undone on the person's B \(unused sample module removed, widgetroute\)$" \
   '^## Any Chart 3\.x in Sample_BuildingBlocks: 2 outside a data view, a data view by hand recommended \(exit 10\)$' '^Candidates: A .*\(recommended: ' -- bash -c "bash $WR/pipe.sh | sed -n '/-- run 3/,\$p'"
 ctl pipeline-dry-build-widgetroute-pass 0 'widgetroute\.py .* --target 11\.15\.0\.1 --approved .*/widget-routes-approved\.txt' '^\+ widgetroute_pass replace' '^\+ widgetroute_pass wrap' '^\+ widgetroute_pass remove' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $WR/papp --source 10.24.26.1 --target 11.15.0.1 --work $WR/pwd --only build --dry-run
+# DV-9: --from STEP never runs a step before STEP. A not-done step the later ones build on refuses (exit 2, names it, says resume.sh / --only); heal and apidirect are skipped by name.
+FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
+for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
+for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
+ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'bin/cloud/resume\.sh <run folder>' '--only basewalk' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
+ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
 cat > $WR/stop.sh <<SH
