@@ -129,6 +129,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    The impact map of this step is also the deep layer of the test: the journeys run prints how many of the impacted
    actions are walked and pass (`impacted I (W walked, ...)`, journeys.md "Test layers"). An impacted action with no
    click path is the first testability item, ahead of the rest.
+9a. Orphan javasource action files (GM-29): `python3 $B/repair/orphan_javasource.py app/` lists `javasource/<module>/actions/*.java` that extend `CustomJavaAction`/`UserAction` but have no Java action document in the model (the Mendix 11 build fails on the removed base class). Exit 1 = ORPHAN lines plus a `git rm` PROPOSE line: put them on the proposal as a decision item, delete only after a person agrees (the tool never deletes). Exit 2 = UNKNOWN (model unreadable): nothing is judged, fix the read and rerun. Helper classes that are not action classes are never listed.
 9. mxcli writes a `.claude/` folder into the app; stepupdate.sh puts it in .gitignore (E5b-17). Check
    `python3 $B/buildout.py check app/` before step 2 (exit 0 = clean apart from the baseline build output it names:
    `.classpath`, `.project`, `<name>.launch` and `theme-cache/**`, listed ACCEPTED; any other dirty path is OTHER, exit 1: DV-6).
