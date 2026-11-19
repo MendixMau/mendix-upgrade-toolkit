@@ -24,6 +24,11 @@ make a THROWAWAY copy of the app, run the newest `mx` that has `sync-java-depend
 mx; the project version stays unchanged), and commit only the resulting `vendorlib/` to the app. Never commit the
 copy's converted model.
 
+0. Build output (DV-6): before the first build of the old app run `python3 $B/buildout.py exclude app/` (appends `.classpath`,
+   `.project`, `<name>.launch` to the repo's `.git/info/exclude`, idempotent, the app's `.gitignore` untouched; upgrade-pipeline.sh
+   baseline does it itself). The compiled `theme-cache/` is TRACKED in some apps, so an exclude cannot hide it: triage item 9 and
+   `convertpre.py` accept exactly that path as build output and list it ACCEPTED; any other dirty path still refuses.
+
 1. Database with realistic data. If it has none: `seed_pg.py --psql "docker exec -i mig-pg psql -U mendix -d X" --mpr app/<app>.mpr`
    with the app STOPPED (values are unique per entity, so two System.User specializations no longer collide). `--mpr`
    gives every enum column its enumeration's first value; the summary names any enum left NULL. FileDocument and Image

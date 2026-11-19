@@ -2180,6 +2180,18 @@ ctl convertpre-dirty-catch 1 '^REFUSE: 2 uncommitted path\(s\)' 'javasource/ \(1
 ctl convertpre-clean-pass 0 'convertpre: ready; 0 uncommitted, 0 model-changing' '!WARN' '!REFUSE' -- python3 $B/convertpre.py $S/cpok
 ctl convertpre-model-commit-warn 0 'WARN: model-changing commit\(s\) after the last unedited state \([0-9a-f]+ step: Atlas_Core' '[0-9a-f]{7} repair: map roles' 'convertpre: ready; 0 uncommitted, 1 model-changing' '!docs: notes' -- python3 $B/convertpre.py $S/cpmodel
 ctl convertpre-no-git-invalid 2 'not a git repository' -- python3 $B/convertpre.py $T
+# DV-6: a tree dirty only from the baseline build (untracked .classpath/.project/app.launch, modified tracked theme-cache/) is
+# accepted after `buildout.py exclude`; a modified source file in the same tree still refuses at convertpre
+for k in bobuild bosrc; do rm -rf $S/$k; mkdir -p $S/$k/theme-cache/web $S/$k/javasource/m; (cd $S/$k && git init -q && echo v1 > App.mpr && echo c1 > theme-cache/web/main.css && echo j1 > javasource/m/A.java
+  git add -A && $G commit -qm "original 10.12" && echo c2 > theme-cache/web/main.css && echo x > .classpath && echo x > .project && echo x > app.launch); done
+(cd $S/bosrc && echo j2 >> javasource/m/A.java)
+ctl buildout-baseline-output-pass 0 'exclude added 3 pattern' -- python3 $B/buildout.py exclude $S/bobuild
+ctl buildout-exclude-idempotent-pass 0 'exclude already has all' -- python3 $B/buildout.py exclude $S/bobuild
+ctl buildout-check-accepted-pass 0 '^ACCEPTED theme-cache/web/main\.css' '0 other dirty path' '!OTHER ' -- python3 $B/buildout.py check $S/bobuild
+ctl convertpre-build-output-pass 0 '^ACCEPTED: 1 baseline build-output' 'convertpre: ready; 0 uncommitted' '!REFUSE' -- python3 $B/convertpre.py $S/bobuild
+python3 $B/buildout.py exclude $S/bosrc > /dev/null
+ctl convertpre-source-edit-catch 1 '^ACCEPTED: 1 baseline' '^REFUSE: 1 uncommitted path\(s\)' 'javasource/ \(1 path\)' '!\.classpath' -- python3 $B/convertpre.py $S/bosrc
+ctl buildout-check-source-edit-catch 1 '^OTHER    M javasource/m/A\.java' '1 other dirty path' -- python3 $B/buildout.py check $S/bosrc
 # MC-19: widgetcover.py lists a used widget package that no smoke step or journey page renders (Viewer on Shop.Viewer_Panel; the
 # smoke fixture walks Home_Overview, Orders_Overview, Inbox_Overview only; Spare is used only on an excluded page: not a gap)
 WC="python3 $B/widgetcover.py"

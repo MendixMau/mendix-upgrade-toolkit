@@ -128,7 +128,8 @@ with version tables; the scripts find it the same way).
    actions are walked and pass (`impacted I (W walked, ...)`, journeys.md "Test layers"). An impacted action with no
    click path is the first testability item, ahead of the rest.
 9. mxcli writes a `.claude/` folder into the app; stepupdate.sh puts it in .gitignore (E5b-17). Check
-   `git -C app status` is clean before step 2.
+   `python3 $B/buildout.py check app/` before step 2 (exit 0 = clean apart from the baseline build output it names:
+   `.classpath`, `.project`, `<name>.launch` and `theme-cache/**`, listed ACCEPTED; any other dirty path is OTHER, exit 1: DV-6).
 10. Release impact (required, V31-RI): the brain holds the official Studio Pro and Marketplace release notes; read
    them for every version jump, never pick a module version without its notes (E6 and E7 did; E5b looked for a Java
    11 error the 10.x table explains). Write the module jumps as `<Module> <installed> -> <target>` lines (or a copy of
