@@ -222,6 +222,9 @@ ctl idcheck-netzero-new-element-pass 0 'transient: not in the original app \(nam
 # GM-23 / A-1: stepcheck.py, the model check read after each step. Captured-shape logs (fixtures/check): worse adds errors, better only drops
 SC=$FX/check
 ctl stepcheck-new-errors-catch 1 '^NEW CE6085' 'adds? ?|new error\(s\) \(CE6085 x' '^Q.*breaks the model' '^R.*keep$' '^O.*keep\|Keep ModX at the installed version' '^W.*keep\|step-keep\.txt\|ModX' '^W.*accept\|stepcheck-accepted\.txt\|ModX CE6085' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields
+# issue 44: a module named by --force-ui is meant to be updated, so the stop recommends accept; any other module keeps `keep`
+ctl stepcheck-forceui-recommends-accept-catch 1 '^R.*accept$' '!^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModX, --fields
+ctl stepcheck-forceui-other-module-keeps-catch 1 '^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModY, --fields
 ctl stepcheck-fewer-errors-pass 0 'no new error' '!^NEW' -- python3 $B/stepcheck.py $SC/before.log $SC/after-better.log --module ModX --version 2.0.0 --fields
 echo 'ModX CE6085  # accepted by a person' > $T/sc-acc.txt
 ctl stepcheck-accepted-pass 0 'no new error' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --accepted $T/sc-acc.txt
@@ -2346,6 +2349,11 @@ ctl stepupdate-stepcheck-catch 4 'STOP: step1-adds 1\.6\.0 adds model errors' 'N
 ctl stepupdate-stepcheck-nothing-committed 0 'base' '!step: step1-adds' -- git -C $S5/app log --format=%s
 ctl stepupdate-stepcheck-tree-undone 0 '!.' -- git -C $S5/app status --porcelain --untracked-files=no
 ctl stepupdate-stepcheck-stop-file 0 '^Q.*breaks the model' '^R.*keep$' '^W.*keep\|step-keep\.txt\|step1-adds' -- cat $S5/app/.stepupdate/stepcheck-stop.txt
+S5f=$T/step-chk-forceui; mkdir -p $S5f/app $S5f/edits; cp $M/base/App.mpr $S5f/app/App.mpr; cp $S5/plan.txt $S5f/
+(cd $S5f/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+printf '#!/bin/sh\ncp "$1" "$2"\n' > $S5f/upd.sh
+ctl stepupdate-forceui-wired-recommends-accept-catch 4 'STOP: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" UPG_UPDATE_CMD="sh $S5f/upd.sh $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S5f/app $S5f/plan.txt --force-ui step1-adds --saved-edits $S5f/edits
+ctl stepupdate-forceui-wired-stop-file 0 '^R.*accept$' '!^R.*keep$' -- cat $S5f/app/.stepupdate/stepcheck-stop.txt
 echo 'step1-adds CE6085  # accepted' > $S5/acc.txt
 ctl stepupdate-stepcheck-accepted-pass 0 'committed' '!STOP' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt --check-accepted $S5/acc.txt
 S6=$T/step-chk2; mkdir -p $S6/app $S6/step1-adds; cp $M/base/App.mpr $S6/app/App.mpr; cp $M/step1-adds/App.mpr $S6/step1-adds/; cp $S5/plan.txt $S5/chk-clean.sh $S5/chk-none.sh $S6/
