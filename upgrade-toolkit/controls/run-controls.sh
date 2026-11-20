@@ -8073,6 +8073,20 @@ mkdir -p "$DG/w2/e2e-after/after" "$DG/w2/e2e-before-picked" "$DG/w2/journeys"; 
 dgcase2() { bash -c "set -Eeu; . $DG/fn.sh; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=1; APP=$DG/plain; step_diff"; }
 ctl pipeline-diff-journeys-rejudge-catch 0 "^  JOURNEYS_DIR=$DG/w2/journeys\$" "^  JOURNEYS_BEFORE=$DG/w2/e2e-before-picked\$" '^  JOURNEYS_REJUDGE=1$' "^  ACTIONS=$DG/w2/actions\.json\$" -- dgcase2 $DG/w2
 ctl pipeline-diff-journeys-none-pass 0 '^  BUILD_LOG=' '!JOURNEYS' -- dgcase2 $DG/w
+# ORG, TLT: release-impact.md was complete but the diff step never selected the release rung ("release: not selected", grade INVALID)
+mkdir -p "$DG/w3"; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > "$DG/w3/release-impact.md"
+ctl pipeline-diff-release-selected-catch 0 "^  RELEASE_IMPACT=$DG/w3/release-impact\\.md\$" -- dgcase2 $DG/w3
+ctl pipeline-diff-release-absent-pass 0 '^  BUILD_LOG=' '!RELEASE_IMPACT' -- dgcase2 $DG/w
+# An open release row (a release INVALID row in gate-summary.md) does not stop the diff step: the `ob` exclusion in step_diff leaves it to step gate
+# (release_impact.py --check). Real step_diff, non-dry, gate stubbed (xo writes nothing, the summary is pre-written); a stop reaches nj_file.
+mkdir -p "$DG/w4" "$DG/w5"; cp "$DG/w3/release-impact.md" "$DG/w4/release-impact.md"; cp "$DG/w3/release-impact.md" "$DG/w5/release-impact.md"
+printf '| 1 | build | PASS |\n| 10 | release | INVALID |\n' > "$DG/w4/gate-summary.md"
+printf '| 1 | build | FAIL |\n| 10 | release | INVALID |\n' > "$DG/w5/gate-summary.md"
+dgstop() { bash -c "set -Eeu; . $DG/fn.sh; nj_meta() { :; }; nj_park() { :; }; gate_open_nj_meta() { :; }; nj_file() { echo \"NJ-STOP \$1\"; }; GATE_OPEN_TITLE=t; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=0; APP=$DG/plain; step_diff; echo DIFF-RETURNED; cat $1/gate.conf"; }
+ctl pipeline-diff-release-open-not-stopping-pass 0 '^RELEASE_IMPACT=' '^DIFF-RETURNED$' '!NJ-STOP' -- dgstop $DG/w4
+ctl pipeline-diff-release-open-other-row-stops-catch 0 '^NJ-STOP 12$' '^DIFF-RETURNED$' -- dgstop $DG/w5
+mkdir -p $V/pwr; cp $DG/w3/release-impact.md $V/pwr/release-impact.md
+ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
 # TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
 # Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
 for c in stale fresh; do mkdir -p "$DG/al-$c"; done
