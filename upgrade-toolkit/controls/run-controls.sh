@@ -3698,6 +3698,47 @@ ctl toolcheck-host-timeout-pass 0 'host OK' '!no GNU timeout' -- env UPG_PYTHON=
 NS=$T/nogsed; mkdir -p $NS $T/bsdsed; printf '#!/bin/sh\nexit 1\n' > $T/bsdsed/sed; chmod +x $T/bsdsed/sed
 for f in "$NT"/*; do [ "${f##*/}" = gsed ] || ln -s "$(readlink "$f")" "$NS/${f##*/}" 2>/dev/null; done   # a host with Homebrew gsed never warned
 ctl toolcheck-host-bsd-sed-catch 0 'WARNING, sed is not GNU sed' -- env PATH=$T/bsdsed:$NS UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
+# GM-1: a truncated runtime tar.gz is never reused or extracted, a corrupt runtimelauncher.jar is never skipped (offline, python zipfile)
+G1=$T/gm1; mkdir -p $G1/bin $G1/bin-off $G1/src/mx/modeler $G1/src/rt/runtime/launcher
+printf '#!/bin/sh\n' > $G1/src/mx/modeler/mxbuild
+python3 -I -c "
+import zipfile,sys
+with zipfile.ZipFile(sys.argv[1]+'/src/rt/runtime/launcher/runtimelauncher.jar','w',zipfile.ZIP_DEFLATED) as z: z.writestr('a.class', __import__('os').urandom(50000))
+" $G1
+tar -czf $G1/mxbuild-11.6.3.tar.gz -C $G1/src/mx .; tar -czf $G1/mendix-11.6.3.tar.gz -C $G1/src/rt .
+n=$(wc -c < $G1/mendix-11.6.3.tar.gz); head -c $((n / 2)) $G1/mendix-11.6.3.tar.gz > $G1/mendix-trunc.tar.gz
+printf '#!/bin/sh\necho "$*" >> %s/curl.log\nout=; p=; for a; do [ "$p" = -o ] && out=$a; p=$a; done; cp %s/mendix-11.6.3.tar.gz "$out"\n' $G1 $G1 > $G1/bin/curl
+printf '#!/bin/sh\necho "$*" >> %s/curl-off.log\necho "curl: (6) Could not resolve host" >&2; exit 6\n' $G1 > $G1/bin-off/curl; chmod +x $G1/bin/curl $G1/bin-off/curl
+gm1run() { local h=$1; shift; env HOME=$G1/$h "$@" bash $B/setup-container.sh $G1/run-$h 11.6.3; }
+gm1dl() { mkdir -p $G1/run-$1/dl; cp $G1/mxbuild-11.6.3.tar.gz $G1/run-$1/dl/; cp $G1/$2 $G1/run-$1/dl/mendix-11.6.3.tar.gz; }
+gm1dl off mendix-trunc.tar.gz
+ctl setup-gm1-truncated-tgz-offline-catch 1 'mendix-11\.6\.3\.tar\.gz in dl/ is truncated or corrupt: deleting it' 'setup: mendix-11\.6\.3\.tar\.gz not on the CDN or the download failed' '!extracting again' -- gm1run off PATH=$G1/bin-off:$PATH UPG_SETUP_STEPS=toolsets
+ctl setup-gm1-truncated-tgz-deleted-catch 1 -- test -e $G1/run-off/dl/mendix-11.6.3.tar.gz
+ctl setup-gm1-truncated-tgz-no-extract-catch 1 -- test -e $G1/run-off/tools/runtime-11.6.3/runtime/launcher/runtimelauncher.jar
+gm1dl on mendix-trunc.tar.gz
+ctl setup-gm1-truncated-tgz-redownload-catch 0 'deleting it and downloading again' -- gm1run on PATH=$G1/bin:$PATH UPG_SETUP_STEPS=toolsets
+ctl setup-gm1-redownloaded-jar-opens-pass 0 'runtimelauncher\.jar: ok' -- python3 -I $B/zipcheck.py $G1/run-on/tools/runtime-11.6.3/runtime/launcher/runtimelauncher.jar
+gm1dl good mendix-11.6.3.tar.gz; rm -f $G1/curl-off.log
+ctl setup-gm1-good-tgz-reuse-pass 0 '!truncated|deleting|extracting again' -- gm1run good PATH=$G1/bin-off:$PATH UPG_SETUP_STEPS=toolsets
+ctl setup-gm1-good-tgz-no-curl-pass 1 -- test -e $G1/curl-off.log
+ctl setup-gm1-good-tgz-extracted-pass 0 -- test -e $G1/run-good/tools/runtime-11.6.3/runtime/launcher/runtimelauncher.jar
+# a non-empty runtime dir whose jar is cut short is extracted again from the good tgz; an intact one is left alone
+head -c 300 $G1/src/rt/runtime/launcher/runtimelauncher.jar > $G1/cut.jar
+mkdir -p $G1/run-cut/tools/runtime-11.6.3/runtime/launcher; cp $G1/cut.jar $G1/run-cut/tools/runtime-11.6.3/runtime/launcher/runtimelauncher.jar; gm1dl cut mendix-11.6.3.tar.gz
+ctl setup-gm1-corrupt-jar-dir-catch 0 'no readable runtimelauncher\.jar .*extracting again' -- gm1run cut PATH=$G1/bin-off:$PATH UPG_SETUP_STEPS=toolsets
+ctl setup-gm1-corrupt-jar-dir-fixed-pass 0 'runtimelauncher\.jar: ok' -- python3 -I $B/zipcheck.py $G1/run-cut/tools/runtime-11.6.3/runtime/launcher/runtimelauncher.jar
+ctl setup-gm1-intact-dir-skipped-pass 0 '!extracting again|truncated' -- gm1run cut PATH=$G1/bin-off:$PATH UPG_SETUP_STEPS=toolsets
+# toolcheck opens runtimelauncher.jar as a zip and refuses a corrupt one
+mkdir -p $G1/bad-rt/runtime/launcher $G1/ok-rt/runtime/launcher $G1/bad-mx/modeler/runtemplates/deployment $G1/bad-mx/modeler/tools/node/node_modules $G1/bad-mx/runtime/launcher
+cp $G1/cut.jar $G1/bad-rt/runtime/launcher/runtimelauncher.jar; cp $G1/cut.jar $G1/bad-mx/runtime/launcher/runtimelauncher.jar; cp $G1/src/rt/runtime/launcher/runtimelauncher.jar $G1/ok-rt/runtime/launcher/
+printf '#!/bin/sh\n' > $G1/bad-mx/modeler/mxbuild; chmod +x $G1/bad-mx/modeler/mxbuild
+ctl toolcheck-runtime-corrupt-jar-catch 2 'REFUSED, runtime .* is unusable: .*runtimelauncher\.jar is corrupt' -- bash $B/toolcheck.sh --runtime $G1/bad-rt
+ctl toolcheck-runtime-intact-pass 0 'runtime OK' '!REFUSED' -- bash $B/toolcheck.sh --runtime $G1/ok-rt
+ctl toolcheck-runtime-missing-jar-catch 2 'REFUSED.*no runtimelauncher\.jar' -- bash $B/toolcheck.sh --runtime $G1/src/mx
+ctl toolcheck-toolset-corrupt-jar-catch 2 'REFUSED, corrupt runtime in .*runtimelauncher\.jar is corrupt' -- bash $B/toolcheck.sh $G1/bad-mx mxbuild
+mkdir -p $G1/good-mx/modeler/runtemplates/deployment $G1/good-mx/modeler/tools/node/node_modules; printf '#!/bin/sh\n' > $G1/good-mx/modeler/mxbuild; chmod +x $G1/good-mx/modeler/mxbuild
+ctl toolcheck-toolset-no-python-pass 0 '!REFUSED' -- env UPG_PYTHON=/nonexistent bash $B/toolcheck.sh $G1/good-mx mxbuild
+
 # B4T2-1, B4N1-3: setup-container.sh pre-places the ANTLR jar (Maven Central 429 -> mirror; a proxy page is no jar), never
 # takes a credential on a command line, and runs toolcheck AFTER the pip/apt step: REFUSED or no rsync = exit 1 (it ran
 # before the pip step with `|| true`: "REFUSED" for modules installed a step later, exit 0 with modules or rsync missing)
@@ -8964,6 +9005,23 @@ G10B=$T/gm10b; mkdir -p $G10B/app $G10B/shim; cp $M/base/App.mpr $G10B/app/App.m
 (cd $G10B/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
 printf '#!/bin/sh\nif [ -e "%s/break" ] && [ "$1" = -C ] && [ "$3" = rev-parse ]; then echo "fatal: not a git repository: /gone/.git/worktrees/app" >&2; exit 128; fi\nexec %s "$@"\n' "$G10B" "$(command -v git)" > $G10B/shim/git; chmod +x $G10B/shim/git
 ctl stepupdate-clone-lost-between-steps-catch 2 'committed' "STOP at step 2 \\(guid-changed\\)" 'not a working git tree' 'fatal: not a git repository' 'rerun with --from guid-changed' -- env PATH="$G10B/shim:$PATH" UPG_UPDATE_CMD="cp $G10/{module}/App.mpr {mpr} && touch $G10B/break" bash $B/stepupdate.sh $G10B/app $G10B/plan.txt
+# --- GM-A5: the baseline is frozen only from a clean start (bin/startcheck.py, called by upgrade-pipeline.sh) ---
+SC=$FX/startcheck
+ctl startcheck-after-startup-error-catch 1 '^startcheck: UNCLEAN' 'line 3: .*ERROR - ActionManager: An error occurred in after-startup-action.*inside the after-startup section' -- python3 $B/startcheck.py $SC/after-startup-error.log
+ctl startcheck-after-startup-unfinished-catch 1 '^startcheck: UNCLEAN' 'never ended' -- python3 $B/startcheck.py $SC/after-startup-unfinished.log
+ctl startcheck-not-started-catch 1 '^startcheck: UNCLEAN' "no 'Mendix Runtime successfully started'" -- python3 $B/startcheck.py $SC/not-started.log
+ctl startcheck-clean-pass 0 '^startcheck: CLEAN ' '!line ' -- python3 $B/startcheck.py $SC/clean.log
+ctl startcheck-allowed-error-pass 0 '^startcheck: CLEAN ' 'accepted: ERROR Core: \*license\* # known, not an app fault' -- python3 $B/startcheck.py $SC/allowed-error.log --allow $SC/allow.txt
+ctl startcheck-plain-error-listed-pass 0 '^startcheck: CLEAN-WITH-ERRORS' 'ERROR line 2: .*license server unreachable' -- python3 $B/startcheck.py $SC/allowed-error.log
+ctl startcheck-list-file-pass 0 'ERROR line 2: .*license server unreachable' -- sh -c "python3 $B/startcheck.py $SC/allowed-error.log --list $T/sc-list.txt > /dev/null; cat $T/sc-list.txt"
+ctl startcheck-allow-no-value-catch 2 'needs a value' '!Traceback' -- python3 $B/startcheck.py $SC/clean.log --allow
+ctl startcheck-missing-log-catch 2 '^startcheck: INVALID' 'cannot read' '!CLEAN' -- python3 $B/startcheck.py $SC/no-such.log
+ctl startcheck-no-mendix-lines-catch 2 '^startcheck: INVALID' 'nothing was read' -- python3 $B/startcheck.py $SC/garbage.log
+ctl startcheck-captured-old-pass 0 '^startcheck: CLEAN ' -- python3 $B/startcheck.py $FX/logs/old.log
+ctl startcheck-captured-new-same-pass 0 '^startcheck: CLEAN ' -- python3 $B/startcheck.py $FX/logs/new-same.log
+ctl startcheck-captured-lazy-error-after-window-pass 0 '^startcheck: CLEAN ' '!SAML' -- python3 $B/startcheck.py $FX/logs/old-lazy-error.log
+# text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
+ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

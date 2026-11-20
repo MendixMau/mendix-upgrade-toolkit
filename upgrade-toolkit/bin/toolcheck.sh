@@ -41,6 +41,14 @@ if [[ ${1:-} == --host ]]; then
   echo "toolcheck: host OK ($py has pymongo/bson and bcrypt$(command -v rsync > /dev/null && echo ', rsync present'))"
   exit 0
 fi
+# toolcheck.sh --runtime <runtime dir> (GM-1): runtimelauncher.jar must exist and open as a zip (a truncated runtime tar.gz extracted
+#   anyway showed a corrupt jar an hour into a run). REFUSED, exit 2, naming the jar and the fix. Also run on any toolset dir below:
+#   a runtimelauncher.jar found inside it that does not open is REFUSED too. UPG_PYTHON replaces python3.
+if [[ ${1:-} == --runtime ]]; then
+  [[ -d ${2:-} ]] || { echo "toolcheck: usage: toolcheck.sh --runtime <runtime dir>" >&2; exit 2; }
+  if out=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $2 2>&1); then echo "toolcheck: runtime OK ($2: runtimelauncher.jar opens)"; exit 0; fi
+  echo "toolcheck: REFUSED, runtime $2 is unusable: $out. Delete the folder and its dl/mendix-<full ver>.tar.gz and rerun bin/setup-container.sh" >&2; exit 2
+fi
 # toolcheck.sh --image [image]: report whether the image holds the three libs mx10.sh preloads for 11.x on Apple Silicon
 #   (M1: libuuid.so.1, libfreetype.so.6, libfontconfig.so.1 against the rc 139 segfaults of mxbuild 11.12.x under emulation).
 #   Information only, exit 0 (a missing lib is skipped by mx10.sh); exit 2 when the image cannot be run. Default image UPG_IMAGE10 / mig-mx10.
@@ -59,6 +67,12 @@ fi
 miss=()
 [[ -d $tb/modeler/runtemplates/deployment ]] || miss+=(modeler/runtemplates/deployment)
 [[ -d $tb/modeler/tools/node/node_modules ]] || miss+=(modeler/tools/node/node_modules)
+# GM-1: a runtimelauncher.jar inside the toolset must open as a zip (none inside is fine: only the runtime tarball has one)
+if ! command -v ${UPG_PYTHON:-python3} > /dev/null 2>&1; then
+  echo "toolcheck: WARNING, no ${UPG_PYTHON:-python3}: the runtimelauncher.jar check is skipped" >&2
+elif ! jout=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $tb 2>&1) && [[ $jout == *"is corrupt:"* ]]; then
+  echo "toolcheck: REFUSED, corrupt runtime in $tb: $jout. Delete the folder and its dl tarball and rerun bin/setup-container.sh" >&2; exit 2
+fi
 (( ${#miss} )) || exit 0
 msg="incomplete toolset ${tb}: missing ${(j:, :)miss}. mxbuild would fail late with dojo-web DirectoryNotFoundException (9.x, 10.12) or copyDeploymentArtifacts NoSuchFileException (10.24). Extract mxbuild-<full ver>.tar.gz again into a fresh folder."
 v=${${tb:A:t}#mxbuild-}; [[ $v == [0-9]*.[0-9]*.[0-9]*.[0-9]* ]] || v='<full ver>'
