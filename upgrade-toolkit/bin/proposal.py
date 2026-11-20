@@ -742,15 +742,16 @@ def reanswer(items, work):
 
 
 def mark_stale(path, pid):
-    """Rewrite the last `pid | ...` line of DECISIONS.md to `pid~stale-merged | ...`; every other line stays byte for byte."""
-    text = open(path, encoding="utf-8").read()
+    """Rewrite every `pid | ...` line of DECISIONS.md to `pid~stale-merged | ...` (decisions() is last-wins, so marking only the
+    last one would revive an earlier line). Every other byte stays: line endings are kept (newline=""). The read-then-replace
+    window can lose a line that write_decisions appends meanwhile; the pipeline runs one proposal.py at a time."""
+    with open(path, encoding="utf-8", newline="") as f:
+        text = f.read()
     lines = text.split("\n")
-    idx = [n for n, ln in enumerate(lines) if re.match(rf"^{re.escape(pid)}\s*\|", ln)]
-    if not idx:
-        return
-    n = idx[-1]
-    lines[n] = re.sub(rf"^{re.escape(pid)}(\s*\|)", rf"{pid}~stale-merged\1", lines[n], count=1)
-    open(path + ".tmp", "w", encoding="utf-8").write("\n".join(lines))
+    for n, ln in enumerate(lines):
+        lines[n] = re.sub(rf"^{re.escape(pid)}(\s*\|)", rf"{pid}~stale-merged\1", ln, count=1)
+    with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(lines))
     os.replace(path + ".tmp", path)
 
 

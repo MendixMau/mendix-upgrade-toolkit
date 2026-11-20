@@ -4420,6 +4420,36 @@ ctl release-impact-java-ported-check-pass 1 '!OPEN Studio Pro row 1: ' -- sh -c 
 ctl release-impact-java-unported-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-symbol-ported' -- sh -c "$RT --facts $RI/tools-unported.json --out $RI/tools-unported.md >/dev/null; cat $RI/tools-unported.md; python3 $B/release_impact.py --check $RI/tools-unported.md"
 ctl release-impact-java-rev-explicit-catch 0 'handled \(auto\): java-symbol-ported: AdminException' -- sh -c "$RT --java-rev HEAD~1 --facts $RI/tools-ported.json --out $RI/tools-ported2.md >/dev/null; cat $RI/tools-ported2.md"
 ctl release-impact-tools-no-project-catch 1 '^OPEN Studio Pro row 1: ' '^OPEN Module MendixSSO row 13: ' '\| 8 \| 10\.7\.0 .*git-teamserver: area' '!java-symbol-absent' '!module-library-bump' '^auto: 2, human: 0, open: 15$' -- sh -c "$RT --facts $RI/tools-none.json --out $RI/tools-none.md >/dev/null; cat $RI/tools-none.md; python3 $B/release_impact.py --check $RI/tools-none.md"
+# GM-38: a java-actions removal row the original Java still names closes when the target build is green AND the
+# symbol is gone from the final javasource. jp-own = the original (AdminException in own Keep.java), jp-plain = the repaired
+# project (gone), jp-still = a "repaired" project that still names it.
+python3 $here/lib/mkjavaproj.py $RI/jp-still --own-uses
+printf 'BUILD SUCCEEDED\n' > $RI/build-green.log
+printf 'BUILD SUCCEEDED\nERROR at CE0117 in Module.Flow\n' > $RI/build-red.log
+printf 'ERROR at CE0001 in Module.Flow\n' > $RI/build-nosuccess.log
+gm38() { printf '{"project_dir": "%s", "final_dir": "%s", "build_log": "%s"}\n' "$RI/jp-$1" "$RI/jp-$2" "$RI/$3" > $RI/gm38-$4.json; }
+gm38 own plain build-green.log ok;      gm38 own still build-green.log present
+gm38 own plain build-red.log red;       gm38 own plain build-nosuccess.log nosuccess;  gm38 own plain build-missing.log missing
+gm38 plain plain build-red.log never
+ctl release-impact-gm38-green-absent-pass 0 '\| 1 \| 10\.0\.0 \| removal .*handled \(auto\): java-removal-proved-by-build: AdminException, IMxRuntime: BUILD SUCCEEDED and 0 ERROR at lines in .*build-green\.log; 0 hits in .*jp-plain/javasource \(3 \.java, proxies excluded\) after the repairs; build_log=.*build-green\.log \(--build-log|final_dir=.*jp-plain' '!auto cannot use: java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-ok.json --out $RI/gm38-ok.md >/dev/null; cat $RI/gm38-ok.md"
+ctl release-impact-gm38-green-present-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-removal-proved-by-build: AdminException' -- sh -c "$RT --facts $RI/gm38-present.json --out $RI/gm38-present.md >/dev/null; cat $RI/gm38-present.md; python3 $B/release_impact.py --check $RI/gm38-present.md"
+ctl release-impact-gm38-red-build-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-removal-proved-by-build: AdminException' -- sh -c "$RT --facts $RI/gm38-red.json --out $RI/gm38-red.md >/dev/null; cat $RI/gm38-red.md; python3 $B/release_impact.py --check $RI/gm38-red.md"
+ctl release-impact-gm38-red-build-reason-catch 0 'auto cannot use: java-removal-proved-by-build: build not green: 1 ERROR at lines in .*build-red\.log' -- sh -c "$RT --facts $RI/gm38-red.json --out $RI/gm38-red2.md"
+ctl release-impact-gm38-no-success-catch 0 'auto cannot use: java-removal-proved-by-build: build not green: no BUILD SUCCEEDED in .*build-nosuccess\.log' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-nosuccess.json --out $RI/gm38-nosuccess.md; cat $RI/gm38-nosuccess.md"
+ctl release-impact-gm38-missing-build-catch 0 'auto cannot use: java-removal-proved-by-build: build result .*build-missing\.log cannot be read' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-missing.json --out $RI/gm38-missing.md; cat $RI/gm38-missing.md"
+ctl release-impact-gm38-never-present-pass 0 '\| 1 \| 10\.0\.0 \| removal .*not relevant \(auto\): java-symbol-absent: AdminException, IMxRuntime: 0 hits in' '!java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-never.json --out $RI/gm38-never.md >/dev/null; cat $RI/gm38-never.md"
+# the build log must be newer than the final tree it is offered for: a log older than a final .java is not that build
+cp $RI/build-green.log $RI/build-stale.log; touch -d '2001-01-01 00:00:00' $RI/build-stale.log
+gm38 own plain build-stale.log stale
+ctl release-impact-gm38-stale-log-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log older than final javasource/mpr' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-stale.json --out $RI/gm38-stale.md; cat $RI/gm38-stale.md; python3 $B/release_impact.py --check $RI/gm38-stale.md"
+# a corrupt userlib jar makes the final scan incomplete (ix.ok False): green build, row stays open
+python3 $here/lib/mkjavaproj.py $RI/jp-badjar; printf 'not a zip' > $RI/jp-badjar/userlib/broken.jar
+gm38 own badjar build-green.log badjar; touch $RI/build-green.log
+ctl release-impact-gm38-corrupt-jar-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: final scan incomplete: broken\.jar' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-badjar.json --out $RI/gm38-badjar.md; cat $RI/gm38-badjar.md; python3 $B/release_impact.py --check $RI/gm38-badjar.md"
+# a dangling symlink in the final javasource: freshness is not checkable, the row stays open, no crash
+python3 $here/lib/mkjavaproj.py $RI/jp-dangle; ln -s $RI/nowhere.java $RI/jp-dangle/javasource/myfirstmodule/actions/Gone.java
+gm38 own dangle build-green.log dangle; touch $RI/build-green.log
+ctl release-impact-gm38-dangling-symlink-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log freshness not checkable: .*Gone\.java unreadable' '!handled \(auto\): java-removal-proved-by-build' '!Traceback' -- sh -c "$RT --facts $RI/gm38-dangle.json --out $RI/gm38-dangle.md || exit 9; cat $RI/gm38-dangle.md; python3 $B/release_impact.py --check $RI/gm38-dangle.md"
 mkdir -p $RI/fp; cp $M/facts-clean/App.mpr $RI/fp/; python3 $here/lib/mkjavaproj.py $RI/fp --git
 ctl release-impact-tools-facts-pass 0 '"project_dir": ".*/fp"' '"vcs": "git"' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $RI/fp/App.mpr --facts-out $RI/fp-facts.json >/dev/null; cat $RI/fp-facts.json"
 mkdir -p $RI/fnj; cp $M/facts-clean/App.mpr $RI/fnj/
@@ -7111,12 +7141,18 @@ OLD='asked | me | CONFIRMED | closes by: x'
 if [ $1 = absorbed ]; then
   printf '{"check:Release notes": 1, "widget:Gantt.mpk 1.2.0": 2, "widget:R35 React 19 removed API": 5}' > $w/state/proposal-ids.json
   printf 'P-5 | R35 React 19 removed API | widget | a newer widget version built for React 19 | %s\n' "$OLD" > $w/DECISIONS.md
+elif [ $1 = two ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\nP-2 | Gantt.mpk 1.2.0 | widget | swap to a successor | %s\n' "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = crlf ]; then
+  printf 'P-1 | Release notes | check | run the check first | %s\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\r\nP-9 | Other | widget | x | %s\r\n' "$OLD" "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = nonl ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s' "$OLD" > $w/DECISIONS.md
 else
   printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\n' "$OLD" > $w/DECISIONS.md
 fi
 bash $PR/prop.sh $w > /dev/null
 bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'
-echo "--- DECISIONS.md"; cat $w/DECISIONS.md
+echo "--- DECISIONS.md"; cat -A $w/DECISIONS.md; echo; echo "--- bytes"; wc -c < $w/DECISIONS.md
 echo "--- cockpit reads"; python3 -I -c "
 import sys; sys.path.insert(0, '$B'); import cockpitpage as cp
 d = cp.parse_decisions_md(open('$w/DECISIONS.md').read()); print('ids', sorted(d))"
@@ -7129,6 +7165,10 @@ SH
 chmod +x $PR/gm20r.sh
 ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 're-answer: merged from P-2; earlier answer P-2: .keep old package, accept the risk. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x$' '^--- after a new answer and a lost record$' 'answer: a newer widget version built for React 19 \(CONFIRMED\)' '^P-2 \| Gantt\.mpk 1\.2\.0 \| widget \| a newer widget version built for React 19 \| asked again' -- bash $PR/gm20r.sh dojo
 ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer P-5: .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-5~stale-merged \| R35 React 19 removed API \| widget \|' -- bash $PR/gm20r.sh absorbed
+ctl proposal-gm20-two-lines-same-id-both-marked-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| swap to a successor \| asked' '^  - answer: not yet$' '!answer: keep old package' '!answer: swap' '!^P-2 \|' -- bash $PR/gm20r.sh two
+ctl proposal-gm20-crlf-endings-kept-catch 0 '^P-1 \| Release notes \| check \| run the check first \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-9 \| Other \| widget \| x \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^  - answer: not yet$' '^[0-9]+$' -- bash $PR/gm20r.sh crlf
+ctl proposal-gm20-crlf-only-suffix-differs-pass 0 '^same-bytes-plus-13$' -- bash -c "printf 'P-1 | Release notes | check | run the check first | asked | me | CONFIRMED | closes by: x\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\r\nP-9 | Other | widget | x | asked | me | CONFIRMED | closes by: x\r\n' | wc -c > $PR/crlf-before.txt; bash $PR/gm20r.sh crlf > /dev/null; n=\$(wc -c < $PR/gm20r-crlf/DECISIONS.md); b=\$(cat $PR/crlf-before.txt); [ \$((n - b)) = 13 ] && echo same-bytes-plus-13 || echo \"delta \$((n - b))\""
+ctl proposal-gm20-no-trailing-newline-kept-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 .* closes by: x$' '^  - answer: not yet$' '^lastbyte:x$' -- bash -c "bash $PR/gm20r.sh nonl; tail -c 1 $PR/gm20r-nonl/DECISIONS.md | od -An -c | tr -d ' ' | sed 's/^/lastbyte:/'"
 ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
 ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
 ctl proposal-gm20-two-packages-other-untouched-pass 0 'evidence: dojo-react\.md: can.t move: Old\.widget\.Tree \(2\)$' 'options: stay on 11 with the Dojo client' '!supporting' '!R35' -- sh -c "bash $PR/gm20.sh two | sed -n '/Tree.mpk/,/answer:/p'"
