@@ -1143,6 +1143,13 @@ FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
 for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
 for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
 ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'rerun without --from' '--only propose' 'resume\.sh <run folder>' 'builds on it\. Nothing' '!^propose +running' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
+# ORG (issue 35): --from on the ladder command after rung 2 converted the app: refused at once, naming the rung-2 work folder
+LF=$T/ladfrom; rm -rf $LF; mkdir -p $LF/app $LF/app2 $LF/w/rung2/state $LF/w/state; echo x > $LF/w/rung2/state/convert.done; echo x > $LF/w/state/gate.done
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app/App.mpr 11.15.0.1
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app2/App.mpr 10.24.26.1
+ladfrom() { bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $1 --source 10.20.0.1 --target 10.24.26.1 --target2 11.15.0.1 --work $LF/w --from $2 --dry-run; }
+ctl pipeline-ladder-from-converted-catch 2 '^upgrade-pipeline\.sh: --from update refused on the ladder command: rung 2 has already converted .* to 11\.15\.0\.1' "--work $LF/w/rung2" 'Nothing was changed' '!^update +running' -- ladfrom $LF/app update
+ctl pipeline-ladder-from-rung1-app-pass 0 '!refused on the ladder command' '^fetch +running' -- ladfrom $LF/app2 fetch
 ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
@@ -8872,6 +8879,11 @@ ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from yo
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
+# WTD round (field run WTD, auto mode): parked items are counted and located on the page, never "Nothing needed"; with nothing parked it still says so
+ctl cockpit-parked-not-nothing-catch 0 '^3 parked items wait for your answer\. The run went on without them\.$' '^They are listed in NEEDS-JUDGMENT\.md in the work folder' '!^Nothing needed from you now\.$' -- $CK parked-idle
+ctl cockpit-parked-none-says-nothing-pass 0 '^Nothing needed from you now\.$' '!parked' -- $CK parked-none
+ctl cockpit-parked-markers-only-idle-catch 0 '^2 parked items wait for your answer\.' '!parked so far' '!^Nothing needed from you now\.$' -- $CK parked-markers
+ctl cockpit-parked-rerun-running-not-waits-catch 0 '^2 parked so far\. Answer them after the run ends \(NEEDS-JUDGMENT\.md\)\.$' '!waits? for your answer' '!items wait' -- $CK parked-rerun
 # round 5 (lead user test on PSOP and TLT; issue drafts 15 and 17): the stop's owner decides the top card, recording the old app is not testing,
 # the second rung's page keeps the first rung's result; wording, order and folding only, no verdict changes
 ctl cockpit-brief-agent-stop-before-signoff-catch 0 '^Upgrade from Mendix 10\.6\.3 to 10\.24\.0: 7 of 14 steps done\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(mxbuild failed\) and rerun\.$' '^The plan still waits for your sign-off; the run does not wait for it\. Review the plan →$' '!Approve the plan' '!waiting for 1 answer' '!\(exit' '^cards: 1$' -- $CK chk-agent-stop
