@@ -595,7 +595,7 @@ echo 'class B { boolean f() { return Core.isSubClassOf("A", "B"); } }' > $KJ/app
 echo 'class C { void f() { Core.createXPathQuery("//X").execute(ctx); } }' > $KJ/app/javasource/ownok/C.java
 echo 'class P { void f() { Core.retrieveXPathQuery(ctx, "//X"); } }' > $KJ/app/javasource/ownok/proxies/P.java
 printf '# kept: KeptMod\n1 2.0.0 PlanMod\n' | tee $KJ/w/plan.txt > $KJ/wp/plan.txt; echo 'KeptMod no 11 release' > $KJ/wp/java-port.txt
-{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
+{ sed -n '/^kept_java_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'; echo 'nj_meta() { :; }'; echo "DRY=0 APP=$KJ/app"; } > $KJ/stub.sh
 ctl triage-kept-java-removed-api-catch 0 '^NJ 13 Kept module calls Java API Mendix 11\.12\.7 removed' '^keptmod: 1 file\(s\), e\.g\. javasource/keptmod/reader/A\.java $' '!^planmod' '!^ownok' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=11.12.7; kept_java_check"
 ctl triage-kept-java-ported-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/wp TARGET=11.12.7; kept_java_check; echo done"
 ctl triage-kept-java-rung10-pass 0 '^done$' '!^NJ' -- bash -c "set -Eeuo pipefail; . $KJ/stub.sh; WORK=$KJ/w TARGET=10.24.28; kept_java_check; echo done"
@@ -1022,7 +1022,7 @@ ctl missing-deps-charts3-by-module-catch 1 '^  module Atlas_Core: 2 document\(s\
 # a written route (charts11.txt) or a 10.x target passes
 C11=$T/c11; mkdir -p $C11/w $C11/wr; echo 'own snippets: Charts 6 on the 10.24 rung' > $C11/wr/charts11.txt
 { sed -n '/^charts11_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; echo 'nj_add() { echo "NJ $1 $2: $3"; }'
-  echo 'xo() { local f=$1; shift; "$@" > "$f" 2>&1; }'; echo 'note() { echo "NOTE $*"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
+  echo 'xo() { local f=$1; shift; "$@" > "$f" 2>&1; }'; echo 'nj_meta() { :; }'; echo 'note() { echo "NOTE $*"; }'; echo "DRY=0 B=$B APP=$(model charts3-mods)"; } > $C11/stub.sh
 # a removed widget is asked once: when widgetroute.py can read a route the triage stop stands down (the build routes it and asks its one OK);
 # the triage stop stays only when no route can be read (widgetroute exit 2). Here a stub widgetroute that exits 2 stands for that case.
 C11B=$T/c11b/bin; mkdir -p $C11B/repair; ln -sfn $B/../playbooks $T/c11b/playbooks; for f in $B/*; do [ "$f" = $B/repair ] || ln -sf $f $C11B/; done; for f in $B/repair/*; do ln -sf $f $C11B/repair/; done; rm -f $C11B/repair/widgetroute.py
@@ -2627,7 +2627,7 @@ ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.
 ctl pipeline-dry-build-gridlayout-catch 0 'repair/gridlayout\.py .*/papp --causes .*/pw/screen-causes\.txt > .*/pw/gridlayout\.out' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
-NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
+NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; git init -q $NJ/app; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
 # a rung-2 hint carries the env rung 1 gave it (cold rfq: without RUN the run folder became <work>, the app outside it, exit 3)
 ctl pipeline-nj-rung2-env-catch 0 'needs judgment \(exit 13\)' "^    env RUN=$NJ UPG_PHASE=11\.15\.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT\.html .*upgrade-pipeline\.sh .*--work $NJ/work/rung2 .*--from update\$" -- bash -c "env RUN=$NJ UPG_PHASE=11.15.0 UPG_COCKPIT_OUT=$NJ/work/COCKPIT.html MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work/rung2 --only update; cat $NJ/work/rung2/NEEDS-JUDGMENT.md"
@@ -7407,7 +7407,7 @@ ctl proposal-missing-input-widget-gone-catch 0 '!Stuck' '!module: PDFReader' -- 
 ctl proposal-present-input-measured-pass 0 '!not measured: release-impact\.md' '!not measured: dojo-react\.md' '!not measured: stranded\.md' '!not measured: localedits\.json' '!not measured: replacements\.md' -- bash $PR/sec.sh $PR/kept 5
 ctl proposal-not-before-convert-listed-pass 0 'not measured: widgetcover\.py' 'not measured: theme_clash\.py' 'not measured: rolecheck\.py' 'not measured: usercode\.py' -- bash $PR/sec.sh $PR/kept 5
 # pipeline: step propose between basewalk and convert; exit 14 unsigned, 15 PAUSED, 0 signed; unattended goes on
-PNJ=$PR/pipe; mkdir -p $PNJ/app $PNJ/tools/mxbuild-10.24.26.1 $PNJ/tools/mxbuild-11.15.0.1 $PNJ/tools/runtime-10.24.26.1 $PNJ/tools/runtime-11.15.0.1; touch $PNJ/app/App.mpr
+PNJ=$PR/pipe; mkdir -p $PNJ/app $PNJ/tools/mxbuild-10.24.26.1 $PNJ/tools/mxbuild-11.15.0.1 $PNJ/tools/runtime-10.24.26.1 $PNJ/tools/runtime-11.15.0.1; touch $PNJ/app/App.mpr; git init -q $PNJ/app
 printf '#!/bin/sh\nexit 0\n' > $PNJ/tools/mxcli-linux; chmod +x $PNJ/tools/mxcli-linux
 pipe() { # pipe WORKNAME [pipeline args]: the propose step alone, MXCLI unset, then NEEDS-JUDGMENT.md when there is one; exit = the pipeline's
   local wn=$1; shift
@@ -7910,7 +7910,7 @@ ctl bt10-diskcheck-enospc-log-catch 1 'DISK FULL: the log holds an out-of-space 
 ctl bt10-diskcheck-low-free-catch 1 'DISK FULL: only 235 MB are free' -- env UPG_FREE_MB=235 bash $B/diskcheck.sh --need-mb 2000 --log $BTF/baseline-plain-fail.log $T
 ctl bt10-diskcheck-plain-failure-pass 0 'disk ok: 50000 MB free' '!DISK FULL' -- env UPG_FREE_MB=50000 bash $B/diskcheck.sh --need-mb 300 --log $BTF/baseline-plain-fail.log $T
 # a minimal run folder for pipeline controls of the batch-templates fixes: fake docker (preflight asks `docker info`), an empty app
-BTR=$T/btrun; mkdir -p $BTR/app $BTR/bin $BTR/tools/mxbuild-10.24.26.1 $BTR/tools/mxbuild-11.15.0.1 $BTR/tools/runtime-10.24.26.1 $BTR/tools/runtime-11.15.0.1 $BTR/work/state; touch $BTR/app/App.mpr
+BTR=$T/btrun; mkdir -p $BTR/app $BTR/bin $BTR/tools/mxbuild-10.24.26.1 $BTR/tools/mxbuild-11.15.0.1 $BTR/tools/runtime-10.24.26.1 $BTR/tools/runtime-11.15.0.1 $BTR/work/state; touch $BTR/app/App.mpr; git init -q $BTR/app
 printf '#!/bin/sh\nexit 0\n' > $BTR/tools/mxcli-linux; chmod +x $BTR/tools/mxcli-linux
 printf '#!/bin/sh\nexit 0\n' > $BTR/bin/docker; chmod +x $BTR/bin/docker
 BTP=$BTR/work
@@ -7975,7 +7975,7 @@ ctl bt11-single-pass-installed-pass 0 'module update Atlas_Web_Content 3\.9\.0 -
 # BT-8: `--only propose` needs no toolset, runtime or mxcli. A run folder whose tools/ folder is empty (the source runtime was
 # deleted for disk room) still regenerates PROPOSAL.md; the same folder stops a step that does need them. Golden message:
 # "missing runtime" / exit 3, as the DOCGEN and CMPL workers met it.
-BT8=$T/bt8; mkdir -p $BT8/app $BT8/tools $BT8/work/state; touch $BT8/app/App.mpr
+BT8=$T/bt8; mkdir -p $BT8/app $BT8/tools $BT8/work/state; touch $BT8/app/App.mpr; git init -q $BT8/app
 bt8() { env MXCLI= UPG_FREE_MB=90000 bash $B/cloud/upgrade-pipeline.sh --app-dir $BT8/app --source 10.24.26.1 --target 11.15.0.1 --work $BT8/work "$@"; }
 ctl bt8-propose-without-tools-catch 14 'needs judgment \(exit 14\)' '!missing' '!setup\.sh' -- bt8 --only propose
 ctl bt8-triage-without-tools-pass 3 "missing source mxbuild toolset: $BT8/tools/mxbuild-10.24.26.1" -- bt8 --only triage
@@ -7989,7 +7989,7 @@ python3 $B/../controls/lib/mkmodel.py $FX/models/module-only.json $BT2/mod > /de
 ctl bt2-appshape-module-only-catch 1 '^appshape: MODULE-ONLY; modules: IncentroLayouts; navigation profiles: 1; home pages set: 0; theme: no design-properties' -- python3 $B/appshape.py $BT2/mod
 ctl bt2-appshape-app-pass 0 '^appshape: APP; .*home pages set: [1-9]' -- python3 $B/appshape.py $BT2/app/App.mpr
 ctl bt2-appshape-unreadable-pass 2 '^appshape: UNKNOWN' -- python3 $B/appshape.py $(model base)
-bt2() { local d=$1; shift; rm -rf $BT2/r-$d; mkdir -p $BT2/r-$d/work/state; cp -r $BT2/$d $BT2/r-$d/app; cp -r $BTR/tools $BT2/r-$d/tools
+bt2() { local d=$1; shift; rm -rf $BT2/r-$d; mkdir -p $BT2/r-$d/work/state; cp -r $BT2/$d $BT2/r-$d/app; git init -q $BT2/r-$d/app; cp -r $BTR/tools $BT2/r-$d/tools
   env MXCLI= "$@" bash $B/cloud/upgrade-pipeline.sh --app-dir $BT2/r-$d/app --source 10.24.26.1 --target 11.15.0.1 --work $BT2/r-$d/work --only triage; local rc=$?
   [ ! -f $BT2/r-$d/work/NEEDS-JUDGMENT.md ] || cat $BT2/r-$d/work/NEEDS-JUDGMENT.md; return $rc; }
 ctl bt2-triage-module-only-stops-catch 13 'needs judgment \(exit 13\)' 'The source is a module, not an app: it needs a host app' 'home pages set: 0' 'wrap it in a host app' '!OLD app does not build' -- bt2 mod UPG_X=1
@@ -9097,7 +9097,9 @@ ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-c
 
 # apidirect names its database copy so smoke_users accepts it (the old name _apid_<side> was refused: "not a copy")
 ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- python3 $B/smoke_users.py upg_t_apid_old --roles Administrator --container no-such-ctr
-ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
+# the name check comes before any hashing; a stand-in bcrypt module keeps this control independent of the host's pip packages (CI has none)
+mkdir -p $T/fake-bcrypt; printf 'def gensalt(rounds=12, prefix=b"2b"): return b"$2a$10$" + b"x" * 22\ndef hashpw(pw, salt): return salt + b"y" * 31\n' > $T/fake-bcrypt/bcrypt.py
+ctl apidirect-db-name-accepted-pass 0 '!not a copy' -- bash -c "n=\$(grep -o 'fresh_name \"\${X}_[a-z_]*apid_\$side\"' $B/cloud/upgrade-pipeline.sh | sed 's/fresh_name \"\${X}//; s/\\\$side\"//'); echo name=upg_t\${n}old; PYTHONPATH=$T/fake-bcrypt python3 $B/smoke_users.py upg_t\${n}old --roles Administrator --container no-such-ctr"
 
 
 # --- cockpit clarity, round 6: lane B's final findings (fixtures/cockpit/lane-b: captured stop files and a final check, paths replaced) ---
