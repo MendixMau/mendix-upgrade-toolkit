@@ -429,7 +429,7 @@ def _value_desc(typ, val):
     """What one instance's property holds, read from the model's WidgetValue (not from describe output)."""
     val = val if isinstance(val, dict) else {}
     if typ == "form":
-        return f"page {val['Form']}" if val.get("Form") else "no page set"
+        return f"page {val['Form']}" if val.get("Form") else "a page not readable from the model (WidgetValue.Form is empty; assume it holds a page)"
     if typ == "widgets":
         n = sum(1 for _ in _find(val.get("Widgets"), _is_widget))
         return f"{n} child widget(s)"
