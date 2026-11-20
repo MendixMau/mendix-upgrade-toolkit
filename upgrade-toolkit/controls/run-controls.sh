@@ -247,6 +247,20 @@ ctl keptstyle-catch 1 '^RISK KeptA themesource/KeptA/web/main\.scss:3 \.widget-d
 ctl keptstyle-own-classes-pass 0 '0 platform widget selector' '!RISK' -- python3 $B/keptstyle.py $T/ks --kept KeptB
 ctl keptstyle-none-kept-pass 0 '0 kept module' -- python3 $B/keptstyle.py $T/ks --kept ''
 ctl keptstyle-no-arg-invalid 2 'give --kept' -- python3 $B/keptstyle.py $T/ks
+# GM-15: keptvendor checks every @include, $var and @import of a kept themesource against the TARGET package of a planned module
+# (fixtures/keptvendor: app with an old PlatformDesignSystem; pkg-new lacks the dark-theme mixin, $pds-gone and the gone file)
+KV=$FX/keptvendor; KVC=$T/kvcache
+mkdir -p $KVC/new $KVC/old $KVC/none
+kvzip() { (cd "$1" && python3 -c "import zipfile,os,sys;z=zipfile.ZipFile(sys.argv[1],'w');[z.write(os.path.join(d,f)) for d,_,fs in os.walk('.') for f in fs]" "$2"); }
+kvzip $KV/pkg-new $KVC/new/9001-45.0.0.mpk; kvzip $KV/pkg-old $KVC/old/9001-45.0.0.mpk
+ctl gm15-kept-mixin-catch 1 '^MISSING mixin dark-theme: used in themesource/KeptMixin/web/main\.scss:4, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:3, gone in PlatformDesignSystem 45\.0\.0$' '!pds-ok-mixin' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-variable-catch 1 '^MISSING variable \$pds-gone: used in themesource/KeptVar/web/main\.scss:3, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:1, gone in PlatformDesignSystem 45\.0\.0$' '!MISSING variable \$pds-ok' -- python3 $B/keptvendor.py $KV/app --kept KeptVar --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-import-catch 1 '^MISSING import \.\./\.\./PlatformDesignSystem/web/gone: used in themesource/KeptImport/web/main\.scss:1' '1 missing' '!web/mixins' -- python3 $B/keptvendor.py $KV/app --kept KeptImport --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-all-present-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin,KeptVar,KeptImport,KeptOk --plan-file $KV/plan.txt --cache $KVC/old
+ctl gm15-kept-ok-uses-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptOk --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-own-and-app-theme-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptSelf --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-package-missing-not-checked 3 '^NOT CHECKED PlatformDesignSystem 45\.0\.0: package not cached \(9001-45\.0\.0\.mpk' 'mixin dark-theme at themesource/KeptMixin/web/main\.scss:4' '0 missing, [1-9][0-9]* not checked' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none
+ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
 ctl crosscalls-none-pass 0 '0 planned module\(s\) capped' 'scanned [1-9][0-9]* documents' '!CAP ' -- python3 $B/crosscalls.py $M/xcall-none --kept KeptConn --planned AuthMod

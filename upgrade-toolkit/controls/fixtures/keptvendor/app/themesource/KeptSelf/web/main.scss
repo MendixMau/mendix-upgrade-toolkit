@@ -1,0 +1,7 @@
+$own-gap: 4px;
+@mixin own-mix { margin: 0; }
+.kept-self {
+  padding: $own-gap;
+  color: $brand;
+  @include own-mix;
+}
