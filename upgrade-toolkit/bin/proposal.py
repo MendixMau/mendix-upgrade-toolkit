@@ -13,6 +13,7 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   release-impact.md                                                 rows whose "handled" cell is empty need a person (item 10)
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
   absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
+  keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional, written once kept.txt exists)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
   actions.json                                                      action_inventory.py summary (action count)
   journey-scope.json                                                journey_scope.py: reachable / out of scope split of the actions
@@ -131,6 +132,7 @@ class Facts:
         self.W = a.work
         self.measured, self.not_measured = [], []
         self.plan = []          # (module, from, to, when)
+        self.kv_seen = False    # keptvendor.json read (GM-15)
         self.kept = {}          # module -> reason
         self.stranded = {}      # module -> text
         self.items3 = []        # decision items
@@ -320,6 +322,38 @@ class Facts:
                       "S", f"every reference to {x} is CE1613 at the build, and the update step cannot add a module")
         for u in unchecked:
             self.not_measured.append((f"absentmods.py {u.get('module')} {u.get('version')}", u.get("reason") or "package not read"))
+
+    def keptvend(self):
+        """GM-15: a kept module's themesource uses a mixin, variable or file that a planned package no longer has (the theme compile
+        fails after the update). keptvendor.json is optional (written once .stepupdate/kept.txt exists; an older run has none). One
+        section-3 item per planned package with MISSING uses; a package whose target could not be read is listed as not measured,
+        never as clean. These items are not in the plan hash (see main): the file appears after the update step, like kept.txt."""
+        t = read(self.p("keptvendor.json"))
+        if t is None:
+            return
+        try:
+            d = json.loads(t)
+            missing, unchecked = d.get("missing") or [], d.get("not_checked") or {}
+            by = {}
+            for x in missing:
+                by.setdefault((x["pkg"], x.get("version") or "?"), []).append(x)
+            unchecked = {str(m): (v.get("why") or "package not read", v.get("uses") or []) for m, v in unchecked.items()}
+        except (ValueError, AttributeError, KeyError, TypeError):
+            self.not_measured.append(("keptvendor.json", "not valid JSON; kept themesource uses of planned packages were not checked"))
+            return
+        self.measured.append("keptvendor.json")
+        self.kv_seen = True
+        for (pkg, ver), xs in sorted(by.items()):
+            what = "; ".join(f"{x.get('kind')} {x.get('name')} used in {x.get('where')} (module {x.get('module')})" for x in xs[:6]) \
+                + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
+            self.add3("theme", f"kept styling uses what {pkg} {ver} removes",
+                      f"keptvendor.json: {len(xs)} use(s) in a kept themesource that {pkg} {ver} no longer has: {what}",
+                      f"fix the kept SCSS (use what {pkg} {ver} offers instead) | hold {pkg} at its installed version (keep it at the current version) | hand to a named person",
+                      "fix the kept SCSS before the update, so the theme compile passes",
+                      "M", f"the theme compile fails at the build for every kept use listed ({len(xs)}), and the update step does not edit a kept module")
+            self.items3[-1]["own"] = True   # its options are fixed here: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+        for m, (why, uses) in sorted(unchecked.items()):
+            self.not_measured.append((f"keptvendor.py {m}", f"{why}; {len(uses)} kept use(s) it defines are unverified"))
 
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
@@ -513,7 +547,7 @@ class Facts:
 
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.absent(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.absent(); self.keptvend(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"
@@ -576,7 +610,7 @@ class Facts:
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
         ra = load_ra(getattr(self.a, "ra_file", None))
         for it in self.items3:
-            for e in ra:
+            for e in [] if it.get("own") else ra:
                 if e["rx"].search(f"{it['kind']} {it['name']} {it['evidence']}"):
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
@@ -995,9 +1029,10 @@ def main():
     # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
     # routed what it could, so what is still kept is exactly that held edit.
     H = F
-    if F.kept:
+    if F.kept or F.kv_seen:
         H = Facts(a)
         H.keptmods = lambda: None
+        H.keptvend = lambda: None   # GM-15: keptvendor.json, like kept.txt, is written by the update step after the sign-off
         H.build()
     ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
         + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
