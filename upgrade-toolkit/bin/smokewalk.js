@@ -6,7 +6,9 @@
 //           not show the login form, an "An error occurred" dialog or a widget's own error box (landedOk, T3-6; also checked
 //           after the home step).
 // FAIL    = an error, or it landed somewhere else / nothing opened.
-// INVALID = could not judge (no credentials for the role, login failed, menu link not rendered).
+// INVALID = could not judge (no credentials for the role, login failed, menu link not rendered AND the direct open failed too).
+// GM-31: a menu link that is not rendered (pluggable navigation widget) opens the page (/p/<url> or mx.ui.openForm) or microflow
+//           (mx.data.action) directly; the step then says "opened directly" and proves the target, not the menu.
 //
 // Usage:
 //   node smokewalk.js --plan plan.json --url http://localhost:8380 --user Administrator=MxAdmin:pass \
@@ -251,6 +253,29 @@ async function clickStep(page, step) {
   return null; // home: already there
 }
 
+// GM-31: the menu link is not rendered (a pluggable navigation widget draws the menu, not a Mendix menu widget). The step's
+// target is then opened directly: a page with a URL by its /p/<url> address (directUrl), any other page by mx.ui.openForm, a
+// microflow by mx.data.action (openDirect, runs in the browser). Resolves null when it was opened, else the reason.
+// What this proves: the page or microflow works. It does NOT prove the menu works (directNote says so in the result).
+function directUrl(step, base) { return step.kind === 'page' && step.url ? base.replace(/\/+$/, '') + '/p/' + String(step.url).replace(/^\/+/, '') : null; }
+function openDirect(step) {
+  return new Promise(resolve => {
+    const why = e => String((e && e.message) || e).slice(0, 200);
+    try {
+      if (!window.mx || !mx.ui) return resolve('mx client not available');
+      if (step.kind === 'microflow') {
+        if (!mx.data || !mx.data.action) return resolve('mx.data.action not available');
+        mx.data.action({ params: { actionname: step.microflow }, callback: () => resolve(null), error: e => resolve('microflow failed: ' + why(e)) });
+      } else {
+        if (!mx.ui.openForm) return resolve('mx.ui.openForm not available');
+        mx.ui.openForm(step.page_path, { location: 'content', callback: () => resolve(null), error: e => resolve('page did not open: ' + why(e)) });
+      }
+    } catch (e) { resolve('open threw: ' + why(e)); }
+  });
+}
+const directNote = menuReason => 'opened directly: the page or microflow works, the menu is NOT proven (' + menuReason + ')';
+const directFailure = (menuReason, directReason) => menuReason + '; direct open also failed: ' + directReason;
+
 async function landed(page, step, before, timeout) {
   if (step.kind !== 'page') { await page.waitForTimeout(2500); return { ok: true, where: 'microflow ran' }; }
   try {
@@ -266,7 +291,7 @@ async function landed(page, step, before, timeout) {
 
 // ---- T6R-9: repeated walks and the compare over pooled runs (pure: controls/smokewalk_judge.js) ----
 const stepKey = (role, s) => role + ' | ' + s.via + ' | ' + s.caption + ' | ' + s.target;
-const stepRuns = s => s.runs || [{ verdict: s.verdict, errors: s.errors, reason: s.reason, landed: s.landed, t0: s.t0, t1: s.t1 }];
+const stepRuns = s => s.runs || [{ direct: s.direct, verdict: s.verdict, errors: s.errors, reason: s.reason, landed: s.landed, t0: s.t0, t1: s.t1 }];
 const RANK = { FAIL: 3, INVALID: 2, SKIPPED: 1, PASS: 0 };
 
 // one error signature per error line; digits do not count (React #409, timeouts, ids); a run without error lines is
@@ -306,6 +331,7 @@ function mergeWalks(walks) {
       const bad = s.runs.filter(r => r.verdict !== 'PASS');
       const worst = bad.slice().sort((a, b) => RANK[b.verdict] - RANK[a.verdict])[0];
       s.verdict = worst ? worst.verdict : 'PASS';
+      const dr = s.runs.find(r => r.direct); if (dr) s.direct = dr.direct;   // GM-31: said even when every run PASSed
       if (worst) { s.errors = worst.errors; if (worst.reason) s.reason = worst.reason; }
       if (bad.length && bad.length < s.runs.length) s.flaky = bad.length + ' of ' + s.runs.length;
     }
@@ -370,7 +396,7 @@ function apiOnlyHome(plan, s) {
     ? 'API-only role: its home page is the login page ' + s.page + ', no signed-in home to walk' : null;
 }
 
-module.exports = { sessionUser, loginFailure, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl };
+module.exports = { sessionUser, loginFailure, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
 if (require.main === module) (async () => {
   const o = args();
   let results;
@@ -413,9 +439,20 @@ if (require.main === module) (async () => {
             errs = [];
             const before = await page.evaluate(contentPath);
             const t0 = Date.now();
-            const ce = await clickStep(page, s);
+            let ce = await clickStep(page, s), l;
+            if (ce && s.via === 'menu') {   // GM-31: no menu link, open the target directly
+              const du = directUrl(s, o.url);
+              let de = null;
+              try {
+                if (du) await page.goto(du, { waitUntil: 'domcontentloaded' });
+                else de = await page.evaluate(openDirect, s);
+              } catch (e) { de = String(e.message).split('\n')[0]; }
+              if (!de) { l = await landed(page, s, before, o.timeout); if (!l.ok) de = 'did not land on the page (' + l.where + ')'; }
+              if (de) { res.verdict = 'INVALID'; res.reason = directFailure(ce, de); continue; }
+              res.direct = directNote(ce); ce = null;
+            }
             if (ce) { res.verdict = 'INVALID'; res.reason = ce; continue; }
-            const l = await landed(page, s, before, o.timeout);
+            if (!l) l = await landed(page, s, before, o.timeout);
             const mxErr = await page.evaluate(() => window.__swErrors || []).catch(() => []);
             const dlg = await page.evaluate(() => [...document.querySelectorAll('.mx-dialog-error, .mx-window .alert-danger')].filter(e => e.offsetParent !== null).map(e => e.textContent.trim().slice(0, 200)));
             const bad = await page.evaluate(landedOk).catch(e => 'page could not be inspected: ' + String(e.message).split('\n')[0]);
@@ -454,7 +491,7 @@ if (require.main === module) (async () => {
   const lines = [];
   for (const r of results.roles) {
     lines.push(`== ${r.role}: ${r.verdict}${r.reason ? ' (' + r.reason + ')' : ''}`);
-    for (const s of r.steps) lines.push(`  ${s.verdict.padEnd(7)} ${s.via.padEnd(6)} ${s.caption} -> ${s.target}${s.flaky ? ' [not PASS in ' + s.flaky + ' walks]' : ''}${s.landed ? ' [' + s.landed + ', ' + s.ms + 'ms]' : ''}${s.reason ? ' (' + s.reason + ')' : ''}${s.screen ? ' [screen ' + s.screen + ']' : ''}${(s.errors || []).map(e => '\n            ' + e).join('')}`);
+    for (const s of r.steps) lines.push(`  ${s.verdict.padEnd(7)} ${s.via.padEnd(6)} ${s.caption} -> ${s.target}${s.flaky ? ' [not PASS in ' + s.flaky + ' walks]' : ''}${s.landed ? ' [' + s.landed + ', ' + s.ms + 'ms]' : ''}${s.direct ? ' [' + s.direct + ']' : ''}${s.reason ? ' (' + s.reason + ')' : ''}${s.screen ? ' [screen ' + s.screen + ']' : ''}${(s.errors || []).map(e => '\n            ' + e).join('')}`);
   }
   const tot = { PASS: count('PASS'), FAIL: count('FAIL'), INVALID: count('INVALID'), SKIPPED: count('SKIPPED'),
                 roles_invalid: results.roles.filter(r => r.verdict === 'INVALID').length };

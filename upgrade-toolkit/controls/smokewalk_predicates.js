@@ -1,7 +1,7 @@
 // Control for E5 F9: the smokewalk wait predicates must return false (not throw) while the Mendix session is not
 // available yet, and true once it is. Playwright's waitForFunction rejects on the first throw, which made every role
 // INVALID one second after a login that worked. Runs in plain node with a fake window/mx; exit 0 = pass.
-const { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
+const { directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
 let fail = 0;
 const check = (name, got, want) => {
   const ok = got === want;
@@ -139,5 +139,21 @@ function pwLoad() {
   check('loginFailure session without error text', /^home failed for this user: the home page did not render/.test(loginFailure({ status: 200, url: 'u', user: 'x' })), true);
   check('loginFailure no session', loginFailure({ status: 200, url: 'http://h/login3.html', user: null, error: 'x' }), 'login failed (HTTP 200, still on http://h/login3.html)');
   check('loginFailure license limit wins', /^login refused: license session limit/.test(loginFailure({ status: 402, url: 'u', user: 'x' })), true);
+  // GM-31: no menu link (a pluggable navigation widget draws the menu): open the target directly, say so, never claim the menu
+  const mfStep = { kind: 'microflow', via: 'menu', microflow: 'M.Do' }, pgStep = { kind: 'page', via: 'menu', page_path: 'M/P.page.xml', url: '' };
+  check('directUrl page with a url', directUrl({ kind: 'page', url: 'orders' }, 'http://h:1/'), 'http://h:1/p/orders');
+  check('directUrl page without a url falls to openForm', directUrl(pgStep, 'http://h:1'), null);
+  global.mx = { ui: { openForm: (p, o) => o.callback() }, data: { action: o => o.callback() } };
+  check('openDirect page opens', await openDirect(pgStep), null);
+  check('openDirect microflow runs', await openDirect(mfStep), null);
+  check('directNote says the menu is not proven', /opened directly.*menu is NOT proven \(menu link -A-B not rendered\)/.test(directNote('menu link -A-B not rendered')), true);
+  global.mx = { ui: { openForm: (p, o) => o.error(new Error('no access')) }, data: { action: o => o.error({ message: 'CE boom' }) } };
+  check('openDirect page fails with its reason', await openDirect(pgStep), 'page did not open: no access');
+  check('openDirect microflow fails with its reason', await openDirect(mfStep), 'microflow failed: CE boom');
+  check('both failures named', directFailure('menu link -A not rendered', 'page did not open: no access'), 'menu link -A not rendered; direct open also failed: page did not open: no access');
+  global.mx = { ui: {}, data: {} };
+  check('openDirect without client helpers', await openDirect(pgStep), 'mx.ui.openForm not available');
+  const dwalk = [{ role: 'R', steps: [{ caption: 'c', via: 'menu', target: 'M.P', verdict: 'PASS', direct: directNote('x') }] }];
+  check('mergeWalks keeps "opened directly" when every run PASSed', /^opened directly/.test(mergeWalks([dwalk, JSON.parse(JSON.stringify(dwalk))])[0].steps[0].direct), true);
   process.exit(fail ? 1 : 0);
 })();
