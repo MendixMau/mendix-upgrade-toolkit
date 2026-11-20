@@ -9,7 +9,7 @@
 // Returns true when it clicked a reveal link and the password field became visible, false otherwise (form already
 // visible, no password field in the page at all, or no link whose text names a local/alternative login). Never throws.
 // The same text test is inlined in run_journeys.py's engine patch (the scratch engine copy cannot require this file).
-const ALT = /^(?!.*\bhide\b).*((alternative|alternate|other|local)\s+(login|log\s?in|sign.?in|method)|(sign|log)\s?in\s+with\s+(a\s+)?(username|password|local|email)|(username|password)\s+(login|log\s?in|sign.?in))/i;
+const ALT = /^(?![\s\S]*\bhide\b)[\s\S]*((alternative|alternate|other|local)\s+(login|log\s?in|sign.?in|method)|(sign|log)\s?in\s+with\s+(a\s+)?(username|password|local|email)|(username|password)\s+(login|log\s?in|sign.?in))/i;
 
 async function revealLocalLogin(page, timeout = 4000) {
   try {

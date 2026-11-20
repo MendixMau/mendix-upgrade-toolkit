@@ -31,9 +31,13 @@ const SCRIPT = `<script>
   }
   </script>`;
 const FOLDED = `<!doctype html><html><body><a id="sso" href="/oauth/v2/login">Sign in with SSO</a>
-  <div class="sso-label"><a class="alt-login" href="javascript:void(0)" onclick="document.getElementById('f').style.display='block'">Show alternative login</a></div>
+  <div class="sso-label"><a class="alt-login" href="javascript:void(0)" onclick="document.getElementById('f').style.display='block'">
+      Show alternative login
+    </a></div>
   <div id="f" style="display:none">${FORM}
-  <a class="alt-login" href="javascript:void(0)" onclick="document.getElementById('f').style.display='none'">Hide alternative login</a></div>${SCRIPT}</body></html>`;
+  <a class="alt-login" href="javascript:void(0)" onclick="document.getElementById('f').style.display='none'">
+      Hide alternative login
+    </a></div>${SCRIPT}</body></html>`;
 const OPEN = `<!doctype html><html><body><div id="f">${FORM}</div>${SCRIPT}</body></html>`;
 const NOFORM = `<!doctype html><html><body><a href="/oauth/v2/login">Sign in with SSO</a></body></html>`;
 const HIDEONLY = `<!doctype html><html><body><div id="f" style="display:none">${FORM}</div>

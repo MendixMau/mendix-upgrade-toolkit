@@ -339,7 +339,7 @@ PATCHES = [
      "    .waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});\n"
      "  await page.waitForTimeout(800).catch(() => {});\n"
      "  if (!(await page.locator('#passwordInput, input[type=password]').first().isVisible().catch(() => false))) {\n"
-     "    const ALT = /^(?!.*\\bhide\\b).*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
+     "    const ALT = /^(?![\\s\\S]*\\bhide\\b)[\\s\\S]*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
      "    const links = page.locator('.alt-login, a, button, [role=button]').filter({ hasText: ALT });\n"
      "    for (let i = 0, n = Math.min(await links.count().catch(() => 0), 6); i < n; i++) {\n"
      "      if (!(await links.nth(i).isVisible().catch(() => false))) continue;\n"
