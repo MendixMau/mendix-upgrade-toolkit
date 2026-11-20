@@ -251,6 +251,62 @@ class App:
             return idx
         return self.once("widgets", build)
 
+    def instances(self):
+        """[(host qn, CustomWidget dict)] on pages, snippets and layouts."""
+        def build():
+            out = []
+            for d in self.m.all_docs:
+                if d.type in WIDGET_HOSTS:
+                    out += [(d.qn, w) for w in _find(d.data, lambda x: x.get("$Type") == "CustomWidgets$CustomWidget")]
+            return out
+        return self.once("instances", build)
+
+    def package_props(self):
+        """{widget id: (package file name, {key: type})} for every widgets/*.mpk that declares a form, widgets or action property."""
+        def build():
+            import zipfile
+            out, d = {}, self.root / "widgets"
+            for f in sorted(d.glob("*.mpk")) if d.is_dir() else []:
+                try:
+                    with zipfile.ZipFile(f) as z:
+                        for wid, props in mpk_props(z).items():
+                            out[wid] = (f.name, props)
+                except (zipfile.BadZipFile, OSError, KeyError, NotImplementedError, RuntimeError):
+                    continue
+            return out
+        return self.once("package_props", build)
+
+    def removal_note(self, wids):
+        """'' or a sentence saying what removing every instance of these widgets removes: for each property the package
+        declares as form, widgets or action, what each instance holds (the page it points at, the child widget count, the
+        action), read from the model's instances. GM-19: LazyloadingDataPlaceholder's pageContent held a whole page and
+        `mxcli describe page` omits it."""
+        pp, parts = self.package_props(), []
+        for wid in sorted(set(wids)):
+            if wid not in pp:
+                continue
+            pkg, props = pp[wid]
+            groups = {}   # (key, type, desc) -> {host: n}
+            for host, w in self.instances():
+                if (w.get("Type") or {}).get("WidgetId") != wid:
+                    continue
+                types = {repr(pt.get("$ID")): pt.get("PropertyKey")
+                         for pt in _find(w.get("Type") or {}, lambda x: x.get("$Type") == "CustomWidgets$WidgetPropertyType")}
+                for prop in _find(w.get("Object") or {}, lambda x: x.get("$Type") == "CustomWidgets$WidgetProperty", skip=("Widgets",)):
+                    key = types.get(repr(prop.get("TypePointer")))
+                    if key in props:
+                        g = groups.setdefault((key, props[key], _value_desc(props[key], prop.get("Value"))), {})
+                        g[host] = g.get(host, 0) + 1
+            seen = {k for k, _, _ in groups}
+            items = [f"{k} ({t}) holds {desc} in {sum(h.values())} instance(s) on {fmt_hosts(self, h)}"
+                     for (k, t, desc), h in sorted(groups.items())[:SHOW]]
+            if len(groups) > SHOW:
+                items.append(f"... ({len(groups)} kinds)")
+            items += [f"{k} ({t}): declared by the package, no instance in the model carries it (per-instance detail still wanted)"
+                      for k, t in sorted(props.items()) if k not in seen]
+            parts.append(f"widgets/{pkg} widget {wid} has properties describe page leaves out: " + "; ".join(items))
+        return ("removing it removes: " + " | ".join(parts)) if parts else ""
+
     def exprs(self):
         """[(doc qn, element $Type, text)]: every non-empty string value in microflows, nanoflows and rules, minus the
         $-keys (ids, types) and names, so an attribute in an expression or an XPath constraint is found."""
@@ -328,6 +384,63 @@ def grep(app, files, rx, own, label):
     return True, f"/{rx}/ in {s}"
 
 
+LOSS_TYPES = ("form", "widgets", "action")   # property types in a widget's package XML that hold a page, child widgets or an action (GM-19)
+MAX_XML = 2_000_000                         # a widget descriptor is a few kB; a larger member is not read
+
+
+def mpk_props(z):
+    """{widget id: {property key: type}} for the properties of type form, widgets or action that a package's XML declares.
+    The package XML is the only place that says a property holds a whole page: `mxcli describe page` leaves it out (GM-19)."""
+    out = {}
+    for i in z.infolist():
+        n = i.filename
+        if not n.lower().endswith(".xml") or n.startswith("__MACOSX") or n.lower().endswith("package.xml") or i.file_size > MAX_XML:
+            continue
+        txt = z.read(i).decode("utf-8", "replace")
+        m = re.search(r"<widget\s[^>]*?\bid\s*=\s*\"([^\"]+)\"", txt)
+        if not m:
+            continue
+        for tag in re.findall(r"<property\b[^>]*>", txt):
+            k, t = re.search(r"\bkey\s*=\s*\"([^\"]*)\"", tag), re.search(r"\btype\s*=\s*\"([^\"]*)\"", tag)
+            if k and t and t.group(1).lower() in LOSS_TYPES:
+                out.setdefault(m.group(1), {})[k.group(1)] = t.group(1).lower()
+    return out
+
+
+def _find(x, pred, skip=()):
+    """Every dict under x that pred accepts; a key in `skip` is not entered (a child widget's own properties)."""
+    if isinstance(x, dict):
+        if pred(x):
+            yield x
+        for k, v in x.items():
+            if k not in skip:
+                yield from _find(v, pred, skip)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _find(v, pred, skip)
+
+
+def _is_widget(d):
+    t = d.get("$Type")
+    return isinstance(t, str) and isinstance(d.get("Name"), str) and (t.startswith("Forms$") or t == "CustomWidgets$CustomWidget")
+
+
+def _value_desc(typ, val):
+    """What one instance's property holds, read from the model's WidgetValue (not from describe output)."""
+    val = val if isinstance(val, dict) else {}
+    if typ == "form":
+        return f"page {val['Form']}" if val.get("Form") else "a page not readable from the model (WidgetValue.Form is empty; assume it holds a page)"
+    if typ == "widgets":
+        n = sum(1 for _ in _find(val.get("Widgets"), _is_widget))
+        return f"{n} child widget(s)"
+    a = val.get("Action")
+    t = a.get("$Type") if isinstance(a, dict) else None
+    if not t or t == "Forms$NoAction":
+        return "no action set"
+    target = next((d[k] for d in _find(a, lambda d: True) for k in ("Microflow", "Nanoflow", "Form", "Page") if isinstance(d.get(k), str) and d[k]), "")
+    return f"action {t.split('$')[-1]}" + (f" {target}" if target else "")
+
+
 def mpk_widgets(z):
     """Widget ids a package declares: <widget id="..."> in its XML files, plus the clientModule version."""
     ids, ver = [], ""
@@ -395,7 +508,8 @@ def mpkjs(app, rx):
             out.append(("BLOCKER (no newer version: " + ", ".join(blocked) + "): " if blocked else "") +
                        f"widgets/{name}{' ' + ver if ver else ''} runs /{rx}/ in its JavaScript and widget "
                        f"{', '.join(ids[:SHOW])} is used {n} time(s) on {fmt_hosts(app, hosts)}"
-                       + (f"; the bundled copy belongs to {', '.join(libs)}" if libs else ""))
+                       + (f"; the bundled copy belongs to {', '.join(libs)}" if libs else "")
+                       + (f"; {note}" if (note := app.removal_note(ids)) else ""))
         return True, "; ".join(out)
     if accepted:
         return False, "accepted by checksum, not reported: " + "; ".join(accepted)
@@ -440,7 +554,8 @@ def clause(app, kind, own, arg, rows, stack):
                     if not own or q.split(".")[0].lower() in app.own:
                         hosts[f"{q}"] = hosts.get(q, 0) + n
         if hosts:
-            return True, f"widget /{arg}/ on {fmt_hosts(app, hosts)}"
+            note = app.removal_note(w for w in app.widgets() if re.fullmatch(arg, w))
+            return True, f"widget /{arg}/ on {fmt_hosts(app, hosts)}" + (f"; {note}" if note else "")
         return False, f"no widget /{arg}/ on a page, snippet or layout{' of an own module' if own else ''}"
     if kind == "type":
         from release_impact import ALWAYS_PRESENT_TYPES

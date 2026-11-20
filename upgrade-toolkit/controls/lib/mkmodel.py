@@ -150,7 +150,7 @@ def named(owner, ws):
 
 
 def cwidget(owner, i, w):
-    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN}}}. TEXT is a
+    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN} | {"form": QN} | {"widgets": N}}}. TEXT is a
     String property (PrimitiveValue), {"text"} a TranslatableString (Texts$Text), {"attr"} an Attribute: the Type's
     ObjectType declares each key, the Object's properties point at it (the shape of a 10.24 Any Chart unit)."""
     w = {"id": w} if isinstance(w, str) else w
@@ -160,13 +160,18 @@ def cwidget(owner, i, w):
     if w.get("props"):
         pts, ps = [], []
         for j, (key, v) in enumerate(w["props"].items()):
-            kind = "Attribute" if isinstance(v, dict) and "attr" in v else "TranslatableString" if isinstance(v, dict) else "String"
+            kind = ("Attribute" if isinstance(v, dict) and "attr" in v else "Form" if isinstance(v, dict) and "form" in v
+                    else "Widgets" if isinstance(v, dict) and "widgets" in v else "TranslatableString" if isinstance(v, dict) else "String")
             pt = {"$ID": gid(f"wpt:{k}.{key}"), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": key,
                   "ValueType": {"$ID": gid(f"wvt:{k}.{key}"), "$Type": "CustomWidgets$WidgetValueType", "Type": kind}}
             val = {"$ID": gid(f"wv:{k}.{key}"), "$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "",
                    "TranslatableValue": None, "AttributeRef": None}
             if kind == "String":
                 val["PrimitiveValue"] = v
+            elif kind == "Form":   # GM-19: the page a form property points at is WidgetValue.Form, a qualified name ("" = none)
+                val["Form"] = v["form"]
+            elif kind == "Widgets":   # GM-19: v["widgets"] child widgets, as a Widgets list
+                val["Widgets"] = lst({"$ID": gid(f"wc:{k}.{key}.{n}"), "$Type": "Forms$Text", "Name": f"text{n}"} for n in range(v["widgets"]))
             elif kind == "TranslatableString":
                 val["TranslatableValue"] = mtext(f"wv:{k}.{key}", v["text"])
             else:
@@ -400,9 +405,9 @@ def build(spec, out):
         con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uid, cid, bson.encode(d)))
     con.commit(); con.close()
     for name, ids in (spec.get("widget_packages") or {}).items():
-        defect, dojo, ver, js = None, False, None, None
-        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source"}
-            ids, defect, dojo, ver, js = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js")
+        defect, dojo, ver, js, pprops = None, False, None, None, {}
+        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source", "props": {key: type}}
+            ids, defect, dojo, ver, js, pprops = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js"), ids.get("props") or {}
         os.makedirs(os.path.join(out, "widgets"), exist_ok=True)
         wp = os.path.join(out, "widgets", name)
         with zipfile.ZipFile(wp, "w") as z:
@@ -410,7 +415,8 @@ def build(spec, out):
                 z.writestr("package.xml", f'<?xml version="1.0"?>\n<package><clientModule name="p" version="{ver}"/></package>\n')
             for i, w in enumerate(ids):
                 plug = "" if dojo else ' pluginWidget="true"'  # a Dojo widget declares no pluginWidget
-                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}></widget>\n')
+                body = "".join(f'<property key="{k}" type="{t}"><caption>{k}</caption></property>' for k, t in pprops.items())
+                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}>' + (f"<properties>{body}</properties>" if body else "") + "</widget>\n")
             if js is not None:  # the widget's JavaScript bundle (NR2-24: replacement row R35 reads it)
                 z.writestr("widget.js", js)
         raw = bytearray(open(wp, "rb").read())
