@@ -489,6 +489,10 @@ ctl cockpit-dvs-stop-names-module-recommends-catch 0 '^7 data grids would forget
 ctl cockpit-dvs-stop-no-fit-says-why-catch 0 '^No recommendation: this one is your call\. No newer DataWidgets fits Mendix 10\.24\.0' 'Only you know whether losing them matters' -- bash $here/cockpit_control.sh dvs-stop-nofit
 ctl cockpit-dvs-stop-answer-writes-plan-line-catch 0 '^    chat: decisions\.py add .* --item stop:update:1 --choice update --by NAME --source chat$' '^116540 2\.32\.4 DataWidgets # \[item:stop:update:1\] by Ana via page' '^stepupdate reads: cid=116540 ver=2\.32\.4 module=DataWidgets$' -- bash $here/cockpit_control.sh dvs-stop-update
 ctl cockpit-dvs-stop-answer-acts-once-catch 0 '^ack: accepted: 7 data grids' '^asked after the run went on: 0$' '^asked by the next stop with the same id: 1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-twice
+ctl cockpit-chat-line-says-recommended-catch 0 '^    chat: decisions\.py add .* --item P-2 --choice rec --by NAME --source chat   # rec = use design properties$' -- bash $here/cockpit_control.sh pending-rec-says-what
+ctl cockpit-dvs-stop-flushed-twice-second-id-pass 0 '^rows: 2$' '^--item stop:update:1\.2$' '!^--item stop:update:1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-flush
+ctl cockpit-stop-ids-first-stop-plain-pass 0 '^--item stop:update:1$' -- bash $here/cockpit_control.sh stop-ids-first
+ctl cockpit-stop-ids-later-stop-own-id-catch 0 '^--item stop:update:1\.2$' '!^--item stop:update:1$' -- bash $here/cockpit_control.sh stop-ids-later
 # the pipeline's own stop site goes through widget_drop_stop; a failing widgetfix falls back to the generic wording (the controls above)
 ctl pipeline-update-widgetdrop-uses-widgetfix-catch 0 'nj_writes "\$\{ws\[@\]\}"' '--json "\$WORK/widgetdrop\.json"' '^  decisions_apply   # resume' -- grep -E 'nj_writes "\$\{ws|--json "\$WORK/widgetdrop.json"|^  decisions_apply   # resume' $B/cloud/upgrade-pipeline.sh
 # widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
