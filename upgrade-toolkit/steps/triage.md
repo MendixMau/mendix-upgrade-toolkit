@@ -20,7 +20,12 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
 3. Modules: `mxcli -p app.mpr -c "REFRESH CATALOG FULL"`, then the module list with content id and installed version
    (localedits.py prints both). Then `python3 $B/renamed_modules.py $W/localedits.json` (BT-6; the pipeline writes `$W/renamed.md`): a module the Marketplace renamed or republished (DataGrid to DataWidgets, ApprontoLicenser to Emixa Licenser; data in `playbooks/module-renames.tsv`, matched by content id) is NOT a version update: leave it out of plan.txt; the proposal makes it a decision item. For each module: target version per rung from `$BR/baseline/versions/modules-index.md`
    and `modules/<module>.md`; the index has no per-target selection, so take the newest version whose min Mendix is
-   not above the target from `mxcli marketplace versions <content id>` (E6-5). "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
+   not above the target from `mxcli marketplace versions <content id>` (E6-5). `python3 $B/modplan.py $W/localedits.json --target <target>
+   --app app/ --out $W/plan.txt --jumps $W/module-jumps.txt` does exactly that (GA-4): PICK / CURRENT / STRANDED / SKIP (renamed) /
+   NOT PICKED per module (never green by absence: exit 3), the target of a cross-module association before its owner (planorder.py's rule),
+   `--last A,B` to force the end, `--skip A,B` to leave modules out. For a 10.x source run it twice with the SOURCE-rung target
+   for `plan-pre.txt` and the final target for `plan.txt`; a module whose two picks are the same version goes in `plan-pre.txt` only. The pipeline does
+   not run it (the plan is a decision, exit 13 until the agent has written it); the rest of this item still applies to its output. "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
    `mx module-import` on 10.x ("open it in 9.18 to 9.24 first", exit 117); see the 9-to-10 playbook. Five packages in
    E5b and one in E4 were pre-9.18 (NanoflowCommons 2.1.0 was made with 9.6.0). stepupdate.sh recognises the refusal:
    for the installed version it retries with `--no-baseline`, for a pre-9.18 TARGET it skips the line and keeps the

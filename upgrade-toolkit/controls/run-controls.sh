@@ -1423,6 +1423,29 @@ ctl planbuild-write-comments-dropped-line-pass 1 '^# dropped: OldBuilt 2\.0\.2 b
 cp $PB/plan-mixed.txt $PB/plan-w2.txt; echo first > $PB/plan-w2.txt.pre-gm17
 ctl planbuild-write-keeps-existing-backup-catch 1 '^first$' '^111 2\.0\.2 OldBuilt$' 'old file kept as .*plan-w2\.txt\.pre-gm17\.1' -- bash -c "python3 $B/planbuild.py $PB/plan-w2.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; rc=\${PIPESTATUS[0]}; cat $PB/plan-w2.txt.pre-gm17 $PB/plan-w2.txt.pre-gm17.1; exit \$rc"
 ctl planbuild-write-first-backup-pass 1 'old file kept as .*plan-w3\.txt\.pre-gm17\)$' '!\.pre-gm17\.1' -- bash -c "cp $PB/plan-mixed.txt $PB/plan-w3.txt; python3 $B/planbuild.py $PB/plan-w3.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; exit \${PIPESTATUS[0]}"
+# GA-4: modplan.py picks each module's target version (newest plain release whose min Mendix fits the target, newer than installed).
+# Golden input: verbatim `mxcli marketplace versions` output (stdout) for two real content ids, and the real "No versions." answer.
+MP=$T/modplan; mkdir -p $MP; MF=$FX/modplan
+printf '[{"name":"Administration","cid":23513,"version":"4.4.0"},{"name":"DatabaseConnector","cid":2888,"version":"7.0.2"},{"name":"Fresh","cid":23513,"version":"4.5.0"}]' > $MP/le.json
+printf '[{"name":"Administration","cid":23513,"version":"4.4.0"},{"name":"Gone","cid":99999,"version":"1.0.0"},{"name":"Empty","cid":120743,"version":"1.0.0"},{"name":"NoId","cid":null,"version":"1.0.0"}]' > $MP/le-bad.json
+printf '[{"name":"Administration","cid":23513,"version":"4.2.0"},{"name":"MFAmodule","cid":2888,"version":"6.0.0"}]' > $MP/le-xmod.json
+ctl modplan-golden-rows-pass 0 '^rows=22 ignored=0 newest=4\.5\.0$' -- python3 -I -c "
+import sys; sys.path.insert(0,'$B'); import modplan
+r,i=modplan.parse_versions(open('$MF/versions-23513.txt').read()); print('rows=%d ignored=%d newest=%s'%(len(r),i,r[0][0]))"
+ctl modplan-picks-newest-fitting-pass 0 '^PICK Administration 4\.4\.0 -> 4\.5\.0 \(min Mendix 10\.24\.0\)$' '^PICK DatabaseConnector 7\.0\.2 -> 7\.0\.6 \(min Mendix 10\.24\.11\)$' '^CURRENT Fresh 4\.5\.0: no newer version fits 11\.12\.2' '3 module\(s\): 2 to update, 0 not picked' -- python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch
+ctl modplan-min-mendix-respected-catch 0 '^CURRENT Administration 4\.4\.0: no newer version fits 10\.6\.0 \(newest that fits: 4\.1\.0\)' '!^PICK' -- python3 -I $B/modplan.py $MP/le.json --target 10.6.0 --versions-dir $MF --no-fetch
+ctl modplan-stranded-pass 0 '^STRANDED Administration 4\.4\.0: no version at all has a min Mendix at or below 5\.0\.0' '!^PICK' -- python3 -I $B/modplan.py $MP/le.json --target 5.0.0 --versions-dir $MF --no-fetch
+ctl modplan-unresolved-is-not-a-pass-catch 3 '^NOT PICKED Gone: versions not cached and --no-fetch given' '^NOT PICKED Empty: .*has no readable version rows' '^NOT PICKED NoId: no content id' '^PICK Administration' 'not picked is not a pass' -- python3 -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF --no-fetch
+ctl modplan-no-mxcli-not-picked-catch 3 '^NOT PICKED Gone: no table cached and no mxcli to fetch it' -- env UPG_MXCLI=$MP/no-such-mxcli PATH=/usr/bin:/bin python3 -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF
+ctl modplan-out-and-jumps-pass 0 '^2888 7\.0\.6 DatabaseConnector   # was 7\.0\.2$' '^23513 4\.5\.0 Administration 4\.4\.0$' '!^#$' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt --jumps $MP/jumps.txt > /dev/null; cat $MP/plan.txt $MP/jumps.txt"
+ctl modplan-out-refuses-existing-catch 2 'exists; --force keeps it' -- python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt
+ctl modplan-force-keeps-backup-pass 0 'wrote .*plan\.txt \(2 line' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt --force && test -s $MP/plan.txt.pre-modplan && echo backup-ok" 
+ctl modplan-last-pass 0 '^2888 7\.0\.6 DatabaseConnector' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --last Administration --out $MP/plan-last.txt > /dev/null; tail -1 $MP/plan-last.txt | grep -q Administration && head -1 $MP/plan-last.txt"
+ctl modplan-without-app-keeps-listing-order-pass 0 '^23513 4\.5\.0 Administration' -- bash -c "python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan-n.txt > /dev/null; head -1 $MP/plan-n.txt"
+ctl modplan-app-orders-target-first-catch 0 '^2888 7\.0\.6 MFAmodule' '^23513 4\.5\.0 Administration' -- bash -c "python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $M/xmod/App.mpr --out $MP/plan-x.txt > /dev/null; cat $MP/plan-x.txt"
+ctl modplan-app-unreadable-invalid 2 'modplan: --app' -- python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $MP/no-such.mpr
+ctl modplan-pipeline-stop-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $B/cloud/upgrade-pipeline.sh
+ctl modplan-triage-doc-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $TK/steps/triage.md
 ctl test-inventory-addons-catch 0 'EXFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['EXFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
 import sys; sys.path.insert(0,'$B'); import mxversion as m, test_inventory as t
 for f, v in m.addons('$AD'): print([f, v, m.below(v, 10, 21)])
