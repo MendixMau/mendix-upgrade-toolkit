@@ -477,11 +477,18 @@ def create_journey(spec, data_rung=False):
             ui[k] = spec[k]
     step = {"name": f"create and save one {spec['entity']}", "actions": acts, "ui": ui}
     if data_rung:
-        step["data"] = {"creates": spec["entity"], "delta": 1, "scope": {"newRowsBy": "id"}}
+        # RM-2: a form that edits a singleton (retrieve first, else create) never adds a row: the spec says "delta": 0
+        delta = spec.get("delta", 1)
+        if isinstance(delta, bool) or not isinstance(delta, int) or delta < 0:
+            sys.exit(f"create spec: \"delta\" must be a whole number of 0 or more (rows the save adds), got {delta!r}")
+        step["data"] = {"creates": spec["entity"], "delta": delta, "scope": {"newRowsBy": "id"}}
         # E2E-9: +1 says some row arrived; the own-row check says it is THIS run's row with the typed value
         own = [{"label": f"the run's own row: {f['attr']} = {f['value']}", "expect": 1,
                 "sql": f"SELECT COUNT(*) AS n FROM {spec['entity']} WHERE {f['attr']} = '{f['value']}'"}
                for f in spec.get("fields", []) if f.get("attr") and f.get("do") != "select"]
+        if delta == 0 and not own:
+            sys.exit("create spec: \"delta\": 0 needs a field with \"attr\" (not do: select): with no row added, "
+                     "the own-row check is the only proof the save landed")
         if own:
             step["data"]["oql"] = own
     j = journey("create-save", f"Core create-and-save: {spec['entity']}", spec["role"],
