@@ -96,6 +96,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
    module (own theme and the kept file itself count as definitions). `MISSING` (exit 1) = fix the kept SCSS or hold the package;
    `NOT CHECKED` (exit 3) = the target package is not in the cache: say so in the proposal, never read it as clean.
+   The pipeline runs it itself (`kept_vendor_check`): in triage when `.stepupdate/kept.txt` exists (a first triage has none and notes "NOT MEASURED"), and again after the update step; output `$W/keptvendor.out`. A triage `MISSING` stops with an item; `NOT CHECKED` is a note. keptstyle is still run by hand, and the proposal does not list either one.
 5. Local edits in Marketplace modules, BEFORE any update:
    `python3 $B/localedits.py app/ --md $W/localedits.md --json $W/localedits.json`
    - RED = data-bearing local edit (added attribute or association, changed storage): a stop rule (SKILL).
