@@ -1143,6 +1143,13 @@ FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
 for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
 for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
 ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'rerun without --from' '--only propose' 'resume\.sh <run folder>' 'builds on it\. Nothing' '!^propose +running' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
+# ORG (issue 35): --from on the ladder command after rung 2 converted the app: refused at once, naming the rung-2 work folder
+LF=$T/ladfrom; rm -rf $LF; mkdir -p $LF/app $LF/app2 $LF/w/rung2/state $LF/w/state; echo x > $LF/w/rung2/state/convert.done; echo x > $LF/w/state/gate.done
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app/App.mpr 11.15.0.1
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app2/App.mpr 10.24.26.1
+ladfrom() { bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $1 --source 10.20.0.1 --target 10.24.26.1 --target2 11.15.0.1 --work $LF/w --from $2 --dry-run; }
+ctl pipeline-ladder-from-converted-catch 2 '^upgrade-pipeline\.sh: --from update refused on the ladder command: rung 2 has already converted .* to 11\.15\.0\.1' "--work $LF/w/rung2" 'Nothing was changed' '!^update +running' -- ladfrom $LF/app update
+ctl pipeline-ladder-from-rung1-app-pass 0 '!refused on the ladder command' '^fetch +running' -- ladfrom $LF/app2 fetch
 ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
