@@ -192,6 +192,24 @@ def worst(*cs):
 
 
 # ---- derivation ----
+def parked_count(work):
+    """Items Interview mode auto parked (NEEDS-JUDGMENT.md header, else the park markers in parked/*.md): the run went on, a person still has to answer."""
+    t = cp.rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
+    m = re.search(r"^# NEEDS JUDGMENT: (\d+) parked item", t, re.M)
+    if m:
+        return int(m.group(1))
+    d = os.path.join(work, "parked")
+    n = 0
+    for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+        n += len(re.findall(r"^<!-- park exit", cp.rd(os.path.join(d, f)) or "", re.M))
+    return n
+
+
+def parked_act(n):
+    return {"kind": "wait", "text": f"{n} parked {'item waits' if n == 1 else 'items wait'} for your answer. The run went on without {'it' if n == 1 else 'them'}.",
+            "rec": "They are listed in NEEDS-JUDGMENT.md in the work folder (details under parked/). Answer them in one round, then rerun once.", "q": "", "time": ""}
+
+
 def derive(work, model):
     P = cp.parse_proposal(cp.rd(os.path.join(work, "PROPOSAL.md")))
     dm = cp.parse_decisions_md(cp.rd(os.path.join(work, "DECISIONS.md")))
@@ -1749,6 +1767,8 @@ def brief(work, model, rows, g, tl):
             why, needs = sinfo["handoff"]
             act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
                    "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
+    elif parked_count(work):
+        act = parked_act(parked_count(work))
     elif running:
         act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}

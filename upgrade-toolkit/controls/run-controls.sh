@@ -8825,6 +8825,9 @@ ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from yo
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
+# round 4 (field run WTD, auto mode): parked items are counted and located on the page, never "Nothing needed"; with nothing parked it still says so
+ctl cockpit-parked-not-nothing-catch 0 '^3 parked items wait for your answer\. The run went on without them\.$' '^They are listed in NEEDS-JUDGMENT\.md in the work folder' '!^Nothing needed from you now\.$' -- $CK parked-idle
+ctl cockpit-parked-none-says-nothing-pass 0 '^Nothing needed from you now\.$' '!parked' -- $CK parked-none
 # round 5 (lead user test on PSOP and TLT; issue drafts 15 and 17): the stop's owner decides the top card, recording the old app is not testing,
 # the second rung's page keeps the first rung's result; wording, order and folding only, no verdict changes
 ctl cockpit-brief-agent-stop-before-signoff-catch 0 '^Upgrade from Mendix 10\.6\.3 to 10\.24\.0: 7 of 14 steps done\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(mxbuild failed\) and rerun\.$' '^The plan still waits for your sign-off; the run does not wait for it\. Review the plan →$' '!Approve the plan' '!waiting for 1 answer' '!\(exit' '^cards: 1$' -- $CK chk-agent-stop

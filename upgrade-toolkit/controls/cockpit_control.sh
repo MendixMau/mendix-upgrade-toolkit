@@ -289,6 +289,11 @@ PY
             mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
             sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
             ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
+  # auto mode parks items and the run goes on: the page must say how many wait and where, never "Nothing needed" (WTD, round 4)
+  parked-idle) chkw; mkdir -p "$W/parked"; printf '# NEEDS JUDGMENT: 3 parked item(s) (Interview mode: auto), answer them in one round\n\nThe run went on past each of these.\n' > "$W/NEEDS-JUDGMENT.md"
+            printf '<!-- park exit 12 step gate -->\n## a (exit 12)\n<!-- park exit 13 step gate -->\n## b (exit 13)\n' > "$W/parked/gate.md"
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  parked-none) chkw; ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
