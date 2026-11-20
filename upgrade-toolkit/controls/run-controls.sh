@@ -9506,6 +9506,14 @@ ctl localedits-cache-incomplete-not-kept-catch 1 -- sh -c "bash $B/localedits_ca
 ctl localedits-cache-result-deleted-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/localedits.md; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
 ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
 ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"
+ctl gen-create-combo-catch 0 '"do": "combo"' '"widget": "comboBox1"' '"first": true' -- sh -c "$GJ --out-dir $T/gen-create-combo --create $T/create-spec-combo.json > /dev/null 2>&1; cat $T/gen-create-combo/journeys/Admin/create-save.journey.json"
+ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback' -- sh -c "$GJ --out-dir $T/gen-create-bad --create $T/create-spec-badDo.json 2>&1"
+ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
+ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
