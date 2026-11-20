@@ -205,7 +205,14 @@ def parked_count(work):
     return n
 
 
-def parked_act(n):
+def parked_act(n, running=None):
+    """The parked-items card. While a step runs, the count may include answered files of steps a rerun has not reached yet
+    (main() deletes NEEDS-JUDGMENT.md at its start, run_step deletes parked/<step>.md only when that step reruns), so a running
+    run says "so far" and sends the person to the end of the run; only an idle run says the items wait for an answer."""
+    if running:
+        return {"kind": "wait", "text": f"{n} parked so far. Answer {'it' if n == 1 else 'them'} after the run ends (NEEDS-JUDGMENT.md).",
+                "rec": "The run is still going and goes on without them. Some of the count may be left from an earlier run until its step runs again.", "q": "",
+                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
     return {"kind": "wait", "text": f"{n} parked {'item waits' if n == 1 else 'items wait'} for your answer. The run went on without {'it' if n == 1 else 'them'}.",
             "rec": "They are listed in NEEDS-JUDGMENT.md in the work folder (details under parked/). Answer them in one round, then rerun once.", "q": "", "time": ""}
 
@@ -1767,8 +1774,8 @@ def brief(work, model, rows, g, tl):
             why, needs = sinfo["handoff"]
             act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
                    "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
-    elif parked_count(work):
-        act = parked_act(parked_count(work))
+    elif parked_count(work):   # after the stop branch: a stop that needs an agent or a person takes precedence over the parked count
+        act = parked_act(parked_count(work), running)
     elif running:
         act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
