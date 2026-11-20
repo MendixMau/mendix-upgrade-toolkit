@@ -1143,6 +1143,13 @@ FR=$T/from; mkdir -p $FR/app $FR/w1/state $FR/w2/state; touch $FR/app/App.mpr
 for s in fetch triage baseline; do echo x > $FR/w1/state/$s.done; done
 for s in fetch triage baseline basewalk propose convert update build after afterwalk journeys apidirect; do echo x > $FR/w2/state/$s.done; done
 ctl pipeline-from-skips-earlier-undone-catch 2 '^upgrade-pipeline\.sh: --from propose refused: basewalk not done, and propose builds on it\. Nothing was changed\.$' 'rerun without --from' '--only propose' 'resume\.sh <run folder>' 'builds on it\. Nothing' '!^propose +running' '!^basewalk +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w1 --from propose --dry-run
+# ORG (issue 35): --from on the ladder command after rung 2 converted the app: refused at once, naming the rung-2 work folder
+LF=$T/ladfrom; rm -rf $LF; mkdir -p $LF/app $LF/app2 $LF/w/rung2/state $LF/w/state; echo x > $LF/w/rung2/state/convert.done; echo x > $LF/w/state/gate.done
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app/App.mpr 11.15.0.1
+python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", (sys.argv[2],)); c.commit()' $LF/app2/App.mpr 10.24.26.1
+ladfrom() { bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $1 --source 10.20.0.1 --target 10.24.26.1 --target2 11.15.0.1 --work $LF/w --from $2 --dry-run; }
+ctl pipeline-ladder-from-converted-catch 2 '^upgrade-pipeline\.sh: --from update refused on the ladder command: rung 2 has already converted .* to 11\.15\.0\.1' "--work $LF/w/rung2" 'Nothing was changed' '!^update +running' -- ladfrom $LF/app update
+ctl pipeline-ladder-from-rung1-app-pass 0 '!refused on the ladder command' '^fetch +running' -- ladfrom $LF/app2 fetch
 ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
@@ -1423,6 +1430,39 @@ ctl planbuild-write-comments-dropped-line-pass 1 '^# dropped: OldBuilt 2\.0\.2 b
 cp $PB/plan-mixed.txt $PB/plan-w2.txt; echo first > $PB/plan-w2.txt.pre-gm17
 ctl planbuild-write-keeps-existing-backup-catch 1 '^first$' '^111 2\.0\.2 OldBuilt$' 'old file kept as .*plan-w2\.txt\.pre-gm17\.1' -- bash -c "python3 $B/planbuild.py $PB/plan-w2.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; rc=\${PIPESTATUS[0]}; cat $PB/plan-w2.txt.pre-gm17 $PB/plan-w2.txt.pre-gm17.1; exit \$rc"
 ctl planbuild-write-first-backup-pass 1 'old file kept as .*plan-w3\.txt\.pre-gm17\)$' '!\.pre-gm17\.1' -- bash -c "cp $PB/plan-mixed.txt $PB/plan-w3.txt; python3 $B/planbuild.py $PB/plan-w3.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; exit \${PIPESTATUS[0]}"
+# GA-4: modplan.py picks each module's target version (newest plain release whose min Mendix fits the target, newer than installed).
+# Golden input: verbatim `mxcli marketplace versions` output (stdout) for two real content ids, and the real "No versions." answer.
+MP=$T/modplan; mkdir -p $MP; MF=$FX/modplan
+printf '[{"name":"Administration","cid":23513,"version":"4.4.0"},{"name":"DatabaseConnector","cid":2888,"version":"7.0.2"},{"name":"Fresh","cid":23513,"version":"4.5.0"}]' > $MP/le.json
+printf '[{"name":"Administration","cid":23513,"version":"4.4.0"},{"name":"Gone","cid":99999,"version":"1.0.0"},{"name":"Empty","cid":120743,"version":"1.0.0"},{"name":"NoId","cid":null,"version":"1.0.0"}]' > $MP/le-bad.json
+printf '[{"name":"Administration","cid":23513,"version":"4.2.0"},{"name":"MFAmodule","cid":2888,"version":"6.0.0"}]' > $MP/le-xmod.json
+ctl modplan-golden-rows-pass 0 '^rows=22 ignored=0 newest=4\.5\.0$' -- python3 -I -c "
+import sys; sys.path.insert(0,'$B'); import modplan
+r,i=modplan.parse_versions(open('$MF/versions-23513.txt').read()); print('rows=%d ignored=%d newest=%s'%(len(r),i,r[0][0]))"
+ctl modplan-picks-newest-fitting-pass 0 '^PICK Administration 4\.4\.0 -> 4\.5\.0 \(min Mendix 10\.24\.0\) \(cached\)$' '^PICK DatabaseConnector 7\.0\.2 -> 7\.0\.6 \(min Mendix 10\.24\.11\) \(cached\)$' '^CURRENT Fresh 4\.5\.0: no newer version fits 11\.12\.2' '3 module\(s\): 2 to update, 0 not picked' -- python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch
+ctl modplan-min-mendix-respected-catch 0 '^CURRENT Administration 4\.4\.0: no newer version fits 10\.6\.0 \(newest that fits: 4\.1\.0\)' '!^PICK' -- python3 -I $B/modplan.py $MP/le.json --target 10.6.0 --versions-dir $MF --no-fetch
+ctl modplan-stranded-pass 0 '^STRANDED Administration 4\.4\.0: no version at all has a min Mendix at or below 5\.0\.0' '!^PICK' -- python3 -I $B/modplan.py $MP/le.json --target 5.0.0 --versions-dir $MF --no-fetch
+ctl modplan-unresolved-is-not-a-pass-catch 3 '^NOT PICKED Gone: versions not cached and --no-fetch given' '^NOT PICKED Empty: .*has no readable version rows' '^NOT PICKED NoId: no content id' '^PICK Administration' 'not picked is not a pass' -- python3 -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF --no-fetch
+ctl modplan-no-mxcli-not-picked-catch 3 '^NOT PICKED Gone: no table cached and no mxcli to fetch it' -- env UPG_MXCLI=$MP/no-such-mxcli PATH=/usr/bin:/bin "$(command -v python3)" -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF
+ctl modplan-out-and-jumps-pass 0 '^2888 7\.0\.6 DatabaseConnector   # was 7\.0\.2$' '^Administration 4\.4\.0 -> 4\.5\.0 23513$' '^DatabaseConnector 7\.0\.2 -> 7\.0\.6 2888$' '!^23513 4\.5\.0 Administration 4\.4\.0$' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt --jumps $MP/jumps.txt > /dev/null; cat $MP/plan.txt $MP/jumps.txt"
+ctl modplan-out-refuses-existing-catch 2 'exists; --force keeps it' -- python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt
+ctl modplan-force-keeps-backup-pass 0 'wrote .*plan\.txt \(2 line' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan.txt --force && test -s $MP/plan.txt.pre-modplan && echo backup-ok" 
+ctl modplan-last-pass 0 '^2888 7\.0\.6 DatabaseConnector' -- bash -c "python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --last Administration --out $MP/plan-last.txt > /dev/null; tail -1 $MP/plan-last.txt | grep -q Administration && head -1 $MP/plan-last.txt"
+ctl modplan-without-app-keeps-listing-order-pass 0 '^23513 4\.5\.0 Administration' -- bash -c "python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan-n.txt > /dev/null; head -1 $MP/plan-n.txt"
+ctl modplan-app-orders-target-first-catch 0 '^2888 7\.0\.6 MFAmodule' '^23513 4\.5\.0 Administration' -- bash -c "python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $M/xmod/App.mpr --out $MP/plan-x.txt > /dev/null; cat $MP/plan-x.txt"
+ctl modplan-app-unreadable-invalid 2 'modplan: --app' -- python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $MP/no-such.mpr
+printf '[{"name":"Vend","cid":23513,"version":"1.0.0"}]' > $MP/le-vend.json
+ctl modplan-jumps-read-by-diff-pass 0 'PASS\* \| db\.attr\.Vend\.Thing\.Field \| values changed .*the Vend update 1\.0\.0 -> 4\.5\.0 23513' 'FAIL 0 \| REVIEW 0' -- bash -c "python3 -I $B/modplan.py $MP/le-vend.json --target 11.12.2 --versions-dir $MF --no-fetch --jumps $MP/vend-jumps.txt > /dev/null && python3 $B/diff.py $T/jump-b.json $T/jump-a.json --allow $FX/allow/narrow.txt --module-jumps $MP/vend-jumps.txt"
+mkdir -p $MP/pw; printf 'app: 10.24.26.1\n' > $MP/pw/versions.txt
+python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/pw/plan.txt --jumps $MP/pw/module-jumps.txt > /dev/null
+ctl modplan-jumps-read-by-proposal-pass 0 'module update Administration 4\.4\.0 -> 4\.5\.0' 'module update DatabaseConnector 7\.0\.2 -> 7\.0\.6' '!-> 4\.5\.0 .*\?' '!module update [A-Za-z]* \? ->' -- bash -c "PROPOSAL_TODAY=2026-10-15 python3 $B/proposal.py --work $MP/pw --source 10.24.26.1 --target 11.15.0.1 > /dev/null; sed -n '/^## 2\./,/^## 3\./p' $MP/pw/PROPOSAL.md"
+ctl modplan-unresolved-writes-nothing-catch 3 'nothing written' -- bash -c "python3 -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan-u.txt --jumps $MP/jumps-u.txt 2>&1; rc=\$?; test ! -e $MP/plan-u.txt && test ! -e $MP/jumps-u.txt && echo none-written; exit \$rc"
+ctl modplan-allow-unresolved-comments-catch 3 '^# NOT PICKED Gone: versions not cached' '^# NOT PICKED NoId: no content id' '^23513 4\.5\.0 Administration   # was 4\.4\.0$' -- bash -c "python3 -I $B/modplan.py $MP/le-bad.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/plan-u2.txt --allow-unresolved > /dev/null; rc=\$?; cat $MP/plan-u2.txt; exit \$rc"
+printf '[{"name":"Beta","cid":23513,"version":"5.0.0-beta"},{"name":"Short","cid":23513,"version":"4.5"},{"name":"Administration","cid":23513,"version":"4.4.0"}]' > $MP/le-beta.json
+ctl modplan-installed-not-plain-catch 3 '^NOT PICKED Beta: installed version not comparable' '^CURRENT Short 4\.5: no newer version fits' '!^PICK Beta' -- python3 -I $B/modplan.py $MP/le-beta.json --target 11.12.2 --versions-dir $MF --no-fetch
+ctl modplan-existing-out-checked-before-any-write-catch 2 'exists; --force' '^plan-not-written$' -- bash -c "printf x > $MP/exists-j.txt; rm -f $MP/fresh-plan.txt; python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/fresh-plan.txt --jumps $MP/exists-j.txt 2>&1; rc=\$?; test ! -e $MP/fresh-plan.txt && echo plan-not-written; exit \$rc"
+ctl modplan-pipeline-stop-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $B/cloud/upgrade-pipeline.sh
+ctl modplan-triage-doc-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $TK/steps/triage.md
 ctl test-inventory-addons-catch 0 'EXFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['EXFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
 import sys; sys.path.insert(0,'$B'); import mxversion as m, test_inventory as t
 for f, v in m.addons('$AD'): print([f, v, m.below(v, 10, 21)])
@@ -8031,6 +8071,20 @@ mkdir -p "$DG/w2/e2e-after/after" "$DG/w2/e2e-before-picked" "$DG/w2/journeys"; 
 dgcase2() { bash -c "set -Eeu; . $DG/fn.sh; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=1; APP=$DG/plain; step_diff"; }
 ctl pipeline-diff-journeys-rejudge-catch 0 "^  JOURNEYS_DIR=$DG/w2/journeys\$" "^  JOURNEYS_BEFORE=$DG/w2/e2e-before-picked\$" '^  JOURNEYS_REJUDGE=1$' "^  ACTIONS=$DG/w2/actions\.json\$" -- dgcase2 $DG/w2
 ctl pipeline-diff-journeys-none-pass 0 '^  BUILD_LOG=' '!JOURNEYS' -- dgcase2 $DG/w
+# ORG, TLT: release-impact.md was complete but the diff step never selected the release rung ("release: not selected", grade INVALID)
+mkdir -p "$DG/w3"; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > "$DG/w3/release-impact.md"
+ctl pipeline-diff-release-selected-catch 0 "^  RELEASE_IMPACT=$DG/w3/release-impact\\.md\$" -- dgcase2 $DG/w3
+ctl pipeline-diff-release-absent-pass 0 '^  BUILD_LOG=' '!RELEASE_IMPACT' -- dgcase2 $DG/w
+# An open release row (a release INVALID row in gate-summary.md) does not stop the diff step: the `ob` exclusion in step_diff leaves it to step gate
+# (release_impact.py --check). Real step_diff, non-dry, gate stubbed (xo writes nothing, the summary is pre-written); a stop reaches nj_file.
+mkdir -p "$DG/w4" "$DG/w5"; cp "$DG/w3/release-impact.md" "$DG/w4/release-impact.md"; cp "$DG/w3/release-impact.md" "$DG/w5/release-impact.md"
+printf '| 1 | build | PASS |\n| 10 | release | INVALID |\n' > "$DG/w4/gate-summary.md"
+printf '| 1 | build | FAIL |\n| 10 | release | INVALID |\n' > "$DG/w5/gate-summary.md"
+dgstop() { bash -c "set -Eeu; . $DG/fn.sh; nj_meta() { :; }; nj_park() { :; }; gate_open_nj_meta() { :; }; nj_file() { echo \"NJ-STOP \$1\"; }; GATE_OPEN_TITLE=t; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=0; APP=$DG/plain; step_diff; echo DIFF-RETURNED; cat $1/gate.conf"; }
+ctl pipeline-diff-release-open-not-stopping-pass 0 '^RELEASE_IMPACT=' '^DIFF-RETURNED$' '!NJ-STOP' -- dgstop $DG/w4
+ctl pipeline-diff-release-open-other-row-stops-catch 0 '^NJ-STOP 12$' '^DIFF-RETURNED$' -- dgstop $DG/w5
+mkdir -p $V/pwr; cp $DG/w3/release-impact.md $V/pwr/release-impact.md
+ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
 # TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
 # Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
 for c in stale fresh; do mkdir -p "$DG/al-$c"; done
@@ -8837,6 +8891,11 @@ ctl cockpit-brief-nothing-needed-ranked-choices-catch 0 '^Nothing needed from yo
 ctl cockpit-brief-routine-choices-no-ranking-pass 0 '^The AI made 18 choices on its own$' '^None of the 18 changes how the app behaves; they are routine version updates and rules\.' '!most impact' -- $CK chk-routine-only
 ctl cockpit-brief-who-plain-catch 0 '^Shown after the final check\. So far every change is a commit you can review\. Nobody has approved the plan yet; the AI made 18 choices on its own \(unattended run\)\.$' '^Who changed what:$' '!ASSUMED' '!Counted from' -- $CK chk-who
 ctl cockpit-header-time-labelled-catch 0 '· chk · 60 min run time so far$' '· chk · 1 h 01 run time$' -- $CK chk-header
+# WTD round (field run WTD, auto mode): parked items are counted and located on the page, never "Nothing needed"; with nothing parked it still says so
+ctl cockpit-parked-not-nothing-catch 0 '^3 parked items wait for your answer\. The run went on without them\.$' '^They are listed in NEEDS-JUDGMENT\.md in the work folder' '!^Nothing needed from you now\.$' -- $CK parked-idle
+ctl cockpit-parked-none-says-nothing-pass 0 '^Nothing needed from you now\.$' '!parked' -- $CK parked-none
+ctl cockpit-parked-markers-only-idle-catch 0 '^2 parked items wait for your answer\.' '!parked so far' '!^Nothing needed from you now\.$' -- $CK parked-markers
+ctl cockpit-parked-rerun-running-not-waits-catch 0 '^2 parked so far\. Answer them after the run ends \(NEEDS-JUDGMENT\.md\)\.$' '!waits? for your answer' '!items wait' -- $CK parked-rerun
 # round 5 (lead user test on PSOP and TLT; issue drafts 15 and 17): the stop's owner decides the top card, recording the old app is not testing,
 # the second rung's page keeps the first rung's result; wording, order and folding only, no verdict changes
 ctl cockpit-brief-agent-stop-before-signoff-catch 0 '^Upgrade from Mendix 10\.6\.3 to 10\.24\.0: 7 of 14 steps done\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(mxbuild failed\) and rerun\.$' '^The plan still waits for your sign-off; the run does not wait for it\. Review the plan →$' '!Approve the plan' '!waiting for 1 answer' '!\(exit' '^cards: 1$' -- $CK chk-agent-stop
