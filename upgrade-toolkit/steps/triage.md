@@ -91,6 +91,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
    <file>:<line> <selector>` per hit (exit 1 = REVIEW). Treat each module with hits as a visual risk: add a page that
    shows the widget to the screens step and read the screenshot. Rerun it whenever the kept list changes.
+   The pipeline runs it itself (`kept_style_check`): in triage when `.stepupdate/kept.txt` exists (a first triage notes "NOT MEASURED") and again after the update step; output `$W/keptstyle.out`, `$W/keptstyle.json`. RISK hits are a note, never a stop: they add a `[keptstyle]` line to `$W/screen-causes.txt`, so a pixel-only screens REVIEW names the kept module(s) as a likely cause (shotdiff `--causes`). The screens rung is not given a page list, so which page shows the widget is still for the person to find; an exit 2 is a note, not clean.
    The same kept themesource can also use a mixin, variable or file a planned package removes (GM-15: PlatformDesignSystem 45
    dropped `dark-theme`): `python3 $B/keptvendor.py app/ --kept-file .stepupdate/kept.txt --plan-file $W/plan.txt` reads every
    `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
