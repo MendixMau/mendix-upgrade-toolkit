@@ -659,6 +659,8 @@ Add new items at the end with status open; the next triage round gives each one 
 | FR-2 | A fresh box set up with `setup-container.sh` stops at triage with "brain: none found"; `upg-env.sh` never sets UPG_BRAIN although SETUP.md says the release-note brain ships in this repo | fixed (the env step writes UPG_BRAIN: what brainpath.py finds, else the repo's company-brain-test/brain) | bin/setup-container.sh step 10 wrote UPG_ROOT, UPG_TOOLS, WORKDIR, UPG_EXTRA and the timeout only. Found in field run FR | fr2-env-file-brain-catch, fr2-env-file-brain-pass |
 | FR-3 | A 9.x source below 9.24 (9.12.1 here) goes straight to the 10.24 convert, which refuses it ("the version '9.12.1.42381' of the mpr file is not supported") after baseline and basewalk have already run; triage and propose did not say a 9.24 rung is needed | open | playbooks/9-to-10.md says 9.x must be on 9.24 first; the `--to` ladder in bin/cloud/upgrade-pipeline.sh only inserts the newest 10.24 and plans no 9.24 rung. Wanted: triage or propose refuses early with the missing rung named, or the ladder plans it. Owner decision (a 9.24 toolset is about 700 MB). Found in field run FR | - |
 | FR-4 | The refusal "the project is version A, not --source B" does not say what to fetch | open | bin/cloud/upgrade-pipeline.sh source check names both versions but not the toolset the person must download (the app's exact full version). Found in field run FR | - |
+| FR-5 | `bin/harvest.py` lists the unpacked runtime of every walked app (`<work>/run/<old|new|oldwalk...>/web/...`: minified JS, the login page strings, an absolute app path) as "Scripts and recipes written in the run", in a draft that is copied toward `contrib/inbox/` | fixed (the top-level `run/` folder is treated as pipeline-written, like `replay/` and `saved-edits/`) | harvest.py toolkit_written(); found on field run NL1 (10.12.9 to 10.24.29, 40 deployed files listed, one carried app strings and a home path). Fixture: the real directory shape of a run folder, stub content | harvest-deployed-run-folder-not-a-script-catch, harvest-run-pass |
+| FR-6 | A rung-2 step that stops on an environment fault (here: port 8080 held by a leftover walk container of a killed rerun) cannot be rerun: `baseline` dies with "createdb: database ... already exists" (exit 4), because `--seed-from` copies into a database name the first attempt already created | open | bin/cloud/upgrade-pipeline.sh step_baseline: `copy_db "$SEED_FROM" "$X"` runs when the frozen database does not exist yet, but `$X` may exist from the attempt that stopped. Wanted: drop the leftover copy first (it is never frozen at that point) or reuse it. Found on field run NL1 | - |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -975,11 +977,11 @@ FR-1 to FR-4 added after that (FR-1, FR-2 fixed; FR-3, FR-4 open); the table bel
 
 | status | count |
 |---|---|
-| fixed | 405 |
+| fixed | 406 |
 | doc (closed by guidance) | 97 |
 | closed | 14 |
 | won't fix | 7 |
 | unproved | 8 |
 | backlog | 176 |
-| open | 41 |
-| total | 748 |
+| open | 42 |
+| total | 750 |
