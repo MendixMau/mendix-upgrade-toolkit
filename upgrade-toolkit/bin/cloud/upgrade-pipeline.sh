@@ -890,7 +890,7 @@ close_proved_rows() {
   return 0
 }
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
-# Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) has no script: exit 13 when absent.
+# Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) is picked by bin/modplan.py, run by the agent after review: exit 13 when absent.
 step_triage() {
   local rc
   if [ "$DRY" = 1 ]; then say "+ mxversion.py app + toolsets > $WORK/versions.txt"; else
@@ -981,9 +981,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
-    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
-Write \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, cross-module association targets (idcheck --xmod) LAST. An empty plan (comments only) is allowed and means no module updates.
-Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
+    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
+The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
+\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
     nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
     nj_flush
@@ -2391,6 +2391,9 @@ step_diff() {
   # the apis rung: the stand-in's own check of what was requested (apimock.py check)
   if [ -f "$WORK/apimock/inventory.json" ]; then kv+=("APIMOCK=$WORK/apimock"); only="$only,apis"; fi
   [ ! -f "$WORK/apidirect/direct.json" ] || kv+=("APIDIRECT=$WORK/apidirect")
+  # the release rung (steps/gate.md 10): triage wrote release-impact.md; without the key the rung reads "not selected" and the
+  # grade stays INVALID although every row is closed (ORG, TLT). Selected here only to be judged; an open row still stops at step gate
+  if [ -f "$WORK/release-impact.md" ]; then kv+=("RELEASE_IMPACT=$WORK/release-impact.md"); only="$only,release"; fi
   kv+=("BEFORE_JSON=$WORK/before.json" "AFTER_JSON=$WORK/after.json" "OLD_LOG=$WORK/logs/runtime-oldbase.log" "NEW_LOG=$WORK/logs/runtime-newafter.log" "SMOKE_BEFORE_SHOTS=$WORK/smoke-before-shots" "SMOKE_LOGIN_PATH=$(login_path)")
   # PRC-8: the journeys stage ran just before; judge its stored results again (gate.sh JOURNEYS_REJUDGE: no app, nothing
   # written) so the gate's Progress line counts the rung instead of "journeys: not measured yet" (Purchase Request run 4)
@@ -2411,7 +2414,8 @@ step_diff() {
   xo "$WORK/gate.out" bash "$B/gate.sh" "${ga[@]}" || rc=$?
   [ "$DRY" != 1 ] || return 0
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
-  bad=$(grep -E "^\| [0-9]+ \| (${only//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
+  local ob=${only//,release/}   # release is judged and stopped at step gate (release_impact.py --check), not here
+  bad=$(grep -E "^\| [0-9]+ \| (${ob//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
     gate_open_nj_meta $(sed -n 's/.* \([0-9][0-9]*\) with REGRESSIONS to fix, \([0-9][0-9]*\) need a decision, \([0-9][0-9]*\) not measured yet.*/\1 \2 \3/p' "$WORK/gate-summary.md" 2> /dev/null | head -1); nj_file 12 "$GATE_OPEN_TITLE" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
   fi
@@ -2614,7 +2618,24 @@ from_guard() {
   [ "${#opt[@]}" = 0 ] || echo "from      --from $FROM skips ${opt[*]} (not done, optional)"
 }
 
+# ORG (issue 35): `--from update` on the LADDER command (the one with --to or --target2) restarts rung 1, but once rung 2 has converted the
+# app folder to the final version rung 1's mx 10.24 check refuses it ("version 11.x of the mpr file is not supported", exit 10) after
+# minutes of work. The rung-2 stop's own rerun line (rung2/NEEDS-JUDGMENT.md) carries --work <work>/rung2; refuse here and name it.
+ladder_from_guard() {
+  [ -n "$FROM" ] && [ -z "$ONLY" ] && [ -n "$TARGET2" ] && [ "$(basename "$WORK")" != rung2 ] || return 0
+  [ -f "$WORK/rung2/state/convert.done" ] && [ -n "$APP_DIR_ARG" ] || return 0
+  local mpr ver
+  mpr=$(ls "$APP_DIR_ARG"/*.mpr 2> /dev/null | head -1); [ -n "$mpr" ] || return 0
+  ver=$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select _ProductVersion from _MetaData").fetchone()[0])' "$mpr" 2> /dev/null) || return 0
+  case "$ver" in "$TARGET2"|"$TARGET2".*) ;; *) return 0 ;; esac
+  echo "upgrade-pipeline.sh: --from $FROM refused on the ladder command: rung 2 has already converted $APP_DIR_ARG to $ver, and rung 1 ($SOURCE -> $TARGET) cannot run on it. Nothing was changed." >&2
+  echo "  To resume rung 2: use the rerun line in $WORK/rung2/NEEDS-JUDGMENT.md (it carries --work $WORK/rung2 and the rung-2 --from)." >&2
+  echo "  To redo rung 1: tag a backup (git -C $APP_DIR_ARG tag backup/<name>), git reset --hard to the convert commit, then rerun." >&2
+  exit 2
+}
+
 main() {
+  ladder_from_guard
   from_guard
   preflight
   resolve_app
