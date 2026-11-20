@@ -225,7 +225,7 @@ PY
   p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
             python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
   # run DVS: the widget-drop stop through the pipeline's own widget_drop_stop (bin/widgetfix.py), the page, the chat line and the answer
-  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
+  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice|dvs-stop-flush) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
             mods=$F/modules-dvs.json; [ "$case_" != dvs-stop-nofit ] || { mods=$T/mods.json; sed 's/2\.30\.6/2.32.4/' "$F/modules-dvs.json" > "$mods"; }
             mkdvs() { mkstop 'eval "$(sed -n "/^nj_writes() /p;/^widget_drop_stop() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; nj_file() { :; }
               export WORK=$W APP=x TARGET=10.24.0 UPG_CACHE=$F UPG_WIDGETFIX_MODULES=$mods UPG_WIDGETFIX_VERSIONS=$F/versions-116540.txt; widget_drop_stop'; }
@@ -236,6 +236,10 @@ PY
               dvs-stop-update) python3 "$B/decisions.py" pending --work "$W" | grep -- '--choice'
                   dec add --item stop:update:1 --choice update --by Ana --source page >/dev/null; dec apply | tail -1; cat "$W/plan.txt"
                   awk '$1 ~ /^[0-9]+$/ {print "stepupdate reads: cid=" $1 " ver=" $2 " module=" $3}' "$W/plan.txt" ;;
+              dvs-stop-flush) secs=$(sed -n '/^## /,$p' "$W/NEEDS-JUDGMENT.md"); cp "$W/widgetdrop.json" "$W/plan.txt" "$T/min/"; W=$T/lb/work; mkdir -p "$W"; cp "$T/min/widgetdrop.json" "$T/min/plan.txt" "$W/"
+                  njrun update 13 "$secs"; njrun update 13 "$secs"; echo "rows: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')"
+                  python3 "$B/decisions.py" pending --work "$W" | grep -o -- '--item stop:[^ ]*' | sort -u
+                  dec add --item stop:update:1.2 --choice update --by Ana --source page >/dev/null; dec apply >/dev/null; grep -c '^116540 2.32.4 DataWidgets # \[item:stop:update:1\.2\]' "$W/plan.txt" ;;
               dvs-stop-twice) dec add --item stop:update:1 --choice accept --by Ana --source page >/dev/null; dec apply >/dev/null; echo "ack: $(cut -c1-40 "$W/widgetdrop-ack.txt")"
                   rm -f "$W/NEEDS-JUDGMENT.md"; echo "asked after the run went on: $(python3 "$B/decisions.py" pending --work "$W" | grep -c 'stop:update:1')"
                   rm -f "$W/widgetdrop-ack.txt"; mkdvs; echo "asked by the next stop with the same id: $(python3 "$B/decisions.py" pending --work "$W" | grep -c -- '--item stop:update:1')"
@@ -397,6 +401,12 @@ decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "s
 decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
 PY
             ;;
+  # run SITS: a plan choice's recommended key is the placeholder "rec"; the chat line must also say what is recommended
+  pending-rec-says-what) dec pending | grep -- '--item P-2 ' ;;
+  # run SITS: a later stop at the same step must not reuse the first stop's ids (state/stops.tsv holds one row per stop)
+  stop-ids-first|stop-ids-later) mkstop 'nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module|Before the build." "accept|Accept the loss|Create the ack file."; nj_add 13 "Decision" "x"'
+            mkdir -p "$W/state"; printf 'update\t13\t111\n' > "$W/state/stops.tsv"; [ "$case_" != stop-ids-later ] || printf 'update\t13\t222\n' >> "$W/state/stops.tsv"
+            dec pending | grep -o -- '--item stop:[^ ]*' ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
