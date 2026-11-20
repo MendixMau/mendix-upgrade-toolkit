@@ -166,6 +166,7 @@ A run is DONE when there are 0 open items and the owner has signed off. Every it
 - The agent closes FIXED alone. It may propose EVIDENCED, DECIDED or HANDED-OFF with a recommendation, never close them.
 - Re-architecture (replace a widget family, rebuild a layout, drop a module, rewrite Java) is always a proposal to the owner,
   never done silently. Pause is a valid answer at every stop.
+- Before removing or replacing a pluggable widget, read its package XML (inside the .mpk) for properties of type form, widgets or action: `mxcli describe page` leaves them out, so a placeholder can look like an empty skeleton while it holds a whole page (GM-19: lazy-load placeholders were removed as empty and the pages inside were lost). `bin/replacement_check.py` and `bin/dojo_report.py` print `removing it removes: ...` per instance; read that line before any removal.
 - Before anything changes, the owner signs the upgrade proposal ([steps/propose.md](steps/propose.md)); an unsigned proposal
   is a stop (rule below) and, on an unattended run, "proposal not signed" in every report.
 - AGENT-DECISIONS: every D row names its step id (`S-n`, written in the row). A choice the agent makes on its own and that has no step
