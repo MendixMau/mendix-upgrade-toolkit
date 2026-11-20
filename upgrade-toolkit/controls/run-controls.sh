@@ -4572,6 +4572,42 @@ gw other nolog mpr; : > $GW/other/w/build-11.12.6.log
 ctl gm38-wire-other-target-log-not-passed-catch 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun other"
 # wired: the call site in step_triage uses ri_build_args (the helper exists and is called, not just defined)
 ctl gm38-wire-call-site-catch 0 '^defined$' '^called$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; grep -q '^ri_build_args() {' \$P && echo defined; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'ri_build_args' && echo called"
+# GM-38 close-after-build: release_impact.py --close-proved re-evaluates only the java-removal-proved-by-build rule on the EXISTING
+# release-impact.md (no facts, brain or rows regenerated); the pipeline calls it right after step_build records a green build.
+# Triage-time file: the original Java names AdminException, no final tree yet, so row 1 is open. Synthetic: no field run.
+CL=$T/gm38close; mkdir -p $CL
+printf '{"project_dir": "%s"}\n' "$RI/jp-own" > $CL/before.json
+$RT --facts $CL/before.json --out $CL/before.md > /dev/null
+sed 's/^\(| 2 | .*\)|  |$/\1| handled: kept by hand |/' $CL/before.md > $CL/human.md
+cl() { cp $CL/$1.md $CL/$2.md; python3 $B/release_impact.py --close-proved $CL/$2.md --final-dir $RI/jp-$3 --build-log $RI/$4; }
+ctl gm38-close-green-closes-pass 0 'closed 1 row\(s\) as java-removal-proved-by-build: 1 \(BUILD SUCCEEDED' -- cl before g1 plain build-green.log
+ctl gm38-close-green-row-catch 1 '!^OPEN Studio Pro row 1: ' '\| 1 \| 10\.0\.0 \| removal .*handled \(auto\): java-removal-proved-by-build: AdminException' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before g2 plain build-green.log >/dev/null; cat $CL/g2.md; python3 $B/release_impact.py --check $CL/g2.md | grep -v '^OPEN [^S]'; python3 $B/release_impact.py --check $CL/g2.md | grep -q '^OPEN Studio Pro row 1:' && exit 0; python3 $B/release_impact.py --check $CL/g2.md"
+ctl gm38-close-red-build-open-catch 0 'closed 0 rows \(build not green: 1 ERROR at lines' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before r1 plain build-red.log; cmp $CL/before.md $CL/r1.md && echo identical"
+ctl gm38-close-red-build-identical-catch 0 '^identical$' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before r2 plain build-red.log >/dev/null; cmp $CL/before.md $CL/r2.md && echo identical"
+ctl gm38-close-stale-log-open-catch 0 'closed 0 rows \(build log older than final javasource/mpr' '^identical$' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before s1 plain build-stale.log; cmp $CL/before.md $CL/s1.md && echo identical"
+ctl gm38-close-symbol-present-open-catch 0 'closed 0 rows' '^identical$' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before p1 still build-green.log; cmp $CL/before.md $CL/p1.md && echo identical"
+# a person's entry (row 2) survives, and only row 1, its open-rows bullet and the two counts change
+ctl gm38-close-human-entry-survives-pass 0 '^\| 2 \| .*handled: kept by hand \|$' '!^< \| [2-9] \|' '^changed-lines-ok$' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl human h1 plain build-green.log >/dev/null; grep -E '^\| 2 \| ' $CL/h1.md; diff $CL/human.md $CL/h1.md | grep '^<' | grep -vcE '^< (\| 1 \||- row 1 \(|## Open rows|.*This run:)' | grep -qx 0 && echo changed-lines-ok"
+# idempotent: a second run changes nothing
+ctl gm38-close-twice-identical-pass 0 '^identical$' 'closed 0 rows' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before t1 plain build-green.log >/dev/null; cp $CL/t1.md $CL/t1a.md; python3 $B/release_impact.py --close-proved $CL/t1.md --final-dir $RI/jp-plain --build-log $RI/build-green.log; cmp $CL/t1.md $CL/t1a.md && echo identical"
+# a Windows-style path (backslash) in --build-log: the row still closes (the entry is written literally, never as a regex template)
+cp $RI/build-green.log "$CL/bs\\Users\\x.log"; touch "$CL/bs\\Users\\x.log"
+printf '%s\n' "cp $CL/before.md $CL/bs1.md" "python3 $B/release_impact.py --close-proved $CL/bs1.md --final-dir $RI/jp-plain --build-log \"\$1\"" > $CL/bs.sh
+ctl gm38-close-backslash-path-pass 0 'closed 1 row\(s\) as java-removal-proved-by-build: 1' '!bad escape' -- sh $CL/bs.sh "$CL/bs\\Users\\x.log"
+# the Open rows section goes away with its last bullet (as triage writes none when no row is open), and the counts follow
+sed -E '/^- row ([2-9]|[0-9][0-9]+) \(/d; s/^(\| ([2-9]|[0-9][0-9]+) \| .*)\|  \|$/\1| handled: by hand |/' $CL/before.md > $CL/one-open.md
+ctl gm38-close-last-open-row-drops-section-pass 0 '!^## Open rows: what to do' '!^- row 1 \(' 'java-removal-proved-by-build' -- sh -c "cp $CL/one-open.md $CL/ls.md; python3 $B/release_impact.py --close-proved $CL/ls.md --final-dir $RI/jp-plain --build-log $RI/build-green.log >/dev/null; cat $CL/ls.md; python3 $B/release_impact.py --check $CL/ls.md | tail -2"
+# the pipeline: close_proved_rows (real function) runs the real tool after a green build, never fails the step, and does nothing without the log/project
+CP=$CL/pipe; mkdir -p $CP/w $CP/app; : > $CP/app/App.mpr; cp $CL/before.md $CP/w/release-impact.md; cp $RI/build-green.log $CP/w/build-10.0.0.log
+{ sed -n '/^ri_build_args() {/,/^}/p;/^close_proved_rows() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE $*"; }' 'close_proved_rows; echo rc=$?'; } > $CP/fn.sh
+rm -rf $CP/app/javasource; cp -r $RI/jp-plain/javasource $CP/app/javasource; touch $CP/w/build-10.0.0.log
+ctl gm38-close-pipeline-closes-catch 0 '^rc=0$' 'NOTE release-impact close-proved: closed 1 row' '^closed-in-file$' -- bash -c "B=$B WORK=$CP/w DRY=0 TARGET=10.0.0 MPR=$CP/app/App.mpr bash $CP/fn.sh; grep -q 'java-removal-proved-by-build' $CP/w/release-impact.md && echo closed-in-file"
+cp $CL/before.md $CP/w2.md; mkdir -p $CP/w2; mv $CP/w2.md $CP/w2/release-impact.md
+ctl gm38-close-pipeline-no-build-untouched-pass 0 '^rc=0$' '^identical$' -- bash -c "B=$B WORK=$CP/w2 DRY=0 TARGET=10.0.0 MPR=$CP/app/App.mpr bash $CP/fn.sh; cmp $CL/before.md $CP/w2/release-impact.md && echo identical"
+mkdir -p $CP/w3; cp $CL/before.md $CP/w3/release-impact.md; : > $CP/w3/build-10.0.0.log; touch -d '2001-01-01' $CP/w3/build-10.0.0.log
+ctl gm38-close-pipeline-tool-failure-continues-catch 0 '^rc=0$' '^identical$' -- bash -c "mkdir -p $CP/badB; printf 'import sys\nsys.exit(5)\n' > $CP/badB/release_impact.py; B=$CP/badB WORK=$CP/w3 DRY=0 TARGET=10.0.0 MPR=$CP/app/App.mpr bash $CP/fn.sh; cmp $CL/before.md $CP/w3/release-impact.md && echo identical"
+ctl gm38-close-call-site-catch 0 '^defined$' '^called$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; grep -q '^close_proved_rows() {' \$P && echo defined; awk '/^step_build\\(\\) \\{/,/^}\$/' \$P | grep -q 'close_proved_rows' && echo called"
 mkdir -p $RI/fp; cp $M/facts-clean/App.mpr $RI/fp/; python3 $here/lib/mkjavaproj.py $RI/fp --git
 ctl release-impact-tools-facts-pass 0 '"project_dir": ".*/fp"' '"vcs": "git"' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $RI/fp/App.mpr --facts-out $RI/fp-facts.json >/dev/null; cat $RI/fp-facts.json"
 mkdir -p $RI/fnj; cp $M/facts-clean/App.mpr $RI/fnj/
