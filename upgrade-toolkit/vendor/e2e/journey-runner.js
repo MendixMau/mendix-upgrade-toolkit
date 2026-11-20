@@ -885,7 +885,8 @@ async function anonymousVisit(page, baseUrl) {
 module.exports = {
   sqlRowCount, sqlWatermark, whereScoped, scopeLiteral,
   sqlAssocTotal, sqlAssocLinked, sqlMustPointAt, captureScope, scopeEvidence,
-  runExitCode, anonymousVisit,
+  anonymousVisit,
+  runExitCode,
 };
 
 // ── Main ────────────────────────────────────────────────────────────────────
