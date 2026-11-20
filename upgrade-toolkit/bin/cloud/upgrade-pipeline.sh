@@ -2391,6 +2391,9 @@ step_diff() {
   # the apis rung: the stand-in's own check of what was requested (apimock.py check)
   if [ -f "$WORK/apimock/inventory.json" ]; then kv+=("APIMOCK=$WORK/apimock"); only="$only,apis"; fi
   [ ! -f "$WORK/apidirect/direct.json" ] || kv+=("APIDIRECT=$WORK/apidirect")
+  # the release rung (steps/gate.md 10): triage wrote release-impact.md; without the key the rung reads "not selected" and the
+  # grade stays INVALID although every row is closed (ORG, TLT). Selected here only to be judged; an open row still stops at step gate
+  if [ -f "$WORK/release-impact.md" ]; then kv+=("RELEASE_IMPACT=$WORK/release-impact.md"); only="$only,release"; fi
   kv+=("BEFORE_JSON=$WORK/before.json" "AFTER_JSON=$WORK/after.json" "OLD_LOG=$WORK/logs/runtime-oldbase.log" "NEW_LOG=$WORK/logs/runtime-newafter.log" "SMOKE_BEFORE_SHOTS=$WORK/smoke-before-shots" "SMOKE_LOGIN_PATH=$(login_path)")
   # PRC-8: the journeys stage ran just before; judge its stored results again (gate.sh JOURNEYS_REJUDGE: no app, nothing
   # written) so the gate's Progress line counts the rung instead of "journeys: not measured yet" (Purchase Request run 4)
@@ -2411,7 +2414,8 @@ step_diff() {
   xo "$WORK/gate.out" bash "$B/gate.sh" "${ga[@]}" || rc=$?
   [ "$DRY" != 1 ] || return 0
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
-  bad=$(grep -E "^\| [0-9]+ \| (${only//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
+  local ob=${only//,release/}   # release is judged and stopped at step gate (release_impact.py --check), not here
+  bad=$(grep -E "^\| [0-9]+ \| (${ob//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
     gate_open_nj_meta $(sed -n 's/.* \([0-9][0-9]*\) with REGRESSIONS to fix, \([0-9][0-9]*\) need a decision, \([0-9][0-9]*\) not measured yet.*/\1 \2 \3/p' "$WORK/gate-summary.md" 2> /dev/null | head -1); nj_file 12 "$GATE_OPEN_TITLE" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
   fi
