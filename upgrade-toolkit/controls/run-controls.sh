@@ -4555,6 +4555,8 @@ ctl release-impact-would-auto-quiet-pass 0 '!auto would also decide' -- sh -c "$
 # --check and the cockpit count the open rows only. fixtures/brain-evidence: one row per verdict, read as a company brain.
 model reln-evidence > /dev/null
 RE="python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr"
+# the controls below read $RI/ev.md: write it here, outside any control, so a scoped run (--only 'reln-ev-cockpit') finds it too
+$RE --out $RI/ev.md > /dev/null || true
 ctl reln-ev-open-only-used-catch 1 '^OPEN Studio Pro row 1: 10\.1\.0 removal No longer support custom reason phrases' '!^OPEN Studio Pro row [2-6]:' 'release-impact check: 3 of 6 rows handled or not relevant, 1 open$' -- sh -c "$RE --out $RI/ev.md >/dev/null; python3 $B/release_impact.py --check $RI/ev.md"
 ctl reln-ev-evidence-cited-pass 0 '^- row 1 \(10\.1\.0\): the app uses it: ReasonPhrase in MyShop\.ACT_Reply \(Microflow\)\. Do:' 'This run: 3 auto, 0 kept from a person, 1 open, 2 in the go-live environment checklist\.' -- cat $RI/ev.md
 ctl reln-ev-golive-checklist-pass 0 '^## Go-live environment checklist \(2 items\)' '^Test environment \(this run\): PostgreSQL 16 \(the database bin/runapp\.py runs the app on\)\. Production: confirm once' '^- row 3 \(10\.1\.0, removal, data-storage\): Dropped support for MariaDB 10\.3' '^- row 4 \(10\.1\.0, requirement, runtime\)' '^\| 3 \| 10\.1\.0 .*\| later \(auto\): go-live-env: ' -- cat $RI/ev.md
