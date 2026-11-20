@@ -485,6 +485,9 @@ def create_journey(spec, data_rung=False):
         own = [{"label": f"the run's own row: {f['attr']} = {f['value']}", "expect": 1,
                 "sql": f"SELECT COUNT(*) AS n FROM {spec['entity']} WHERE {f['attr']} = '{f['value']}'"}
                for f in spec.get("fields", []) if f.get("attr") and f.get("do") != "select"]
+        if delta == 0 and not own:
+            sys.exit("create spec: \"delta\": 0 needs a field with \"attr\" (not do: select): with no row added, "
+                     "the own-row check is the only proof the save landed")
         if own:
             step["data"]["oql"] = own
     j = journey("create-save", f"Core create-and-save: {spec['entity']}", spec["role"],
