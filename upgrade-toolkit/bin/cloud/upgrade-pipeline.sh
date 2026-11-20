@@ -2626,7 +2626,7 @@ ladder_from_guard() {
   case "$ver" in "$TARGET2"|"$TARGET2".*) ;; *) return 0 ;; esac
   echo "upgrade-pipeline.sh: --from $FROM refused on the ladder command: rung 2 has already converted $APP_DIR_ARG to $ver, and rung 1 ($SOURCE -> $TARGET) cannot run on it. Nothing was changed." >&2
   echo "  To resume rung 2: use the rerun line in $WORK/rung2/NEEDS-JUDGMENT.md (it carries --work $WORK/rung2 and the rung-2 --from)." >&2
-  echo "  To redo rung 1: put the app back on its $TARGET commit first (git checkout), then rerun." >&2
+  echo "  To redo rung 1: tag a backup (git -C $APP_DIR_ARG tag backup/<name>), git reset --hard to the convert commit, then rerun." >&2
   exit 2
 }
 
