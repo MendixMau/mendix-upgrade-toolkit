@@ -63,6 +63,10 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    AWSAuthentication 4.x broke at javac, Administration on MendixSSO at mx check (CE0117). Rerun it whenever the plan changes.
    crosscalls judges kept callers against the plan; the reverse (an updated module that needs what a kept one lacks, T6R-7)
    is checked after the steps by `keptdeps.py` (steps/upgrade.md, step 1).
+   Caps while another module is installed (GM-14): `python3 $B/atlascap.py $W/localedits.json $W/plan.txt` reads
+   `playbooks/module-caps.tsv`; with PlatformDesignSystem installed it holds Atlas_Core at 3.19.0 (Atlas 3.20+ `@extend .col-<bp>-3`
+   needs the PDS grid: mx check and idcheck pass, only the mxbuild theme compile fails). `CAP` (exit 1) = `--write` the plan, then
+   rerun to exit 0. The row is marked `check` (boundary not verified): say so in the proposal. A theme compile after each theme step is still wanted.
    Theme of kept modules (MC-11): a kept module's themesource styling can hit platform widgets the plan updates (a rule on
    `.widget-datagrid`, `.mx-listview` and so on): the markup changes with the widget major, the model check and the build see
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
