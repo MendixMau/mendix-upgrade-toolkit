@@ -1479,7 +1479,7 @@ run_stepupdate() { # run_stepupdate PLAN label
         nj_meta agent; nj_add 13 "Module plan has picks that need a newer Mendix than this rung ($2, project $rfv)" "$(grep '^MISFIT' "$WORK/rungfit-$2.out") Plan each rung with its own target (steps/triage.md item 3): plan-pre.txt = picks that install at the SOURCE version, plan.txt = picks for the version the project has after the convert; the picks for the next rung go in that rung's plan. Rewrite $plan, then rerun --from $rfrom."
         nj_flush
       fi
-      tail -n 1 "$WORK/rungfit-$2.out" | sed 's/^/rungfit: /' | while IFS= read -r l; do note "$l"; done
+      tail -n 1 "$WORK/rungfit-$2.out" | while IFS= read -r l; do note "$l"; done
     fi
   fi
   [ -f "$WORK/approved.txt" ] || { [ "$DRY" = 1 ] || printf '# accepted step-idcheck findings: <pattern> # reason\n' > "$WORK/approved.txt"; }
