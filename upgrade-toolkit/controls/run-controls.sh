@@ -323,6 +323,24 @@ ctl gm12-uncached-not-checked-catch 3 '^NOT CHECKED NotifProd 4\.1\.0: the packa
 ctl gm12-same-version-skipped-pass 0 '0 package\(s\) read, 0 NOT CHECKED, 1 skipped' '!NEEDS|NOT CHECKED NotifProd' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan-same.txt --cache $T/cache-gm12-absent
 ctl gm12-no-plan-invalid 2 'give --plan-file' -- python3 $B/absentmods.py $M/gm12-app
 ctl gm12-missing-plan-invalid 2 'absentmods:' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-no-such-plan.txt
+# plan-pre.txt (10.x to 11 runs): its updates are checked and its modules count as planned
+for m in gm12-app2 gm12-pkg-pre gm12-pkg-addon; do model $m > /dev/null; done
+mkdir -p $T/cache-gm12-pre $T/cache-gm12-addon
+(cd $M/gm12-pkg-pre && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-gm12-pre/6666-2.0.0.mpk','w'); z.write('App.mpr'); z.close()")
+cp $T/cache-gm12-inplan/4444-4.1.0.mpk $T/cache-gm12-pre/4444-4.1.0.mpk
+(cd $M/gm12-pkg-addon && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-gm12-addon/4444-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+printf '6666 2.0.0 PreMod\n7777 1.0.0 NewMod\n' > $T/gm12-plan-pre.txt
+printf '6666 2.0.0 PreMod\n' > $T/gm12-plan-premod.txt
+ctl gm12-plan-pre-checked-catch 1 '^NEEDS MxTokenModule: called by PreMod 1\.0\.0 -> 2\.0\.0' '2 package\(s\) read' -- python3 $B/absentmods.py $M/gm12-app2 --plan-file $T/gm12-plan.txt --plan-file $T/gm12-plan-pre.txt --cache $T/cache-gm12-pre
+ctl gm12-plan-pre-module-planned-pass 0 '!NEEDS NewMod' '1 package\(s\) read' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --plan-file $T/gm12-plan-pre.txt --cache $T/cache-gm12-pre
+ctl gm12-plan-pre-not-given-catch 1 '^NEEDS NewMod: called by NotifProd' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-pre
+# System and an add-on (modules/*.mxmodule) of the app are not absent
+cp -r $M/gm12-app $T/gm12-app-addon; mkdir -p $T/gm12-app-addon/modules; : > $T/gm12-app-addon/modules/AddonMod.mxmodule
+ctl gm12-system-addon-skipped-pass 0 '1 package\(s\) read' '0 absent module\(s\) needed' '!NEEDS' -- python3 $B/absentmods.py $T/gm12-app-addon --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-addon
+ctl gm12-addon-not-in-app-catch 1 '^NEEDS AddonMod: called by NotifProd' '!NEEDS System' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-addon
+# NEEDS and NOT CHECKED together: NEEDS wins (exit 1) and the unchecked line is still printed
+printf '4444 4.1.0 NotifProd\n6666 2.0.0 PreMod\n' > $T/gm12-plan-both.txt
+ctl gm12-needs-wins-over-unchecked-catch 1 '^NEEDS MxTokenModule: called by NotifProd' '^NOT CHECKED PreMod 2\.0\.0' -- python3 $B/absentmods.py $M/gm12-app2 --plan-file $T/gm12-plan-both.txt --cache $T/cache-gm12-absent
 # repair row 28 as a tool: copydoc.py copies the dropped document from the pre-update model into an own module, with
 # fresh ids (pointers follow) and its roles mapped, and repoints the OWN users only (a Marketplace caller is left alone)
 model copydoc-base > /dev/null; model copydoc-new > /dev/null; model copydoc-v11 > /dev/null

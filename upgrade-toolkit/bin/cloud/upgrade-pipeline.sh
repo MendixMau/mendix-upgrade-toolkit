@@ -1196,15 +1196,20 @@ replacement_report() {
 # GM-12: the target packages of the planned updates are read for calls into modules the app does not have; proposal.py
 # makes each one a section-3 item "needs module X". Run at propose (plan.txt exists then), fresh each time: the plan may change.
 absent_modules_report() {
-  [ "$DRY" != 1 ] || { say "+ absentmods.py $WORK/original.mpr --plan-file $WORK/plan.txt --json $WORK/absentmods.json"; return 0; }
+  local pf=(--plan-file "$WORK/plan.txt")
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")   # the pre-convert updates are planned and checked too
+  [ "$DRY" != 1 ] || { say "+ absentmods.py $WORK/original.mpr ${pf[*]} --json $WORK/absentmods.json"; return 0; }
   [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
   local rc=0
-  xo "$WORK/absentmods.out" python3 "$B/absentmods.py" "$WORK/original.mpr" --plan-file "$WORK/plan.txt" --json "$WORK/absentmods.json" || rc=$?
+  rm -f "$WORK/absentmods.json"   # a failed or crashed rerun must not leave an earlier run's answer for proposal.py
+  xo "$WORK/absentmods.out" python3 "$B/absentmods.py" "$WORK/original.mpr" "${pf[@]}" --json "$WORK/absentmods.json" || rc=$?
+  # a Python traceback also exits 1: it is NEEDS only when the output has a NEEDS line
+  if [ "$rc" = 1 ] && ! grep -q '^NEEDS ' "$WORK/absentmods.out" 2> /dev/null; then rc=9; fi
   case "$rc" in
     0) ;;
     1) note "absentmods.py: $(grep -c '^NEEDS ' "$WORK/absentmods.out" 2> /dev/null || true) absent module(s) a planned update calls (section 3 of the proposal), see $WORK/absentmods.out" ;;
     3) note "absentmods.py: a planned update's package is not in the cache: NOT CHECKED, not clean, see $WORK/absentmods.out" ;;
-    *) note "absentmods.py exit $rc: calls into absent modules not checked, see $WORK/absentmods.out" ;;
+    *) note "absentmods.py failed (exit $rc, no NEEDS line): calls into absent modules NOT CHECKED, see $WORK/absentmods.out" ;;
   esac
 }
 

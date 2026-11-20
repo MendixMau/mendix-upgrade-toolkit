@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """absentmods.py: which modules does a planned module update call that are neither in the app nor in the plan? (GM-12)
 
-  absentmods.py APP --plan-file plan.txt [--cache DIR] [--json out.json]
+  absentmods.py APP --plan-file plan.txt [--plan-file plan-pre.txt] [--cache DIR] [--json out.json]
   APP            the app folder (the .mpr, mprcontents/ side by side) or the .mpr itself
-  --plan-file    stepupdate's plan.txt: "<content id> <version> <Module>" per line, # comments allowed
+  --plan-file    stepupdate's plan.txt: "<content id> <version> <Module>" per line, # comments allowed. Repeatable: on a 10.x to
+                 11 run the updates are split between plan-pre.txt (before the convert) and plan.txt; give both. Modules of every
+                 file count as planned, and the updates of every file are checked.
   --cache        where the packages are (default UPG_CACHE or ~/.cache/upgrade-toolkit/mpk): <content id>-<version>.mpk,
                  the same cache and naming as crosscalls.py, planbuild.py and localedits.py. Never downloaded here.
 
 NotificationProducer 3.1.0 -> 4.1.0: 4.1.0 calls MxTokenModule, which the app does not have. 31 CE1613 at the build, and
 nothing at plan time said so (bin/repair/missing_module_stop.py stops at the build, after the update has run). This reads
 the target package's project.mpr (crosscalls.package_model) and lists the modules its non-excluded documents refer to
-that are none of: a module of the package itself, a module of the app, a module on the plan, System, an add-on
+that are none of: a module of the package itself, a module of the app, a module on a plan file, System, an add-on
 (modules/*.mxmodule) of the app. "Refer to" is what bin/repair/missing_deps.py counts: a qualified name in a reference
 field (Entity, Microflow, Page, Generalization ... : its REF_KEYS), so a text that only looks like Module.Name is not one.
 A plan line whose version is the installed one is no update and is skipped.
+Limits: only the reference fields of REF_KEYS are scanned (not XPath, expression text or widget properties), and module names
+are matched exactly, so a renamed module or a case difference can give a false NEEDS.
 
 Output: a header with the denominators (plan lines, checked, not checked, skipped), then
   NEEDS <Module>: called by <P> <installed> -> <plan> (<n> refs, e.g. <kind> <document> -> <Module.Name>; ...)
@@ -66,7 +70,7 @@ def refs_to_modules(model, skip):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("app")
-    ap.add_argument("--plan-file")
+    ap.add_argument("--plan-file", action="append")
     ap.add_argument("--cache", default=os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk"))
     ap.add_argument("--json")
     a = ap.parse_args()
@@ -74,7 +78,7 @@ def main():
         print("absentmods: give --plan-file plan.txt", file=sys.stderr)
         return 2
     try:
-        plan = crosscalls.read_first_words(a.plan_file, True)
+        plan = [x for f in a.plan_file for x in crosscalls.read_first_words(f, True)]
     except OSError as e:
         print(f"absentmods: {e}", file=sys.stderr)
         return 2

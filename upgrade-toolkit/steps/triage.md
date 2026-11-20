@@ -52,6 +52,10 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    called by <P> ...` for each module its documents refer to that is not in the app, not in the plan, not System, not an
    add-on. Exit 0 = none, 1 = NEEDS (a section-3 item "needs module X": install it and put it on the plan, or hold the
    caller), 3 = a package not cached (NOT CHECKED, listed as not measured in the proposal, never clean), 2 = input error.
+   On a 10.x to 11 run give `--plan-file` twice (`$W/plan-pre.txt` and `$W/plan.txt`): modules of both are planned and the
+   updates of both are checked; the pipeline passes plan-pre.txt when it exists. Only reference fields (REF_KEYS: not XPath,
+   expression text or widget properties) are scanned, and module names match exactly, so a renamed module or a case
+   difference can give a false NEEDS.
    The pipeline runs it at propose and `proposal.py` reads `$W/absentmods.json`. The build-time stop
    (`repair/missing_module_stop.py`) stays as the backstop.
    ADD-ON modules (`modules/*.mxmodule`, a vendor binary; not in the catalog, so mxcli, localedits, stepupdate and
