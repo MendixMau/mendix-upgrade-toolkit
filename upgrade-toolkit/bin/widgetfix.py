@@ -200,9 +200,11 @@ def main():
             reason = "These widgets are not from a package the toolkit knows, so it cannot name an update."
         print(f"R\tnone:{reason} Only you know whether losing them matters.")
         print(f"O\taccept|Go on and lose them|Users notice it: {'; '.join(items)}. Your name is recorded with the answer; the build goes on.")
-        if pk and not mod:
-            pkg = sorted(pk)[0]
-            print(f"O\tfix|Install {pkg} yourself first|The run stays paused. Install the missing widget module: mxcli marketplace search \"{pkg}\", then mxcli marketplace download <id> --version <a version whose minimum Mendix fits {a.target or 'the target'}> -o <folder>/ and mxcli marketplace install --file <folder>/<file>.mpk, delete the .mpk, and rerun from the update step.")
+        # only for packages really absent from a module list that was read (an unread list is [] and proves nothing)
+        missing = sorted(p for p in pk if not any(norm(m.get("name")) == norm(p) for m in mods)) if mods else []
+        if not mod and missing:
+            pkg = " and ".join(missing) if len(missing) <= 2 else f"{', '.join(missing[:2])} and {len(missing) - 2} more"
+            print(f"O\tfix|Install {pkg} yourself first|The run stays paused. Install the missing widget module{'s' if len(missing) > 1 else ''}: for each, mxcli marketplace search \"<name>\", then mxcli marketplace download <id> --version <a version whose minimum Mendix fits {a.target or 'the target'}> -o <folder>/ and mxcli marketplace install --file <folder>/<file>.mpk, delete the .mpk, and rerun from the update step.")
         else:
             print("O\tfix|Update the widget yourself first|The run stays paused. Update the widget package (a newer widget or module version), then rerun from the update step.")
         why = reason
