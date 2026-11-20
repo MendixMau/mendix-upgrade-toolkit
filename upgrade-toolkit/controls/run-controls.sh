@@ -2487,6 +2487,12 @@ ctl stepupdate-from-skip-pass 1 'step 1: Broken 1.0 skipped \(before --from Fine
 # U1: the summary counts what kept.txt holds: a --skip module is kept (it said 0 kept next to a kept: line)
 newapp ks '1 1.0 Fine\n2 1.1 Guid\n3 1.2 Down\n'
 ctl stepupdate-kept-count-skip-catch 1 '1 run, 1 committed, 2 kept, 0 network$' 'kept: Guid skipped by --skip' -- bash $B/stepupdate.sh $S/ks $S/ks.plan --skip Guid,Down
+# the reason the owner gives for a --skip reaches the kept line (a field run kept Logging at 2.3.0 for 3 CE0463 errors and the output never said why); a module with no reason keeps the old line exactly
+newapp kr '1 1.0 Fine\n2 1.1 Guid\n3 1.2 Down\n'
+ctl stepupdate-kept-reason-catch 1 'kept: Guid skipped by --skip: 2\.4\.0 adds 3 CE0463 errors$' 'kept: Down skipped by --skip$' '2 kept, 0 network$' -- bash $B/stepupdate.sh $S/kr $S/kr.plan --skip Guid,Down --skip-reason 'Guid=2.4.0 adds 3 CE0463 errors'
+newapp kq '1 1.0 Fine\n2 1.1 Guid\n'
+ctl stepupdate-kept-noreason-pass 1 'kept: Guid skipped by --skip$' '1 kept, 0 network$' -- bash $B/stepupdate.sh $S/kq $S/kq.plan --skip Guid
+ctl stepupdate-skip-reason-bad-pass 2 "wants 'Module=reason'" -- bash $B/stepupdate.sh $S/kq $S/kq.plan --skip Guid --skip-reason noequals
 newapp kn '1 1.0 Fine\n'
 ctl stepupdate-kept-count-none-pass 0 '1 committed, 0 kept, 0 network$' -- bash $B/stepupdate.sh $S/kn $S/kn.plan
 # pipeline run 3 (T2-9, T3-13, T6-2, T7-8, T8-14): managed deps through host Maven; a 429 mirror falls through to the next
@@ -7665,6 +7671,9 @@ ctl remedy-default-name-catch 1 '^C1 HUMAN    react-bundled-viewer3d' -- $RM --w
 ctl remedy-default-name-pass 0 '^remedy-cards.md$' '^remediation.json$' '^merged$' -- sh -c "ls $RT/dflt | grep -E '^(remedy-cards.md|remediation.json)$'; cat $RT/dflt/REMEDIATION.md"
 ctl remedy-gate-folder-nosummary-catch 2 'is a folder with no gate-summary\.md' -- $RM --work $RT/dflt --gate $RT/dflt/gate-a/.. --release $RT/dflt/release-impact.md --out $RT/x.md --json $RT/x.json
 ctl remedy-kept-kinds-catch 1 '^C1 HUMAN    kept-administration-account' '^C2 HUMAN    generic-kept-edits:MxGenAIConnector' '^C3 HUMAN    generic-kept-unproven:GenAICommons' 'keptdeps not shown clean for the kept modules that may call GenAICommons' '^C4 HUMAN    generic-kept-unproven:OtherMod' '^CHOICE kept line .OQL skipped by --skip.: skipped by choice' '!GAP kept: .*OQL' '!TaskQueueHelpers' -- $RM --work $RF/kept --kept-file $RF/kept/kept.txt --from 10.24.8 --to 11.12.6 --out $RT/k.md --json $RT/k.json
+# a reason given with --skip is shown on the choice line; a kept line with none reads as before
+printf 'OQL skipped by --skip: 2.4.0 adds 3 CE0463 errors\nTaskQueueHelpers skipped by --skip\n' > $RT/kr.txt
+ctl remedy-kept-reason-catch 0 "^CHOICE kept line .OQL skipped by --skip: 2\\.4\\.0 adds 3 CE0463 errors.: skipped by choice, not refused \\(reason given: 2\\.4\\.0 adds 3 CE0463 errors\\); check" "^CHOICE kept line .TaskQueueHelpers skipped by --skip.: skipped by choice, not refused; check" -- $RM --work $RF/kept --kept-file $RT/kr.txt --from 10.24.8 --to 11.12.6 --out $RT/kr.md --json $RT/kr.json
 # FM-5: the Feedback widget whose target container is absent in a custom layout gets a card with a unit-patch option (AUTO-TRY A)
 ctl remedy-feedback-target-catch 3 '^C1 AUTO-TRY sprintr-feedback-target' '^    A   AUTO-TRY S in the app-owned snippet that holds the widget, set showAdvancedSettings' '^    C   HUMAN ' 'next: AUTO-TRY A' -- $RM --work $RF/feedback --gate $RF/feedback/gate-a/gate-summary.md --release $RF/feedback/release-impact.md --findings $RF/feedback/findings.txt --from 11.10.0 --to 11.12.6 --out $RT/fb.md --json $RT/fb.json
 ctl remedy-feedback-target-unrelated-pass 1 '!sprintr-feedback-target' -- $RM --work $RF/viewer3d --gate $RF/viewer3d/gate-a/gate-summary.md --release $RF/viewer3d/release-impact.md --kept-file $RF/viewer3d/kept.txt --findings $RF/viewer3d/findings.txt --out $RT/v3b.md --json $RT/v3b.json

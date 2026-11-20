@@ -667,6 +667,7 @@ Add new items at the end with status open; the next triage round gives each one 
 | GA-3 | A create-save journey on an old app failed with only ".mx-name-actionButton2 not visible" (the New button is hidden for that role) and then, once the role was changed, with "no <select> inside .mx-name-comboBox1 (a combobox widget needs \"combobox\")": the create spec had no verb for a Combo box field, the hint named a verb that needs a match and does not exist for this widget, and a spec field with an unknown `do` (the verb the hint named) crashed gen_journeys.py with a KeyError traceback | fixed (GA-1 and GA-2 of this run were folded into FR-8 and FR-9; a create spec field takes `"do": "combo"`; any other `do`, or a fill without a value, stops with a message naming the field and the three allowed forms; the select hint names `combo`). Still open: the "not visible" message does not say which role sees the button, so the person has to compare roles by hand | bin/gen_journeys.py create_journey, bin/journey-verbs.js select. Found in field run GA1 (a GenAI app, ticket create under role User, not Administrator) | gen-create-combo-catch, gen-create-bad-do-catch, gen-create-bad-do-pass, verbs-select-hint-catch |
 | GA-4 | The module plan (plan.txt, module-jumps.txt) was written by hand-made lab scripts: pick the newest version of each installed marketplace module whose minimum Mendix is at or below the target, order cross-module association targets last. The toolkit names the rule in steps/triage.md but ships no script, so every run starts with an agent re-writing it | open | steps/triage.md module plan; lab scripts modvers.py and plangen.py are not in the toolkit. Found in field run GA1 | |
 | GA-5 | The mxcli side of FR-8: `mxcli marketplace diff` words the missing-toolchain case as UNKNOWN with the reason "Comparing across versions", which reads like a normal cross-version note, so a person seeing UNKNOWN for 16 of 16 modules looks for a version problem and not an environment one. The toolkit side (the mxbuild link) is FR-8 | open (mxcli wording, not toolkit code) | mxcli marketplace diff UNKNOWN reason; bin/localedits.py shows it verbatim. Found in field run GA1 | |
+| GA-6 | A module kept at its version by the owner (`--skip`) showed a generic kept line: the reason (Logging held at 2.3.0 because 2.4.0 adds 3 CE0463 errors) never reached the output or the remedy cards | fixed (`bin/stepupdate.sh --skip-reason Module=why` puts the reason on the kept line, `bin/remedy.py` shows it on the CHOICE line; no reason given = the old text exactly; synthetic controls, no field run; the kept count already counts a skipped module, stepupdate-kept-count-skip-catch, so no count bug) | bin/stepupdate.sh kept path, bin/remedy.py read_kept | stepupdate-kept-reason-catch, stepupdate-kept-noreason-pass, stepupdate-skip-reason-bad-pass, remedy-kept-reason-catch |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -983,13 +984,15 @@ FR-1 to FR-9 added after that (all nine fixed: FR-1, FR-2, FR-3 and FR-5 in earl
 
 GA-3 to GA-5 added after that (GA-3 fixed; GA-4 and GA-5 open: the module-plan picker exists only as lab scripts, and the UNKNOWN wording is mxcli's); the table below counts them. Counts are the previous block plus these three rows, not a fresh parse of the table.
 
+GA-6 added after that (fixed); fixed 414, total 757.
+
 | status | count |
 |---|---|
-| fixed | 413 |
+| fixed | 414 |
 | doc (closed by guidance) | 97 |
 | closed | 14 |
 | won't fix | 7 |
 | unproved | 8 |
 | backlog | 176 |
 | open | 41 |
-| total | 756 |
+| total | 757 |
