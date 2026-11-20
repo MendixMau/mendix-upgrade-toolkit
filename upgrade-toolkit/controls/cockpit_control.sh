@@ -443,7 +443,7 @@ PY
          echo "rows: $(grep -o '"id": "stop:basewalk:[0-9]"' "$T/out.html" | sort -u | paste -sd ' ' -)"
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
-         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar' "$T/out.html")" ;;
   stopped-ok) # the widgetroute stop in the standard nj_meta shape ($WRSTOP holds the work folder with the NEEDS-JUDGMENT.md widgetroute.py wrote): reader-worded
          # options, the recommended one, the lines each answer writes; an answer applies them (decisions.py apply)
          W=$WRSTOP; [ -f "$W/NEEDS-JUDGMENT.md" ] || { echo "no stop file in WRSTOP"; exit 2; }
@@ -763,7 +763,7 @@ PY
             python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "rows Oldmod: $(cnt 'module Oldmod' "$T/out.html")" ;;
   check-running) sleep 300 & sp=$!; mkdir -p "$W/state" "$W/logs"; printf 'update\t%s\t%s\n' "$(date +%s)" "$sp" > "$W/state/running"
             printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
-            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar' "$T/out.html")"
             python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
   plan-wait-bar) # exit 14: the plan waits for sign-off. A normal wait for answers: amber and "paused", never the red "stopped" of a failure
             printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"

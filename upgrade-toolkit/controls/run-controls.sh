@@ -7945,7 +7945,7 @@ WORK=$1; TIMES=$2; shift 2
 date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; [ -z "${STUB_REGEN_FAIL:-}" ] || [ -e "$WORK/state/running" ]; }
 step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; if [ -n "${STUB_EXIT:-}" ] && [ ! -f "$WORK/fixed" ]; then exit "$STUB_EXIT"; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
@@ -7996,6 +7996,8 @@ ctl cockpit-exit4-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c 
 STUB_EXIT=3 tmrun $TM/wg $TM/times-b.txt build > /dev/null 2>&1
 ctl cockpit-exit3-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wg/regen-saw 2> /dev/null || echo never)"
 ctl cockpit-exit3-regen-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wh $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
+# a regen that fails at exit (stub fails once the running marker is gone, i.e. only in cleanup) must not replace the exit code of the stop it reports
+ctl cockpit-exit3-regen-fails-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_REGEN_FAIL=1 STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wi $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
 # a normal wait for answers (exit 14, the plan awaits sign-off) is an amber "paused" bar, not the red "run stopped" of a failure
 ctl cockpit-plan-wait-not-red-stopped-catch 0 '^bar: <div class="stopbar wait"' '^text: The run is paused before changing anything' '^red stopped: 0$' -- bash $here/cockpit_control.sh plan-wait-bar
 # a dry run writes no timing file
