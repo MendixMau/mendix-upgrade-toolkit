@@ -1,0 +1,2 @@
+{"modules": [{"name": "WidgetProv", "appstore": [2888, "7.0.6"]}],
+ "widget_packages": {"com.mendix.widget.web.Combobox.mpk": ["com.mendix.widget.web.combobox.Combobox"]}}
