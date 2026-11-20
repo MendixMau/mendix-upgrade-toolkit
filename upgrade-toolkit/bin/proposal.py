@@ -348,8 +348,8 @@ class Facts:
                 + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
             self.add3("theme", f"kept styling uses what {pkg} {ver} removes",
                       f"keptvendor.json: {len(xs)} use(s) in a kept themesource that {pkg} {ver} no longer has: {what}",
-                      f"fix the kept SCSS (use what {pkg} {ver} offers instead) | hold {pkg} at its installed version (keep it at the current version) | hand to a named person",
-                      "fix the kept SCSS before the update, so the theme compile passes",
+                      f"fix the kept SCSS (use what {pkg} {ver} offers instead) | hold {pkg}: the package stays at its installed version | hand to a named person",
+                      "fix the kept SCSS (the build fails at the theme compile otherwise)",
                       "M", f"the theme compile fails at the build for every kept use listed ({len(xs)}), and the update step does not edit a kept module")
             self.items3[-1]["own"] = True   # its options are fixed here: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
         for m, (why, uses) in sorted(unchecked.items()):
@@ -1044,9 +1044,14 @@ def main():
 
     def accept_answers(signer):
         ans = decisions(a.work)
+        todo = [it for it in F.items3 if it["id"] not in ans]
         rows = [(it["id"], it["name"], it["kind"], it["rec"], f"accepted with the sign-off of {signer} (no separate answer)")
-                for it in F.items3 if it["id"] not in ans]
-        return write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
+                for it in todo if not it.get("own")]
+        # an item that appeared after the sign-off (keptvendor.json) was never seen by the signer: ASSUMED, never CONFIRMED in their name
+        late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
+                for it in todo if it.get("own")]
+        n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
+        return n, write_decisions(F, late, "-", "ASSUMED", "a person answers it or signs section 6 again (steps/decide.md)")
 
     if so and so[0] == "paused":
         print(f"proposal: PAUSED by the owner: {so[1]}. Resume: remove the Status line and sign, then rerun the pipeline.")
@@ -1060,9 +1065,10 @@ def main():
             with open(out_path + ".tmp", "w", encoding="utf-8") as f:
                 f.write(cur)
             os.replace(out_path + ".tmp", out_path)
-        n = accept_answers(so[1])
+        n, nl = accept_answers(so[1])
         approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
-        print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
+        print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else "")
+              + (f"; {nl} item(s) appeared after sign-off (ASSUMED in DECISIONS.md, the signer did not see them)" if nl else ""))
         return 0
     changed = None
     shrink_msg = None

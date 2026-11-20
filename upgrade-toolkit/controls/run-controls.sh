@@ -7356,13 +7356,14 @@ python3 $B/keptvendor.py $KV/app --kept KeptMixin,KeptImport --plan-file $KV/pla
 python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none --json $PR/gm15-unchecked/keptvendor.json > /dev/null || true
 bash $PR/prop.sh $PR/gm15-missing > /dev/null; bash $PR/prop.sh $PR/gm15-unchecked > /dev/null
 ctl gm15-proposal-missing-item-catch 0 '^- \[P-[0-9]+\] theme: kept styling uses what PlatformDesignSystem 45\.0\.0 removes$' '2 use\(s\) in a kept themesource' 'mixin dark-theme used in themesource/KeptMixin/web/main\.scss:4 \(module KeptMixin\)' 'import \.\./\.\./PlatformDesignSystem/web/gone used in themesource/KeptImport/web/main\.scss:1' -- bash $PR/sec.sh $PR/gm15-missing 3
-ctl gm15-proposal-hold-option-catch 0 'options: fix the kept SCSS .* \| hold PlatformDesignSystem at its installed version \(keep it at the current version\)' -- bash $PR/sec.sh $PR/gm15-missing 3
+ctl gm15-proposal-hold-option-catch 0 'options: fix the kept SCSS .* \| hold PlatformDesignSystem: the package stays at its installed version' -- bash $PR/sec.sh $PR/gm15-missing 3
 ctl gm15-proposal-missing-not-in-not-measured-pass 0 '!keptvendor\.py' -- sh -c "sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm15-missing/PROPOSAL.md"
 ctl gm15-proposal-not-measured-catch 0 '!kept styling uses' 'keptvendor\.py PlatformDesignSystem: package not cached \(9001-45\.0\.0\.mpk.*2 kept use\(s\) it defines are unverified' -- sh -c "bash $PR/sec.sh $PR/gm15-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm15-unchecked/PROPOSAL.md"
 ctl gm15-proposal-no-file-no-item-pass 0 '!kept styling' '!keptvendor' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
 rm -rf $PR/gm15-signed-run; cp -R $PR/plain $PR/gm15-signed-run; rm -f $PR/gm15-signed-run/PROPOSAL.md; bash $PR/prop.sh $PR/gm15-signed-run > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gm15-signed-run/PROPOSAL.md; rm -f $PR/gm15-signed-run/PROPOSAL.md.sedi
 cp $PR/gm15-missing/keptvendor.json $PR/gm15-signed-run/keptvendor.json
-ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' -- bash $PR/prop.sh $PR/gm15-signed-run
+ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gm15-signed-run
+ctl gm15-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept styling uses what PlatformDesignSystem 45\.0\.0 removes \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!kept styling.*CONFIRMED' -- cat $PR/gm15-signed-run/DECISIONS.md
 # GM-21: a plan that only SHRANK against the signed one (hold-back) asks for a shrink confirmation of the removed items only; an added
 # or changed item, or a signed file from before the item set was stored (or with a junk item set), asks the whole proposal again. The action
 # is the same as before (sign section 6 again); only the reading is lighter. Nothing is signed for the person. Only the shrink controls
