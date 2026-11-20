@@ -1,0 +1,9 @@
+$pds-gone: #111;
+$pds-ok: #222;
+@mixin dark-theme {
+  color: white;
+}
+@mixin pds-ok-mixin {
+  color: black;
+}
+@mixin moved-mixin { margin: 0; }

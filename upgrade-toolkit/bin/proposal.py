@@ -700,57 +700,58 @@ def approve_steps(work, ids, state, signer, source, answers=None):
     return n
 
 
-def decisions(work, raw=False):
-    """P-n -> fields of DECISIONS.md. An answer recorded before its item was merged (GM-20) does not count: see reanswer()."""
+def decisions(work):
+    """P-n -> fields of DECISIONS.md. A line whose id carries the `~stale-merged` marker (reanswer()) does not match."""
     out = {}
-    try:
-        stale = {k: v.get("stale") for k, v in json.load(open(os.path.join(work, "state", "proposal-merges.json"))).items()}
-    except (OSError, ValueError, AttributeError):
-        stale = {}
     for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
         m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
         if m:
             f = [x.strip() for x in m.group(2).split("|")]
             out[m.group(1)] = f
-    if not raw:
-        out = {k: v for k, v in out.items() if stale.get(k) is None or "|".join(v) != stale[k]}
     return out
 
 
 def reanswer(items, work):
     """GM-20: a merged item has a new recommendation order, so an answer given to the dojo item or to one of the absorbed
-    replacement items before the merge is not carried over. The first run that sees the merge records, in
-    state/proposal-merges.json, the answer text it is ignoring (decisions() skips exactly that line) and the evidence note;
-    a later, different answer on the same id counts."""
-    path = os.path.join(work, "state", "proposal-merges.json")
-    try:
-        rec = json.load(open(path))
-    except (OSError, ValueError):
-        rec = {}
+    replacement items before the merge is not carried over. Each such answer line in DECISIONS.md is rewritten in place to
+    `P-n~stale-merged | <rest>` (every reader's `^(P-\\d+)\\s*\\|` then skips it; nothing is deleted) and the item's evidence names
+    all of them. The file is the only state: an id that already has a stale-merged line is never marked again, so an answer
+    written after the merge (a plain P-n line) counts, and a rerun finds the same note."""
     try:
         ids = json.load(open(os.path.join(work, "state", "proposal-ids.json")))
     except (OSError, ValueError):
         ids = {}
-    raw = decisions(work, raw=True)
-    new = False
+    dpath = os.path.join(work, "DECISIONS.md")
     for it in items:
         keys = it.get("merged_keys")
         if not keys:
             continue
-        if it["id"] not in rec:
-            frm = [f"P-{ids[k]}" for k in keys if k in ids]
-            olds = [(pid, raw[pid]) for pid in frm if pid in raw]
-            note = None
-            if olds:
-                txt = (olds[0][1][2] if len(olds[0][1]) > 2 else "?")
-                note = f"re-answer: merged from {'/'.join(frm)}; earlier answer '{txt}' was given to the unmerged item"
-            rec[it["id"]] = {"from": frm, "stale": "|".join(raw[it["id"]]) if it["id"] in raw else None, "note": note}
-            new = True
-        if rec[it["id"]].get("note"):
-            it["evidence"] += "; " + rec[it["id"]]["note"]
-    if new:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        json.dump(rec, open(path, "w"), indent=1, sort_keys=True)
+        frm = [f"P-{ids[k]}" for k in keys if k in ids]
+        stale = lambda: {m.group(1): [x.strip() for x in m.group(2).split("|")]
+                         for m in (re.match(r"^(P-\d+)~stale-merged\s*\|(.*)$", ln) for ln in lines_of(dpath) or []) if m}
+        have = stale()
+        live = decisions(work)
+        for pid in frm:
+            if pid in live and pid not in have:
+                mark_stale(dpath, pid)
+        have = stale()
+        olds = [(pid, have[pid]) for pid in frm if pid in have]
+        if olds:
+            txt = "; ".join(f"{pid}: '{f[2] if len(f) > 2 else '?'}'" for pid, f in olds)
+            it["evidence"] += f"; re-answer: merged from {'/'.join(frm)}; earlier answer {txt} was given to the unmerged item (kept in DECISIONS.md as ~stale-merged)"
+
+
+def mark_stale(path, pid):
+    """Rewrite the last `pid | ...` line of DECISIONS.md to `pid~stale-merged | ...`; every other line stays byte for byte."""
+    text = open(path, encoding="utf-8").read()
+    lines = text.split("\n")
+    idx = [n for n, ln in enumerate(lines) if re.match(rf"^{re.escape(pid)}\s*\|", ln)]
+    if not idx:
+        return
+    n = idx[-1]
+    lines[n] = re.sub(rf"^{re.escape(pid)}(\s*\|)", rf"{pid}~stale-merged\1", lines[n], count=1)
+    open(path + ".tmp", "w", encoding="utf-8").write("\n".join(lines))
+    os.replace(path + ".tmp", path)
 
 
 def testing_plan(F):

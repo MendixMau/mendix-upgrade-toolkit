@@ -247,6 +247,27 @@ ctl keptstyle-catch 1 '^RISK KeptA themesource/KeptA/web/main\.scss:3 \.widget-d
 ctl keptstyle-own-classes-pass 0 '0 platform widget selector' '!RISK' -- python3 $B/keptstyle.py $T/ks --kept KeptB
 ctl keptstyle-none-kept-pass 0 '0 kept module' -- python3 $B/keptstyle.py $T/ks --kept ''
 ctl keptstyle-no-arg-invalid 2 'give --kept' -- python3 $B/keptstyle.py $T/ks
+# GM-15: keptvendor checks every @include, $var and @import of a kept themesource against the TARGET package of a planned module
+# (fixtures/keptvendor: app with an old PlatformDesignSystem; pkg-new lacks the dark-theme mixin, $pds-gone and the gone file)
+KV=$FX/keptvendor; KVC=$T/kvcache
+mkdir -p $KVC/new $KVC/old $KVC/none
+kvzip() { (cd "$1" && python3 -c "import zipfile,os,sys;z=zipfile.ZipFile(sys.argv[1],'w');[z.write(os.path.join(d,f)) for d,_,fs in os.walk('.') for f in fs]" "$2"); }
+kvzip $KV/pkg-new $KVC/new/9001-45.0.0.mpk; kvzip $KV/pkg-old $KVC/old/9001-45.0.0.mpk
+ctl gm15-kept-mixin-catch 1 '^MISSING mixin dark-theme: used in themesource/KeptMixin/web/main\.scss:4, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:3, gone in PlatformDesignSystem 45\.0\.0$' '!pds-ok-mixin' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-variable-catch 1 '^MISSING variable \$pds-gone: used in themesource/KeptVar/web/main\.scss:3, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:1, gone in PlatformDesignSystem 45\.0\.0$' '!MISSING variable \$pds-ok' -- python3 $B/keptvendor.py $KV/app --kept KeptVar --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-import-catch 1 '^MISSING import \.\./\.\./PlatformDesignSystem/web/gone: used in themesource/KeptImport/web/main\.scss:1' '1 missing' '!web/mixins' -- python3 $B/keptvendor.py $KV/app --kept KeptImport --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-all-present-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin,KeptVar,KeptImport,KeptOk --plan-file $KV/plan.txt --cache $KVC/old
+ctl gm15-kept-ok-uses-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptOk --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-own-and-app-theme-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptSelf --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-package-missing-not-checked 3 '^NOT CHECKED PlatformDesignSystem 45\.0\.0: package not cached \(9001-45\.0\.0\.mpk' 'mixin dark-theme at themesource/KeptMixin/web/main\.scss:4' '0 missing, [1-9][0-9]* not checked' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none
+# a name that moves between two planned packages is present in the target set, not MISSING; one that could live in an uncached or unreadable package is NOT CHECKED
+mkdir -p $KVC/move $KVC/half $KVC/corrupt
+kvzip $KV/pkg-move-pds $KVC/move/9001-45.0.0.mpk; kvzip $KV/pkg-move-atlas $KVC/move/9002-2.0.0.mpk
+cp $KVC/move/9001-45.0.0.mpk $KVC/half/; cp $KVC/move/9001-45.0.0.mpk $KVC/corrupt/; printf 'not a zip' > $KVC/corrupt/9002-2.0.0.mpk
+ctl gm15-kept-moved-between-planned-pass 0 '0 missing, 0 not checked' '!MISSING' '!NOT CHECKED' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/move
+ctl gm15-kept-uncached-sibling-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: package not cached' 'mixin moved-mixin at themesource/KeptMove/web/main\.scss:2' '!^MISSING' '!variable \$moved-var' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/half
+ctl gm15-kept-corrupt-package-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: cannot read 9002-2\.0\.0\.mpk' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/corrupt
+ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
 ctl crosscalls-none-pass 0 '0 planned module\(s\) capped' 'scanned [1-9][0-9]* documents' '!CAP ' -- python3 $B/crosscalls.py $M/xcall-none --kept KeptConn --planned AuthMod
@@ -7081,26 +7102,33 @@ bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3
 SH
 chmod +x $PR/gm20.sh; export PR FX
 ctl proposal-gm20-conflict-merges-replace-first-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: a newer widget version built for React 19 .*newer widget version without mx\.logger.*\| stay on 11 with the Dojo client' '!options: stay on 11' '!\| (stay on|keep)[^|]*\| (a newer|newer|local|rebuild|fork|drop|swap)' 'drop the feature \(S\) \| stay on 10\.24 \(S\) \| stay on 11' 'also RA-10: stay on 11 and schedule the rebuild' 'recommendation: follow replacements\.tsv row R35: a newer widget version built for React 19; and ' 'supporting, weaker: dojo-react\.md: can.t move' '!widget: R35' '!widget: R38' -- bash $PR/gm20.sh conflict
-# gm20r.sh MODE: an answer recorded before the merge does not attach to the merged item (the work folder is rebuilt, DECISIONS.md and the id map seeded)
+# gm20r.sh MODE: an answer recorded before the merge does not attach to the merged item. The old line stays in DECISIONS.md as
+# `P-n~stale-merged | ...` (no reader's ^(P-\d+)\s*\| matches it); the work folder is rebuilt and DECISIONS.md and the id map seeded
 cat > $PR/gm20r.sh <<'SH'
 #!/bin/bash
 w=$PR/gm20r-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/conflict/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+OLD='asked | me | CONFIRMED | closes by: x'
 if [ $1 = absorbed ]; then
   printf '{"check:Release notes": 1, "widget:Gantt.mpk 1.2.0": 2, "widget:R35 React 19 removed API": 5}' > $w/state/proposal-ids.json
-  printf 'P-5 | R35 React 19 removed API | widget | a newer widget version built for React 19 | asked | me | CONFIRMED | closes by: x\n' > $w/DECISIONS.md
+  printf 'P-5 | R35 React 19 removed API | widget | a newer widget version built for React 19 | %s\n' "$OLD" > $w/DECISIONS.md
 else
-  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\n' > $w/DECISIONS.md
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\n' "$OLD" > $w/DECISIONS.md
 fi
 bash $PR/prop.sh $w > /dev/null
 bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'
+echo "--- DECISIONS.md"; cat $w/DECISIONS.md
+echo "--- cockpit reads"; python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import cockpitpage as cp
+d = cp.parse_decisions_md(open('$w/DECISIONS.md').read()); print('ids', sorted(d))"
 if [ $1 = dojo ]; then
   printf 'P-2 | Gantt.mpk 1.2.0 | widget | a newer widget version built for React 19 | asked again | me | CONFIRMED | closes by: x\n' >> $w/DECISIONS.md
-  echo "--- after a new answer"; bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'
+  rm -f $w/state/proposal-merges.json
+  echo "--- after a new answer and a lost record"; bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'; cat $w/DECISIONS.md
 fi
 SH
 chmod +x $PR/gm20r.sh
-ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 'merged from P-2; earlier answer .keep old package, accept the risk. was given to the unmerged item' '^  - answer: not yet$' '^--- after a new answer$' 'answer: a newer widget version built for React 19 \(CONFIRMED\)' -- bash $PR/gm20r.sh dojo
-ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' -- bash $PR/gm20r.sh absorbed
+ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 're-answer: merged from P-2; earlier answer P-2: .keep old package, accept the risk. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x$' '^--- after a new answer and a lost record$' 'answer: a newer widget version built for React 19 \(CONFIRMED\)' '^P-2 \| Gantt\.mpk 1\.2\.0 \| widget \| a newer widget version built for React 19 \| asked again' -- bash $PR/gm20r.sh dojo
+ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer P-5: .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-5~stale-merged \| R35 React 19 removed API \| widget \|' -- bash $PR/gm20r.sh absorbed
 ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
 ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
 ctl proposal-gm20-two-packages-other-untouched-pass 0 'evidence: dojo-react\.md: can.t move: Old\.widget\.Tree \(2\)$' 'options: stay on 11 with the Dojo client' '!supporting' '!R35' -- sh -c "bash $PR/gm20.sh two | sed -n '/Tree.mpk/,/answer:/p'"
