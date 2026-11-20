@@ -591,8 +591,11 @@ cleanup() {
   local a rc=$? st=${TIMING_STEP:-${STEP:-}}
   [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
-  # exit 4 (a failed step; after timing_close, which ends "running") writes no stop file: the page must still say the run is not working (MTA: page "agent is working", brief "waiting")
-  if [ "$rc" = 4 ] && [ ! -f "$WORK/NEEDS-JUDGMENT.md" ] && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
+  # exit 4 (a failed step) and exit 3 (an environment fault: disk full, docker down, mxcli pin) write no stop file: the page must still say
+  # the run is not working (MTA: page "agent is working", brief "waiting"; exit 3 stopped the same way and left the last in-step page).
+  # After timing_close, which ends "running". Exit 2 (usage) and a run with no work folder yet have no page to refresh.
+  if [ "$rc" != 0 ] && [ "$rc" -lt 10 ] && [ "$rc" != 2 ] && [ -d "${WORK:-/nonexistent}/state" ] && [ ! -f "${WORK:-}/NEEDS-JUDGMENT.md" ] \
+     && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done

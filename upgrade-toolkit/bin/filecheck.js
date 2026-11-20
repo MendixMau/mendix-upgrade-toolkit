@@ -16,6 +16,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { revealLocalLogin } = require('./loginreveal');
 const zlib = require('zlib');
 const crypto = require('crypto');
 
@@ -117,6 +118,7 @@ function compare(oldF, newF) {
     // desktop size: a field app sends screen.width <= 1280 to the Tablet profile and reloads the page
     const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, screen: { width: 1440, height: 900 } })).newPage();
     await page.goto(o.url + o.loginPath, { waitUntil: 'domcontentloaded' });
+    await revealLocalLogin(page);
     await page.fill('#usernameInput', o.user); await page.fill('#passwordInput', o.password); await page.click('#loginButton');
     await page.waitForFunction(() => { try { return !!(mx.session.getUserName() && mx.ui.getContentForm && mx.ui.getContentForm()); } catch (e) { return false; } }, null, { timeout: o.timeout });
     res = Object.assign(res, await page.evaluate(inBrowser, { entity: o.entity, name: o.name, b64: png32().toString('base64'), ms: o.timeout }));

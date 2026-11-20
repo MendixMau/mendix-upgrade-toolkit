@@ -15,6 +15,7 @@
 // Exit: 0 every page reached, 2 a page not reached, no playwright, or a usage error.
 const fs = require('fs'), path = require('path'), os = require('os');
 const { writeGeometry } = require('./geometry');
+const { revealLocalLogin } = require('./loginreveal');
 function loadPlaywright() {
   const dirs = [process.env.PLAYWRIGHT_DIR, path.join(os.homedir(), 'mendix-playwright/node_modules/playwright'), 'playwright'].filter(Boolean);
   for (const d of dirs) { try { return require(d); } catch (e) { /* next */ } }
@@ -50,6 +51,7 @@ async function closeErrors(p) {
     const p = await ctx.newPage(); let ok = true;
     try {
       await p.goto(base + login, { waitUntil: 'domcontentloaded' });
+      await revealLocalLogin(p);
       await p.fill('#usernameInput', cred.u); await p.fill('#passwordInput', cred.p); await p.click('#loginButton');
       await p.waitForSelector('.mx-page', { timeout: 60000 }); await settle(p);
       if (!s.keepDialog) await closeErrors(p);

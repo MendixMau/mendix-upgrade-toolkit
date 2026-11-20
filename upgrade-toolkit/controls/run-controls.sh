@@ -1412,6 +1412,21 @@ ctl mxversion-mxmodule-pass 0 '^9\.24\.4\.58223$' -- python3 $B/mxversion.py $AD
 ctl mxversion-mxmodule-short-pass 0 '^10\.24\.26$' -- python3 $B/mxversion.py $AD/modules/NewVendor.mxmodule --short
 echo notazip > $AD/modules/Broken.mxmodule
 ctl mxversion-mxmodule-unreadable-catch 2 'no Mendix version found' -- python3 $B/mxversion.py $AD/modules/Broken.mxmodule
+# RM-3: stepcheck-run finds a toolset unpacked under its full name (mxbuild-10.24.0.73019); the short name is still tried first
+SC=$T/sc; mkdir -p $SC/bin $SC/tools/mxbuild-10.24.0.73019 $SC/tools/mxbuild-10.24.9 $SC/app
+cp $B/stepcheck-run.sh $B/mxversion.py $B/checkwhere.py $SC/bin/
+printf '#!/bin/sh\nshift; exec "$@"\n' > $SC/bin/heavy-lock.sh
+printf '#!/bin/sh\nif [ -e "$UPG_TOOLS/mxbuild-$1" ]; then echo "mx10 used toolset $1"; echo "The app contains: 0 errors"; else echo "mx10.sh: no $UPG_TOOLS/mxbuild-$1/modeler/mx" >&2; exit 2; fi\n' > $SC/bin/mx10.sh
+chmod +x $SC/bin/*.sh
+python3 - <<PYEOF
+import sqlite3
+for name, ver in (("full", "10.24.0.73019"), ("short", "10.24.9.80000")):
+    c = sqlite3.connect("$SC/app/%s.mpr" % name)
+    c.execute("create table _MetaData (_ProductVersion text, _BuildVersion text, _SchemaHash text)")
+    c.execute("insert into _MetaData values (?, ?, '')", (ver, ver)); c.commit(); c.close()
+PYEOF
+ctl stepcheck-run-full-name-pass 0 'mx10 used toolset 10\.24\.0\.73019' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/full.mpr $SC/full.log; cat $SC/full.log"
+ctl stepcheck-run-short-name-pass 0 'mx10 used toolset 10\.24\.9$' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/short.mpr $SC/short.log; cat $SC/short.log"
 # GM-17: a 10 to 11 plan names packages built before 10.21; planbuild.py reads the build version of each cached .mpk up front
 # (BizzomateDevTools 2.0.2 / 3.0.0 on a real run were found only by the run-time SKIP). Fixtures: mkaddon makes the zip holding project.mpr.
 PB=$T/planbuild; mkdir -p $PB/cache
@@ -3412,7 +3427,7 @@ if [ -f ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js ]; then
   for f in helpers.js config.js otel.js; do cp ${TOOLKIT_E2E:-$B/../vendor/e2e}/$f $T/engine-old/; done
   ctl journeys-engine-patch-drift-catch 1 '^NOT applied: act: toggle' -- env TOOLKIT_E2E=$T/engine-old python3 $B/run_journeys.py x --label x --work $T --patch-engine $T/engine-copy2
   # T7-10, T8-9: the login patches (LOGIN_PATH, "signed in" = no visible password input + no login URL + READY)
-  ctl journeys-engine-login-page-home-patch-pass 0 '^login: open LOGIN_PATH' '^login: signed in only without a visible password input' "^loginOnce: 'already in the app' needs READY" '^loginOnce: wait until no password input is visible' '^navTo: also menu bars' '!NOT applied' -- python3 $B/run_journeys.py x --label x --work $T --patch-engine $T/engine-login
+  ctl journeys-engine-login-page-home-patch-pass 0 '^login: open LOGIN_PATH' '^login: signed in only without a visible password input' "^loginOnce: 'already in the app' needs READY" '^loginOnce: wait until no password input is visible' '^loginOnce: click .Show alternative login. when the form is folded away' '^navTo: also menu bars' '!NOT applied' -- python3 $B/run_journeys.py x --label x --work $T --patch-engine $T/engine-login
   ctl journeys-engine-login-syntax-pass 0 -- node --check $T/engine-login/helpers.js
   mkdir -p $T/engine-old-login; for f in journey-runner.js config.js otel.js; do cp ${TOOLKIT_E2E:-$B/../vendor/e2e}/$f $T/engine-old-login/; done
   sed "s|cfg.baseUrl + '/', { waitUntil|cfg.baseUrl + '/index.html', { waitUntil|" ${TOOLKIT_E2E:-$B/../vendor/e2e}/helpers.js > $T/engine-old-login/helpers.js
@@ -3426,7 +3441,10 @@ if [ -f ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js ]; then
     # T8R B2-2: the landing guard waits, and a 0-height data view with drawn content counts; hidden or empty does not
     ctl journeys-landing-guard-catch 0 '^ok +old check on a 0-height data view: false' '^ok +old check on a late guard: false' '^ok +old check on a hidden first match: false' '^ok +old check on a union, hidden Set URL first: false' '!^FAIL' -- env NODE_PATH=$PWNP node $here/landing_guard_control.js
     ctl journeys-landing-guard-pass 0 '^ok +reached: union, hidden Set URL first: true' '^ok +reached: union, Set URL only: false' '^ok +reached: 0-height data view, drawn: true' '^ok +reached: late guard' '^ok +reached: guard display:none: false' '^ok +reached: 0-height wrapper, empty: false' '^ok +reached: hidden first, shown popup: true' '^ok +reached: every match hidden: false' '!^FAIL' -- env NODE_PATH=$PWNP node $here/landing_guard_control.js
-  else skip journeys-engine-login-page-home-catch "no playwright with a browser"; skip journeys-landing-guard-catch "no playwright with a browser"; skip journeys-landing-guard-pass "no playwright with a browser"; fi
+    # SITS: a login page that folds the local form under "Show alternative login": bin/loginreveal.js (walks) and the engine patch (journeys) click it
+    ctl journeys-login-reveal-catch 0 '^ok +loginreveal on the folded page shows the form' '^ok +unpatched engine on the folded page: login refused' '^ok +patched engine on the folded page signs in and reaches the app shell' '!^FAIL' -- env NODE_PATH=$PWNP node $here/login_reveal_control.js $T/engine-login $T/engine-plain
+    ctl journeys-login-reveal-pass 0 '^ok +loginreveal on the unfolded page returns false' '^ok +loginreveal on a page with no form returns false' '^ok +loginreveal never clicks a "Hide' '^ok +patched engine on the unfolded page still signs in' '!^FAIL' -- env NODE_PATH=$PWNP node $here/login_reveal_control.js $T/engine-login $T/engine-plain
+  else skip journeys-login-reveal-catch "no playwright with a browser"; skip journeys-login-reveal-pass "no playwright with a browser"; skip journeys-engine-login-page-home-catch "no playwright with a browser"; skip journeys-landing-guard-catch "no playwright with a browser"; skip journeys-landing-guard-pass "no playwright with a browser"; fi
 else skip journeys-engine-patch-pass "no shared journey engine"; skip journeys-engine-syntax-pass "no shared journey engine"; skip journeys-engine-ready-any-match-pass "no shared journey engine"; skip journeys-engine-patch-drift-catch "no shared journey engine"
   skip journeys-engine-login-page-home-patch-pass "no shared journey engine"; skip journeys-engine-login-page-home-catch "no shared journey engine"; fi
 # E2E-R1: the rendered verb (bin/widgetrender.js) on fixtures/widgetrender in a real browser: a collapsed or display:none part fails,
@@ -3464,6 +3482,9 @@ if command -v node > /dev/null; then
   # B4T2-11: the tab verb opens a tab page and fails when the tab never becomes active (wired once run_journeys dispatches it)
   ctl journeys-verbs-tab-pass 0 '^ok +tab opens the tab page' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-tab-catch 0 '^ok +tab stays inactive catch' '^ok +tab missing catch' '!^FAIL' -- node $here/journey_verbs_control.js
+  # a create-spec select field on Radio buttons chooses by label (first = first enabled) and reads it back; before, it FAILed with "no <select>"
+  ctl journeys-verbs-radio-pass 0 '^ok +radio select by label' '^ok +radio select first enabled' '!^FAIL' -- node $here/journey_verbs_control.js
+  ctl journeys-verbs-radio-catch 0 '^ok +radio select missing label catch' '^ok +radio select only disabled catch' '^ok +radio not taken catch' '^ok +radio absent is still the no-select error catch' '!^FAIL' -- node $here/journey_verbs_control.js
   # PR-F27: the 11.12.5 date picker placeholder is "dd mmm yyyy"; "1/15/2027" typed there is "Invalid date"
   ctl journeys-verbs-date-pass 0 '^ok +dateAs follows the placeholder: returned "15 Jan 2027"' '^ok +dateAs time after hours is minutes: returned "15-01-2027 12:00"' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-date-catch 0 '^ok +dateAs leaves a text placeholder catch: returned "1/15/2027"' '^ok +dateAs leaves a non-date value catch: returned "U-1-2"' '!^FAIL' -- node $here/journey_verbs_control.js
@@ -4178,6 +4199,13 @@ ctl gen-create-data-rung-pass 0 '"creates": "Shop.Item"' -- sh -c "$GJ --out-dir
 # E2E-9: a field that names its attribute adds the own-row check (the run's own ${RUN_ID} row, expect 1); none is warned
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'][0]['attr']='Name'; json.dump(d, open('$T/create-spec-attr.json', 'w'))"
 ctl gen-create-own-row-pass 0 "SELECT COUNT\\(\\*\\) AS n FROM Shop.Item WHERE Name = 'Item \\$\\{RUN_ID\\}'" '"expect": 1' -- sh -c "$GJ --out-dir $T/gen-create3 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create3/journeys/Admin/create-save.journey.json"
+# RM-2: a singleton edit-save adds no row: the spec's "delta" reaches the data rung (default stays 1; junk is refused)
+python3 -c "import json; d=json.load(open('$T/create-spec-attr.json')); d['delta']=0; json.dump(d, open('$T/create-spec-delta0.json', 'w')); d['delta']='x'; json.dump(d, open('$T/create-spec-deltabad.json', 'w'))"
+ctl gen-create-delta-zero-pass 0 '"delta": 0' -- sh -c "$GJ --out-dir $T/gen-create-d0 --create $T/create-spec-delta0.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d0/journeys/Admin/create-save.journey.json"
+ctl gen-create-delta-default-pass 0 '"delta": 1' -- sh -c "$GJ --out-dir $T/gen-create-d1 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d1/journeys/Admin/create-save.journey.json"
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['delta']=0; json.dump(d, open('$T/create-spec-delta0-noattr.json', 'w'))"
+ctl gen-create-delta-zero-noattr-catch 1 'delta.: 0 needs a field with .attr' -- $GJ --out-dir $T/gen-create-dn --create $T/create-spec-delta0-noattr.json --data-rung
+ctl gen-create-delta-bad-catch 1 'delta.*whole number' -- $GJ --out-dir $T/gen-create-dx --create $T/create-spec-deltabad.json --data-rung
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['nav']['nth']=4; json.dump(d, open('$T/create-spec-nth.json', 'w'))"
 ctl gen-create-nav-nth-catch 0 '"nth": 4' -- sh -c "$GJ --out-dir $T/gen-create-nth --create $T/create-spec-nth.json > /dev/null 2>&1; cat $T/gen-create-nth/journeys/Admin/create-save.journey.json"
 ctl gen-create-nav-no-nth-pass 0 '!"nth"' -- sh -c "cat $T/gen-create/journeys/Admin/create-save.journey.json"
@@ -4291,6 +4319,9 @@ cp $FX/journeys/impact-guard5.json $T/impact-guard5.json
 G5=$T/gen-guard5; for r in Flow Caption Deep Addon,None Both; do (cd / && python3 $B/gen_journeys.py $T/impact-guard5.json --out-dir $G5/$r --roles-with-users $r > $G5-$r.out 2>&1); done
 SO5() { python3 -c "import json; j=json.load(open('$G5/$1/journeys/$1/sign-out.journey.json')); [print(a['do'], a.get('widget') or a.get('group'), a.get('item') or a.get('label')) for a in j['steps'][0]['actions']]; print('by', j.get('_sign_out_by')); print('ready', j['steps'][0]['ui']['ready'])"; }
 ctl gen-journeys-signout-flow-catch 0 '^click menuBar2-0 None$' '^click menuBar2-0-1 Sign out$' '^by inferred from the flow: MicroflowAction reaches Shop.ACT_Logout' '^ready .mx-name-loginButton$' -- SO5 Flow
+sed 's/"button": "loginButton"/"button": null/' $T/impact-guard5.json > $T/impact-guard5-nobtn.json
+(cd / && python3 $B/gen_journeys.py $T/impact-guard5-nobtn.json --out-dir $G5/nobtn --roles-with-users Caption > $G5-nobtn.out 2>&1)
+ctl gen-journeys-signout-folded-login-ready-catch 0 '^ready #loginButton,.mx-name-loginButton,input\[type=password\],a\.alt-login$' -- sh -c "python3 -c \"import json; print('ready', json.load(open('$G5/nobtn/journeys/Caption/sign-out.journey.json'))['steps'][0]['ui']['ready'])\""
 ctl gen-journeys-signout-caption-catch 0 "^nav None Log out$" "^by inferred from the caption: caption 'Log out'" -- SO5 Caption
 ctl gen-journeys-signout-deep-catch 0 '^nav Account Leave$' '^by inferred from the flow: MicroflowAction reaches Shop.JS_SignOut' -- SO5 Deep
 ctl gen-journeys-signout-action-wins-pass 0 '^by None$' '^nav None Sign out$' '!Log out' -- SO5 Both
@@ -7945,8 +7976,8 @@ WORK=$1; TIMES=$2; shift 2
 date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; }
-step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; [ -z "${STUB_REGEN_FAIL:-}" ] || [ -e "$WORK/state/running" ]; }
+step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; if [ -n "${STUB_EXIT:-}" ] && [ ! -f "$WORK/fixed" ]; then exit "$STUB_EXIT"; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
 for s in "$@"; do run_step "$s"; done
@@ -7992,6 +8023,14 @@ ctl timing-failed-step-row-catch 0 'rows=2' '^build 2026-10-20T10:00:00Z 2026-10
 # brief "Waiting for 1 answer"); cleanup regenerates it after timing_close ended the running marker
 STUB_FAIL=1 tmrun $TM/wf $TM/times-b.txt build > /dev/null 2>&1
 ctl cockpit-exit4-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wf/regen-saw 2> /dev/null || echo never)"
+# exit 3 (an environment fault: disk full, docker down) writes no stop file either: the page written at that exit must not still say a step is running
+STUB_EXIT=3 tmrun $TM/wg $TM/times-b.txt build > /dev/null 2>&1
+ctl cockpit-exit3-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wg/regen-saw 2> /dev/null || echo never)"
+ctl cockpit-exit3-regen-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wh $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
+# a regen that fails at exit (stub fails once the running marker is gone, i.e. only in cleanup) must not replace the exit code of the stop it reports
+ctl cockpit-exit3-regen-fails-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_REGEN_FAIL=1 STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wi $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
+# a normal wait for answers (exit 14, the plan awaits sign-off) is an amber "paused" bar, not the red "run stopped" of a failure
+ctl cockpit-plan-wait-not-red-stopped-catch 0 '^bar: <div class="stopbar wait"' '^text: The run is paused before changing anything' '^red stopped: 0$' -- bash $here/cockpit_control.sh plan-wait-bar
 # a dry run writes no timing file
 DRY=1 tmrun $TM/wd $TM/times-a.txt build > /dev/null 2>&1
 ctl timing-dry-run-no-file-pass 0 'timing=absent' -- sh -c "[ -e $TM/wd/state/timing.tsv ] && echo timing=present || echo timing=absent"
