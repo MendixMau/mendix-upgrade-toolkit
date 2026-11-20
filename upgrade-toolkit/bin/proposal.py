@@ -31,9 +31,9 @@ Exit: 0 signed (the section-3 items nobody answered take their recommendation, r
       or unattended (nothing signed; ASSUMED (unattended) lines in DECISIONS.md), 14 unsigned, 15 PAUSED, 2 usage.
 W/AGENT-NOTES.md (agent notes, free text) is shown in an "Agent notes" section; this script only reads it, so a rerun keeps the notes.
 GM-21: a rerun whose plan only SHRANK against the signed one (every current item was in the signed item set, which the file stores in an
-"items" comment; none added or changed) clears the sign-off the same way but writes a "Held back since signed" block that lists exactly the
-removed items and asks only for a shrink confirmation (the person signs section 6 again; nothing is carried over, no Signed-off line is
-written here). A file with no stored item set (written before GM-21) takes the full path below.
+"items" comment; none added or changed) clears the sign-off the same way (same action, same exit, unattended handling unchanged) but writes a "Held back since signed" block
+that lists exactly the removed items, so the reading is lighter (the person signs section 6 again; nothing is carried over, no Signed-off
+line is written here; the cockpit page does not show the block). A file with no stored item set (written before GM-21) takes the full path below.
 A rerun after sign-off whose plan inputs hash differently rewrites the file with a "Changed since signed" block, clears the
 sign-off and exits 14 (asked again). kept.txt, DECISIONS.md and the count of open release rows are not in the hash: the
 update step writes kept.txt and people close release rows after the sign-off.
@@ -1030,6 +1030,7 @@ def main():
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
         return 0
     changed = None
+    shrink_msg = None
     signoff = signoff_default()
     if so and so[0] == "signed":
         cur = render(F, hashval, None, signoff)
@@ -1037,29 +1038,24 @@ def main():
         was, now = signed_items(old), set(ident)
         held = sorted(set(was) - now) if was is not None and now < set(was) else []
         if held:
-            # GM-21: the scope only shrank (items removed, none added or changed). The sign-off is still cleared and a person
-            # still signs; what is asked is only the held-back list. Nothing is carried over: no Signed-off line is written here.
+            # GM-21: the scope only shrank (items removed, none added or changed). The sign-off is cleared and a person signs as
+            # before; only the reading is lighter: the held-back list is shown. Nothing is carried over: no Signed-off line is
+            # written here. The shared write and the unattended handling below run as for any changed plan.
             changed = [f"## Held back since signed ({so[1]}, {so[2]})", "",
                        f"The scope is smaller than the one signed: {len(held)} item(s) were held back, none added, none changed. "
-                       "Everything else is as signed. The sign-off is cleared until a person confirms the hold-back: "
-                       "sign section 6 again (same line or page button as before); only the items below need a look.", ""]
+                       "The sign-off is cleared and section 6 is signed again as before; what differs from the plan signed is only the items below.", ""]
             changed += [f"- held back: {ident_label(x)}" for x in held]
-            signoff = (f"Previously signed-off: {so[1]} {so[2]} (cleared: scope shrank, shrink confirmation needed for "
-                       f"{len(held)} held-back item(s))\n\n" + signoff)
-            doc = render(F, hashval, changed, signoff)
-            with open(out_path + ".tmp", "w", encoding="utf-8") as f:
-                f.write(doc)
-            os.replace(out_path + ".tmp", out_path)
-            print(f"proposal needs a shrink confirmation: {len(held)} item(s) held back since the sign-off of {so[1]} ({so[2]}); "
-                  f"everything else is as signed. A person signs section 6 again: {out_path}")
-            return 14
-        changed = [f"## Changed since signed ({so[1]}, {so[2]})", "",
-                   "The plan inputs changed after the sign-off; the sign-off is cleared and the proposal is asked again. "
-                   "Items that differ from the signed version:", ""]
-        changed += [f"- removed: {x}" for x in sorted(before - after)] + [f"- added: {x}" for x in sorted(after - before)]
-        if before == after:
-            changed.append("- no item text differs; the versions or the evidence behind an item changed (compare the input files)")
-        signoff = f"Previously signed-off: {so[1]} {so[2]} (cleared: the plan inputs changed)\n\n" + signoff
+            signoff = (f"Previously signed-off: {so[1]} {so[2]} (cleared: scope shrank, {len(held)} held-back item(s); sign again)\n\n" + signoff)
+            shrink_msg = (f"proposal: scope shrank since the sign-off of {so[1]} ({so[2]}): {len(held)} item(s) held back, none added or changed; "
+                          "sign section 6 again (the held-back list is in the file)")
+        else:
+            changed = [f"## Changed since signed ({so[1]}, {so[2]})", "",
+                       "The plan inputs changed after the sign-off; the sign-off is cleared and the proposal is asked again. "
+                       "Items that differ from the signed version:", ""]
+            changed += [f"- removed: {x}" for x in sorted(before - after)] + [f"- added: {x}" for x in sorted(after - before)]
+            if before == after:
+                changed.append("- no item text differs; the versions or the evidence behind an item changed (compare the input files)")
+            signoff = f"Previously signed-off: {so[1]} {so[2]} (cleared: the plan inputs changed)\n\n" + signoff
     doc = render(F, hashval, changed, signoff)
     tmp = out_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -1076,6 +1072,9 @@ def main():
         approve_steps(a.work, {s: k for s, k in sids.items() if s not in routine}, "assumed", "agent", "unattended")
         print("proposal: not signed (unattended): ASSUMED (unattended) lines in DECISIONS.md; every report says 'proposal not signed'")
         return 0
+    if shrink_msg:
+        print(f"{shrink_msg}: {out_path}")
+        return 14
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")
     return 14
 

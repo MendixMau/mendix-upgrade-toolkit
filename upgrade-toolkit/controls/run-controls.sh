@@ -7226,7 +7226,9 @@ ctl gm12-proposal-section3-item-catch 0 '^- \[P-[0-9]+\] module: needs module Mx
 ctl gm12-proposal-unchecked-not-measured-catch 0 '!needs module' 'absentmods\.py NotifProd 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gm12-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm12-unchecked/PROPOSAL.md"
 ctl gm12-proposal-no-file-no-item-pass 0 '!needs module' '!absentmods' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
 # GM-21: a plan that only SHRANK against the signed one (hold-back) asks for a shrink confirmation of the removed items only; an added
-# or changed item, or a signed file from before the item set was stored, asks the whole proposal again. Nothing is signed for the person.
+# or changed item, or a signed file from before the item set was stored (or with a junk item set), asks the whole proposal again. The action
+# is the same as before (sign section 6 again); only the reading is lighter. Nothing is signed for the person. Only the shrink controls
+# named -catch fail without the change; the others guard the full path and unattended handling that must not move.
 # mk21 NAME: a signed copy of the plain work folder. sign21 DIR: what a person does (writes the Signed-off line in section 6).
 sign21() { sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' "$1/PROPOSAL.md" && rm -f "$1/PROPOSAL.md.sedi"; }
 mk21() { rm -rf $PR/$1; cp -R $PR/plain $PR/$1; rm -f $PR/$1/PROPOSAL.md; bash $PR/prop.sh $PR/$1 > /dev/null; sign21 $PR/$1; }
@@ -7236,16 +7238,21 @@ mk21 gm21-added; printf '77 1.0.0 Newmod\n' >> $PR/gm21-added/plan.txt; printf '
 mk21 gm21-changed; sed -i.sedi 's/99 1.0.0 Plainmod/99 1.1.0 Plainmod/' $PR/gm21-changed/plan.txt; sed -i.sedi 's/-> 1.0.0$/-> 1.1.0/;' $PR/gm21-changed/module-jumps.txt; rm -f $PR/gm21-changed/*.sedi
 mk21 gm21-old; sed -i.sedi '/^<!-- proposal items: /d' $PR/gm21-old/PROPOSAL.md; rm -f $PR/gm21-old/PROPOSAL.md.sedi; drop21 $PR/gm21-old
 mk21 gm21-same
-ctl gm21-shrink-confirmation-catch 14 '^proposal needs a shrink confirmation: 1 item\(s\) held back since the sign-off of Tester' 'everything else is as signed' -- bash $PR/prop.sh $PR/gm21-shrink
+mk21 gm21-unatt; drop21 $PR/gm21-unatt
+mk21 gm21-junk; sed -i.sedi 's/^<!-- proposal items: .* -->$/<!-- proposal items: bm90IGpzb24= -->/' $PR/gm21-junk/PROPOSAL.md; rm -f $PR/gm21-junk/PROPOSAL.md.sedi; drop21 $PR/gm21-junk
+ctl gm21-shrink-reading-catch 14 '^proposal: scope shrank since the sign-off of Tester \(2026-10-15\): 1 item\(s\) held back, none added or changed' -- bash $PR/prop.sh $PR/gm21-shrink
 ctl gm21-shrink-lists-removed-only-catch 0 '^## Held back since signed \(Tester, 2026-10-15\)' '^- held back: module update Plainmod 0\.9\.0 -> 1\.0\.0 ' '^Previously signed-off: Tester 2026-10-15 \(cleared: scope shrank' '!^- held back: .*DataWidgets' '!^- removed:' '!^## Changed since signed' -- cat $PR/gm21-shrink/PROPOSAL.md
-ctl gm21-added-full-resign-catch 14 '^proposal awaits sign-off' '!shrink confirmation' -- bash $PR/prop.sh $PR/gm21-added
-ctl gm21-added-full-block-catch 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- added: 2: - module update Newmod' '!Held back since signed' '!^Signed-off:' -- cat $PR/gm21-added/PROPOSAL.md
-ctl gm21-changed-full-resign-catch 14 '^proposal awaits sign-off' '!shrink confirmation' -- bash $PR/prop.sh $PR/gm21-changed
-ctl gm21-changed-full-block-catch 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- removed: 2: - module update Plainmod 0\.9\.0 -> 1\.0\.0' '^- added: 2: - module update Plainmod 0\.9\.0 -> 1\.1\.0' '!Held back since signed' -- cat $PR/gm21-changed/PROPOSAL.md
-ctl gm21-old-record-full-resign-pass 14 '^proposal awaits sign-off' '!shrink confirmation' -- bash $PR/prop.sh $PR/gm21-old
+ctl gm21-added-full-resign-pass 14 '^proposal awaits sign-off' '!scope shrank' -- bash $PR/prop.sh $PR/gm21-added
+ctl gm21-added-full-block-pass 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- added: 2: - module update Newmod' '!Held back since signed' '!^Signed-off:' -- cat $PR/gm21-added/PROPOSAL.md
+ctl gm21-changed-full-resign-pass 14 '^proposal awaits sign-off' '!scope shrank' -- bash $PR/prop.sh $PR/gm21-changed
+ctl gm21-changed-full-block-pass 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- removed: 2: - module update Plainmod 0\.9\.0 -> 1\.0\.0' '^- added: 2: - module update Plainmod 0\.9\.0 -> 1\.1\.0' '!Held back since signed' -- cat $PR/gm21-changed/PROPOSAL.md
+ctl gm21-old-record-full-resign-pass 14 '^proposal awaits sign-off' '!scope shrank' -- bash $PR/prop.sh $PR/gm21-old
 ctl gm21-old-record-full-block-pass 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- removed: 2: - module update Plainmod' '!Held back since signed' -- cat $PR/gm21-old/PROPOSAL.md
+ctl gm21-junk-items-full-resign-pass 14 '^proposal awaits sign-off' '!scope shrank' -- bash $PR/prop.sh $PR/gm21-junk
+ctl gm21-junk-items-full-block-pass 0 '^## Changed since signed \(Tester, 2026-10-15\)' '^- removed: 2: - module update Plainmod' '!Held back since signed' -- cat $PR/gm21-junk/PROPOSAL.md
+ctl gm21-shrink-unattended-assumed-catch 0 '^proposal: not signed \(unattended\)' '^## Held back since signed' '^- held back: module update Plainmod' '!^Signed-off:' -- sh -c "bash $PR/prop.sh $PR/gm21-unatt --unattended; cat $PR/gm21-unatt/PROPOSAL.md"
 ctl gm21-same-plan-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gm21-same
-ctl gm21-shrink-never-signs-without-confirm-catch 0 '^unsigned$' '^signed-lines=0$' '!^signed$' -- sh -c "python3 $B/proposal.py --status --work $PR/gm21-shrink; bash $PR/prop.sh $PR/gm21-shrink >/dev/null; python3 $B/proposal.py --status --work $PR/gm21-shrink; echo signed-lines=\$(grep -c '^Signed-off:' $PR/gm21-shrink/PROPOSAL.md)"
+ctl gm21-shrink-never-signs-without-confirm-pass 0 '^unsigned$' '^signed-lines=0$' '!^signed$' -- sh -c "python3 $B/proposal.py --status --work $PR/gm21-shrink; bash $PR/prop.sh $PR/gm21-shrink >/dev/null; python3 $B/proposal.py --status --work $PR/gm21-shrink; echo signed-lines=\$(grep -c '^Signed-off:' $PR/gm21-shrink/PROPOSAL.md)"
 sign21 $PR/gm21-shrink
 ctl gm21-shrink-confirmed-signs-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gm21-shrink
 # GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
