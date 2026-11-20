@@ -1677,7 +1677,10 @@ ctl smoke-rejudge-needs-compare-catch 2 'rejudge needs --compare' -- $SW --rejud
 ctl smokewalk-home-failed-catch 0 '^ok +sessionUser dojo' '^ok +loginFailure session and server error' '^ok +loginFailure no session' '^ok +loginFailure license limit wins' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-guest-session-catch 0 '^ok +sessionUser guest is not the expected user' '^ok +sessionUser anonymous is not' '^ok +loginFailure guest session stays login failed' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-api-only-pass 0 '^ok +apiOnlyHome login page home: got true' '^ok +apiOnlyHome ordinary home: got null' '^ok +apiOnlyHome menu step to the login page: got null' '!^FAIL' -- node $here/smokewalk_predicates.js
-else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass menu-copy-same-step-pass other-page-gone-catch; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; fi
+ctl smokewalk-menu-fallback-opened-directly-pass 0 '^ok +openDirect page opens: got null' '^ok +openDirect microflow runs: got null' '^ok +directUrl page with a url' '^ok +directNote says the menu is not proven' '^ok +mergeWalks keeps "opened directly"' '!^FAIL' -- node $here/smokewalk_predicates.js
+ctl smokewalk-menu-lost-catch 0 '^ok +judge MENU-LOST counted' '^ok +judge MENU-LOST line' '^ok +judge clicked both: no MENU-LOST' '^ok +judge direct on both: no MENU-LOST' '!^FAIL' -- node $here/smokewalk_predicates.js
+ctl smokewalk-menu-fallback-both-fail-catch 0 '^ok +openDirect page fails with its reason' '^ok +openDirect microflow fails with its reason' '^ok +both failures named' '^ok +openDirect without client helpers' '!^FAIL' -- node $here/smokewalk_predicates.js
+else skip smokewalk-predicates "no node"; for n in single-regression-catch intermittent-catch flaky-both-pass flaky-new-error-catch flaky-baseline-pass partial-walk-pass menu-copy-same-step-pass other-page-gone-catch; do skip smoke-judge-$n "no node"; done; skip smoke-rejudge-needs-compare-catch "no node" ; skip smokewalk-api-only-pass "no node"; skip smokewalk-menu-lost-catch "no node"; fi
 
 # --- safety guards: frozen DB, DB prefix, heavy lock (E1 1, E1 3, E5 F10, E5 F11) ----------------------------------------
 ctl smoke-users-refuse-catch 2 'REFUSED' -- python3 $B/smoke_users.py appdb
@@ -7721,6 +7724,42 @@ BT6=$T/bt6; mkdir -p $BT6/state; cp $LR $BT6/localedits.json; printf '116540 3.1
 python3 $B/proposal.py --work $BT6 --source 10.24.26.1 --target 11.15.0.1 > /dev/null 2>&1
 ctl bt6-proposal-decision-item-catch 0 '^- \[P-[0-9]+\] renamed module: DataGrid$' 'RENAMED on the Marketplace: content 116540 is now .DataWidgets.' '^- \[P-[0-9]+\] renamed module: ApprontoLicenser$' 'REPUBLISHED on the Marketplace: content 1445' -- sed -n '/^## 3\./,/^## 4\./p' $BT6/PROPOSAL.md
 ctl bt6-proposal-no-update-line-catch 0 '!module update DataGrid' '!module update ApprontoLicenser' 'module update Plainmod 0\.9\.0 -> 1\.0\.0' -- sed -n '/^## 2\./,/^## 3\./p' $BT6/PROPOSAL.md
+
+# GM-14: Atlas_Core capped while PlatformDesignSystem is installed (playbooks/module-caps.tsv, bin/atlascap.py). Inputs are
+# the localedits.json shape (name, version) and a stepupdate plan; the 3.22.0 / 3.19.0 pair is the one the run observed.
+AC=$T/atlascap; mkdir -p $AC
+printf '[{"name":"PlatformDesignSystem","cid":1,"version":"44.5.0"},{"name":"Atlas_Core","cid":117187,"version":"3.19.0"}]' > $AC/le-pds.json
+printf '[{"name":"Atlas_Core","cid":117187,"version":"3.19.0"}]' > $AC/le-nopds.json
+printf '[{"name":"PlatformDesignSystem","cid":1,"version":"44.5.0"},{"name":"Atlas_Core","cid":117187,"version":"3.21.0"}]' > $AC/le-above.json
+printf '# plan\n117187 3.22.0 Atlas_Core\n99 1.0.0 Plainmod\n' > $AC/plan.txt
+ctl gm14-atlas-capped-under-pds-catch 1 '^CAP Atlas_Core at 3\.19\.0 \(plan has 3\.22\.0\): PlatformDesignSystem is installed' 'UNVERIFIED boundary' '!Plainmod' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan.txt
+ctl gm14-no-pds-no-cap-pass 0 '^no cap applies' '!^CAP' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt
+ctl gm14-installed-above-cap-note-pass 0 '^NOTE Atlas_Core 3\.21\.0 is installed above the cap 3\.19\.0' '!^CAP' -- python3 $B/atlascap.py $AC/le-above.json $AC/plan.txt
+cp $AC/plan.txt $AC/plan-w.txt
+ctl gm14-write-holds-plan-catch 1 'plan rewritten \(1 line' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-w.txt --write
+ctl gm14-write-result-pass 0 '^no cap applies' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-w.txt
+ctl gm14-write-keeps-other-lines-pass 0 '^99 1\.0\.0 Plainmod$' '^# held by atlascap' -- cat $AC/plan-w.txt
+ctl gm14-unreadable-input-catch 2 'cannot read input' -- python3 $B/atlascap.py $AC/none.json $AC/plan.txt
+printf '[{"name":"PlatformDesignSystem","cid":1,"version":"44.5.0"},{"name":"Atlas_Core","cid":117187,"version":"3.10.0"}]' > $AC/le-old.json
+cp $AC/plan.txt $AC/plan-o.txt
+ctl gm14-write-lowers-version-catch 1 'plan rewritten' -- python3 $B/atlascap.py $AC/le-old.json $AC/plan-o.txt --write
+ctl gm14-write-lowers-version-pass 0 '^117187 3\.19\.0 Atlas_Core$' '!3\.22\.0 Atlas_Core$' -- cat $AC/plan-o.txt
+# GM-14 review round 1: WorkflowCommons 4.3+ needs Atlas 4 (CONFLICT, plan untouched); an internal PDS (themesource folder) is found
+# with --app; the all-clear line says internal modules were not checked without it; an existing .orig is never overwritten.
+printf '# plan\n117187 3.22.0 Atlas_Core\n117066 4.3.0 WorkflowCommons\n' > $AC/plan-wc.txt
+cp $AC/plan-wc.txt $AC/plan-wc-w.txt
+ctl gm14-conflict-workflowcommons-catch 1 '^CONFLICT Atlas_Core cap 3\.19\.0 \(PlatformDesignSystem\) vs WorkflowCommons 4\.3\.0: .*owner must decide' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc.txt
+ctl gm14-conflict-write-leaves-plan-catch 1 '^CONFLICT' '!plan rewritten' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc-w.txt --write
+ctl gm14-conflict-write-plan-unchanged-pass 0 '^117187 3\.22\.0 Atlas_Core$' '!held by atlascap' -- cat $AC/plan-wc-w.txt
+printf '# plan\n117187 3.22.0 Atlas_Core\n117066 4.2.0 WorkflowCommons\n' > $AC/plan-wc2.txt
+ctl gm14-workflowcommons-below-4-3-no-conflict-pass 1 '^CAP Atlas_Core' '!^CONFLICT' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc2.txt
+mkdir -p $AC/app-int/themesource/platformdesignsystem/web $AC/app-plain/themesource/atlas_core
+ctl gm14-internal-pds-found-catch 1 '^CAP Atlas_Core at 3\.19\.0' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt --app $AC/app-int
+ctl gm14-internal-pds-absent-pass 0 '^no cap applies' '!internal modules not checked' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt --app $AC/app-plain
+ctl gm14-allclear-says-internal-unchecked-pass 0 'internal modules not checked' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt
+cp $AC/plan.txt $AC/plan-k.txt; echo KEEPME > $AC/plan-k.txt.orig
+ctl gm14-write-keeps-existing-orig-catch 1 'plan rewritten' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-k.txt --write
+ctl gm14-write-existing-orig-kept-pass 0 '^KEEPME$' -- cat $AC/plan-k.txt.orig
 BT6B=$T/bt6b; mkdir -p $BT6B/state; python3 -c "import json; json.dump([m for m in json.load(open('$LR')) if m['name']=='DataWidgets'], open('$BT6B/localedits.json','w'))"; printf '116540 3.11.7 DataWidgets\n' > $BT6B/plan.txt; printf 'DataWidgets 3.11.4 -> 3.11.7\n' > $BT6B/module-jumps.txt
 python3 $B/proposal.py --work $BT6B --source 10.24.26.1 --target 11.15.0.1 > /dev/null 2>&1
 ctl bt6-proposal-new-name-updates-pass 0 'module update DataWidgets 3\.11\.4 -> 3\.11\.7' '!renamed module' -- grep -E 'module update|renamed module' $BT6B/PROPOSAL.md
