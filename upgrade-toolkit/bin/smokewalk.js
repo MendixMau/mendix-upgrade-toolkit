@@ -346,7 +346,7 @@ function judge(olds, results) {
   for (const old of olds) for (const r of old.roles || []) for (const s of r.steps || []) {
     const k = stepKey(r.role, s); om.set(k, (om.get(k) || []).concat(stepRuns(s)));
   }
-  const lines = [], tot = { regressions: 0, intermittent: 0, flaky_both: 0, flaky_baseline: 0, coverage_lost: 0 };
+  const lines = [], tot = { regressions: 0, intermittent: 0, flaky_both: 0, flaky_baseline: 0, coverage_lost: 0, menu_lost: 0 };
   const rate = (rs, v) => rs.filter(x => x.verdict === v).length;
   for (const r of results.roles) for (const s of r.steps) {
     const k = stepKey(r.role, s), N = stepRuns(s);
@@ -365,6 +365,8 @@ function judge(olds, results) {
     const newBad = N.filter(x => x.verdict !== 'PASS');
     const oldBad = O.filter(x => x.verdict !== 'PASS');
     if (!newBad.length) {
+      // GM-31: PASSed by a menu click on the old app, PASSes only by a direct open now: the menu was lost in the upgrade
+      if (O.every(x => !x.direct) && N.some(x => x.direct)) { tot.menu_lost++; lines.push(`  MENU-LOST ${k}: was clicked, now opened directly (the page works, the menu link is gone)`); }
       if (oldBad.length) { tot.flaky_baseline++; lines.push(`  FLAKY-BASELINE ${k}: old not PASS ${oldBad.length} of ${O.length}, new PASS ${N.length} of ${N.length}`); }
       continue;
     }
@@ -384,6 +386,7 @@ function judge(olds, results) {
   }
   om.forEach((rs, k) => { const p = rate(rs, 'PASS'); if (p) tot.coverage_lost++; lines.push('  step gone ' + k + ' (was ' + (p === rs.length ? 'PASS' : rs.map(x => x.verdict).join('/')) + ')'); });
   lines.push(`  PASS steps no longer judged (coverage lost): ${tot.coverage_lost}`);
+  lines.push(`  menu links lost (clicked on the old app, opened directly now; exit 2): ${tot.menu_lost}`);
   if (tot.flaky_baseline || tot.flaky_both) lines.push(`  flaky: ${tot.flaky_baseline} only on the old app (listed), ${tot.flaky_both} on both (not a regression and not a pass: exit 2; walk again or pin it)`);
   lines.push(`  regressions: ${tot.regressions}` + (tot.intermittent ? ` (${tot.intermittent} intermittent: the error never showed on the old app)` : ''));
   return { lines, tot };
@@ -445,11 +448,15 @@ if (require.main === module) (async () => {
               let de = null;
               try {
                 if (du) await page.goto(du, { waitUntil: 'domcontentloaded' });
-                else de = await page.evaluate(openDirect, s);
+                else {
+                  let tm; const lim = new Promise(r => { tm = setTimeout(() => r('direct open timed out after ' + o.timeout + ' ms'), o.timeout); });
+                  de = await Promise.race([page.evaluate(openDirect, s), lim]); clearTimeout(tm);
+                }
               } catch (e) { de = String(e.message).split('\n')[0]; }
               if (!de) { l = await landed(page, s, before, o.timeout); if (!l.ok) de = 'did not land on the page (' + l.where + ')'; }
               if (de) { res.verdict = 'INVALID'; res.reason = directFailure(ce, de); continue; }
               res.direct = directNote(ce); ce = null;
+              try { await hookErrors(page); } catch (e) { res.direct += '; error hook NOT installed after the direct open (' + String(e.message).split('\n')[0] + '): mx.ui.error/exception not captured'; }
             }
             if (ce) { res.verdict = 'INVALID'; res.reason = ce; continue; }
             if (!l) l = await landed(page, s, before, o.timeout);
@@ -496,7 +503,7 @@ if (require.main === module) (async () => {
   const tot = { PASS: count('PASS'), FAIL: count('FAIL'), INVALID: count('INVALID'), SKIPPED: count('SKIPPED'),
                 roles_invalid: results.roles.filter(r => r.verdict === 'INVALID').length };
   results.totals = tot;
-  lines.push('', `steps: PASS ${tot.PASS}, FAIL ${tot.FAIL}, INVALID ${tot.INVALID}, SKIPPED ${tot.SKIPPED}; roles not run (INVALID): ${tot.roles_invalid}`);
+  lines.push('', `steps: PASS ${tot.PASS}, FAIL ${tot.FAIL}, INVALID ${tot.INVALID}, SKIPPED ${tot.SKIPPED}, direct ${results.roles.reduce((n, r) => n + r.steps.filter(x => x.direct).length, 0)}; roles not run (INVALID): ${tot.roles_invalid}`);
   if (o.compare) {
     const olds = o.compare.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const j = judge(olds, results);
@@ -508,5 +515,5 @@ if (require.main === module) (async () => {
   // 1 = something broke; 2 = could not judge everything that was asked (login failed, step INVALID, coverage lost)
   const loginFailed = results.roles.some(r => r.verdict === 'INVALID' && o.users[r.role]);
   const broke = o.compare ? tot.regressions : tot.FAIL;  // with --compare a FAIL that was already FAIL before is not new
-  process.exit(broke ? 1 : (!tot.PASS || tot.INVALID || loginFailed || tot.coverage_lost || tot.flaky_both ? 2 : 0));
+  process.exit(broke ? 1 : (!tot.PASS || tot.INVALID || loginFailed || tot.coverage_lost || tot.menu_lost || tot.flaky_both ? 2 : 0));
 })().catch(e => { console.error('smokewalk: ' + e.stack); process.exit(2); });

@@ -1,7 +1,7 @@
 // Control for E5 F9: the smokewalk wait predicates must return false (not throw) while the Mendix session is not
 // available yet, and true once it is. Playwright's waitForFunction rejects on the first throw, which made every role
 // INVALID one second after a login that worked. Runs in plain node with a fake window/mx; exit 0 = pass.
-const { directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
+const { judge, directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
 let fail = 0;
 const check = (name, got, want) => {
   const ok = got === want;
@@ -155,5 +155,12 @@ function pwLoad() {
   check('openDirect without client helpers', await openDirect(pgStep), 'mx.ui.openForm not available');
   const dwalk = [{ role: 'R', steps: [{ caption: 'c', via: 'menu', target: 'M.P', verdict: 'PASS', direct: directNote('x') }] }];
   check('mergeWalks keeps "opened directly" when every run PASSed', /^opened directly/.test(mergeWalks([dwalk, JSON.parse(JSON.stringify(dwalk))])[0].steps[0].direct), true);
+  // GM-31 fix 1: clicked on the old app, opened directly on the new one: the lost menu is reported and counted (exit 2)
+  const mk = (direct) => ({ roles: [{ role: 'R', verdict: 'PASS', steps: [Object.assign({ caption: 'c', via: 'menu', target: 'M.P', kind: 'page', verdict: 'PASS' }, direct ? { direct: directNote('x') } : {})] }] });
+  const jl = judge([mk(false)], mk(true));
+  check('judge MENU-LOST counted', jl.tot.menu_lost, 1);
+  check('judge MENU-LOST line', jl.lines.some(l => /^  MENU-LOST R \| menu \| c \| M\.P: was clicked, now opened directly/.test(l)), true);
+  check('judge clicked both: no MENU-LOST', judge([mk(false)], mk(false)).tot.menu_lost, 0);
+  check('judge direct on both: no MENU-LOST', judge([mk(true)], mk(true)).tot.menu_lost, 0);
   process.exit(fail ? 1 : 0);
 })();
