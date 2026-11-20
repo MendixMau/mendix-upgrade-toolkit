@@ -2730,6 +2730,8 @@ ctl rungfit-11-pick-at-1024-catch 1 '^MISFIT +Atlas_Core 4\.7\.1: min Mendix 11\
 ctl rungfit-1024-pick-at-1021-catch 1 '^MISFIT +Atlas_Core 3\.22\.1: min Mendix 10\.24\.0 is above 10\.21\.1' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.21.1.64969 --modvers $NJ/rf/modvers
 ctl rungfit-fit-pass 0 '^FIT +Atlas_Core 3\.22\.1' '0 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rf/modvers
 ctl rungfit-unknown-not-green-pass 0 '^NOT CHECKED +Atlas_Core' '1 not checked' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rfw/modvers
+mkdir -p $NJ/rf4/modvers; printf 'VERSION  MIN MENDIX  PUBLISHED   NAME\n3.22.1    10.24.0.0      2026-10-01  Atlas Core\n' > $NJ/rf4/modvers/versions-117187.txt
+ctl rungfit-four-part-min-three-part-at-pass 0 '^FIT +Atlas_Core 3\.22\.1' '0 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.0 --modvers $NJ/rf4/modvers
 mkdir -p $NJ/rfp $NJ/rfapp; git init -q $NJ/rfapp; git -C $NJ/rfapp -c user.email=c@c -c user.name=c commit -q --allow-empty -m 'convert 10.24.26.1'; cp -r $NJ/rf/modvers $NJ/rfp/modvers; cp $NJ/rf/plan-11.txt $NJ/rfp/plan.txt
 ctl pipeline-update-misfit-stops-catch 0 'needs judgment \(exit 13\)' 'picks that need a newer Mendix than this rung' 'MISFIT +Atlas_Core 4\.7\.1' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/rfapp --source 10.24.26.1 --target 10.24.26.1 --work $NJ/rfp --from update --only update; cat $NJ/rfp/NEEDS-JUDGMENT.md"
 # WM1 cold test 2026-11-17: 16 judgment stops, one question each. Interview mode auto parks a stop nothing later depends on

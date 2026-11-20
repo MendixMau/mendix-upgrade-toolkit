@@ -18,8 +18,9 @@ Exit: 0 all fit (or not checked: counted on the last line), 1 a line misfits, 2 
 import os, re, sys
 
 
-def key(v):
-    return tuple(int(x) for x in re.findall(r"\d+", v)[:4]) + (0,) * 4
+def key(v):  # fixed length 4, like modplan.py tup: 10.24.0.0 == 10.24.0
+    t = tuple(int(x) for x in re.findall(r"\d+", v)[:4])
+    return t + (0,) * (4 - len(t))
 
 
 def main(argv):
