@@ -9623,6 +9623,8 @@ ctl localedits-cache-unknown-model-changed-redo-catch 1 -- sh -c "echo x > $LU/a
 ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i 's/transient): 0/transient): 1/' $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-unknown-no-report-not-kept-catch 1 -- sh -c "rm -f $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; echo '# x' > $LU/w/localedits.md; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-pipeline-clears-old-report-pass 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {r=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (r && d && r<d) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# a dry run prints the commands and runs nothing: it must not delete the saved report (then the next real run redoes ~14 minutes of diff)
+ctl localedits-cache-dry-run-keeps-report-catch 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {n++; if ($0 ~ /"\$DRY" = 1 \] \|\| rm -f/) g++} END {print (n && n==g) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"

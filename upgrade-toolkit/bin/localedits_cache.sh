@@ -12,7 +12,8 @@
 # --proxy ...) and the mxcli version the run recorded ($WORK/state/mxcli-version). A changed model, localedits.py, a new
 # localedits.args line or another mxcli redoes it; UPG_LOCALEDITS_FRESH=1 forces a redo. Needs $WORK/localedits.json and .md.
 # RC 2 (AIB, 3 modules whose installed label is a build number: UNKNOWN, a rerun redid 14 minutes of diff): a module UNKNOWN gives
-# the same answer every time, so the result is kept. It is NOT kept when localedits.md lacks its summary line (the run died before
+# the same answer every time (usually: a cause outside the stamp, such as DNS, a proxy or a missing toolchain, is frozen too;
+# the pipeline then says UPG_LOCALEDITS_FRESH=1 redoes it), so the result is kept. It is NOT kept when localedits.md lacks its summary line (the run died before
 # the report: an early error is also exit 2) or that line counts a NETWORK module (transient: a blip must not be frozen).
 # An app where `git rev-parse HEAD` fails is never cached (check = redo, save = nothing kept); a missing rc file is a miss.
 # NOT in the key: the mpk cache (a marketplace module re-downloaded or changed upstream), the network, and UPG_MXCLI (the binary
