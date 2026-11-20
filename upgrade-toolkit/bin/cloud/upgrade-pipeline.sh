@@ -468,7 +468,7 @@ copy_db() { must docker exec "$PGC" createdb -U mendix -T "$1" "$2"; }
 # FR-6: --seed-from copies into the working database X. A rerun after an environment stop found X already there ("createdb:
 # database already exists"). Only a copy this run made is dropped: seed_copy stamps it with the run folder (like the frozen
 # one); an X without that stamp may be the person's, so it is refused with the name and the exact command, never dropped.
-db_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $1 IS 'upgrade-toolkit run $RUNP'"; }
+db_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $1 IS 'upgrade-toolkit run ${RUNP//\'/\'\'}'"; }  # a quote in the run path is doubled: it must not end the SQL string
 seed_copy() { # seed_copy SRC DST
   local owner
   [ "$1" != "$2" ] || die4 "--seed-from $1 is the working database itself: give a different source database"
@@ -1005,7 +1005,8 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
     return 0
   fi
   [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the kept themesources against"; return 0; }
-  cat "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || cat "$WORK/plan.txt" > "$pf"
+  # awk 1 adds the missing final newline of plan.txt: with cat, its last line and the first of plan-pre.txt became one line
+  awk 1 "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
   xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
   case "$rc" in
     0) ;;

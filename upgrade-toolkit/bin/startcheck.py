@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """startcheck.py: did the old app start CLEANLY? Read its start log before the baseline database is frozen (GM-A5).
 
-  startcheck.py LOG [--allow allow.txt]
+  startcheck.py LOG [--allow allow.txt] [--list errors.txt]
 
 Why: bin/cloud/upgrade-pipeline.sh froze the baseline database once `app_up old` returned 0, which only means the
 runtime came up. An after-startup microflow that threw (ERROR in the log, the runtime still started) froze a baseline
