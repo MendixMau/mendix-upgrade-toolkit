@@ -200,7 +200,11 @@ def main():
             reason = "These widgets are not from a package the toolkit knows, so it cannot name an update."
         print(f"R\tnone:{reason} Only you know whether losing them matters.")
         print(f"O\taccept|Go on and lose them|Users notice it: {'; '.join(items)}. Your name is recorded with the answer; the build goes on.")
-        print("O\tfix|Update the widget yourself first|The run stays paused. Update the widget package (a newer widget or module version), then rerun from the update step.")
+        if pk and not mod:
+            pkg = sorted(pk)[0]
+            print(f"O\tfix|Install {pkg} yourself first|The run stays paused. Install the missing widget module: mxcli marketplace search \"{pkg}\", then mxcli marketplace download <id> --version <a version whose minimum Mendix fits {a.target or 'the target'}> -o <folder>/ and mxcli marketplace install --file <folder>/<file>.mpk, delete the .mpk, and rerun from the update step.")
+        else:
+            print("O\tfix|Update the widget yourself first|The run stays paused. Update the widget package (a newer widget or module version), then rerun from the update step.")
         why = reason
     print(f"W\taccept|widgetdrop-ack.txt|accepted: {'; '.join(items)}")
     print(f"B\tThe pages were saved with newer widgets than the installed ones. If the build goes on, users lose settings on {inst} widget{'s' if inst != 1 else ''}: {'; '.join(items)}.")
