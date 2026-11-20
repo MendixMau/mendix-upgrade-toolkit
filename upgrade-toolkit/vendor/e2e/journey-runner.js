@@ -842,6 +842,26 @@ function runExitCode(positiveControl, results, mutants) {
     && ctl.length === mutants.expected && ctl.every(r => r.verdict === 'PASS') ? 0 : 1;
 }
 
+// ── Anonymous visitor ───────────────────────────────────────────────────────
+// An anonymous role: no credentials; open the app root (the anonymous home, as a visitor sees it). Two apps exist:
+// the sign-in form IS the home (a password input shows), or Guest access is on and the home is a normal page. For the
+// second the visitor's identity is the Mendix client's own answer, mx.session.isGuest() === true, with a rendered
+// .mx-page: never a bare page (a signed-in session would also render one). Measured on a Marketplace sample with
+// Guest access on (Mendix 10.24.13): no password input, isGuest() true, .mx-page present, 'login page did not render'.
+async function anonymousVisit(page, baseUrl) {
+  await page.context().clearCookies();
+  await page.goto(baseUrl + '/', { waitUntil: 'domcontentloaded' });
+  const form = await page.locator('input[type=password]').first()
+    .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+  if (form) return { ok: true, user: 'anonymous', usedFallback: false };
+  const g = await page.evaluate(() => ({
+    guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),
+    pages: document.querySelectorAll('.mx-page').length,
+  })).catch(() => ({ guest: false, pages: 0 }));
+  if (g.guest && g.pages > 0) return { ok: true, user: 'anonymous (guest home, no sign-in form)', usedFallback: false };
+  return { ok: false, reason: g.guest ? 'anonymous guest session but no page rendered' : 'anonymous login page did not render' };
+}
+
 // ── Exports for the rung-4 scope unit test ──────────────────────────────────
 // The SQL builders are pure and exported so their behaviour can be proven against
 // fixture rows without a running app. See tests/e2e/journey-rung4-scope.test.js.
@@ -849,7 +869,7 @@ function runExitCode(positiveControl, results, mutants) {
 module.exports = {
   sqlRowCount, sqlWatermark, whereScoped, scopeLiteral,
   sqlAssocTotal, sqlAssocLinked, sqlMustPointAt, captureScope, scopeEvidence,
-  runExitCode,
+  runExitCode, anonymousVisit,
 };
 
 // ── Main ────────────────────────────────────────────────────────────────────
@@ -860,13 +880,8 @@ if (require.main !== module) return;
   const { browser, page } = await H.launchBrowser();
 
   let li;
-  if (process.env.UPG_ANONYMOUS) {   // anonymous role: no credentials; open the app root (anonymous home) and require a sign-in form
-    await page.context().clearCookies();
-    await page.goto(cfg.baseUrl + '/', { waitUntil: 'domcontentloaded' });   // the anonymous home, as a visitor sees it
-    const form = await page.locator('input[type=password]').first()
-      .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
-    li = form ? { ok: true, user: 'anonymous', usedFallback: false } : { ok: false, reason: 'anonymous login page did not render' };
-  } else li = await H.login(page);
+  if (process.env.UPG_ANONYMOUS) li = await anonymousVisit(page, cfg.baseUrl);
+  else li = await H.login(page);
   // Identity, not presence. A silent degrade to admin bypasses the role grants the
   // journey exists to exercise, and every assertion below would be measuring an
   // access path no real user takes.

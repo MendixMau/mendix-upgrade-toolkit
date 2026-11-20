@@ -3262,6 +3262,11 @@ if command -v node > /dev/null; then
   ctl settle-lazy-catch 0 '^ok +lazy placeholder never goes away -> not settled, says placeholders present' '^ok +placeholder goes away, then stable' '^ok +permanent placeholder, DOM unchanged -> diagnostic names the false match' '^ok +SETTLE_LAZY_OFF \(opts.lazyOff\)' '^ok +SETTLE_LAZY_OFF=1 env' '!^FAIL' -- node $here/settle_lazy_control.js
   ctl settle-lazy-pass 0 '^ok +no placeholder -> settled, unchanged' '!^FAIL' -- node $here/settle_lazy_control.js
   ctl settle-lazy-drift-pass 0 '^ok +drift guard: LAZY is the pinned list' '^ok +drift guard: pageSettled queries the list it is handed' '^ok +drift guard: with no argument pageSettled falls back to LAZY' '^ok +drift guard: class-substring selectors appear once' '!^FAIL' -- node $here/settle_lazy_control.js -- node $here/settle_lazy_control.js
+  # Guest-access apps: the anonymous visitor has no sign-in form. Catch = the engine with the guest branch cut out (the old
+  # behaviour: no password input means "login page did not render") fails the control; pass = the real engine.
+  sed 's/g\.guest && g\.pages > 0/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noguest.js
+  ctl anonymous-visit-guest-home-catch 1 '^FAIL +guest home, no sign-in form, mx session is guest -> ok' -- node $here/anonymous_visit_control.js $T/journey-runner-noguest.js
+  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
