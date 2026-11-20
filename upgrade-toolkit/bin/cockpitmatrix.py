@@ -1664,6 +1664,7 @@ def brief(work, model, rows, g, tl):
         prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
     ov = cp.parse_gate(gs)["overall"]
     sinfo = model.get("stopped") or {}
+    failed = model.get("failed")   # the last attempt failed with no stop file (cockpitpage.failed_step)
     rep_n = sinfo.get("repeats") or 0
     stuck = f"Stopped here {rep_n} times in a row, each time for the same reason." if rep_n >= 2 else ""   # the run is stuck (lane B, PMNT)
     if stopped and nask:
@@ -1674,6 +1675,8 @@ def brief(work, model, rows, g, tl):
         now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
     elif running:
         now = f"The agent is working: {running['text'][:1].lower() + running['text'][1:]}."
+    elif failed:
+        now = f"Step {failed['step']} failed (exit {failed['code']}). Nothing is running."
     elif nask:
         now = f"Waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
     elif ov == "PASS":
@@ -1774,6 +1777,9 @@ def brief(work, model, rows, g, tl):
             why, needs = sinfo["handoff"]
             act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
                    "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
+    elif failed and not running:
+        act = {"kind": "agent", "text": f"Nothing you can answer here. Read logs/{failed['step']}.log, fix the cause, then rerun with --from {failed['step']}.", "rec": "", "q": "",
+               "time": "The run goes on from that step once it passes."}
     elif parked_count(work):   # after the stop branch: a stop that needs an agent or a person takes precedence over the parked count
         act = parked_act(parked_count(work), running)
     elif running:

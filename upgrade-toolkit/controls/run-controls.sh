@@ -9648,11 +9648,30 @@ ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-creat
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
 
 # issue 30: exit 4 (a failed step, no stop file) prints the brief, like a judgment stop does; cleanup() is cut out of the pipeline script
-CL4=$T/cl4; mkdir -p $CL4/w
+CL4=$T/cl4; mkdir -p $CL4/w/state
 CLF="eval \"\$(sed -n '/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { echo BRIEF-PRINTED; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=build; WORK=$CL4/w; APPS_UP=()"
 ctl pipeline-exit4-prints-brief-catch 0 '^REGEN$' '^BRIEF-PRINTED$' -- bash -c "$CLF; ( exit 4 ); cleanup; true"
 ctl pipeline-exit0-no-brief-pass 0 '!BRIEF-PRINTED' '!REGEN' -- bash -c "$CLF; ( exit 0 ); cleanup; true"
 ctl pipeline-exit4-after-stop-file-no-second-brief-pass 0 '!BRIEF-PRINTED' -- bash -c "$CLF; : > $CL4/w/NEEDS-JUDGMENT.md; ( exit 4 ); cleanup; true"
+
+# issue 30, the brief AFTER the failure: the real brief.py and cockpit model on a synthetic work folder (steps done, last timing row exit N, no stop file)
+# the old code said "No step is running right now" and "Nothing to do now"; a failed last attempt is now said, with the log and the rerun
+FB=$T/fb; for n in 4 0 7 2; do mkdir -p $FB/w$n/state $FB/w$n/logs; for st in triage baseline; do echo 2026-10-20T10:00:00Z > $FB/w$n/state/$st.done; done
+  printf 'step\tstart_utc\tend_utc\texit\ntriage\t2026-10-20T10:00:00Z\t2026-10-20T10:05:00Z\t0\nbaseline\t2026-10-20T10:05:00Z\t2026-10-20T10:10:00Z\t0\nconvert\t2026-10-20T10:10:00Z\t2026-10-20T10:15:00Z\t%s\n' $n > $FB/w$n/state/timing.tsv; done
+# a failure and then a successful rerun: only the newest row counts
+cp -r $FB/w4 $FB/wre; printf 'convert\t2026-10-20T12:00:00Z\t2026-10-20T12:09:00Z\t0\n' >> $FB/wre/state/timing.tsv
+# a failure and a rerun in progress (running marker with this shell's pid)
+cp -r $FB/w4 $FB/wrun; printf 'convert\t%s\t%s\n' "$(date +%s)" "$$" > $FB/wrun/state/running
+ctl brief-exit4-says-failed-catch 0 'Step convert failed \(exit 4\)' 'logs/convert.log' '--from convert' '!Nothing to do now' '!No step is running right now' -- python3 $B/brief.py --work $FB/w4
+ctl brief-exit7-says-failed-catch 0 'Step convert failed \(exit 7\)' '--from convert' '!Nothing to do now' -- python3 $B/brief.py --work $FB/w7
+ctl cockpit-model-exit4-failed-catch 0 'failed=convert,4' 'dot=bad' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+m=c.build_model('$FB/w4'); print('failed=%s,%s' % (m['failed']['step'], m['failed']['code']), 'dot='+m['state']['dot']); print(m['state']['text'])"
+ctl brief-exit0-no-failed-pass 0 '!failed' '!--from convert' -- python3 $B/brief.py --work $FB/w0
+ctl brief-exit2-usage-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/w2
+ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wre
+ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
+ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
 
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
