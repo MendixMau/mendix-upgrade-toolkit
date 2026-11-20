@@ -874,7 +874,7 @@ async function anonymousVisit(page, baseUrl) {
     const l0 = ln[0] || '';
     const f404 = /^(error\s*)?404(\.\d+)?[\s\-:|.–—]*((page|file|resource)\s+)?(not found|error)?[\s.!]*$/i.test(l0);
     // "404. That's an error." : the number ends a sentence, and the line then says error / not found
-    const explicit = (f404 && /(not found|error)/i.test(l0.replace(/^error\s*/i, ''))) || /^(error\s*)?404[.:!|\u2013\u2014-]\s*\S.*(not found|error|oops|sorry|does not exist)/i.test(l0);
+    const explicit = (f404 && /(not found|error)/i.test(l0)) || /^(error\s*)?404[.:!|\u2013\u2014-]\s*\S.*(not found|error|oops|sorry|does not exist)/i.test(l0);
     const bare = f404 && !explicit && (ln.length === 1 || /not found|oops|sorry|exist|error/i.test(ln[1] || ''));
     const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)/i.test(t2) || explicit || bare;
     const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
