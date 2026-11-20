@@ -1535,6 +1535,21 @@ step_convert() {
 run_stepupdate() { # run_stepupdate PLAN label
   local plan=$1 rc=0 cmd="${UPG_UPDATE_CMD:-}"
   if [ "$DRY" != 1 ] && ! grep -qvE '^[[:space:]]*(#|$)' "$plan"; then note "$2 plan $plan has no module lines: no module updates"; return 0; fi
+  # WK-6 (WKS and ERRH field runs): on a ladder a plan runs on one rung. A pick whose min Mendix is above the project's
+  # version (the 11 picks at 10.24, or the 10.24 picks before the convert at 10.21) kept every module with no cause named.
+  if [ "$DRY" != 1 ] && [ -d "$WORK/modvers" ]; then
+    local rf rfv; rfv=$(project_version "$APP")
+    if [ -z "$rfv" ]; then if [ "$2" = pre-convert ]; then rfv=$SOURCE; else rfv=$TARGET; fi; fi   # an unreadable MPR: the rung's own version
+    if [ -n "$rfv" ]; then
+      local rfrom=update; [ "$2" = pre-convert ] && rfrom=convert   # plan-pre.txt runs inside step_convert
+      rf=0; python3 "$B/rungfit.py" "$plan" --at "$rfv" --modvers "$WORK/modvers" > "$WORK/rungfit-$2.out" 2>&1 || rf=$?
+      if [ "$rf" = 1 ]; then
+        nj_meta agent; nj_add 13 "Module plan has picks that need a newer Mendix than this rung ($2, project $rfv)" "$(grep '^MISFIT' "$WORK/rungfit-$2.out") Plan each rung with its own target (steps/triage.md item 3): plan-pre.txt = picks that install at the SOURCE version, plan.txt = picks for the version the project has after the convert; the picks for the next rung go in that rung's plan. Rewrite $plan, then rerun --from $rfrom."
+        nj_flush
+      fi
+      tail -n 1 "$WORK/rungfit-$2.out" | while IFS= read -r l; do note "$l"; done
+    fi
+  fi
   [ -f "$WORK/approved.txt" ] || { [ "$DRY" = 1 ] || printf '# accepted step-idcheck findings: <pattern> # reason\n' > "$WORK/approved.txt"; }
   # an MPR name with a space broke the unquoted {mpr} in T1, T4, T8: quote it
   if [ -n "$cmd" ] && [[ "$cmd" != *"'{mpr}'"* ]] && [[ "$cmd" != *'"{mpr}"'* ]]; then cmd=${cmd//\{mpr\}/\'\{mpr\}\'}; fi

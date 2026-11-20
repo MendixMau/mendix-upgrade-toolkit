@@ -22,7 +22,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    and `modules/<module>.md`; the index has no per-target selection, so take the newest version whose min Mendix is
    not above the target from `mxcli marketplace versions <content id>` (E6-5). `python3 $B/modplan.py $W/localedits.json --target <target>
    --app app/ --out $W/plan.txt --jumps $W/module-jumps.txt` does exactly that (GA-4): PICK / CURRENT / STRANDED / SKIP (renamed) /
-   NOT PICKED per module (never green by absence: exit 3), nothing written while one is NOT PICKED unless `--allow-unresolved`; each module's version table is cached in `$W/modvers/versions-<cid>.txt` (output says `(cached)`; delete the file to refetch), the target of a cross-module association before its owner (planorder.py's rule),
+   NOT PICKED per module (never green by absence: exit 3), nothing written while one is NOT PICKED unless `--allow-unresolved`; each module's version table is cached in `$W/modvers/versions-<cid>.txt` (output says `(cached)`; delete the file to refetch), the target of a cross-module association before its owner (planorder.py's rule), a module that provides a widget another planned module's pages use before that module (read from the cached packages, `--cache`; the `widget order:` line says how many were read; without `--no-fetch` modplan downloads the planned packages it does not find in the cache, and a widget pair can override `--last`),
    `--last A,B` to force the end, `--skip A,B` to leave modules out. For a 10.x source run it twice with the SOURCE-rung target
    for `plan-pre.txt` and the final target for `plan.txt`; a module whose two picks are the same version goes in `plan-pre.txt` only. The pipeline does
    not run it (the plan is a decision, exit 13 until the agent has written it); the rest of this item still applies to its output. "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
@@ -43,7 +43,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    before Studio Pro 10.21 ("range from 10.21.0 to 10.24.99", exit 117), and that includes the INSTALLED baseline
    package stepupdate re-imports first (Purchase Request: the refusals named 9.24 to 10.17, the installed versions,
    not the targets). Split each module: its newest version that installs on 10.24 goes to `$W/plan-pre.txt`; the
-   version that needs 11 stays in `$W/plan.txt`, and post-convert it then has a 10.21+ baseline. The pipeline stops before the convert when a 10.x to 11 run has no plan-pre.txt (F13).
+   version that needs 11 stays in `$W/plan.txt`, and post-convert it then has a 10.21+ baseline. The pipeline stops before the convert when a 10.x to 11 run has no plan-pre.txt (F13). On a ladder each plan runs on ONE rung (a source below 10.24: plan-pre.txt at the source version, plan.txt at 10.24 after the convert; the 11 picks are the next rung's plan): `rungfit.py` stops the update step when a line needs a newer Mendix than the project has (WK-6).
    BUILD VERSION CHECK (GM-17): "min Mendix" is not the build version (BizzomateDevTools 2.0.2 / 3.0.0 were planned and
    refused only mid-batch). On a target of 11, once plan.txt exists: `python3 $B/planbuild.py $W/plan.txt --target <target>`
    reads the Studio Pro version that built each line's package (cached `<id>-<version>.mpk`, downloaded when missing)
