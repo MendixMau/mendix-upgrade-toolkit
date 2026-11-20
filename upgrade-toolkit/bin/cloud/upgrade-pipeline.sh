@@ -610,7 +610,14 @@ cleanup() {
   # the run is not working (MTA: page "agent is working", brief "waiting"; exit 3 stopped the same way and left the last in-step page).
   # After timing_close, which ends "running". Exit 2 (usage) and a run with no work folder yet have no page to refresh.
   if [ "$rc" != 0 ] && [ "$rc" -lt 10 ] && [ "$rc" != 2 ] && [ -d "${WORK:-/nonexistent}/state" ] && [ ! -f "${WORK:-}/NEEDS-JUDGMENT.md" ] \
-     && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
+     && declare -F cockpit_regen > /dev/null; then
+    # the exact command that resumes the failed step (rung 2 carries its env prefix and --work): the page and the brief quote it, so a
+    # reader holding the ladder command is not sent to rerun rung 1; cockpitpage.failed_step ignores it unless the last timing row is this step
+    printf '%s\t%s\n' "$st" "$(rerun_cmd)" > "$WORK/state/failed-rerun.txt" 2> /dev/null || true
+    cockpit_regen || true
+    # the brief at exit 4 too (issue 30: it was printed at judgment stops only, so a failed step ended on one error line and no "what next")
+    [ "$rc" != 4 ] || ! declare -F brief_say > /dev/null || brief_say || true
+  fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done

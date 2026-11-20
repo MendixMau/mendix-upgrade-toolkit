@@ -9704,6 +9704,49 @@ ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback
 ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
 
+# issue 30: exit 4 (a failed step, no stop file) prints the brief, like a judgment stop does; cleanup() is cut out of the pipeline script
+CL4=$T/cl4; mkdir -p $CL4/w/state
+CLF="eval \"\$(sed -n '/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { echo BRIEF-PRINTED; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=build; WORK=$CL4/w; APPS_UP=()"
+ctl pipeline-exit4-prints-brief-catch 0 '^REGEN$' '^BRIEF-PRINTED$' -- bash -c "$CLF; ( exit 4 ); cleanup; true"
+ctl pipeline-exit0-no-brief-pass 0 '!BRIEF-PRINTED' '!REGEN' -- bash -c "$CLF; ( exit 0 ); cleanup; true"
+ctl pipeline-exit4-after-stop-file-no-second-brief-pass 0 '!BRIEF-PRINTED' -- bash -c "$CLF; : > $CL4/w/NEEDS-JUDGMENT.md; ( exit 4 ); cleanup; true"
+
+# issue 30, the brief AFTER the failure: the real brief.py and cockpit model on a synthetic work folder (steps done, last timing row exit N, no stop file)
+# the old code said "No step is running right now" and "Nothing to do now"; a failed last attempt is now said, with the log and the rerun
+FB=$T/fb; for n in 4 0 7 2; do mkdir -p $FB/w$n/state $FB/w$n/logs; for st in triage baseline; do echo 2026-10-20T10:00:00Z > $FB/w$n/state/$st.done; done
+  printf 'step\tstart_utc\tend_utc\texit\ntriage\t2026-10-20T10:00:00Z\t2026-10-20T10:05:00Z\t0\nbaseline\t2026-10-20T10:05:00Z\t2026-10-20T10:10:00Z\t0\nconvert\t2026-10-20T10:10:00Z\t2026-10-20T10:15:00Z\t%s\n' $n > $FB/w$n/state/timing.tsv; done
+# a failure and then a successful rerun: only the newest row counts
+cp -r $FB/w4 $FB/wre; printf 'convert\t2026-10-20T12:00:00Z\t2026-10-20T12:09:00Z\t0\n' >> $FB/wre/state/timing.tsv
+# a failure and a rerun in progress (running marker with this shell's pid)
+cp -r $FB/w4 $FB/wrun; printf 'convert\t%s\t%s\n' "$(date +%s)" "$$" > $FB/wrun/state/running
+ctl brief-exit4-says-failed-catch 0 'Step convert failed \(exit 4\)' 'logs/convert.log' '--from convert' '!Nothing to do now' '!No step is running right now' -- python3 $B/brief.py --work $FB/w4
+ctl brief-exit7-says-failed-catch 0 'Step convert failed \(exit 7\)' '--from convert' '!Nothing to do now' -- python3 $B/brief.py --work $FB/w7
+ctl cockpit-model-exit4-failed-catch 0 'failed=convert,4' 'dot=bad' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+m=c.build_model('$FB/w4'); print('failed=%s,%s' % (m['failed']['step'], m['failed']['code']), 'dot='+m['state']['dot']); print(m['state']['text'])"
+ctl brief-exit0-no-failed-pass 0 '!failed' '!--from convert' -- python3 $B/brief.py --work $FB/w0
+ctl brief-exit2-usage-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/w2
+ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wre
+ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
+ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
+
+# issue 30, rung 2: the work folder is <run>/rung2 and its page is the run's one cockpit, so the advice must be the rung-2 command
+# (env prefix, --work .../rung2), not the plain ladder command: after rung 2's convert the ladder refuses --from X (ladder_from_guard),
+# before it --from baseline reruns rung 1 on a converted app. cleanup() records the command, the page and the brief quote it.
+mkdir -p $FB/r2/rung2/state $FB/r2s/rung2/state
+for d in r2 r2s; do cp $FB/w4/state/timing.tsv $FB/$d/rung2/state/timing.tsv; done
+printf 'convert\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert\n' > $FB/r2/rung2/state/failed-rerun.txt
+printf 'build\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from build\n' > $FB/r2s/rung2/state/failed-rerun.txt
+CLR="eval \"\$(sed -n '/^quoted() {/p;/^rerun_cmd() {/,/^}/p;/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { :; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=convert; SELF=/x/upgrade-pipeline.sh; ARGS_ORIG=(--work /r/rung2 --from convert); RUN=/r; UPG_PHASE=2; WORK=$CL4/rung2; APPS_UP=(); mkdir -p \$WORK/state"
+ctl pipeline-exit4-rung2-records-rung2-command-catch 0 'convert.env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' -- bash -c "$CLR; ( exit 4 ); cleanup; cat $CL4/rung2/state/failed-rerun.txt"
+ctl brief-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'rung2/logs/convert.log, fix the cause, then rerun this command. env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' '!Read logs/convert.log' -- sh -c "python3 $B/brief.py --work $FB/r2/rung2 | tr -s ' \\n' '  '"
+ctl cockpit-model-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'UPG_PHASE=2' 'rerun: env RUN' '!Read logs/convert.log' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+print(c.build_model('$FB/r2/rung2')['state']['text'])"
+ctl brief-exit4-rung2-other-step-command-ignored-pass 0 'Read rung2/logs/convert.log' 'rerun with --from convert' '!--from build' -- sh -c "python3 $B/brief.py --work $FB/r2s/rung2 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-text-unchanged-pass 0 'Read logs/convert.log, fix the cause, then rerun with --from convert' '!rung2' -- sh -c "python3 $B/brief.py --work $FB/w4 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-recorded-command-pass 0 '^  /x/upgrade-pipeline.sh --work /r --from convert$' '!rung2' -- sh -c "cp -r $FB/w4 $FB/w4c; printf 'convert\t/x/upgrade-pipeline.sh --work /r --from convert\n' > $FB/w4c/state/failed-rerun.txt; python3 $B/brief.py --work $FB/w4c"
+
 # issue 30: "old app did not start" (exit 4) named only a log path; the first CRITICAL (else error) line of the runtime log goes with it,
 # but only when THIS start saved the log (runapp.py prints "runapp: NOT started;" / "runapp: admin API did not come up;" into $LOG then).
 # app_up and its helpers are cut out of the pipeline script (PIPE=<file> runs the control against another copy, e.g. origin/main's)
