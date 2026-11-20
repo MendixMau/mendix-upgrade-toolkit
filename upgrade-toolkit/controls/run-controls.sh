@@ -3306,6 +3306,14 @@ if command -v node > /dev/null; then
   ctl settle-lazy-catch 0 '^ok +lazy placeholder never goes away -> not settled, says placeholders present' '^ok +placeholder goes away, then stable' '^ok +permanent placeholder, DOM unchanged -> diagnostic names the false match' '^ok +SETTLE_LAZY_OFF \(opts.lazyOff\)' '^ok +SETTLE_LAZY_OFF=1 env' '!^FAIL' -- node $here/settle_lazy_control.js
   ctl settle-lazy-pass 0 '^ok +no placeholder -> settled, unchanged' '!^FAIL' -- node $here/settle_lazy_control.js
   ctl settle-lazy-drift-pass 0 '^ok +drift guard: LAZY is the pinned list' '^ok +drift guard: pageSettled queries the list it is handed' '^ok +drift guard: with no argument pageSettled falls back to LAZY' '^ok +drift guard: class-substring selectors appear once' '!^FAIL' -- node $here/settle_lazy_control.js -- node $here/settle_lazy_control.js
+  # Guest-access apps: the anonymous visitor has no sign-in form. Catch = the engine with the guest branch cut out (the old
+  # behaviour: no password input means "login page did not render") fails the control; pass = the real engine.
+  sed 's/g\.guest && g\.pages > 0/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noguest.js
+  ctl anonymous-visit-guest-home-catch 1 '^FAIL +guest home, no sign-in form, mx session is guest -> ok' -- node $here/anonymous_visit_control.js $T/journey-runner-noguest.js
+  # Catch for the error / not-found exclusion: a mutant with the `g.bad` guard cut out (sed) passes an error page as a guest home
+  sed 's/g\.guest && g\.pages > 0 && g\.bad/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noerrcheck.js
+  ctl anonymous-visit-error-page-catch 1 '^FAIL +guest session on a not-found page -> not ok' '^FAIL +guest session with an error dialog -> not ok' '^FAIL +guest session with a red error box -> not ok' '^ok +real probe, guest home page renders' '^ok +a validation message is not an error page' -- node $here/anonymous_visit_control.js $T/journey-runner-noerrcheck.js
+  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '^ok +real probe, guest home page renders -> ok, distinct detail' '^ok +guest session on a not-found page -> not ok' '^ok +guest session with an error dialog -> not ok' '^ok +guest session with a red error box -> not ok' '^ok +nav item "Pages" and an empty state "Customer not found" -> ok' '^ok +"Pages" and "not found" on separate lines in one page -> ok' '^ok +a stat tile reading 404 is not an error page -> ok' '^ok +a table cell starting 404 on a later line is not an error page -> ok' '^ok +not-found text still fails: 404 page -> not ok' '^ok +not-found text still fails: error then 404 -> not ok' '^ok +not-found text still fails: page does not exist -> not ok' '^ok +a validation message is not an error page -> ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
@@ -3326,6 +3334,12 @@ pinset() { for f in "$@"; do python3 -c "import json,sys; d=json.load(open(sys.a
 pinset $J/old/before/summary.json $J/new/after/summary.json $J2/old/before/summary.json $J2/new/after/summary.json
 NOACT=(--no-actions 'control: synthetic set, no model behind it')
 ctl journeys-compare-screens-line-pass 0 '^screens: 2 PASS, 0 PASS\*, 0 REVIEW, 0 INVALID$' '^coverage: 1 PASS\* \(no denominator: control' '!coverage INVALID' -- python3 $B/run_journeys.py x --label after --work $J2/new --compare $J2/old --rejudge "${NOACT[@]}"
+# the anonymous visitor's home changing between runs (guest home vs sign-in form) flips no verdict: a NOTE names it; unchanged says nothing
+JL=$T/rjl; cp -R $J2 $JL
+for pair in "old/before:anonymous" "new/after:anonymous (guest home, no sign-in form)"; do python3 -c "import json,sys; f=sys.argv[1]+'/summary.json'; d=json.load(open(f)); d['roles']={'anonymous-Guest': {'login': 'PASS', 'login_detail': sys.argv[2]}}; json.dump(d, open(f, 'w'))" "$JL/${pair%%:*}" "${pair#*:}"; done
+ctl journeys-anonymous-home-changed-note-pass 0 '^  NOTE anonymous role anonymous-Guest: the visitor.s home changed, before "anonymous", now "anonymous \(guest home, no sign-in form\)"' -- python3 $B/run_journeys.py x --label after --work $JL/new --compare $JL/old --rejudge "${NOACT[@]}"
+python3 -c "import json,sys; f=sys.argv[1]; d=json.load(open(f)); d['roles']['anonymous-Guest']['login_detail']='anonymous'; json.dump(d, open(f, 'w'))" $JL/new/after/summary.json
+ctl journeys-anonymous-home-same-no-note-pass 0 '!NOTE anonymous role' -- python3 $B/run_journeys.py x --label after --work $JL/new --compare $JL/old --rejudge "${NOACT[@]}"
 # an open pair that no journey owns still keeps the run red (it used to vanish from the verdict)
 J3=$T/rj3; mkdir -p $J3/old/before $J3/new/after
 cp -R $SH/old/shots-Administrator $J3/old/before/; cp -R $SH/empty/shots-Administrator $J3/new/after/
