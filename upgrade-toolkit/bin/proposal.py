@@ -384,16 +384,22 @@ class Facts:
             merged.setdefault(id(dojo[pk[0]][0]), (dojo[pk[0]][0], []))[1].append(rep)
             gone.add(id(rep))
         for d, reps in merged.values():
-            keep = [o for o in d["options"].split(" | ") if o.startswith(("keep", "stay on"))]
+            # the dojo item's catalogue link (its RA tag and recommendation) survives as a supporting line; the replacement
+            # findings lead. Every keep / "stay on" option, whichever side it came from, goes after the last other option.
+            tag = re.search(r"\[(RA-\d+)[^\]]*\]", d["rec"])
+            also = (f"; also {tag.group(1)}: {re.sub(chr(32) + r'*\[RA-\d+[^]]*\]', '', d['rec'])} [playbooks/rearchitecture.md]") if tag else ""
+            allopts = [o for r in reps for o in r["options"].split(" | ")] + d["options"].split(" | ")
             opts = []
-            for o in [o for r in reps for o in r["options"].split(" | ")] + [o for o in d["options"].split(" | ") if o not in keep] + keep:
+            for o in allopts:
                 if o not in opts:
                     opts.append(o)
-            d["evidence"] = ("; ".join(r["evidence"] for r in reps) + "; supporting, weaker: " + d["evidence"])
-            d["options"] = " | ".join(opts)
+            isk = lambda o: o.startswith(("keep", "stay on"))
+            d["options"] = " | ".join([o for o in opts if not isk(o)] + [o for o in opts if isk(o)])
+            d["evidence"] = ("; ".join(dict.fromkeys(r["evidence"] for r in reps)) + "; supporting, weaker: " + d["evidence"] + also)
             d["rec"] = "; and ".join(r["rec"] for r in reps)
             d["effort"] = max([d["effort"]] + [r["effort"] for r in reps], key="SML".index)
             d["risk"] = "; ".join(dict.fromkeys(r["risk"] for r in reps)) + "; " + d["risk"]
+            d["merged_keys"] = [f"{d['kind']}:{d['name']}"] + [f"{r['kind']}:{r['name']}" for r in reps]
         self.items3 = [i for i in self.items3 if id(i) not in gone]
 
     def sizes_and_actions(self):
@@ -694,14 +700,57 @@ def approve_steps(work, ids, state, signer, source, answers=None):
     return n
 
 
-def decisions(work):
+def decisions(work, raw=False):
+    """P-n -> fields of DECISIONS.md. An answer recorded before its item was merged (GM-20) does not count: see reanswer()."""
     out = {}
+    try:
+        stale = {k: v.get("stale") for k, v in json.load(open(os.path.join(work, "state", "proposal-merges.json"))).items()}
+    except (OSError, ValueError, AttributeError):
+        stale = {}
     for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
         m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
         if m:
             f = [x.strip() for x in m.group(2).split("|")]
             out[m.group(1)] = f
+    if not raw:
+        out = {k: v for k, v in out.items() if stale.get(k) is None or "|".join(v) != stale[k]}
     return out
+
+
+def reanswer(items, work):
+    """GM-20: a merged item has a new recommendation order, so an answer given to the dojo item or to one of the absorbed
+    replacement items before the merge is not carried over. The first run that sees the merge records, in
+    state/proposal-merges.json, the answer text it is ignoring (decisions() skips exactly that line) and the evidence note;
+    a later, different answer on the same id counts."""
+    path = os.path.join(work, "state", "proposal-merges.json")
+    try:
+        rec = json.load(open(path))
+    except (OSError, ValueError):
+        rec = {}
+    try:
+        ids = json.load(open(os.path.join(work, "state", "proposal-ids.json")))
+    except (OSError, ValueError):
+        ids = {}
+    raw = decisions(work, raw=True)
+    new = False
+    for it in items:
+        keys = it.get("merged_keys")
+        if not keys:
+            continue
+        if it["id"] not in rec:
+            frm = [f"P-{ids[k]}" for k in keys if k in ids]
+            olds = [(pid, raw[pid]) for pid in frm if pid in raw]
+            note = None
+            if olds:
+                txt = (olds[0][1][2] if len(olds[0][1]) > 2 else "?")
+                note = f"re-answer: merged from {'/'.join(frm)}; earlier answer '{txt}' was given to the unmerged item"
+            rec[it["id"]] = {"from": frm, "stale": "|".join(raw[it["id"]]) if it["id"] in raw else None, "note": note}
+            new = True
+        if rec[it["id"]].get("note"):
+            it["evidence"] += "; " + rec[it["id"]]["note"]
+    if new:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        json.dump(rec, open(path, "w"), indent=1, sort_keys=True)
 
 
 def testing_plan(F):
@@ -879,6 +928,7 @@ def main():
     F = Facts(a)
     F.build()
     ids_for(F.items3, a.work)
+    reanswer(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The

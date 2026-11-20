@@ -227,10 +227,26 @@ fi
 want toolsets && for v in "$@"; do
   for kind in mxbuild runtime; do
     tgz=$([ $kind = mxbuild ] && echo "mxbuild-$v.tar.gz" || echo "mendix-$v.tar.gz")
+    # GM-1: a non-empty runtime dir is reused only when its runtimelauncher.jar opens as a zip; a truncated extract is redone
+    if [ $kind = runtime ] && [ -n "$(ls -A "$R/tools/$kind-$v" 2>/dev/null)" ] && ! "$PY" -I "$TK/bin/zipcheck.py" --find runtimelauncher.jar "$R/tools/$kind-$v" >/dev/null 2>&1; then
+      log "$kind-$v: no readable runtimelauncher.jar (corrupt or truncated extract): extracting again"
+      rm -rf "$R/tools/$kind-$v"
+    fi
     if [ -z "$(ls -A "$R/tools/$kind-$v" 2>/dev/null)" ]; then
-      [ -f "$R/dl/$tgz" ] || curl -sS -f -o "$R/dl/$tgz" "https://cdn.mendix.com/runtime/$tgz" \
-        || { echo "setup: $tgz not on the CDN; check the full version name" >&2; exit 1; }
+      # GM-1: a cached tgz is reused only when gzip -t and tar -tzf read it to the end; else it is deleted and fetched again
+      if [ -f "$R/dl/$tgz" ] && ! { gzip -t "$R/dl/$tgz" && tar -tzf "$R/dl/$tgz" >/dev/null; } 2>/dev/null; then
+        log "$tgz in dl/ is truncated or corrupt: deleting it and downloading again"
+        rm -f "$R/dl/$tgz"
+      fi
+      [ -f "$R/dl/$tgz" ] || { curl -sS -f -o "$R/dl/$tgz.part" "https://cdn.mendix.com/runtime/$tgz" && mv "$R/dl/$tgz.part" "$R/dl/$tgz"; } \
+        || { rm -f "$R/dl/$tgz.part"; echo "setup: $tgz not on the CDN or the download failed (offline?); check the full version name and the network" >&2; exit 1; }
+      if ! { gzip -t "$R/dl/$tgz" && tar -tzf "$R/dl/$tgz" >/dev/null; } 2>/dev/null; then
+        rm -f "$R/dl/$tgz"; echo "setup: $tgz downloaded but is truncated or corrupt (deleted); rerun setup" >&2; exit 1
+      fi
       mkdir -p "$R/tools/$kind-$v" && tar -xzf "$R/dl/$tgz" -C "$R/tools/$kind-$v"
+      if [ $kind = runtime ] && ! "$PY" -I "$TK/bin/zipcheck.py" --find runtimelauncher.jar "$R/tools/$kind-$v" >&2; then
+        rm -rf "$R/tools/$kind-$v" "$R/dl/$tgz"; echo "setup: $kind-$v extracted without a readable runtimelauncher.jar (removed with its tgz); rerun setup" >&2; exit 1
+      fi
     fi
   done
   # BT-1: a Mono-era mxbuild (9.0 to 9.19) gets its mono shim
