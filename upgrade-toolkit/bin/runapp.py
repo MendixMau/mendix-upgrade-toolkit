@@ -357,6 +357,17 @@ def port_busy(port):
     return ", ".join(who) or "a non-container process"
 
 
+def port_busy_message(port, who):
+    """FR-6: a leftover toolkit container (<prefix>-<name>, e.g. mig-oldwalk) held the port and the run said only "in use".
+    Name the holder; for a toolkit container give the exact removal command. Never removed here: it may be another run's."""
+    mine = [w.strip() for w in who.split(",") if w.strip().startswith(PREFIX + "-")]
+    if mine:
+        return (f"runapp: INFRA port {port} in use by {who}, a toolkit container left over from an earlier attempt or running for "
+                f"another run. If no other run is using it, remove it with: docker rm -f {' '.join(mine)}  then rerun. "
+                f"(Or set PORT_OFF to use other ports.)")
+    return f"runapp: INFRA port {port} in use by {who}; stop it (or set PORT_OFF) and rerun"
+
+
 def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     overrides = const_overrides()  # B4T2-12: refuse a bad value before a database or container is touched
     pre = os.environ.get("UPG_DB_PREFIX")
@@ -407,7 +418,7 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     for p in (rport, aport):
         who = port_busy(p)
         if who:
-            print(f"runapp: INFRA port {p} in use by {who}; stop it (or set PORT_OFF) and rerun")
+            print(port_busy_message(p, who))
             return 3
     img = image_for(rtv)
     print(f"runapp: {cname} image {img}, runtime {rtv}, db {db}, ports {rport}/{aport}")

@@ -382,6 +382,8 @@ stepcheck_stop() {
   nj_meta info; nj_file 13 "A module update added model errors; the step was undone before it was committed (steps/upgrade.md, steps/repair.md)" "$WORK/stepupdate-$1.out" 14 '^(   NEW|STOP|   stepcheck)'
   nj_meta person "$q" "$r" "${opts[@]}"; nj_writes "${ws[@]}"
   nj_add 13 "Decision" "${body%$'\n'}"
+  # FR-7: auto mode parks a stop nothing later depends on; this one is not parked, and the person asks why it differs
+  if interview_auto; then nj_add 13 "Why the run stopped here in auto mode" "Interview mode auto parks only stops that no later step builds on. Every step after the updates (routes, replays, repair rows, the build) works on the model this step leaves, so the module update cannot be left open and decided at the end: answer it, then rerun."; fi
   nj_flush
 }
 
@@ -457,6 +459,24 @@ fresh_name() { # fresh_name BASE: a database name no earlier snapshot, walk or p
   echo "$n"
 }
 copy_db() { must docker exec "$PGC" createdb -U mendix -T "$1" "$2"; }
+# FR-6: --seed-from copies into the working database X. A rerun after an environment stop found X already there ("createdb:
+# database already exists"). Only a copy this run made is dropped: seed_copy stamps it with the run folder (like the frozen
+# one); an X without that stamp may be the person's, so it is refused with the name and the exact command, never dropped.
+db_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $1 IS 'upgrade-toolkit run $RUNP'"; }
+seed_copy() { # seed_copy SRC DST
+  local owner
+  [ "$1" != "$2" ] || die4 "--seed-from $1 is the working database itself: give a different source database"
+  if db_exists "$2"; then
+    owner=$(docker exec "$PGC" psql -U mendix -tAc "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname='$2'" 2> /dev/null || true)
+    if [ "$owner" = "upgrade-toolkit run $RUNP" ]; then
+      note "dropping $2: the seed copy of $1 an earlier attempt of this run made (stamped with this run folder)"
+      must docker exec "$PGC" dropdb -U mendix "$2"
+    else
+      die4 "database $2 already exists and this run did not stamp it, so it is not proven to be the toolkit's scratch copy of $1 (it may be yours). If it is a leftover, drop it and rerun: docker exec $PGC dropdb -U mendix $2   (or pick another name with --db)"
+    fi
+  fi
+  copy_db "$1" "$2"; db_stamp "$2"
+}
 mark_used() { must python3 "$B/snapshot.py" --ledger "$WORK/db-ledger.txt" --mark-used "$1" --use "$2"; }
 psql_str() { echo "docker exec -i $PGC psql -U mendix -d $1"; }
 
@@ -484,7 +504,9 @@ json.dump(ov, open(sys.argv[-1], "w"), indent=1)' "${src[@]}" "$WORK/state/const
   fi
 }
 infra_rc() { # infra_rc RC NAME: runapp.py exit 3 is an environment fault (F21: a taken port), never a judgment
-  [ "$1" != 3 ] || { echo "upgrade-pipeline.sh: $2 could not start: environment fault, see runapp INFRA line in $LOG" >&2; exit 3; }
+  [ "$1" != 3 ] || {
+    # FR-6: say what the INFRA line says (which port, which container, the command), not only where to find it
+    echo "upgrade-pipeline.sh: $2 could not start: environment fault: $(grep -h 'runapp: INFRA' "$LOG" 2> /dev/null | tail -n 1 | sed 's/^runapp: INFRA //') (log: $LOG)" >&2; exit 3; }
 }
 app_up() { # app_up NAME MDA FULLVER DB  -> 0 started
   local rc=0
@@ -793,7 +815,10 @@ step_fetch() {
     local v
     v=$(project_version "$APP")
     if [[ "$v" != *"$SOURCE"* ]]; then
-      echo "upgrade-pipeline.sh: the project is version '${v:-unknown}', not --source $SOURCE" >&2; exit 2
+      echo "upgrade-pipeline.sh: the project is version '${v:-unknown}', not --source $SOURCE" >&2
+      # FR-4: say which toolset to fetch: the app's own full version, then rerun with --source of it
+      [ -z "$v" ] || echo "  fetch the mxbuild and runtime toolset of exactly $v, then rerun with --source $v:  bash $B/cloud/setup.sh --run-dir $RUN --source $v --target $TARGET${TARGET2:+ --target2 $TARGET2} --only toolsets,mxlinks" >&2
+      exit 2
     fi
     if [ -n "$(find "$APP" -maxdepth 2 \( -name 'data-snapshot.zip' -o -name '*.script' \) -print -quit)" ]; then
       todo_hsql_replay
@@ -1086,7 +1111,7 @@ step_baseline() {
     frozen_owner
     note "reusing existing frozen database $X_FROZEN"
   else
-    if [ -n "$SEED_FROM" ]; then copy_db "$SEED_FROM" "$X"; fi
+    if [ -n "$SEED_FROM" ]; then seed_copy "$SEED_FROM" "$X"; fi
     app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start on $X (log: $LOG, $WORK/logs/runtime-old.log)"
     app_down old
     if [ -z "$SEED_FROM" ]; then

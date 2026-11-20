@@ -233,9 +233,13 @@ ctl stepcheck-keep-wording-catch 1 '^O.*keep\|.*modules whose update needs the n
 # GM-23: stepcheck_stop turns the stop file into a NEEDS-JUDGMENT section (the real function, cut out of the pipeline with awk)
 SK=$T/sck; mkdir -p $SK/app/.stepupdate $SK/work
 python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields | grep -E '^(Q|R|O|W|B)	' > $SK/app/.stepupdate/stepcheck-stop.txt
-for fn in nj_meta nj_add nj_writes stepcheck_stop; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$fn"'\(\) \{.*\}$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $SK/fns.sh
+for fn in nj_meta nj_add nj_writes interview_auto stepcheck_stop; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$fn"'\(\) \{.*\}$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $SK/fns.sh
 printf '%s\n' 'nj_file() { echo "FILE $1"; }' 'nj_flush() { cat "$NJ_TMP"; exit 13; }' 'NJ_CODE=0; NJ_TMP='"$SK"'/nj.tmp; : > $NJ_TMP' > $SK/stub.sh
 ctl pipeline-stepcheck-stop-render-catch 13 '^FILE 13$' '^question: Updating ModX to 2\.0\.0 breaks the model' '^recommended: keep$' '^option: keep\|' '^option: accept\|' '^option: hand\|' '^writes: keep\|step-keep\.txt\|ModX$' '^writes: accept\|stepcheck-accepted\.txt\|ModX CE6085' '^owner: person' -- bash -c ". $SK/stub.sh; . $SK/fns.sh; APP=$SK/app WORK=$SK/work; stepcheck_stop x"
+
+# FR-7: auto mode parks only stops nothing later depends on; a module update that added errors is not one of them, and the stop says so
+ctl fr7-auto-stop-says-why-catch 13 '^title: Why the run stopped here in auto mode|Why the run stopped here in auto mode' 'Interview mode auto parks only stops that no later step builds on' 'answer it, then rerun' -- bash -c ". $SK/stub.sh; . $SK/fns.sh; APP=$SK/app WORK=$SK/work UPG_INTERVIEW_MODE=auto; stepcheck_stop x"
+ctl fr7-no-why-line-when-not-auto-pass 13 '^question: Updating ModX to 2\.0\.0 breaks the model' '!Why the run stopped here' -- bash -c ". $SK/stub.sh; . $SK/fns.sh; APP=$SK/app WORK=$SK/work UPG_INTERVIEW_MODE=; stepcheck_stop x"
 
 # T5-15 / T5F-4: a KEPT module that calls the old API of a PLANNED module (microflow, Java action, generalization, Java
 # import) caps that module at its current major; the plan must never move it silently
@@ -8105,6 +8109,56 @@ FR2=$BTR/app-fr2; frapp $FR2; echo scratch > $FR2/notes-by-a-person.txt
 ctl fr1-other-dirt-still-refused-pass 4 'has uncommitted changes' '^\?\? notes-by-a-person.txt$' '!notes-by-a-person.txt.*toolkit' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR2 fr2 | grep uncommitted; git -C $FR2 status --porcelain; git -C $FR2 log -1 --format=%s; exit 4"
 FR3=$BTR/app-fr3; frapp $FR3; echo my-own-private-ignore >> $FR3/.gitignore
 ctl fr1-persons-own-gitignore-edit-refused-catch 4 'has uncommitted changes' '^ M \.gitignore$' '^original$' '!^toolkit: ignore tool folders$' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR3 fr3 | grep uncommitted; git -C $FR3 status --porcelain; git -C $FR3 log -1 --format=%s; exit 4"
+
+# FR-4: the refusal "the project is version A, not --source B" names the toolset to fetch and the --source to rerun with.
+# The app's .mpr is a minimal sqlite file with the _MetaData._ProductVersion row mxversion.py reads (the same table a real .mpr has).
+mkmpr() { rm -f App.mpr; python3 -c 'import sqlite3; c = sqlite3.connect("App.mpr"); c.execute("create table _MetaData (_ProductVersion text)"); c.execute("insert into _MetaData values (?)", ("10.24.13.90000",)); c.commit()'; }
+FR4=$BTR/app-fr4; frapp $FR4 mkmpr
+ctl fr4-source-mismatch-names-toolset-catch 2 "the project is version '10.24.13.90000', not --source 10.24.26.1" 'fetch the mxbuild and runtime toolset of exactly 10.24.13.90000, then rerun with --source 10.24.13.90000' 'setup.sh --run-dir .* --source 10.24.13.90000 --target 11.15.0.1 --only toolsets,mxlinks' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR4 fr4"
+ctl fr4-source-mismatch-unknown-version-pass 2 "the project is version 'unknown', not --source 10.24.26.1" '!fetch the mxbuild' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr4u"
+
+# FR-6: a rerun of baseline after an environment stop. A fake docker keeps the databases as folders (comment in a file) and answers
+# the five calls the pipeline makes (exists?, createdb -T, dropdb, COMMENT ON DATABASE, its comment). The functions are the real ones.
+FR6=$T/fr6; mkdir -p $FR6/bin; for f in db_exists copy_db db_stamp seed_copy; do awk -v n="$f" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$f"'\(\) \{.*\}$/{exit} p&&/^'"$f"'\(\) .*;$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $FR6/fns.sh
+cat > $FR6/bin/docker <<'EOF2'
+#!/bin/bash
+[ "$1" = exec ] || exit 0
+shift 2; cmd=$1; shift; S=$FAKE_PG
+case $cmd in
+  createdb) while [ $# -gt 0 ]; do case $1 in -U) shift 2;; -T) src=$2; shift 2;; *) dst=$1; shift;; esac; done
+    [ -d "$S/$src" ] || { echo "createdb: error: template $src is missing" >&2; exit 1; }
+    [ ! -d "$S/$dst" ] || { echo "createdb: error: database creation failed: ERROR:  database \"$dst\" already exists" >&2; exit 1; }
+    mkdir "$S/$dst";;
+  dropdb) rm -rf "$S/${@: -1}";;
+  psql) sql=${@: -1}
+    case $sql in
+      "SELECT 1 FROM"*) n=${sql##*datname=\'}; n=${n%\'}; [ ! -d "$S/$n" ] || echo 1;;
+      "SELECT shobj"*) n=${sql##*datname=\'}; n=${n%\'}; cat "$S/$n/comment" 2> /dev/null || true;;
+      "COMMENT ON DATABASE"*) n=$(echo "$sql" | awk '{print $4}'); c=${sql#*IS \'}; echo "${c%\'}" > "$S/$n/comment";;
+    esac;;
+esac
+EOF2
+chmod +x $FR6/bin/docker
+fr6run() { # fr6run STATE-SETUP-CMD: a fresh fake server with the seed database, the setup, then seed_copy as the pipeline calls it
+  local s=$FR6/pg; rm -rf $s; mkdir -p $s/seed_src; eval "$1"
+  ( export PATH=$FR6/bin:$PATH FAKE_PG=$s; PGC=mig-pg; DRY=0; RUNP=/runs/a; X=upg_a
+    note() { echo "note: $*"; }; die4() { echo "upgrade-pipeline.sh: $*" >&2; exit 4; }; x() { "$@"; }; must() { "$@" || die4 "command failed: $*"; }
+    . $FR6/fns.sh; seed_copy seed_src $X; rc=$?; echo "rc=$rc"; echo "dbs: $(ls $s | tr '\n' ' ')"; echo "comment: $(cat $s/$X/comment 2> /dev/null)" ); }
+ctl fr6-seed-copy-fresh-pass 0 '^rc=0$' '^dbs: seed_src upg_a $' '^comment: upgrade-toolkit run /runs/a$' '!dropping' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run ':'"
+ctl fr6-seed-copy-own-leftover-dropped-catch 0 '^note: dropping upg_a: the seed copy of seed_src an earlier attempt of this run made' '^rc=0$' '^dbs: seed_src upg_a $' '^comment: upgrade-toolkit run /runs/a$' '!already exists' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; echo \"upgrade-toolkit run /runs/a\" > \$s/upg_a/comment'"
+ctl fr6-seed-copy-unstamped-refused-pass 4 'database upg_a already exists and this run did not stamp it' 'docker exec mig-pg dropdb -U mendix upg_a' '!^rc=' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; touch \$s/upg_a/keep-me'"
+ctl fr6-seed-copy-unstamped-kept-pass 0 '^keep-me$' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; touch \$s/upg_a/keep-me' > /dev/null 2>&1; ls $FR6/pg/upg_a"
+ctl fr6-seed-copy-other-run-refused-pass 4 'database upg_a already exists and this run did not stamp it' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; echo \"upgrade-toolkit run /runs/b\" > \$s/upg_a/comment'"
+ctl fr6-baseline-wired-pass 0 '^[0-9]+:    if \[ -n "\$SEED_FROM" \]; then seed_copy "\$SEED_FROM" "\$X"; fi$' '!copy_db "\$SEED_FROM"' -- grep -n 'SEED_FROM" "\$X"' $B/cloud/upgrade-pipeline.sh
+# FR-6, the port: the INFRA line names a toolkit container with the command to remove it (never run by the code); a foreign holder gets no command
+FR6P="import sys; sys.path.insert(0, '$B'); import runapp as r; print(r.port_busy_message(8080, sys.argv[1]))"
+ctl fr6-port-toolkit-container-names-command-catch 0 'port 8080 in use by mig-oldwalk' 'docker rm -f mig-oldwalk' -- python3 -c "$FR6P" mig-oldwalk
+ctl fr6-port-foreign-holder-no-remove-command-pass 0 'port 8080 in use by some-other-app' '!docker rm' -- python3 -c "$FR6P" some-other-app
+# the pipeline prints the INFRA line itself (exit 3), not only the log path
+printf 'step line\nrunapp: INFRA port 8080 in use by mig-oldwalk, a toolkit container left over; remove it with: docker rm -f mig-oldwalk  then rerun.\n' > $FR6/infra.log
+sed -n '/^infra_rc() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $FR6/infra.sh
+ctl fr6-infra-rc-prints-line-catch 3 'newwalk could not start: environment fault: port 8080 in use by mig-oldwalk' 'docker rm -f mig-oldwalk' -- bash -c ". $FR6/infra.sh; LOG=$FR6/infra.log; infra_rc 3 newwalk"
+ctl fr6-infra-rc-other-codes-pass 0 '^ok$' -- bash -c ". $FR6/infra.sh; LOG=$FR6/infra.log; infra_rc 1 newwalk; echo ok"
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
