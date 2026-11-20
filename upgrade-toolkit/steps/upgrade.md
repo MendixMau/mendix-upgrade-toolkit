@@ -77,7 +77,9 @@ Goal: reach the target version with every step proven not to change a runtime id
      regenerates them: the import set and the USER CODE / EXTRA CODE blocks; header, JSDoc and import order are not an
      edit (B4T2-3, B4N1-5), a changed line inside a block still is.
    - Resume without a new plan file: `--from <line number | Module>` starts there, `--skip Mod,Mod` leaves modules
-     out; both are logged (E4-7, E4-32).
+     out; both are logged (E4-7, E4-32). `--skip-reason Mod=why` (repeatable) puts the owner's reason on that module's
+     kept line (`Mod skipped by --skip: why`) and on the remedy CHOICE line; without it the line is unchanged. The pipeline
+     does not pass it (a step-keep.txt line holds the module only): give it when running stepupdate.sh by hand.
    - Unattended: `--unattended` applies the stop rule mechanically. A STOP (step idcheck finding, refusal, failed
      update) reverts the tree (tracked files restored, files the update created removed, untracked files from before
      kept), records the module in `.stepupdate/kept.txt` and continues. The summary line says

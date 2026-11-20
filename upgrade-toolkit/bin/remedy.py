@@ -222,11 +222,13 @@ def read_kept(path, gaps, choices=None, lines=None):
     for line in (lines if lines is not None else read_kept_lines(path)):
         src = "kept (snapshot)" if line.startswith("\x00") else "kept"
         line = line.lstrip("\x00")
-        if re.search(r"(?i)\bnewest\b", line):
+        m = re.search(r"skipped by --skip(?::\s*(.+))?$", line)   # first: a reason may say "newest" (2.4.0 is not the newest)
+        if not m and re.search(r"(?i)\bnewest\b", line):
             continue
-        if re.search(r"skipped by --skip", line):   # a plan choice, not a refusal (BACKLOG #77); RT-13: not a gap either
+        if m:   # a plan choice, not a refusal (BACKLOG #77); RT-13: not a gap either
+            why = f" (reason given: {m.group(1)})" if m.group(1) else ""
             choices.append({"source": "kept", "file": str(path), "text": f"kept line '{line}': skipped by choice, not "
-                            "refused; check the module is still at its old version (a later pass may have updated it)"})
+                            f"refused{why}; check the module is still at its old version (a later pass may have updated it)"})
             continue
         out.append({"source": src, "file": str(path), "subject": line.split()[0], "text": f"kept: {line}",
                     "data": bool(DATA_KEPT.search(line))})
