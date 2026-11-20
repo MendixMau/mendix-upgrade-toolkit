@@ -8019,6 +8019,12 @@ mkdir -p "$DG/w2/e2e-after/after" "$DG/w2/e2e-before-picked" "$DG/w2/journeys"; 
 dgcase2() { bash -c "set -Eeu; . $DG/fn.sh; B=$B; WORK=$1; SOURCE=10.24.0; TARGET=11.12.5; OLD_MDA=''; DRY=1; APP=$DG/plain; step_diff"; }
 ctl pipeline-diff-journeys-rejudge-catch 0 "^  JOURNEYS_DIR=$DG/w2/journeys\$" "^  JOURNEYS_BEFORE=$DG/w2/e2e-before-picked\$" '^  JOURNEYS_REJUDGE=1$' "^  ACTIONS=$DG/w2/actions\.json\$" -- dgcase2 $DG/w2
 ctl pipeline-diff-journeys-none-pass 0 '^  BUILD_LOG=' '!JOURNEYS' -- dgcase2 $DG/w
+# ORG, TLT: release-impact.md was complete but the diff step never selected the release rung ("release: not selected", grade INVALID)
+mkdir -p "$DG/w3"; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > "$DG/w3/release-impact.md"
+ctl pipeline-diff-release-selected-catch 0 "^  RELEASE_IMPACT=$DG/w3/release-impact\\.md\$" -- dgcase2 $DG/w3
+ctl pipeline-diff-release-absent-pass 0 '^  BUILD_LOG=' '!RELEASE_IMPACT' -- dgcase2 $DG/w
+mkdir -p $V/pwr; cp $DG/w3/release-impact.md $V/pwr/release-impact.md
+ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
 # TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
 # Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
 for c in stale fresh; do mkdir -p "$DG/al-$c"; done
