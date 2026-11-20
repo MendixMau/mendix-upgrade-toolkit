@@ -395,24 +395,55 @@ stepcheck_stop() {
 
 # widgetskew_stop: the decision of the WIDGET-SKEW stop (field run RKT: it offered update / restore / accept with nothing
 # recommended, and `update` could not succeed: the kept module had been kept for a data finding only approved.txt clears).
-# Recommends accept: the app builds and no data changes; the cost is unstyled grids until the kept module is updated.
+# The recommendation follows why the module was kept: a data finding (idcheck, approved.txt) = accept (update needs the data
+# approval first); local file edits (steps/repair.md row 32: often OS junk) or a network failure = update; a package no
+# Studio Pro here can import = restore; an owner's --skip or anything else = accept.
 # Reads $WORK/widgetskew.out (the module the styles belong to) and $APP/.stepupdate/kept.txt ("<module> <why it was kept>").
 widgetskew_stop() {
-  local mods mod reason what="" data=0 upd q
-  mods=$(sed -nE 's/^WIDGET-SKEW .* ships with ([^ ]+) [^ ;]+;.*/\1/p' "$WORK/widgetskew.out" 2> /dev/null | awk '!s[$0]++' | paste -sd, - | sed 's/,/, /g')
+  local mods mod reason what="" cls="other" c rec upd body q ack="$WORK/widgetskew-ack.txt"
+  mods=$(sed -nE 's/^WIDGET-SKEW .* ships with ([^ ]+) [^ ;]+;.*/\1/p' "$WORK/widgetskew.out" 2> /dev/null | awk '!s[$0]++' | paste -sd, - | sed 's/,/, /g' || true)
   for mod in ${mods//,/}; do
-    reason=$(awk -v m="$mod" '$1 == m {sub(/^[^ ]+ +/, ""); print; exit}' "$APP/.stepupdate/kept.txt" 2> /dev/null)
-    if printf '%s' "$reason" | grep -Eqi 'idcheck REVIEW|approved\.txt|persistence'; then
-      data=1; what="$what$mod was kept because updating it would remove or change data the app stores. "
-    else what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
+    reason=$(awk -v m="$mod" '$1 == m { if (NF > 1) { sub(/^[^ ]+ +/, ""); print }; exit }' "$APP/.stepupdate/kept.txt" 2> /dev/null || true)
+    if printf '%s' "$reason" | grep -Eqi '^idcheck|approved\.txt|persistence'; then c=data
+      what="$what$mod was kept because updating it would remove or change data the app stores. "
+    elif printf '%s' "$reason" | grep -Eqi 'FILES-EDITED|local edits refuse'; then c=files
+      what="$what$mod was kept because it has local file edits ($reason). "
+    elif printf '%s' "$reason" | grep -Eqi 'NETWORK'; then c=net
+      what="$what$mod was not updated because the network failed, not because anything was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'skipped by --skip'; then c=skip
+      what="$what$mod was left out on request (--skip); nothing was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'made before'; then c=old
+      what="$what$mod has no importable target package (it was made for an older Studio Pro). "
+    else c=other; what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
+    # one class for the whole stop, strongest first
+    for k in data files net skip old other; do
+      if [ "$c" = "$k" ] && { [ "$cls" = other ] || [ "$cls" = "$c" ] || [ "$(printf '%s\n' data files net skip old other | grep -nx "$c" | cut -d: -f1)" -lt "$(printf '%s\n' data files net skip old other | grep -nx "$cls" | cut -d: -f1)" ]; }; then cls=$c; fi
+    done
   done
   [ -n "$mods" ] || mods="the kept module"
-  if [ "$data" = 1 ]; then
-    upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
-  else upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."; fi
+  case "$cls" in
+    data) rec=accept
+      upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
+      body="Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $ack with the reason." ;;
+    files) rec=update
+      upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
+      body="Recommended: update the kept module. ${what}Such edits are often only OS junk, and a field app was left with 23 unstyled grid pages by accepting the skew. $upd To accept the skew instead, create $ack with the reason." ;;
+    net) rec=update
+      upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
+      body="Recommended: update the kept module. ${what}Rerunning the update is the fix. To accept the skew instead, create $ack with the reason." ;;
+    skip) rec=accept
+      upd="Nothing refused it; take it off --skip and rerun the update."
+      body="Recommended: accept the skew, since the owner left $mods out on purpose. ${what}If the grids matter more, take it off --skip and update. To accept, create $ack with the reason." ;;
+    old) rec=restore
+      upd="No update is possible: the target package cannot be imported here (it was made for an older Studio Pro)."
+      body="Recommended: put the old widget back. ${what}Updating $mods is not possible, so the skew cannot be cured that way. Pages already saved with the new widget can then stop building, and the build says so. To accept the skew instead, create $ack with the reason." ;;
+    *) rec=accept
+      upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."
+      body="Recommended: accept the skew. The app still builds and no data changes; grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}To accept, create $ack with the reason." ;;
+  esac
   q="A module update replaced a widget whose styles stay with a kept module. What should we do?"
-  nj_meta person "$q" "accept" "update|Update the kept module|$upd" "restore|Put the old widget back|The old widget package returns; pages already saved with the new widget can then stop building." "accept|Accept the skew|The app builds and its data is untouched; grids may look unstyled until $mods is updated. Create $WORK/widgetskew-ack.txt."
-  nj_add 13 "Decision" "Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is therefore not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $WORK/widgetskew-ack.txt with the reason."
+  nj_meta person "$q" "$rec" "update|Update the kept module|$upd" "restore|Put the old widget back|The old widget package returns; pages already saved with the new widget can then stop building." "accept|Accept the skew|The app builds and its data is untouched; grids may look unstyled until $mods is updated. Create $ack."
+  nj_add 13 "Decision" "$body"
 }
 
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
