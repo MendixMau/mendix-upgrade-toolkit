@@ -406,18 +406,24 @@ widgetskew_stop() {
     reason=$(awk -v m="$mod" '$1 == m { if (NF > 1) { sub(/^[^ ]+ +/, ""); print }; exit }' "$APP/.stepupdate/kept.txt" 2> /dev/null || true)
     if printf '%s' "$reason" | grep -Eqi '^idcheck|approved\.txt|persistence'; then c=data
       what="$what$mod was kept because updating it would remove or change data the app stores. "
-    elif printf '%s' "$reason" | grep -Eqi 'FILES-EDITED|local edits refuse'; then c=files
-      what="$what$mod was kept because it has local file edits ($reason). "
+    elif printf '%s' "$reason" | grep -Eqi 'theme/javascript file edits'; then c=files
+      what="$what$mod was kept because it has local theme/javascript file edits. "
+    elif printf '%s' "$reason" | grep -Eqi 'FILES-EDITED javasource'; then c=javasrc
+      what="$what$mod was kept because it has local Java code edits (real logic). "
+    elif printf '%s' "$reason" | grep -Eqi 'local edits refuse'; then c=model
+      what="$what$mod was kept because it has local model edits (real changes). "
     elif printf '%s' "$reason" | grep -Eqi 'NETWORK'; then c=net
       what="$what$mod was not updated because the network failed, not because anything was refused. "
     elif printf '%s' "$reason" | grep -Eqi 'skipped by --skip'; then c=skip
       what="$what$mod was left out on request (--skip); nothing was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'made before 10\.21'; then c=pre
+      what="$what$mod has no importable target package here (it was made before Studio Pro 10.21, and Mendix 11 cannot import it). "
     elif printf '%s' "$reason" | grep -Eqi 'made before'; then c=old
       what="$what$mod has no importable target package (it was made for an older Studio Pro). "
     else c=other; what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
-    # one class for the whole stop, strongest first
-    for k in data files net skip old other; do
-      if [ "$c" = "$k" ] && { [ "$cls" = other ] || [ "$cls" = "$c" ] || [ "$(printf '%s\n' data files net skip old other | grep -nx "$c" | cut -d: -f1)" -lt "$(printf '%s\n' data files net skip old other | grep -nx "$cls" | cut -d: -f1)" ]; }; then cls=$c; fi
+    # one class for the whole stop: the earliest in this list wins
+    for k in data javasrc model files net skip pre old other; do
+      if [ "$k" = "$c" ] || [ "$k" = "$cls" ]; then cls=$k; break; fi
     done
   done
   [ -n "$mods" ] || mods="the kept module"
@@ -426,17 +432,26 @@ widgetskew_stop() {
       upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
       body="Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $ack with the reason." ;;
     files) rec=update
-      upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
+      upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update the module with --force-ui <module> (stepupdate saves the edits it overwrites), or through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
       body="Recommended: update the kept module. ${what}Such edits are often only OS junk, and a field app was left with 23 unstyled grid pages by accepting the skew. $upd To accept the skew instead, create $ack with the reason." ;;
+    javasrc) rec=accept
+      upd="The local Java code edits are real logic and the update would overwrite them: port them by hand with --port-java <module>, then update."
+      body="Recommended: accept the skew. ${what}Updating it means porting those edits first (--port-java <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    model) rec=accept
+      upd="The local model edits are real changes and the update would refuse them: port them to the new version by hand, then update."
+      body="Recommended: accept the skew. ${what}Updating it means porting those edits to the new version by hand first, which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     net) rec=update
       upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
       body="Recommended: update the kept module. ${what}Rerunning the update is the fix. To accept the skew instead, create $ack with the reason." ;;
     skip) rec=accept
       upd="Nothing refused it; take it off --skip and rerun the update."
       body="Recommended: accept the skew, since the owner left $mods out on purpose. ${what}If the grids matter more, take it off --skip and update. To accept, create $ack with the reason." ;;
-    old) rec=restore
-      upd="No update is possible: the target package cannot be imported here (it was made for an older Studio Pro)."
-      body="Recommended: put the old widget back. ${what}Updating $mods is not possible, so the skew cannot be cured that way. Pages already saved with the new widget can then stop building, and the build says so. To accept the skew instead, create $ack with the reason." ;;
+    pre) rec=accept
+      upd="Not possible here: Mendix 11 cannot import this package. The update belongs in plan-pre.txt, before the convert (steps/triage.md)."
+      body="Recommended: accept the skew. ${what}The update belongs in plan-pre.txt, before the convert, so it cannot be done at this point. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    old) rec=accept
+      upd="Not possible: the target package cannot be imported here (it was made for an older Studio Pro)."
+      body="Recommended: accept the skew. ${what}No update can cure it, and putting the old widget back can leave pages that no longer build. Grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     *) rec=accept
       upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."
       body="Recommended: accept the skew. The app still builds and no data changes; grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}To accept, create $ack with the reason." ;;
