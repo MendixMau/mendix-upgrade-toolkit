@@ -4586,6 +4586,12 @@ ctl mc11-wire-dry-prints-command-catch 0 '^X: python3 .*keptstyle\.py .*--kept-f
 ctl mc11-wire-no-kept-list-drops-stale-cause-pass 0 '^NOTE: keptstyle NOT MEASURED' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/nokept/w/keptstyle.json; mwrun nokept triage; test -e $MW/nokept/w/keptstyle.json || echo 'json: gone'"
 ctl mc11-wire-no-kept-list-update-drops-stale-cause-pass 0 '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
 ctl mc11-wire-input-error-drops-stale-cause-pass 0 '^NOTE: keptstyle exit 2' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/bad/w/keptstyle.json; mwrun bad update; test -e $MW/bad/w/keptstyle.json || echo 'json: gone'"
+# set -Eeuo pipefail (the pipeline's own mode): a causes file holding ONLY the keptstyle line (gridlayout found nothing) must not abort
+mwerun() { local d=$MW/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $MW/b/keptstyle.py "$d/bin/"; echo "$2" > "$d/bin/code.txt"; echo 'RISK K x:1 .widget-a' > "$d/bin/out.txt"
+  [ "$3" = kept ] && echo 'K kept' > "$d/app/.stepupdate/kept.txt"; echo '* # only [keptstyle]' > "$d/w/screen-causes.txt"
+  { echo 'set -Eeuo pipefail'; echo 'trap "echo ERR-TRAP" ERR'; cat $MW/fn.sh; echo 'echo "marker-after"'; } > "$d/fn-e.sh"
+  (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=0 MODE=triage bash "$d/fn-e.sh") 2>&1; echo "rc=$?"; echo "bytes: $(wc -c < "$d/w/screen-causes.txt" | tr -d ' ')"; }
+ctl mc11-wire-only-keptstyle-line-set-e-pass 0 '^marker-after$' '!rc=[1-9]' '!bytes: [1-9]' '!ERR-TRAP' '^rc=0$' '^bytes: 0$' '^NOTE: keptstyle NOT MEASURED' '^NOTE: keptstyle exit 2' -- bash -c "$(declare -f mwerun); MW=$MW; for c in 'nokept 0 nokept' 'clean 0 kept' 'bad 2 kept'; do set -- \$c; mwerun e-\$1 \$2 \$3; done"
 ctl mc11-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_style_check triage' && echo triage; grep -q '^    kept_style_check update\$' \$P && echo update"
 ctl mc11-wire-kept-file-first-word-catch 0 '^RISK KeptA ' '1 kept module\(s\) scanned' -- bash -c "printf 'KeptA kept: reason words\n' > $T/ks/kept-words.txt; python3 $B/keptstyle.py $T/ks --kept-file $T/ks/kept-words.txt; true"
 printf 'shots-*/x # a [gridlayout]\n* # b [keptstyle]\n' > $T/screen-causes-two.txt

@@ -977,7 +977,7 @@ kept_style_check() { # MC-11: does a KEPT module's themesource carry rules on pl
   local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" cf="$WORK/screen-causes.txt" mods
   if [ "$DRY" = 1 ]; then x python3 "$B/keptstyle.py" "$APP" --kept-file "$kf" --json "$WORK/keptstyle.json"; return 0; fi
   # a rerun that cannot measure must not leave an earlier run's cause naming kept modules (the [gridlayout] line stays)
-  clear_cause() { rm -f "$WORK/keptstyle.json"; [ ! -f "$cf" ] || { grep -v '\[keptstyle\]' "$cf" > "$cf.tmp" 2> /dev/null; mv "$cf.tmp" "$cf"; }; return 0; }
+  clear_cause() { rm -f "$WORK/keptstyle.json"; [ ! -f "$cf" ] || { grep -v '\[keptstyle\]' "$cf" > "$cf.tmp" 2> /dev/null || true; mv "$cf.tmp" "$cf"; }; return 0; }   # grep -v exits 1 on an empty result: never let set -e see it
   if [ ! -s "$kf" ]; then
     clear_cause
     [ "$mode" != triage ] || note "keptstyle NOT MEASURED: no $kf yet (the update step writes the kept list); kept themesources are scanned for platform widget selectors after it"
@@ -988,7 +988,7 @@ kept_style_check() { # MC-11: does a KEPT module's themesource carry rules on pl
     0) clear_cause ;;
     1) mods=$(sed -n 's/^RISK \([^ ]*\) .*/\1/p' "$WORK/keptstyle.out" | sort -u | paste -sd, -)
        note "keptstyle RISK (exit 1): kept module(s) $mods style platform widgets; a visual risk, not a stop: read a screenshot of a page with that widget (screens rung REVIEW names this cause), see $WORK/keptstyle.out"
-       { [ ! -f "$cf" ] || grep -v '\[keptstyle\]' "$cf"; echo "* # kept module(s) $mods style platform widgets (keptstyle RISK, MC-11): look at a page with that widget [keptstyle]"; } > "$cf.tmp" && mv "$cf.tmp" "$cf" ;;
+       { [ ! -f "$cf" ] || grep -v '\[keptstyle\]' "$cf" || true; echo "* # kept module(s) $mods style platform widgets (keptstyle RISK, MC-11): look at a page with that widget [keptstyle]"; } > "$cf.tmp" && mv "$cf.tmp" "$cf" ;;
     *) clear_cause; note "keptstyle exit $rc: kept themesources' platform widget selectors NOT measured (never read as clean), see $WORK/keptstyle.out" ;;
   esac
 }
