@@ -816,6 +816,68 @@ def fact_str(facts, k):
     return f"{k}={json.dumps(v) if not isinstance(v, str) else v} ({src})"
 
 
+def proved_by_build(area, typ, affected, facts):
+    """GM-38: 'handled (auto): java-removal-proved-by-build: ...' or None. A java-actions removal row whose every affected item is a
+    Java symbol: the build is green (and newer than the final tree) and no symbol occurs in the final javasource."""
+    if not (area == "java-actions" and typ == "removal" and "final_dir" in facts and "build_log" in facts):
+        return None
+    syms = java_symbols(affected)
+    ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
+    if syms and ok:
+        ix = JavaIndex.of(facts["final_dir"][0])
+        if ix.ok and ix.java and not any(final_java_hits(facts["final_dir"][0], k) for _, k in syms):
+            return (f"handled (auto): java-removal-proved-by-build: {', '.join(k for _, k in syms)}: {why}; "
+                    f"0 hits in {ix.root}/javasource ({len(ix.java)} .java, proxies excluded) after the repairs "
+                    f"(compiled, not linked); "
+                    f"{fact_str(facts, 'build_log')}, {fact_str(facts, 'final_dir')}")
+    return None
+
+
+def close_proved(path, final_dir, build_log):
+    """GM-38: re-evaluate ONLY the java-removal-proved-by-build rule on an existing release-impact.md. Touches a Studio Pro row
+    whose last cell is EMPTY (a person's entry and any auto entry stay), the 'Open rows: what to do' bullet of a row it closes,
+    and the two counts that name open rows; nothing else in the file, no facts, no brain, no regeneration. 0 even when it closed
+    nothing (a red or stale build, a symbol still present): the rows stay open and the line says why. 2 = unusable input."""
+    p = Path(path)
+    if not p.exists():
+        print(f"release_impact: no file {p}", file=sys.stderr)
+        return 2
+    facts = {"final_dir": (final_dir, "--final-dir"), "build_log": (build_log, "--build-log")}
+    ok, why = build_verdict(build_log, final_dir)
+    lines = p.read_text(errors="replace").split("\n")
+    section, closed, out = "", [], []
+    for line in lines:
+        if line.startswith("## "):
+            section = line[3:].split(" (")[0].strip()
+        c = cells(line)
+        if section == "Studio Pro" and c and len(c) >= 8 and re.match(r"^\d+$", c[0]) and c[-1] == "" and re.search(r"\|\s*\|\s*$", line):
+            h = proved_by_build(c[3].lower(), c[2], c[5], facts)
+            if h:
+                line = re.sub(r"\|\s*\|\s*$", "| " + h.replace("|", "\\|").replace("\n", " ") + " |", line)
+                closed.append(c[0])
+        out.append(line)
+    if not closed:
+        print(f"release-impact close-proved: closed 0 rows ({why if not ok else 'no open java-actions removal row with its symbols gone from the final javasource'})")
+        return 0
+    k, text = len(closed), []
+    gone = {f"- row {n} (" for n in closed}
+    for line in out:
+        if any(line.startswith(g) for g in gone):
+            continue
+        m = re.search(r"This run: (\d+) auto, (\d+) kept from a person, (\d+) open", line)
+        if m:
+            line = line.replace(m.group(0), f"This run: {int(m.group(1)) + k} auto, {m.group(2)} kept from a person, {max(int(m.group(3)) - k, 0)} open")
+        m = re.match(r"^(## Open rows: what to do \()(\d+)(\))", line)
+        if m:
+            line = f"{m.group(1)}{max(int(m.group(2)) - k, 0)}{m.group(3)}" + line[m.end():]
+        text.append(line)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text("\n".join(text))
+    os.replace(tmp, p)
+    print(f"release-impact close-proved: closed {k} row(s) as java-removal-proved-by-build: {', '.join(closed)} ({why})")
+    return 0
+
+
 def module_library_rule(mod, typ, change, affected, facts):
     """T6R-5: 'not relevant (auto): module-library-bump: ...' for a module requirement row that only bumps Java
     libraries the module ships, when no Java outside javasource/<module>/ imports them; else None. Every part of the
@@ -921,16 +983,9 @@ def auto_rule(section, cols, facts, lo, hi):
                                 f"(the run start) and is gone now ({by}); {fact_str(facts, 'project_dir')}")
         # GM-38: the rules above left the row open (the symbol is in the original Java). A green target build and a final
         # javasource, after the repairs, without the symbol prove it gone: both hold or the row stays open.
-        if area == "java-actions" and typ == "removal" and "final_dir" in facts and "build_log" in facts:
-            syms = java_symbols(affected)
-            ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
-            if syms and ok:
-                ix = JavaIndex.of(facts["final_dir"][0])
-                if ix.ok and ix.java and not any(final_java_hits(facts["final_dir"][0], k) for _, k in syms):
-                    return (f"handled (auto): java-removal-proved-by-build: {', '.join(k for _, k in syms)}: {why}; "
-                            f"0 hits in {ix.root}/javasource ({len(ix.java)} .java, proxies excluded) after the repairs "
-                            f"(compiled, not linked); "
-                            f"{fact_str(facts, 'build_log')}, {fact_str(facts, 'final_dir')}")
+        proved = proved_by_build(area, typ, affected, facts)
+        if proved:
+            return proved
         v = vt(version)
         if v and hi[0] > lo[0] and len(lo) >= 2 and v[:2] == lo[:2]:
             return (f"not relevant (auto): source-line-patch: {version} is a {lo[0]}.{lo[1]}.x patch above the source "
@@ -1592,6 +1647,7 @@ def main():
     ap.add_argument("--db-version", dest="db_version")
     ap.add_argument("--runtime-os", dest="runtime_os")
     ap.add_argument("--check")
+    ap.add_argument("--close-proved", dest="close_proved", metavar="FILE", help="GM-38: on an existing release-impact.md only, close open java-actions removal rows by the java-removal-proved-by-build rule (needs --final-dir and --build-log); nothing is regenerated, no entry is replaced")
     ap.add_argument("--final-dir", dest="final_dir", help="the repaired project folder (javasource next to it): a java-actions removal row closes when the build is green and its symbols are gone from it (GM-38)")
     ap.add_argument("--build-log", dest="build_log", help="the run's recorded build result (the gate's BUILD_LOG) for --final-dir (GM-38)")
     ap.add_argument("--java-rev", dest="java_rev", help="commit whose javasource/userlib the java-actions removal rows are judged on (PV-4)")
@@ -1599,6 +1655,10 @@ def main():
     JAVA_REV["rev"] = a.java_rev
     if a.check:
         sys.exit(check(a.check))
+    if a.close_proved:
+        if not (a.final_dir and a.build_log):
+            ap.error("--close-proved needs --final-dir and --build-log")
+        sys.exit(close_proved(a.close_proved, a.final_dir, a.build_log))
     if a.facts_from_mpr and not getattr(a, "from") and not a.to:
         facts, notes = facts_from_project(a.facts_from_mpr, a.db_vendor, a.db_version, a.runtime_os)
         dest = a.facts_out or "facts.json"

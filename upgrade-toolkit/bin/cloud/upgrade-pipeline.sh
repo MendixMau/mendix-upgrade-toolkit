@@ -833,6 +833,20 @@ ri_build_args() {
   [ -f "$log" ] && [ -f "$MPR" ] || return 0
   printf '%s\n' --final-dir "$(dirname "$MPR")" --build-log "$log"
 }
+# GM-38: right after a green target build, close the open java-actions removal rows of the EXISTING release-impact.md whose
+# symbols are gone from the final javasource (release_impact.py --close-proved: same rule and staleness check as --auto
+# --final-dir, no facts, brain or rows regenerated, no entry replaced, no other triage output touched). Same conditions as
+# ri_build_args (this run's log and project folder exist). Never fails the step: a failure warns, the rows stay open.
+close_proved_rows() {
+  [ "$DRY" != 1 ] && [ -f "$WORK/release-impact.md" ] || return 0
+  local args=() rib rc=0
+  while IFS= read -r rib; do args+=("$rib"); done < <(ri_build_args)
+  [ "${#args[@]}" -gt 0 ] || return 0
+  xo "$WORK/release-impact-close.out" python3 "$B/release_impact.py" --close-proved "$WORK/release-impact.md" "${args[@]}" || rc=$?
+  if [ "$rc" != 0 ]; then note "release_impact.py --close-proved exit $rc: Java removal rows stay open, see $WORK/release-impact-close.out"
+  else note "$(tail -n 1 "$WORK/release-impact-close.out" 2> /dev/null)"; fi
+  return 0
+}
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
 # Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) has no script: exit 13 when absent.
 step_triage() {
@@ -1843,6 +1857,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     fi
     nj_flush
   fi
+  if [ "$DRY" != 1 ] && [ "$rc" = 0 ] && [ "$n" = 0 ] && [ -f "$(mda_new)" ]; then close_proved_rows; fi   # GM-38: a green build only
   # quick start (mandatory before the gate)
   local q
   q=$(fresh_name "${X}_quick"); copy_db "$X_FROZEN" "$q"
