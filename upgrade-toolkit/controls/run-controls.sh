@@ -9632,6 +9632,16 @@ ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback
 ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
 
+# issue 30: "old app did not start" (exit 4) named only a log path; the first error line of the runtime log goes with it.
+# app_up and its helpers are cut out of the pipeline script (PIPE=<file> runs the control against another copy, e.g. origin/main's)
+AU=$T/appup; mkdir -p $AU/w/logs $AU/w2/logs
+printf 'INFO Starting\nERROR - Connector: Cannot connect to database "kestrel": password authentication failed\nERROR second\n' > $AU/w/logs/runtime-old.log
+printf 'INFO Starting\nINFO Started\n' > $AU/w2/logs/runtime-old.log
+AUF="eval \"\$(sed -n '/^first_err() {/,/^}/p; /^app_up() {/,/^}/p; /^infra_rc() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; runenv() { RUNENV=(); }; DRY=0; B=$B"
+ctl pipeline-appup-first-error-catch 0 'old did not start; first error in .*runtime-old\.log: ERROR - Connector: Cannot connect to database' '!ERROR second' 'rc=1' -- bash -c "$AUF; x() { return 1; }; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-no-error-line-pass 0 '!first error' 'rc=1' -- bash -c "$AUF; x() { return 1; }; WORK=$AU/w2; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-started-quiet-pass 0 '!first error' 'rc=0' -- bash -c "$AUF; x() { return 0; }; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

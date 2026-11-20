@@ -515,11 +515,20 @@ infra_rc() { # infra_rc RC NAME: runapp.py exit 3 is an environment fault (F21: 
     # FR-6: say what the INFRA line says (which port, which container, the command), not only where to find it
     echo "upgrade-pipeline.sh: $2 could not start: environment fault: $(grep -h 'runapp: INFRA' "$LOG" 2> /dev/null | tail -n 1 | sed 's/^runapp: INFRA //') (log: $LOG)" >&2; exit 3; }
 }
+first_err() { # first_err FILE: the first line that names an error (at most 200 characters), or nothing
+  [ -s "$1" ] || return 0
+  grep -m1 -E 'ERROR|CRITICAL|Exception' "$1" 2> /dev/null | cut -c1-200 || true
+}
 app_up() { # app_up NAME MDA FULLVER DB  -> 0 started
-  local rc=0
+  local rc=0 e
   runenv
   x env "${RUNENV[@]}" python3 "$B/runapp.py" start "$1" "$2" "$3" "$4" || rc=$?
   infra_rc "$rc" "$1"
+  # a start that failed says why in the first line a person reads (lane B, DVS: exit 4 named only a log path)
+  if [ "$rc" != 0 ] && [ "$DRY" != 1 ]; then
+    e=$(first_err "$WORK/logs/runtime-$1.log")
+    [ -z "$e" ] || echo "upgrade-pipeline.sh: $1 did not start; first error in $WORK/logs/runtime-$1.log: $e" >&2
+  fi
   [ "$rc" != 0 ] || APPS_UP+=("$1")
   return "$rc"
 }
