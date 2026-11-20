@@ -4087,6 +4087,12 @@ for x in mx mxbuild; do printf '#!/bin/sh\n' > $TS/ok/mxbuild-10.9.0/modeler/$x;
 ctl mx10-gradle7-toolset-jdk11-image-catch 0 '^docker run .* mig-mx10-j11 .*mxbuild-10\.9\.0/modeler/mxbuild' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.9.0 mxbuild --target=package x.mpr
 ctl mx10-24-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-10\.24\.16/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
 ctl mx10-11-keeps-jdk21-pass 0 '^docker run .* mig-mx10 .*mxbuild-11\.12\.2/modeler/mx check' '!j11' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 11.12.2 mx check x.mpr
+# issue 33: mxbuild says which image it runs in, so a build stop can print it next to the first error (mx check stays quiet)
+ctl mx10-mxbuild-says-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mxbuild --target=package x.mpr
+ctl mx10-mxbuild-says-env-image-catch 0 '^mx10\.sh: mxbuild image mig-leaked$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-leaked zsh $B/mx10.sh 10.24.16 mxbuild --target=package x.mpr
+ctl mx10-mxbuild-says-j11-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10-j11$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
+ctl mx10-check-says-no-image-pass 0 '!mxbuild image' '^docker run' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
+ctl pipeline-build-stop-names-image-catch 0 'Build image' 'build-image.txt' -- grep -n 'Build image\|build-image.txt' $B/cloud/upgrade-pipeline.sh
 ctl runapp-image-10-9-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.9.0.31198'))"
 ctl runapp-image-10-6-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.6.3.26585'))"
 ctl runapp-image-10-24-java21-pass 0 '^eclipse-temurin:21-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.24.0.73019'))"
