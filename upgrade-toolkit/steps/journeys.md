@@ -133,7 +133,7 @@ unique per run, so a reused database cannot satisfy the check with a row from an
 '<value with ${RUN_ID}>'` = 1, so the row judged is this run's row and not one an earlier run left (E2E-9); without any
 `attr` gen_journeys warns that only +1 is checked. A form that edits a singleton (the page retrieves the one row, else creates it) never adds a row: put
 `"delta": 0` in the create spec (default 1) and the data rung asks for no change in the count; the own-row check on `attr` then
-carries the proof that the save landed (RM-2).
+carries the proof that the save landed, so `"delta": 0` without a field that has `attr` is refused (RM-2).
 
 ## At the gate (new app, on a copy of X_frozen)
 
