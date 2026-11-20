@@ -328,6 +328,29 @@ PATCHES = [
      "      && !/login\\.html|\\/login(\\b|\\/|$)/.test(page.url())\n"
      "      && await page.locator(cfg.readySelectors.join(', ')).evaluateAll((els) => els.some((e) => e.getClientRects().length > 0)).catch(() => false)) {",
      "helpers.js"),
+    # SITS: a login page that folds the local form under "Show alternative login" (an SSO starter app): the password input
+    # is in the DOM, never visible, so the engine waited 15 s, found no form and every journey FAILed on a healthy app.
+    # Same text test as bin/loginreveal.js (the scratch engine copy cannot require it).
+    ("loginOnce: click 'Show alternative login' when the form is folded away (SITS)",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(800).catch(() => {});\n"
+     "  if (!(await page.locator('#passwordInput, input[type=password]').first().isVisible().catch(() => false))) {\n"
+     "    const ALT = /^(?!.*\\bhide\\b).*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
+     "    const links = page.locator('.alt-login, a, button, [role=button]').filter({ hasText: ALT });\n"
+     "    for (let i = 0, n = Math.min(await links.count().catch(() => 0), 6); i < n; i++) {\n"
+     "      if (!(await links.nth(i).isVisible().catch(() => false))) continue;\n"
+     "      await links.nth(i).click({ timeout: 2000 }).catch(() => {});\n"
+     "      if (await page.locator('#passwordInput, input[type=password]').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) break;\n"
+     "    }\n"
+     "  }\n"
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "helpers.js"),
     ("loginOnce: wait until no password input is visible (T8-9)",
      "    const ready = document.querySelector(sel);\n    return !onLogin && !!ready;",
      "    const ready = document.querySelector(sel);\n"
@@ -375,7 +398,7 @@ def copy_engine(eng):
     eng.mkdir(parents=True, exist_ok=True)
     for f in ENGINE:
         shutil.copy2(TOOLKIT_E2E / f, eng / f)
-    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "pgdata.js", "pgmap.py"):
+    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "loginreveal.js", "pgdata.js", "pgmap.py"):
         shutil.copy2(HERE / f, eng / f)
     shutil.copy2(HERE.parent / "playbooks" / "widget-render.tsv", eng / "widget-render.tsv")
     texts = {}

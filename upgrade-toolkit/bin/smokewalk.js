@@ -60,6 +60,7 @@ const path = require('path');
 const os = require('os');
 const { settle, pageSettled } = require('./settle.js');
 const { topmost } = require('./journey-verbs.js');
+const { revealLocalLogin } = require('./loginreveal.js');
 
 function args() {
   const a = process.argv.slice(2), o = { users: {}, microflows: false, timeout: 15000, loginPath: '/login.html' };
@@ -198,6 +199,7 @@ async function login(page, url, user, pass, timeout, loginPath) {
     if (r.status() >= 400 || r.status() === 200) r.text().then(t => { try { const j = JSON.parse(t); const m = j && (j.message || j.error || (j.errorMessage)); if (m && (r.status() >= 400 || j.error || j.errorMessage)) srvErr = String(m.message || m).slice(0, 200); } catch (e) { if (r.status() >= 400) srvErr = ('HTTP ' + r.status() + ' ' + t).slice(0, 200); } }).catch(() => {});
   });
   await page.goto(loginUrl(url, loginPath), { waitUntil: 'domcontentloaded' });
+  await revealLocalLogin(page);   // a form folded under "Show alternative login" is in the DOM but not visible
   await page.fill('#usernameInput', user);
   await page.fill('#passwordInput', pass);
   await page.click('#loginButton');
