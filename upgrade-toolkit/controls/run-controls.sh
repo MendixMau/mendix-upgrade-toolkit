@@ -2345,6 +2345,11 @@ ctl stepupdate-stepcheck-catch 4 'STOP: step1-adds 1\.6\.0 adds model errors' 'N
 ctl stepupdate-stepcheck-nothing-committed 0 'base' '!step: step1-adds' -- git -C $S5/app log --format=%s
 ctl stepupdate-stepcheck-tree-undone 0 '!.' -- git -C $S5/app status --porcelain --untracked-files=no
 ctl stepupdate-stepcheck-stop-file 0 '^Q.*breaks the model' '^R.*keep$' '^W.*keep\|step-keep\.txt\|step1-adds' -- cat $S5/app/.stepupdate/stepcheck-stop.txt
+S5f=$T/step-chk-forceui; mkdir -p $S5f/app $S5f/edits; cp $M/base/App.mpr $S5f/app/App.mpr; cp $S5/plan.txt $S5f/
+(cd $S5f/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+printf '#!/bin/sh\ncp "$1" "$2"\n' > $S5f/upd.sh
+ctl stepupdate-forceui-wired-recommends-accept-catch 4 'STOP: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" UPG_UPDATE_CMD="sh $S5f/upd.sh $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S5f/app $S5f/plan.txt --force-ui step1-adds --saved-edits $S5f/edits
+ctl stepupdate-forceui-wired-stop-file 0 '^R.*accept$' '!^R.*keep$' -- cat $S5f/app/.stepupdate/stepcheck-stop.txt
 echo 'step1-adds CE6085  # accepted' > $S5/acc.txt
 ctl stepupdate-stepcheck-accepted-pass 0 'committed' '!STOP' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt --check-accepted $S5/acc.txt
 S6=$T/step-chk2; mkdir -p $S6/app $S6/step1-adds; cp $M/base/App.mpr $S6/app/App.mpr; cp $M/step1-adds/App.mpr $S6/step1-adds/; cp $S5/plan.txt $S5/chk-clean.sh $S5/chk-none.sh $S6/

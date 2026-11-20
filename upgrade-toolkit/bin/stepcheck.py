@@ -95,7 +95,7 @@ def main():
     q = (f"Updating {mod}{' to ' + ver if ver else ''} breaks the model: {len(new)} new error(s) ({codes}) that the app did not have "
          f"before this update{' (' + says + ')' if says else ''}. The app would not build until they are repaired. What should we do?")
     print(f"Q\t{q}")
-    forced = mod in [m.strip() for m in a.force_ui.split(",") if m.strip()]
+    forced = mod in [m for m in a.force_ui.split(",") if m]  # exact match, like stepupdate.sh
     print("R\taccept" if forced else "R\tkeep")
     print(f"O\tkeep|Keep {mod} at the installed version|The update is undone and {mod} stays as it is, so the app has no more errors than before; "
           f"modules whose update needs the newer {mod} are reported before the build")
