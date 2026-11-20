@@ -22,10 +22,11 @@ JavaIndex), userlib/*.jar names, javascriptsource/, theme/ and themesource/, wid
                   with the react-loading spinner replaced keeps the dead React 16 copy, so R36 still matches the file).
   --rules FILE    an extra rule table (repeatable), same columns and grammar as the table; GM-41. A version rule is a row:
                   `modver:Mod:<Y` in detect, `->Z` in applies_on_jump = "module Mod needs a version >= Y when the target is Z or
-                  later". Also read without the flag: the files named in $UPG_RULES (colon separated) or UPG_RULES= in
+                  later". Also read without the flag: the files named in $UPG_RULES (os.pathsep separated: ':' on Unix, ';' on Windows) or UPG_RULES= in
                   ~/.config/upgrade-toolkit/local.env, and <brain>/baseline/upgrade-rules.tsv when the brain (brainpath.py) has
-                  one. A named or found file that cannot be read, or an id that repeats one of the main table, exits 2: a rule
-                  that was not read is never silently skipped. No file anywhere = only the main table (the toolkit runs
+                  one. The same file by two routes is read once. A named or found file that cannot be read, or an id that repeats an
+                  earlier table's, prints an ERROR line, is skipped, and the run exits 2 AFTER writing the report of every table that
+                  did load (the unattended pipeline keeps its R rows); a rule is never silently skipped. No file anywhere = only the main table (the toolkit runs
                   without a brain). Rules are the owner's data and live with the owner (the brain), never in this repo.
   --no-newer A,B  widgets or modules with no newer version for the target (stranded, private owner): an mpkjs hit on one
                   of them says BLOCKER in its evidence and the run prints a `blockers:` line (NR2-24). Still exit 1.
@@ -146,14 +147,14 @@ def extra_tables(flags):
     """[(path, how)] of the extra rule tables: --rules, $UPG_RULES, local.env UPG_RULES=, <brain>/baseline/upgrade-rules.tsv."""
     out = [(f, "--rules") for f in flags]
     env = os.environ.get("UPG_RULES")
-    if not env:
+    if env is None:
         try:
             for ln in (Path.home() / ".config" / "upgrade-toolkit" / "local.env").read_text().splitlines():
                 if ln.strip().startswith("UPG_RULES="):
                     env = ln.split("=", 1)[1].strip().strip("'\"")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             pass
-    out += [(os.path.expanduser(f), "UPG_RULES") for f in (env or "").split(":") if f.strip()]
+    out += [(os.path.expanduser(f), "UPG_RULES") for f in (env or "").split(os.pathsep) if f.strip()]
     try:
         import brainpath
         brain, _ = brainpath.find()
@@ -162,7 +163,13 @@ def extra_tables(flags):
             out.append((f, "brain"))
     except Exception:
         pass
-    return list(dict.fromkeys(out))
+    seen, uniq = set(), []
+    for f, how in out:  # the same file by two routes is read once, under the first route
+        k = os.path.realpath(f)
+        if k not in seen:
+            seen.add(k)
+            uniq.append((f, how))
+    return uniq
 
 
 def parse_detect(s, where):
@@ -784,16 +791,19 @@ def main():
         print(f"replacement_check: cannot read the table: {e}")
         return 2
     extra = extra_tables(a.rules)
+    bad = []
     for f, how in extra:
         try:
             more = read_table(f)
         except (OSError, TableError, UnicodeDecodeError) as e:
-            print(f"replacement_check: cannot read the rule table {f} ({how}): {e}")
-            return 2
+            print(f"ERROR replacement_check: cannot read the rule table {f} ({how}): {e}; its rules are NOT checked, the main table still is")
+            bad.append(f)
+            continue
         dup = sorted({r["id"] for r in more} & {r["id"] for r in rows})
         if dup:
-            print(f"replacement_check: rule table {f} ({how}) repeats id(s) {', '.join(dup)} of an earlier table: give its rows ids of their own (e.g. V1)")
-            return 2
+            print(f"ERROR replacement_check: rule table {f} ({how}) repeats id(s) {', '.join(dup)} of an earlier table: its rules are NOT checked; give its rows ids of their own (e.g. V1)")
+            bad.append(f)
+            continue
         rows += more
     try:
         app = App(a.app)
@@ -857,6 +867,9 @@ def main():
     if a.json:
         Path(a.json).write_text(json.dumps({"app": app.m.path, "from": frm, "to": a.to, "counts": count,
                                             "rows": results}, indent=1))
+    if bad:
+        print(f"ERROR replacement_check: {len(bad)} extra rule table(s) not read ({', '.join(bad)}): exit 2")
+        return 2
     return 1 if count["HIT"] or count["UNKNOWN"] else 0
 
 
