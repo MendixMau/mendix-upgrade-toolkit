@@ -5182,6 +5182,18 @@ ctl gate-data-stale-idcheck-json-not-passed-catch 0 'gate: WARNING .*/gatestale/
 gcase_rm() { gcase rmj "$@" > /dev/null 2>&1; test ! -e $GI/w/gatermj/idcheck.json && echo json-removed; }
 ctl gate-idcheck-rung-removes-old-json-catch 0 '^json-removed$' -- gcase_rm --only idcheck
 ctl gate-data-no-idcheck-json-no-flag-pass 0 '^\[data\] .*diff\.py' '!--idcheck-json' -- gcase dryidj1 --dry-run
+# GM-43: the build rung judges build-$TARGET.log; a model (.mpr, javasource .java) edited after that log was written is not what it
+# measured: INVALID (exit 2, "STALE BUILD"), never PASS; a log newer than the model keeps its verdict. Fixture layout = a two-tree app.
+SB=$GI/stalebuild; mkdir -p "$SB/app/javasource/m" "$SB/w"
+echo x > "$SB/app/App.mpr"; echo x > "$SB/app/javasource/m/A.java"; echo "BUILD SUCCEEDED" > "$SB/log-new.log"; echo "BUILD SUCCEEDED" > "$SB/log-old.log"
+touch -t 202501010000 "$SB/app/App.mpr" "$SB/app/javasource/m/A.java"; touch -t 202601010000 "$SB/log-new.log"; touch -t 202001010000 "$SB/log-old.log"
+ctl gate-build-stale-mpr-catch 2 'STALE BUILD: .*/app/App\.mpr is newer than the build log .*log-old\.log' '\| 1 \| build \| INVALID \|' '!\| 1 \| build \| PASS \|' \
+  -- gcase sbm --only build BUILD_LOG=$SB/log-old.log APP_REPO=$SB/app
+touch -t 202001010000 "$SB/app/App.mpr"; touch -t 202301010000 "$SB/app/javasource/m/A.java"; touch -t 202201010000 "$SB/log-old.log"
+ctl gate-build-stale-java-catch 2 'STALE BUILD: .*/javasource/m/A\.java is newer than the build log' '\| 1 \| build \| INVALID \|' '!\| 1 \| build \| PASS \|' \
+  -- gcase sbj --only build BUILD_LOG=$SB/log-old.log APP_REPO=$SB/app
+ctl gate-build-fresh-log-pass 2 '\| 1 \| build \| PASS \|' '!STALE BUILD' -- gcase sbf --only build BUILD_LOG=$SB/log-new.log APP_REPO=$SB/app
+ctl gate-build-no-app-folder-pass 2 '\| 1 \| build \| PASS \|' '!STALE BUILD' -- gcase sbn --only build BUILD_LOG=$SB/log-old.log
 # T7R-12, T8R-8: SMOKE_REPEAT reaches smokewalk as --repeat N; without it no --repeat is passed
 ctl gate-smoke-repeat-pass 0 '^\[smoke\] .*smokewalk\.js .*--repeat 3' -- gcase dryrep --dry-run SMOKE_REPEAT=3
 ctl gate-smoke-login-path-catch 0 '^\[smoke\] .*smokewalk\.js .*--login-path /login-without-sso\.html' -- gcase dryloginp --dry-run SMOKE_LOGIN_PATH=/login-without-sso.html
@@ -7115,6 +7127,9 @@ mkledger() { # mkledger NAME [unlabelled]: before-run commit, the run-start mark
   [ "${2:-}" != unlabelled ] || tr_commit "$r" "quick fix by hand"
 }
 mkledger lg unlabelled; mkledger lgok
+# GM-43: the gate-changes controls judge the Changes line, not build staleness; the stand-in build log of the gate cases (written long before these
+# ledger repos, whose App.mpr is new) is dated after them, as the log of a build that ran after the model's last edit would be
+touch -t 203001010000 "$GI/build.log"
 printf 'Customer.Name # a renamed label the owner approved\nlog.start Warning # known noise of the old build\n' > $CL/allow.txt
 printf 'S-1 | modules: Viewer3D | module | keep old version | no successor yet | Pat | CONFIRMED | closes by: widgets PASS\n' > $CL/DECISIONS.md
 CHG="python3 $B/changelog.py --app $CL/lg --work $CL/w --accept ALLOW=$CL/allow.txt --decisions $CL/DECISIONS.md"
