@@ -30,13 +30,17 @@ human effort; sign-off). A comment line stores the hash of the plan inputs. Sect
 Exit: 0 signed (the section-3 items nobody answered take their recommendation, recorded P-n CONFIRMED in DECISIONS.md),
       or unattended (nothing signed; ASSUMED (unattended) lines in DECISIONS.md), 14 unsigned, 15 PAUSED, 2 usage.
 W/AGENT-NOTES.md (agent notes, free text) is shown in an "Agent notes" section; this script only reads it, so a rerun keeps the notes.
+GM-21: a rerun whose plan only SHRANK against the signed one (every current item was in the signed item set, which the file stores in an
+"items" comment; none added or changed) clears the sign-off the same way but writes a "Held back since signed" block that lists exactly the
+removed items and asks only for a shrink confirmation (the person signs section 6 again; nothing is carried over, no Signed-off line is
+written here). A file with no stored item set (written before GM-21) takes the full path below.
 A rerun after sign-off whose plan inputs hash differently rewrites the file with a "Changed since signed" block, clears the
 sign-off and exits 14 (asked again). kept.txt, DECISIONS.md and the count of open release rows are not in the hash: the
 update step writes kept.txt and people close release rows after the sign-off.
 Producer of the inputs: the pipeline steps fetch..basewalk (steps/triage.md) and step_propose, which runs
 action_inventory.py and apimock.py inventory on original.mpr.
 """
-import argparse, datetime, hashlib, json, os, re, sys
+import argparse, base64, datetime, hashlib, json, os, re, sys
 
 # cold test WM1 (2026-11-16): an edited Marketplace module is updated, not kept. Editing a module does not stop its update; an old
 # module misses fixes and may not run on the next Mendix version. editroute.py carries the edits over (bin/editroute.py routes).
@@ -50,6 +54,8 @@ import steps  # noqa: E402  step records (STEP-RECORDS-PLAN.md): the proposal op
 SIGNED = re.compile(r"^Signed-off:[ \t]+(\S.*?)[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$")
 PAUSED = re.compile(r"^Status:[ \t]+PAUSED[ \t]+(\S.*?)[ \t]*$")
 HASH = re.compile(r"^<!-- proposal inputs-hash: ([0-9a-f]{64}) -->$")
+# GM-21: the item set the hash was taken over, so a later plan can be compared with what was signed (base64 of a JSON list)
+ITEMS = re.compile(r"^<!-- proposal items: ([A-Za-z0-9+/=]*) -->$")
 # the toolkit's own assumption for the effort range, hours per touchpoint size; shown as an assumption, not a measurement
 HOURS = {"S": (0.5, 2), "M": (2, 8), "L": (8, 40)}
 NOT_BEFORE_CONVERT = [
@@ -828,7 +834,8 @@ def render(F, hashval, changed_block, signoff_text):
     size += f", {F.actions} actions" if F.actions is not None else ", actions not measured"
     rungs = f"rung 1 {F.src} -> {F.tgt}" + (f", rung 2 {F.tgt} -> {F.tgt2}" if F.tgt2 else "")
     L = [f"# Upgrade proposal: {F.src} -> {F.tgt}" + (f" -> {F.tgt2}" if F.tgt2 else ""), "",
-         f"<!-- proposal inputs-hash: {hashval} -->", "",
+         f"<!-- proposal inputs-hash: {hashval} -->",
+         *([f"<!-- proposal items: {base64.b64encode(json.dumps(sorted(set(F.ident))).encode()).decode()} -->"] if getattr(F, "ident", None) else []), "",
          "Written by bin/proposal.py from the triage outputs. Nothing in the app model changes before section 6 is signed. "
          "Every line starting with `- ` is an item; sub-lines are evidence.", ""]
     if changed_block:
@@ -909,6 +916,29 @@ def parse_signoff(text):
     return None
 
 
+def signed_items(text):
+    """The item set stored in a PROPOSAL.md (list of ident strings), or None for one written before GM-21 or unreadable."""
+    for ln in (text or "").splitlines():
+        m = ITEMS.match(ln)
+        if m:
+            try:
+                v = json.loads(base64.b64decode(m.group(1)).decode())
+                return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
+            except Exception:
+                return None
+    return None
+
+
+def ident_label(x):
+    """A person-readable line for one ident string of the hash (2|key|text, 3|kind|name|evidence, 4|key|text, v|...)."""
+    p = x.split("|")
+    if p[0] == "3" and len(p) >= 3:
+        return f"{p[1]}: {p[2]}"
+    if p[0] in ("2", "4") and len(p) >= 3:
+        return "|".join(p[2:])
+    return x
+
+
 def item_lines(text):
     out = set()
     sec = ""
@@ -972,6 +1002,7 @@ def main():
     ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
         + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
     hashval = hashlib.sha256("\n".join(sorted(ident)).encode()).hexdigest()
+    F.ident = ident
     prev_hash = next((m.group(1) for m in (HASH.match(x) for x in (old or "").splitlines()) if m), None)
     so = parse_signoff(old)
     today = os.environ.get("PROPOSAL_TODAY") or datetime.date.today().isoformat()
@@ -1003,6 +1034,25 @@ def main():
     if so and so[0] == "signed":
         cur = render(F, hashval, None, signoff)
         before, after = item_lines(old), item_lines(cur)
+        was, now = signed_items(old), set(ident)
+        held = sorted(set(was) - now) if was is not None and now < set(was) else []
+        if held:
+            # GM-21: the scope only shrank (items removed, none added or changed). The sign-off is still cleared and a person
+            # still signs; what is asked is only the held-back list. Nothing is carried over: no Signed-off line is written here.
+            changed = [f"## Held back since signed ({so[1]}, {so[2]})", "",
+                       f"The scope is smaller than the one signed: {len(held)} item(s) were held back, none added, none changed. "
+                       "Everything else is as signed. The sign-off is cleared until a person confirms the hold-back: "
+                       "sign section 6 again (same line or page button as before); only the items below need a look.", ""]
+            changed += [f"- held back: {ident_label(x)}" for x in held]
+            signoff = (f"Previously signed-off: {so[1]} {so[2]} (cleared: scope shrank, shrink confirmation needed for "
+                       f"{len(held)} held-back item(s))\n\n" + signoff)
+            doc = render(F, hashval, changed, signoff)
+            with open(out_path + ".tmp", "w", encoding="utf-8") as f:
+                f.write(doc)
+            os.replace(out_path + ".tmp", out_path)
+            print(f"proposal needs a shrink confirmation: {len(held)} item(s) held back since the sign-off of {so[1]} ({so[2]}); "
+                  f"everything else is as signed. A person signs section 6 again: {out_path}")
+            return 14
         changed = [f"## Changed since signed ({so[1]}, {so[2]})", "",
                    "The plan inputs changed after the sign-off; the sign-off is cleared and the proposal is asked again. "
                    "Items that differ from the signed version:", ""]

@@ -23,6 +23,7 @@ Ask one question per section-3 item in chat (options and evidence are in the ite
 [decide.md](decide.md)), write each answer as a `P-n` line in `$W/DECISIONS.md` (decide.md format), then end the turn.
 The person writes section 6: `Signed-off: <name> <yyyy-mm-dd>` or `Status: PAUSED <reason>`. An agent never writes it.
 Signing an item nobody answered accepts its recommendation (recorded as a P-n line, CONFIRMED, signer named).
+A plan that only shrinks after the sign-off (a hold-back: items removed, none added or changed) still clears the sign-off, but PROPOSAL.md gets a `Held back since signed` block listing exactly the held-back items, and the person confirms only that list: they sign section 6 again, the same line or page button as before. The rest is as they signed; an agent never writes the line. An added or changed item, or a PROPOSAL.md written before the item set was stored, asks the whole proposal again (GM-21).
 
 ## Gate
 | state | pipeline exit | next |
