@@ -1066,7 +1066,11 @@ def main():
                 f.write(cur)
             os.replace(out_path + ".tmp", out_path)
         n, nl = accept_answers(so[1])
-        approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
+        # an item that appeared after the sign-off (keptvendor.json) was not seen by the signer: its step is assumed, not approved in their name
+        late_ids = {it["id"] for it in F.items3 if it.get("own")}
+        late = {s: k for s, k in sids.items() if k.startswith("3:") and k[2:] in late_ids}
+        approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff", decisions(a.work))
+        approve_steps(a.work, late, "assumed", "agent", "after-signoff")
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else "")
               + (f"; {nl} item(s) appeared after sign-off (ASSUMED in DECISIONS.md, the signer did not see them)" if nl else ""))
         return 0
