@@ -247,6 +247,27 @@ ctl keptstyle-catch 1 '^RISK KeptA themesource/KeptA/web/main\.scss:3 \.widget-d
 ctl keptstyle-own-classes-pass 0 '0 platform widget selector' '!RISK' -- python3 $B/keptstyle.py $T/ks --kept KeptB
 ctl keptstyle-none-kept-pass 0 '0 kept module' -- python3 $B/keptstyle.py $T/ks --kept ''
 ctl keptstyle-no-arg-invalid 2 'give --kept' -- python3 $B/keptstyle.py $T/ks
+# GM-15: keptvendor checks every @include, $var and @import of a kept themesource against the TARGET package of a planned module
+# (fixtures/keptvendor: app with an old PlatformDesignSystem; pkg-new lacks the dark-theme mixin, $pds-gone and the gone file)
+KV=$FX/keptvendor; KVC=$T/kvcache
+mkdir -p $KVC/new $KVC/old $KVC/none
+kvzip() { (cd "$1" && python3 -c "import zipfile,os,sys;z=zipfile.ZipFile(sys.argv[1],'w');[z.write(os.path.join(d,f)) for d,_,fs in os.walk('.') for f in fs]" "$2"); }
+kvzip $KV/pkg-new $KVC/new/9001-45.0.0.mpk; kvzip $KV/pkg-old $KVC/old/9001-45.0.0.mpk
+ctl gm15-kept-mixin-catch 1 '^MISSING mixin dark-theme: used in themesource/KeptMixin/web/main\.scss:4, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:3, gone in PlatformDesignSystem 45\.0\.0$' '!pds-ok-mixin' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-variable-catch 1 '^MISSING variable \$pds-gone: used in themesource/KeptVar/web/main\.scss:3, defined in old PlatformDesignSystem themesource/PlatformDesignSystem/web/_mixins\.scss:1, gone in PlatformDesignSystem 45\.0\.0$' '!MISSING variable \$pds-ok' -- python3 $B/keptvendor.py $KV/app --kept KeptVar --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-import-catch 1 '^MISSING import \.\./\.\./PlatformDesignSystem/web/gone: used in themesource/KeptImport/web/main\.scss:1' '1 missing' '!web/mixins' -- python3 $B/keptvendor.py $KV/app --kept KeptImport --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-all-present-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin,KeptVar,KeptImport,KeptOk --plan-file $KV/plan.txt --cache $KVC/old
+ctl gm15-kept-ok-uses-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptOk --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-own-and-app-theme-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptSelf --plan-file $KV/plan.txt --cache $KVC/new
+ctl gm15-kept-package-missing-not-checked 3 '^NOT CHECKED PlatformDesignSystem 45\.0\.0: package not cached \(9001-45\.0\.0\.mpk' 'mixin dark-theme at themesource/KeptMixin/web/main\.scss:4' '0 missing, [1-9][0-9]* not checked' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none
+# a name that moves between two planned packages is present in the target set, not MISSING; one that could live in an uncached or unreadable package is NOT CHECKED
+mkdir -p $KVC/move $KVC/half $KVC/corrupt
+kvzip $KV/pkg-move-pds $KVC/move/9001-45.0.0.mpk; kvzip $KV/pkg-move-atlas $KVC/move/9002-2.0.0.mpk
+cp $KVC/move/9001-45.0.0.mpk $KVC/half/; cp $KVC/move/9001-45.0.0.mpk $KVC/corrupt/; printf 'not a zip' > $KVC/corrupt/9002-2.0.0.mpk
+ctl gm15-kept-moved-between-planned-pass 0 '0 missing, 0 not checked' '!MISSING' '!NOT CHECKED' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/move
+ctl gm15-kept-uncached-sibling-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: package not cached' 'mixin moved-mixin at themesource/KeptMove/web/main\.scss:2' '!^MISSING' '!variable \$moved-var' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/half
+ctl gm15-kept-corrupt-package-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: cannot read 9002-2\.0\.0\.mpk' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/corrupt
+ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
 ctl crosscalls-none-pass 0 '0 planned module\(s\) capped' 'scanned [1-9][0-9]* documents' '!CAP ' -- python3 $B/crosscalls.py $M/xcall-none --kept KeptConn --planned AuthMod
@@ -4417,6 +4438,36 @@ ctl release-impact-java-ported-check-pass 1 '!OPEN Studio Pro row 1: ' -- sh -c 
 ctl release-impact-java-unported-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-symbol-ported' -- sh -c "$RT --facts $RI/tools-unported.json --out $RI/tools-unported.md >/dev/null; cat $RI/tools-unported.md; python3 $B/release_impact.py --check $RI/tools-unported.md"
 ctl release-impact-java-rev-explicit-catch 0 'handled \(auto\): java-symbol-ported: AdminException' -- sh -c "$RT --java-rev HEAD~1 --facts $RI/tools-ported.json --out $RI/tools-ported2.md >/dev/null; cat $RI/tools-ported2.md"
 ctl release-impact-tools-no-project-catch 1 '^OPEN Studio Pro row 1: ' '^OPEN Module MendixSSO row 13: ' '\| 8 \| 10\.7\.0 .*git-teamserver: area' '!java-symbol-absent' '!module-library-bump' '^auto: 2, human: 0, open: 15$' -- sh -c "$RT --facts $RI/tools-none.json --out $RI/tools-none.md >/dev/null; cat $RI/tools-none.md; python3 $B/release_impact.py --check $RI/tools-none.md"
+# GM-38: a java-actions removal row the original Java still names closes when the target build is green AND the
+# symbol is gone from the final javasource. jp-own = the original (AdminException in own Keep.java), jp-plain = the repaired
+# project (gone), jp-still = a "repaired" project that still names it.
+python3 $here/lib/mkjavaproj.py $RI/jp-still --own-uses
+printf 'BUILD SUCCEEDED\n' > $RI/build-green.log
+printf 'BUILD SUCCEEDED\nERROR at CE0117 in Module.Flow\n' > $RI/build-red.log
+printf 'ERROR at CE0001 in Module.Flow\n' > $RI/build-nosuccess.log
+gm38() { printf '{"project_dir": "%s", "final_dir": "%s", "build_log": "%s"}\n' "$RI/jp-$1" "$RI/jp-$2" "$RI/$3" > $RI/gm38-$4.json; }
+gm38 own plain build-green.log ok;      gm38 own still build-green.log present
+gm38 own plain build-red.log red;       gm38 own plain build-nosuccess.log nosuccess;  gm38 own plain build-missing.log missing
+gm38 plain plain build-red.log never
+ctl release-impact-gm38-green-absent-pass 0 '\| 1 \| 10\.0\.0 \| removal .*handled \(auto\): java-removal-proved-by-build: AdminException, IMxRuntime: BUILD SUCCEEDED and 0 ERROR at lines in .*build-green\.log; 0 hits in .*jp-plain/javasource \(3 \.java, proxies excluded\) after the repairs; build_log=.*build-green\.log \(--build-log|final_dir=.*jp-plain' '!auto cannot use: java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-ok.json --out $RI/gm38-ok.md >/dev/null; cat $RI/gm38-ok.md"
+ctl release-impact-gm38-green-present-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-removal-proved-by-build: AdminException' -- sh -c "$RT --facts $RI/gm38-present.json --out $RI/gm38-present.md >/dev/null; cat $RI/gm38-present.md; python3 $B/release_impact.py --check $RI/gm38-present.md"
+ctl release-impact-gm38-red-build-catch 1 '^OPEN Studio Pro row 1: .*AdminException' '!java-removal-proved-by-build: AdminException' -- sh -c "$RT --facts $RI/gm38-red.json --out $RI/gm38-red.md >/dev/null; cat $RI/gm38-red.md; python3 $B/release_impact.py --check $RI/gm38-red.md"
+ctl release-impact-gm38-red-build-reason-catch 0 'auto cannot use: java-removal-proved-by-build: build not green: 1 ERROR at lines in .*build-red\.log' -- sh -c "$RT --facts $RI/gm38-red.json --out $RI/gm38-red2.md"
+ctl release-impact-gm38-no-success-catch 0 'auto cannot use: java-removal-proved-by-build: build not green: no BUILD SUCCEEDED in .*build-nosuccess\.log' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-nosuccess.json --out $RI/gm38-nosuccess.md; cat $RI/gm38-nosuccess.md"
+ctl release-impact-gm38-missing-build-catch 0 'auto cannot use: java-removal-proved-by-build: build result .*build-missing\.log cannot be read' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-missing.json --out $RI/gm38-missing.md; cat $RI/gm38-missing.md"
+ctl release-impact-gm38-never-present-pass 0 '\| 1 \| 10\.0\.0 \| removal .*not relevant \(auto\): java-symbol-absent: AdminException, IMxRuntime: 0 hits in' '!java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-never.json --out $RI/gm38-never.md >/dev/null; cat $RI/gm38-never.md"
+# the build log must be newer than the final tree it is offered for: a log older than a final .java is not that build
+cp $RI/build-green.log $RI/build-stale.log; touch -d '2001-01-01 00:00:00' $RI/build-stale.log
+gm38 own plain build-stale.log stale
+ctl release-impact-gm38-stale-log-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log older than final javasource/mpr' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-stale.json --out $RI/gm38-stale.md; cat $RI/gm38-stale.md; python3 $B/release_impact.py --check $RI/gm38-stale.md"
+# a corrupt userlib jar makes the final scan incomplete (ix.ok False): green build, row stays open
+python3 $here/lib/mkjavaproj.py $RI/jp-badjar; printf 'not a zip' > $RI/jp-badjar/userlib/broken.jar
+gm38 own badjar build-green.log badjar; touch $RI/build-green.log
+ctl release-impact-gm38-corrupt-jar-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: final scan incomplete: broken\.jar' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-badjar.json --out $RI/gm38-badjar.md; cat $RI/gm38-badjar.md; python3 $B/release_impact.py --check $RI/gm38-badjar.md"
+# a dangling symlink in the final javasource: freshness is not checkable, the row stays open, no crash
+python3 $here/lib/mkjavaproj.py $RI/jp-dangle; ln -s $RI/nowhere.java $RI/jp-dangle/javasource/myfirstmodule/actions/Gone.java
+gm38 own dangle build-green.log dangle; touch $RI/build-green.log
+ctl release-impact-gm38-dangling-symlink-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log freshness not checkable: .*Gone\.java unreadable' '!handled \(auto\): java-removal-proved-by-build' '!Traceback' -- sh -c "$RT --facts $RI/gm38-dangle.json --out $RI/gm38-dangle.md || exit 9; cat $RI/gm38-dangle.md; python3 $B/release_impact.py --check $RI/gm38-dangle.md"
 mkdir -p $RI/fp; cp $M/facts-clean/App.mpr $RI/fp/; python3 $here/lib/mkjavaproj.py $RI/fp --git
 ctl release-impact-tools-facts-pass 0 '"project_dir": ".*/fp"' '"vcs": "git"' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $RI/fp/App.mpr --facts-out $RI/fp-facts.json >/dev/null; cat $RI/fp-facts.json"
 mkdir -p $RI/fnj; cp $M/facts-clean/App.mpr $RI/fnj/

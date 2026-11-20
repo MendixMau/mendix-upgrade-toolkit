@@ -1,0 +1,4 @@
+.kept-m {
+  @include moved-mixin;
+  padding: $moved-var;
+}

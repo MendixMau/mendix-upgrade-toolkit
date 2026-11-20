@@ -87,6 +87,11 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
    <file>:<line> <selector>` per hit (exit 1 = REVIEW). Treat each module with hits as a visual risk: add a page that
    shows the widget to the screens step and read the screenshot. Rerun it whenever the kept list changes.
+   The same kept themesource can also use a mixin, variable or file a planned package removes (GM-15: PlatformDesignSystem 45
+   dropped `dark-theme`): `python3 $B/keptvendor.py app/ --kept-file .stepupdate/kept.txt --plan-file $W/plan.txt` reads every
+   `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
+   module (own theme and the kept file itself count as definitions). `MISSING` (exit 1) = fix the kept SCSS or hold the package;
+   `NOT CHECKED` (exit 3) = the target package is not in the cache: say so in the proposal, never read it as clean.
 5. Local edits in Marketplace modules, BEFORE any update:
    `python3 $B/localedits.py app/ --md $W/localedits.md --json $W/localedits.json`
    - RED = data-bearing local edit (added attribute or association, changed storage): a stop rule (SKILL).
@@ -196,7 +201,15 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    grep rules use it, citing what they read: a java-actions removal whose `affected` items are all Java symbols found
    nowhere in `javasource` (proxies excluded) or in a userlib jar (`java-symbol-absent`), and a Marketplace module's
    "library upgraded to x" requirement row whose libraries no Java outside that module's own folder imports
-   (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). Without `project_dir` (a hand facts
+   (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). GM-38: a java-actions removal whose symbols the original Java still names closes as `handled (auto):
+   java-removal-proved-by-build` when `--final-dir <repaired project>` and `--build-log <the gate's BUILD_LOG>` are given
+   and both hold: the build log shows `BUILD SUCCEEDED` with 0 `ERROR at` lines, and no symbol occurs in the final
+   `javasource` (proxies excluded). The row cites the build file and the scope grepped. A red, unreadable or missing
+   build, or a symbol still present, leaves the row open and `auto cannot use: java-removal-proved-by-build: ...` says why. The log must also be newer than the
+   newest `.java` under the final `javasource` and than the final `.mpr` (an older log is refused: `build log older than final
+   javasource/mpr`). The build proves the code compiled, not that it linked or ran. Assumption: the log and the final dir come
+   from the same run. Not wired yet: `bin/cloud/upgrade-pipeline.sh` and the gate-time triage do not pass `--final-dir` and
+   `--build-log`, so the caller must supply them and the rule closes nothing in a run until it is wired. Without `project_dir` (a hand facts
    file) both stay open: run `--facts-from-mpr` on the real project, or add `"project_dir": "app"` by hand.
    Only real decisions reach a person (cold test: 190 open rows drowned the owner): the pipeline adds `--auto --evidence`
    with the app's mpr. A row the rules leave open stays open only when the app's own modules use what it names
