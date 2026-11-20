@@ -823,6 +823,16 @@ seed_demo() {
   return 0
 }
 
+# GM-38: the two facts that close a Java removal row on "target build green, symbols gone from the final javasource".
+# Prints "--final-dir DIR --build-log LOG", one word per line, only when this run's target build log ($WORK/build-$TARGET.log, written by
+# step_build for this $WORK and $TARGET) AND the project folder it built ($MPR's folder, the run's $APP) both exist; otherwise
+# nothing, and release_impact.py is called as before a build. Same-run is not proved here: release_impact.py refuses a log
+# older than the newest .java or .mpr of the folder (a rerun after the app was rewound reads as "not the build of that tree").
+ri_build_args() {
+  local log="$WORK/build-$TARGET.log"
+  [ -f "$log" ] && [ -f "$MPR" ] || return 0
+  printf '%s\n' --final-dir "$(dirname "$MPR")" --build-log "$log"
+}
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
 # Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) has no script: exit 13 when absent.
 step_triage() {
@@ -894,6 +904,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   [ -z "${UPG_DB_VENDOR:-}" ] || riauto+=(--db-vendor "$UPG_DB_VENDOR")
   [ -z "${UPG_DB_VERSION:-}" ] || riauto+=(--db-version "$UPG_DB_VERSION")
   [ -z "${UPG_RUNTIME_OS:-}" ] || riauto+=(--runtime-os "$UPG_RUNTIME_OS")
+  local rib; while IFS= read -r rib; do riauto+=("$rib"); done < <(ri_build_args)   # GM-38: after a target build only (a rerun, --only triage); nothing before one
   xo "$WORK/release-impact.out" python3 "$B/release_impact.py" "${riargs[@]}" "${riauto[@]}" || rc=$?
   if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then   # the facts could not be counted: the rows without auto, all open
     note "release_impact.py --auto exit $rc (facts not counted from $MPR): rows written without auto, see $WORK/release-impact.out"

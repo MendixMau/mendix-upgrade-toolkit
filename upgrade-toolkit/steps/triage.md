@@ -187,6 +187,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    module on the plan and read the rows of the jump, improvements included, before you fix the target version. Each
    row gets `handled: <evidence path or commit>` or `not relevant: <reason>` in its last column as the run goes on;
    a rerun keeps those entries. The gate needs `release_impact.py --check $W/release-impact.md` clean.
+   After a target build exists, rerun triage alone (`--only triage`): the pipeline then adds `--final-dir <app> --build-log $W/build-<target>.log` (only when both exist; release_impact.py still refuses a log older than the app's .java or .mpr), and a Java removal row whose symbols are gone from the final javasource closes as `java-removal-proved-by-build` (GM-38). Before a build nothing changes.
    Exit 2 with `rows for <to> not in brain (newest <x>)`: the brain table is older than the target; read the
    release notes of the versions above `<x>` on docs.mendix.com and fill that Not covered row (T1-8, T2-19, T7-6);
    refreshing the brain's table is the brain owner's data update (T2F-1), not something to patch here. An entry that no
