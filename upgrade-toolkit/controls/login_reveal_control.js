@@ -88,7 +88,7 @@ async function attempt(H) {
   let bad = 0;
   const line = (good, name, extra) => { if (!good) bad++; console.log(`${good ? 'ok  ' : 'FAIL'} ${name}${extra ? ': ' + extra : ''}`); };
   const { chromium } = require(require.resolve('playwright', { paths: [process.env.NODE_PATH || '', path.join(process.env.HOME || '', 'mendix-playwright/node_modules')].filter(Boolean) }));
-  const b = await chromium.launch(); const page = await b.newPage();
+  const b = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] }); const page = await b.newPage();
   await page.goto(base + '/login.html'); 
   const before = await page.locator('#passwordInput').isVisible();
   const r1 = await revealLocalLogin(page);
