@@ -286,9 +286,9 @@ gate_open_nj_meta() { # gate_open_nj_meta REGRESSIONS [NEED_A_DECISION NOT_MEASU
     GATE_OPEN_TITLE="No regression was found; open rows could not be measured or need a yes or no (exit $rc, gate-summary.md)"
     local what="Some checks could not be measured or still need a yes or no."
     [ -z "${2:-}${3:-}" ] || what="${3:-0} checks could not be measured yet and ${2:-0} still need a yes or no."
-    nj_meta person "No regression was found. $what What should we do?" "handoff" "handoff|Hand the open lists to the owner|Nothing is broken for your users; the owner measures or accepts each open row in writing (steps/gate.md)." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended." "repair|Repair a cause, then rerun the final check|Only if an open row turns out to be a real defect."
+    nj_meta person "No regression was found. $what What should we do?" "handoff" "handoff|Hand the open lists to the owner|Nothing is broken for your users; the owner measures or accepts each open row in writing (steps/gate.md)." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended." "repair|Repair a cause, then rerun the final check|Only if an open row turns out to be a real defect. A repair that changes the model (.mpr, javasource) needs the rerun from the build step (--from build): the final check judges the last build, and refuses a build older than the model."
   else
-    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."
+    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted. After a model change rerun with --from build, not --from diff: the gate judges the last build and refuses one older than the model." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."
   fi
 }
 rerun_cmd() { # the command that resumes at the current step: the run's own --from is dropped so the hint carries exactly one

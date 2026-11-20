@@ -306,7 +306,12 @@ opt() { [ -n "$2" ] && CMD+=("$1" "$2"); }   # opt FLAG VALUE: only when VALUE i
 cmd_rung() {
   CMD=()
   case $1 in
-    build) CMD=(bash -c 'grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG");;
+    # GM-43: a build log older than the model (an .mpr or a .java of the app folder: APP_REPO, else $WORK/app) is the build of a
+    # tree that no longer exists: exit 2 (INVALID, not measured), never a verdict on it. The same files release_impact.py's
+    # build_verdict compares. No app folder named or found: nothing to compare, as before.
+    build) bapp=$V_APP_REPO; [ -n "$bapp" ] || bapp=$V_WORK/app
+      CMD=(bash -c 'if [ -n "$2" ] && [ -d "$2" ] && [ -f "$1" ]; then nf=$({ find "$2" -maxdepth 2 -name "*.mpr" -newer "$1" 2> /dev/null; find "$2/javasource" -name "*.java" -newer "$1" 2> /dev/null; } | head -n 1 || true); [ -z "$nf" ] || { echo "STALE BUILD: $nf is newer than the build log $1: not measured. Rebuild: rerun the pipeline --from build"; exit 2; }; fi
+        grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG" "$bapp");;
     idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md" --json "$G/idcheck.json");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
     data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); idcheck_json_args; CMD+=(--md "$G/diff.md");;
