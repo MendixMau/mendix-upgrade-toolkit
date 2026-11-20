@@ -9504,6 +9504,11 @@ ctl localedits-cache-other-mxcli-redo-catch 1 -- sh -c "echo v0.99 > $LC/w/state
 ctl localedits-cache-model-changed-redo-catch 1 -- sh -c "echo x > $LC/app/new.mpr; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff; rc=\$?; rm $LC/app/new.mpr; exit \$rc"
 ctl localedits-cache-incomplete-not-kept-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
 ctl localedits-cache-result-deleted-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/localedits.md; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-dirty-file-edited-redo-catch 1 -- sh -c "echo a > $LC/app/d.txt; git -C $LC/app -c user.email=a@b -c user.name=t add d.txt; git -C $LC/app -c user.email=a@b -c user.name=t commit -q -m d; echo b >> $LC/app/d.txt; bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; echo c >> $LC/app/d.txt; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-untracked-edited-redo-catch 1 -- sh -c "echo a > $LC/app/u.txt; bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; echo b >> $LC/app/u.txt; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-no-git-redo-catch 1 -- sh -c "mkdir -p $LC/nogit; bash $B/localedits_cache.sh save $LC/nogit $LC/w 0 --mxcli-diff; bash $B/localedits_cache.sh check $LC/nogit $LC/w --mxcli-diff"
+ctl localedits-cache-rc-missing-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/state/localedits.rc; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl mxbuild-link-pipeline-all-versions-pass 0 'ok' -- sh -c "grep -q 'mxbuild_link.sh\" \"\$UPG_TOOLS\" \"\$SOURCE\" .*TARGET2.*VIA' $B/cloud/upgrade-pipeline.sh && echo ok"
 ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
 ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 echo
