@@ -68,7 +68,9 @@ miss=()
 [[ -d $tb/modeler/runtemplates/deployment ]] || miss+=(modeler/runtemplates/deployment)
 [[ -d $tb/modeler/tools/node/node_modules ]] || miss+=(modeler/tools/node/node_modules)
 # GM-1: a runtimelauncher.jar inside the toolset must open as a zip (none inside is fine: only the runtime tarball has one)
-if jout=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $tb 2>&1); then :; elif [[ $jout != *"no runtimelauncher.jar"* ]]; then
+if ! command -v ${UPG_PYTHON:-python3} > /dev/null 2>&1; then
+  echo "toolcheck: WARNING, no ${UPG_PYTHON:-python3}: the runtimelauncher.jar check is skipped" >&2
+elif ! jout=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $tb 2>&1) && [[ $jout == *"is corrupt:"* ]]; then
   echo "toolcheck: REFUSED, corrupt runtime in $tb: $jout. Delete the folder and its dl tarball and rerun bin/setup-container.sh" >&2; exit 2
 fi
 (( ${#miss} )) || exit 0

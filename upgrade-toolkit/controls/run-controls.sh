@@ -3701,6 +3701,8 @@ ctl toolcheck-runtime-corrupt-jar-catch 2 'REFUSED, runtime .* is unusable: .*ru
 ctl toolcheck-runtime-intact-pass 0 'runtime OK' '!REFUSED' -- bash $B/toolcheck.sh --runtime $G1/ok-rt
 ctl toolcheck-runtime-missing-jar-catch 2 'REFUSED.*no runtimelauncher\.jar' -- bash $B/toolcheck.sh --runtime $G1/src/mx
 ctl toolcheck-toolset-corrupt-jar-catch 2 'REFUSED, corrupt runtime in .*runtimelauncher\.jar is corrupt' -- bash $B/toolcheck.sh $G1/bad-mx mxbuild
+mkdir -p $G1/good-mx/modeler/runtemplates/deployment $G1/good-mx/modeler/tools/node/node_modules; printf '#!/bin/sh\n' > $G1/good-mx/modeler/mxbuild; chmod +x $G1/good-mx/modeler/mxbuild
+ctl toolcheck-toolset-no-python-pass 0 '!REFUSED' -- env UPG_PYTHON=/nonexistent bash $B/toolcheck.sh $G1/good-mx mxbuild
 
 # B4T2-1, B4N1-3: setup-container.sh pre-places the ANTLR jar (Maven Central 429 -> mirror; a proxy page is no jar), never
 # takes a credential on a command line, and runs toolcheck AFTER the pip/apt step: REFUSED or no rsync = exit 1 (it ran
