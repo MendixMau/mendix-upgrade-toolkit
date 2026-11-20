@@ -4199,6 +4199,13 @@ ctl gen-create-data-rung-pass 0 '"creates": "Shop.Item"' -- sh -c "$GJ --out-dir
 # E2E-9: a field that names its attribute adds the own-row check (the run's own ${RUN_ID} row, expect 1); none is warned
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'][0]['attr']='Name'; json.dump(d, open('$T/create-spec-attr.json', 'w'))"
 ctl gen-create-own-row-pass 0 "SELECT COUNT\\(\\*\\) AS n FROM Shop.Item WHERE Name = 'Item \\$\\{RUN_ID\\}'" '"expect": 1' -- sh -c "$GJ --out-dir $T/gen-create3 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create3/journeys/Admin/create-save.journey.json"
+# RM-2: a singleton edit-save adds no row: the spec's "delta" reaches the data rung (default stays 1; junk is refused)
+python3 -c "import json; d=json.load(open('$T/create-spec-attr.json')); d['delta']=0; json.dump(d, open('$T/create-spec-delta0.json', 'w')); d['delta']='x'; json.dump(d, open('$T/create-spec-deltabad.json', 'w'))"
+ctl gen-create-delta-zero-pass 0 '"delta": 0' -- sh -c "$GJ --out-dir $T/gen-create-d0 --create $T/create-spec-delta0.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d0/journeys/Admin/create-save.journey.json"
+ctl gen-create-delta-default-pass 0 '"delta": 1' -- sh -c "$GJ --out-dir $T/gen-create-d1 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d1/journeys/Admin/create-save.journey.json"
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['delta']=0; json.dump(d, open('$T/create-spec-delta0-noattr.json', 'w'))"
+ctl gen-create-delta-zero-noattr-catch 1 'delta.: 0 needs a field with .attr' -- $GJ --out-dir $T/gen-create-dn --create $T/create-spec-delta0-noattr.json --data-rung
+ctl gen-create-delta-bad-catch 1 'delta.*whole number' -- $GJ --out-dir $T/gen-create-dx --create $T/create-spec-deltabad.json --data-rung
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['nav']['nth']=4; json.dump(d, open('$T/create-spec-nth.json', 'w'))"
 ctl gen-create-nav-nth-catch 0 '"nth": 4' -- sh -c "$GJ --out-dir $T/gen-create-nth --create $T/create-spec-nth.json > /dev/null 2>&1; cat $T/gen-create-nth/journeys/Admin/create-save.journey.json"
 ctl gen-create-nav-no-nth-pass 0 '!"nth"' -- sh -c "cat $T/gen-create/journeys/Admin/create-save.journey.json"
@@ -7969,8 +7976,8 @@ WORK=$1; TIMES=$2; shift 2
 date() { [ "${1:-}" != +%s ] || { echo 0; return; }; local n; n=$(cat "$WORK/.tick" 2> /dev/null || echo 0); n=$((n + 1)); echo "$n" > "$WORK/.tick"; sed -n "${n}p" "$TIMES"; }
 mkdir -p "$WORK/state" "$WORK/logs"
 ONLY=""; FROM=""; DRY=${DRY:-0}; NJ_TMP="$WORK/state/nj.tmp"; NJ_CODE=0; RUN=$WORK; SOURCE=10.24.0.1; TARGET=11.12.5; ARGS_ORIG=(); SELF=pipeline; STEP=""; LOG=$WORK/logs/x.log; APPS_UP=()
-mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; }
-step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; }
+mxcli_pin() { :; }; proposal_recheck() { :; }; cockpit_regen() { if [ -e "$WORK/state/running" ]; then echo running > "$WORK/regen-saw"; else echo clear > "$WORK/regen-saw"; fi; [ -z "${STUB_REGEN_FAIL:-}" ] || [ -e "$WORK/state/running" ]; }
+step_build() { if [ -n "${STUB_FAIL:-}" ] && [ ! -f "$WORK/fixed" ]; then false; fi; if [ -n "${STUB_EXIT:-}" ] && [ ! -f "$WORK/fixed" ]; then exit "$STUB_EXIT"; fi; }
 step_journeys() { if [ ! -f "$WORK/fixed" ]; then nj_add 11 "journeys" "stub stop"; fi; }
 trap cleanup EXIT
 for s in "$@"; do run_step "$s"; done
@@ -8016,6 +8023,14 @@ ctl timing-failed-step-row-catch 0 'rows=2' '^build 2026-10-20T10:00:00Z 2026-10
 # brief "Waiting for 1 answer"); cleanup regenerates it after timing_close ended the running marker
 STUB_FAIL=1 tmrun $TM/wf $TM/times-b.txt build > /dev/null 2>&1
 ctl cockpit-exit4-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wf/regen-saw 2> /dev/null || echo never)"
+# exit 3 (an environment fault: disk full, docker down) writes no stop file either: the page written at that exit must not still say a step is running
+STUB_EXIT=3 tmrun $TM/wg $TM/times-b.txt build > /dev/null 2>&1
+ctl cockpit-exit3-page-sees-no-running-step-catch 0 'regen saw: clear' -- sh -c "echo regen saw: \$(cat $TM/wg/regen-saw 2> /dev/null || echo never)"
+ctl cockpit-exit3-regen-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wh $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
+# a regen that fails at exit (stub fails once the running marker is gone, i.e. only in cleanup) must not replace the exit code of the stop it reports
+ctl cockpit-exit3-regen-fails-keeps-exit-code-pass 0 'rc=3' -- sh -c "STUB_REGEN_FAIL=1 STUB_EXIT=3 FN=$TM/fn.sh B=$B bash $TM/h.sh $TM/wi $TM/times-b.txt build > /dev/null 2>&1; echo rc=\$?"
+# a normal wait for answers (exit 14, the plan awaits sign-off) is an amber "paused" bar, not the red "run stopped" of a failure
+ctl cockpit-plan-wait-not-red-stopped-catch 0 '^bar: <div class="stopbar wait"' '^text: The run is paused before changing anything' '^red stopped: 0$' -- bash $here/cockpit_control.sh plan-wait-bar
 # a dry run writes no timing file
 DRY=1 tmrun $TM/wd $TM/times-a.txt build > /dev/null 2>&1
 ctl timing-dry-run-no-file-pass 0 'timing=absent' -- sh -c "[ -e $TM/wd/state/timing.tsv ] && echo timing=present || echo timing=absent"
@@ -9639,6 +9654,16 @@ ctl localedits-cache-rc-missing-redo-catch 1 -- sh -c "bash $B/localedits_cache.
 ctl mxbuild-link-pipeline-all-versions-pass 0 'ok' -- sh -c "grep -q 'mxbuild_link.sh\" \"\$UPG_TOOLS\" \"\$SOURCE\" .*TARGET2.*VIA' $B/cloud/upgrade-pipeline.sh && echo ok"
 ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
 ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# AIB: exit 2 because a module is UNKNOWN (installed label is a build number) is permanent; it was never kept, so every rerun redid 14 minutes
+LU=$T/lecache-unknown; mkdir -p $LU/w/state; cp -r $LC/app $LU/app; echo 78bdfa5 > $LU/w/state/mxcli-version; echo '[{}]' > $LU/w/localedits.json
+printf '%s\n' '## Mod 1.0 (content 1): UNKNOWN (package not readable: version "108746" not found)' 'modules: 1, RED data-bearing edits: 0, UNKNOWN (not judged): 1 ['"'"'Mod'"'"']: use x, NETWORK (not judged, transient): 0' > $LU/w/localedits.md
+ctl localedits-cache-unknown-kept-catch 0 '^2$' -- sh -c "bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-model-changed-redo-catch 1 -- sh -c "echo x > $LU/app/new.mpr; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff; rc=\$?; rm $LU/app/new.mpr; exit \$rc"
+ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i 's/transient): 0/transient): 1/' $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-no-report-not-kept-catch 1 -- sh -c "rm -f $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; echo '# x' > $LU/w/localedits.md; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-pipeline-clears-old-report-pass 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {r=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (r && d && r<d) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# a dry run prints the commands and runs nothing: it must not delete the saved report (then the next real run redoes ~14 minutes of diff)
+ctl localedits-cache-dry-run-keeps-report-catch 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {n++; if ($0 ~ /"\$DRY" = 1 \] \|\| rm -f/) g++} END {print (n && n==g) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"

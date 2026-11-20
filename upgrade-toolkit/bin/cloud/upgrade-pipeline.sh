@@ -591,11 +591,14 @@ cleanup() {
   local a rc=$? st=${TIMING_STEP:-${STEP:-}}
   [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
-  # exit 4 (a failed step; after timing_close, which ends "running") writes no stop file: the page must still say the run is not working (MTA: page "agent is working", brief "waiting")
-  if [ "$rc" = 4 ] && [ ! -f "$WORK/NEEDS-JUDGMENT.md" ] && declare -F cockpit_regen > /dev/null; then
+  # exit 4 (a failed step) and exit 3 (an environment fault: disk full, docker down, mxcli pin) write no stop file: the page must still say
+  # the run is not working (MTA: page "agent is working", brief "waiting"; exit 3 stopped the same way and left the last in-step page).
+  # After timing_close, which ends "running". Exit 2 (usage) and a run with no work folder yet have no page to refresh.
+  if [ "$rc" != 0 ] && [ "$rc" -lt 10 ] && [ "$rc" != 2 ] && [ -d "${WORK:-/nonexistent}/state" ] && [ ! -f "${WORK:-}/NEEDS-JUDGMENT.md" ] \
+     && declare -F cockpit_regen > /dev/null; then
     cockpit_regen || true
     # the brief at exit 4 too (issue 30: it was printed at judgment stops only, so a failed step ended on one error line and no "what next")
-    ! declare -F brief_say > /dev/null || brief_say || true
+    [ "$rc" != 4 ] || ! declare -F brief_say > /dev/null || brief_say || true
   fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
@@ -927,7 +930,10 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   if [ "$DRY" != 1 ] && rc=$(bash "$B/localedits_cache.sh" check "$APP" "$WORK" "${le[@]}"); then
     say "localedits: reused the earlier result (same model, args and mxcli; UPG_LOCALEDITS_FRESH=1 redoes it)"
     note "localedits reused from the earlier run"
+    # an UNKNOWN can also come from the environment (DNS, a proxy 407, a missing toolchain): say how to redo it once that is fixed
+    [ "$rc" != 2 ] || say "localedits: the reused result has UNKNOWN modules; if their cause was the network or this machine and is fixed now, UPG_LOCALEDITS_FRESH=1 redoes it"
   else
+    [ "$DRY" = 1 ] || rm -f "$WORK/localedits.md" "$WORK/localedits.json"  # a dry run deletes nothing; a run that dies before its report must not leave an older one to be cached under exit 2
     rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
     [ "$DRY" = 1 ] || bash "$B/localedits_cache.sh" save "$APP" "$WORK" "$rc" "${le[@]}"
   fi
