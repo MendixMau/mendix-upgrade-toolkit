@@ -1417,20 +1417,23 @@ ctl mxversion-mxmodule-short-pass 0 '^10\.24\.26$' -- python3 $B/mxversion.py $A
 echo notazip > $AD/modules/Broken.mxmodule
 ctl mxversion-mxmodule-unreadable-catch 2 'no Mendix version found' -- python3 $B/mxversion.py $AD/modules/Broken.mxmodule
 # RM-3: stepcheck-run finds a toolset unpacked under its full name (mxbuild-10.24.0.73019); the short name is still tried first
-SC=$T/sc; mkdir -p $SC/bin $SC/tools/mxbuild-10.24.0.73019 $SC/tools/mxbuild-10.24.9 $SC/app
+SC=$T/sc; mkdir -p $SC/bin $SC/tools/mxbuild-10.24.0.73019/modeler $SC/tools/mxbuild-10.24.9/modeler $SC/tools/mxbuild-10.24.5 $SC/tools/mxbuild-10.24.5.81000/modeler $SC/app
+for d in mxbuild-10.24.0.73019 mxbuild-10.24.9 mxbuild-10.24.5.81000; do printf '#!/bin/sh\n' > $SC/tools/$d/modeler/mx; chmod +x $SC/tools/$d/modeler/mx; done
 cp $B/stepcheck-run.sh $B/mxversion.py $B/checkwhere.py $SC/bin/
 printf '#!/bin/sh\nshift; exec "$@"\n' > $SC/bin/heavy-lock.sh
-printf '#!/bin/sh\nif [ -e "$UPG_TOOLS/mxbuild-$1" ]; then echo "mx10 used toolset $1"; echo "The app contains: 0 errors"; else echo "mx10.sh: no $UPG_TOOLS/mxbuild-$1/modeler/mx" >&2; exit 2; fi\n' > $SC/bin/mx10.sh
+printf '#!/bin/sh\nif [ -x "$UPG_TOOLS/mxbuild-$1/modeler/mx" ]; then echo "mx10 used toolset $1"; echo "The app contains: 0 errors"; else echo "mx10.sh: no $UPG_TOOLS/mxbuild-$1/modeler/mx" >&2; exit 2; fi\n' > $SC/bin/mx10.sh
 chmod +x $SC/bin/*.sh
 python3 - <<PYEOF
 import sqlite3
-for name, ver in (("full", "10.24.0.73019"), ("short", "10.24.9.80000")):
+for name, ver in (("full", "10.24.0.73019"), ("short", "10.24.9.80000"), ("partial", "10.24.5.81000")):
     c = sqlite3.connect("$SC/app/%s.mpr" % name)
     c.execute("create table _MetaData (_ProductVersion text, _BuildVersion text, _SchemaHash text)")
     c.execute("insert into _MetaData values (?, ?, '')", (ver, ver)); c.commit(); c.close()
 PYEOF
 ctl stepcheck-run-full-name-pass 0 'mx10 used toolset 10\.24\.0\.73019' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/full.mpr $SC/full.log; cat $SC/full.log"
 ctl stepcheck-run-short-name-pass 0 'mx10 used toolset 10\.24\.9$' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/short.mpr $SC/short.log; cat $SC/short.log"
+# The empty mxbuild-10.24.5 folder is no toolset (mx10.sh would refuse it): the complete full-name one is used (catch: -e picked the empty one)
+ctl stepcheck-run-empty-short-folder-pass 0 'mx10 used toolset 10\.24\.5\.81000' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/partial.mpr $SC/partial.log; cat $SC/partial.log"
 # GM-17: a 10 to 11 plan names packages built before 10.21; planbuild.py reads the build version of each cached .mpk up front
 # (BizzomateDevTools 2.0.2 / 3.0.0 on a real run were found only by the run-time SKIP). Fixtures: mkaddon makes the zip holding project.mpr.
 PB=$T/planbuild; mkdir -p $PB/cache

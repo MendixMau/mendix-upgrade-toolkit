@@ -12,9 +12,10 @@ ver=$(python3 "$bin/mxversion.py" "$mpr" --short 2> /dev/null) || { echo "stepch
 # RM-3: a toolset unpacked under its full name (mxbuild-10.24.0.73019, what the pipeline's --source names) is not found by the
 # short version; without this the check said "no .../mxbuild-10.24.0/modeler/mx" and every step was STEPCHECK NOT RUN.
 tools=${UPG_TOOLS:-${UPG_ROOT:-$(pwd)}/tools}
-if [ ! -e "$tools/mxbuild-$ver" ]; then
+# The test is the one mx10.sh makes (-x modeler/mx): an empty or half-unpacked mxbuild-<short> folder is no toolset.
+if [ ! -x "$tools/mxbuild-$ver/modeler/mx" ]; then
   full=$(python3 "$bin/mxversion.py" "$mpr" 2> /dev/null || true)
-  [ -z "$full" ] || [ ! -e "$tools/mxbuild-$full" ] || ver=$full
+  [ -z "$full" ] || [ ! -x "$tools/mxbuild-$full/modeler/mx" ] || ver=$full
 fi
 major=${ver%%.*}; w="$bin/mx10.sh"; [ "$major" -gt 9 ] || w="$bin/mx9.sh"
 j=(); cj="${log%.log}.json"; rm -f "$cj"
