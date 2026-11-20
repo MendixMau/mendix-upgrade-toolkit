@@ -27,11 +27,23 @@ which keeps the old one as <out>.pre-modplan, .1, .2 ...). --jumps writes "<Modu
 release_impact.py --plan read. Order: the lines keep the module order of localedits.json,
 --last moves the named modules to the end, and --app (an app folder or .mpr) puts the target of a cross-module
 association before its owner, planorder.py's rule (PV-2), whose CYCLE and NOTE lines are printed too.
+Widget providers (field run RKT, 10.5 -> 11.12): a module whose new package uses a pluggable widget that another PLANNED module's
+new package ships goes after that module. Administration 4.5.0 uses the Combo box widget that Atlas_Core 3.22.1 ships; listed
+first, its step stopped with 7 CE0462 "could not find widget". Read from the packages themselves (<content id>-<version>.mpk in
+--cache, default UPG_CACHE or ~/.cache/upgrade-toolkit/mpk; one that is not cached is downloaded like planbuild.py does, never
+with --no-fetch): the widget ids on the pages of the package's project.mpr against the widgets/*.mpk the other packages hold.
+Printed: `ORDER <Provider> before <User>: ...` per pair, and always one `widget order:` line with the denominator (packages read
+of planned). A package that could not be read is named there and its widget needs are NOT in the order: never read as "needs
+none". Without --no-fetch, modplan DOWNLOADS the planned packages it does not find in --cache
+(like planbuild.py does); with --no-fetch it reads only what is cached. A widget pair can override --last (a --last module that provides a widget
+moves before its users). Widget pairs are judged against the order the associations leave. A pair that conflicts with the
+association order is said (`CYCLE-WIDGET`) and the widget order is not applied; an association cycle on its own keeps the
+widget order and prints the plain CYCLE lines.
 While any module is NOT PICKED nothing is written (exit 3); --allow-unresolved writes the files with a
 "# NOT PICKED <Module>: <why>" comment per module and still exits 3.
 Exit: 0 every module resolved, 3 at least one NOT PICKED, 2 input error.
 """
-import argparse, json, os, re, shutil, sys
+import argparse, io, json, os, re, shutil, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -76,6 +88,73 @@ def fetch(cid, path):
     return True, ""
 
 
+def pkg_widgets(cache, cid, ver, download):
+    """(uses, provides, why): widget ids the package's own pages use (less its own), widget ids its widgets/*.mpk declare; why is
+    the reason the package was not read (uses and provides are then None)."""
+    import planbuild
+    mpk, why = planbuild.package(cid, ver, cache, download)
+    if not mpk:
+        return None, None, why
+    provides = set()
+    xdir = mpk[:-4]
+    xmpr = os.path.join(xdir, "project.mpr")  # the layout crosscalls.package_model extracts to
+    try:
+        with zipfile.ZipFile(mpk) as z:
+            for n in z.namelist():
+                if re.match(r"widgets/[^/]+\.mpk$", n):
+                    try:
+                        with zipfile.ZipFile(io.BytesIO(z.read(n))) as w:
+                            for x in w.namelist():
+                                if x.endswith(".xml"):
+                                    provides.update(re.findall(r'<widget[^>]*\sid="([^"]+)"', w.read(x).decode("utf-8", "replace")))
+                    except zipfile.BadZipFile:
+                        pass
+            if not os.path.exists(xmpr):
+                names = [n for n in z.namelist() if n.endswith(".mpr")]
+                if not names:
+                    return None, None, "package holds no model (.mpr)"
+                z.extract(names[0], xdir)
+                if names[0] != "project.mpr":
+                    os.rename(os.path.join(xdir, names[0]), xmpr)
+    except (OSError, zipfile.BadZipFile) as ex:
+        return None, None, f"package unreadable ({type(ex).__name__})"
+    sys.path.insert(0, os.path.join(HERE, "repair"))
+    import missing_deps
+    uses = set()
+
+    def walk(d):
+        if isinstance(d, dict):
+            if d.get("$Type") == "CustomWidgets$CustomWidgetType" and d.get("WidgetId"):
+                uses.add(d["WidgetId"])
+            for v in d.values():
+                walk(v)
+        elif isinstance(d, list):
+            for v in d:
+                walk(v)
+    try:
+        for d in missing_deps.units(xmpr):
+            if d.get("Excluded") is not True:  # excluded documents are not built
+                walk(d)
+    except SystemExit:
+        return None, None, "model not readable here (needs the bson module)"
+    except Exception as ex:
+        return None, None, f"model unreadable ({type(ex).__name__})"
+    return uses - provides, provides, ""
+
+
+def widget_edges(order, uses, provides):
+    """{(user, provider): [widget ids]}: the user needs the provider first. A widget that a planned module already ahead of the
+    user ships needs no pair; otherwise the first provider in the current order is the one."""
+    pos = {m: i for i, m in enumerate(order)}
+    e = {}
+    for u in order:
+        for w in sorted(uses.get(u) or ()):
+            ps = [r for r in order if r != u and w in (provides.get(r) or ())]
+            if ps and not any(pos[r] < pos[u] for r in ps):
+                e.setdefault((u, ps[0]), []).append(w)
+    return e
+
+
 def pick(installed, rows, target):
     """('PICK', version, min) | ('CURRENT', newest fitting) | ('STRANDED', None)."""
     fit = [r for r in rows if tup(r[1]) <= target]
@@ -95,6 +174,7 @@ def main():
     ap.add_argument("--skip", default=""); ap.add_argument("--last", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--allow-unresolved", action="store_true")
+    ap.add_argument("--cache", default=os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk"))
     a = ap.parse_args()
     if not VER.match(a.target):
         print(f"modplan: --target {a.target}: not a Mendix version", file=sys.stderr); return 2
@@ -153,6 +233,8 @@ def main():
             plan.append((n, cid, v[0], inst))
             print(f"PICK {n} {inst} -> {v[0]} (min Mendix {v[1]})" + (" (cached)" if cached else ""))
     plan.sort(key=lambda r: (r[0] in last, last.index(r[0]) if r[0] in last else 0))
+    names = [p[0] for p in plan]
+    e_assoc, model = {}, None
     if a.app and plan:
         import idcheck, planorder
         try:
@@ -160,16 +242,46 @@ def main():
             model = idcheck.build(dm)
         except (SystemExit, Exception) as ex:
             print(f"modplan: --app {a.app}: {ex}", file=sys.stderr); return 2
-        names = [p[0] for p in plan]
-        e = planorder.edges(model, set(names))
-        new, cyc = planorder.order(names, e)
+        e_assoc = planorder.edges(model, set(names))
+    uses, provides, unread, e_widget = {}, {}, [], {}
+    if len(plan) > 1:
+        for n, cid, v, _ in plan:
+            u, pr, why = pkg_widgets(a.cache, cid, v, not a.no_fetch)
+            if pr is None:
+                unread.append(f"{n} {v} ({why})")
+            else:
+                uses[n], provides[n] = u, pr
+        base = names
+        if e_assoc:
+            import planorder
+            base, _ = planorder.order(names, e_assoc)  # pairs are judged against the order the associations leave, not the listing
+        e_widget = widget_edges(base, uses, provides)
+        print(f"widget order: {len(uses)} of {len(plan)} planned package(s) read"
+              + (f"; NOT read, their widget needs are not in the order: {'; '.join(unread)}" if unread else "")
+              + (f"; {len(e_widget)} provider-before-user pair(s)" if e_widget else ""))
+    if model is not None or e_widget:
+        import planorder
+        new, cyc = planorder.order(names, {**e_widget, **e_assoc})
+        if e_widget:
+            _, cyc_a = planorder.order(names, e_assoc)
+            if set(cyc) - set(cyc_a):  # stuck only with the widget pairs: they conflict with the association order
+                print(f"CYCLE-WIDGET {', '.join(sorted(set(cyc) - set(cyc_a)))}: the widget provider order conflicts with the association "
+                      "order on the plan; the widget order is NOT applied")
+                e_widget = {}
+                new, cyc = planorder.order(names, e_assoc)
         for c in cyc:
             print(f"CYCLE {c} is part of a cross-module association cycle on the plan: cannot be ordered, reimport its owner after both")
+        ver = {p[0]: p[2] for p in plan}
+        for (u, r), ws in sorted(e_widget.items()):
+            print(f"ORDER {r} before {u}: {u} {ver[u]} uses the widget {ws[0].rsplit('.', 1)[-1]} ({ws[0]}"
+                  f"{', +%d more' % (len(ws) - 1) if len(ws) > 1 else ''}), which {r} {ver[r]} ships; "
+                  f"install/update {r} first, or the {u} step stops with CE0462 (could not find widget)")
         by = {p[0]: p for p in plan}
         plan = [by[x] for x in new]
-        for (own, tgt), nm in sorted(planorder.kept_owner_notes(model, set(names)).items()):
-            print(f"NOTE {tgt} is planned, its owner {own} is not (kept): the {tgt} update drops {len(nm)} association(s); "
-                  f"replay route (steps/upgrade.md item 1) or keep {tgt}")
+        if model is not None:
+            for (own, tgt), nm in sorted(planorder.kept_owner_notes(model, set(names)).items()):
+                print(f"NOTE {tgt} is planned, its owner {own} is not (kept): the {tgt} update drops {len(nm)} association(s); "
+                      f"replay route (steps/upgrade.md item 1) or keep {tgt}")
     print(f"modplan: {len(mods)} module(s): {len(plan)} to update, {unresolved} not picked"
           + (f"; {ignored_total} unreadable or prerelease row(s) ignored" if ignored_total else "")
           + ("; not picked is not a pass" if unresolved else ""))
