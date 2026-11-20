@@ -305,6 +305,42 @@ ctl crosscalls-own-gone-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) 
 ctl crosscalls-own-present-pass 0 '^crosscalls: 0 target\(s\) used by own modules are gone' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-here
 ctl crosscalls-own-unchecked-pass 0 '^NOTE AuthMod 3\.2\.0 -> 4\.1\.0: used by own Shop; targets NOT checked' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none
 ctl crosscalls-own-off-pass 0 '!OWN|GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+
+# GM-12: the target package's project.mpr is read at plan time; a module its documents call that is neither in the app nor in
+# the plan is "needs module X" (31 CE1613 at the build for NotificationProducer 4.1.0 -> MxTokenModule). Packages are cached
+# as <content id>-<version>.mpk like crosscalls; an uncached one is NOT CHECKED (exit 3), never clean.
+for m in gm12-app gm12-pkg-absent gm12-pkg-inapp gm12-pkg-inplan; do model $m > /dev/null; done
+for k in absent inapp inplan none; do mkdir -p $T/cache-gm12-$k; done
+for k in absent inapp inplan; do (cd $M/gm12-pkg-$k && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-gm12-$k/4444-4.1.0.mpk','w'); z.write('App.mpr'); z.close()"); done
+printf '4444 4.1.0 NotifProd\n' > $T/gm12-plan.txt
+printf '4444 4.1.0 NotifProd\n7777 1.0.0 NewMod\n' > $T/gm12-plan-newmod.txt
+printf '4444 3.1.0 NotifProd\n' > $T/gm12-plan-same.txt
+ctl gm12-absent-module-catch 1 '^NEEDS MxTokenModule: called by NotifProd 3\.1\.0 -> 4\.1\.0 \(3 refs, e\.g\. ' 'MxTokenModule\.ACT_Refresh' '1 package\(s\) read, 0 NOT CHECKED' '1 absent module\(s\) needed' '!GhostMod' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-absent
+ctl gm12-module-in-app-pass 0 '1 package\(s\) read, 0 NOT CHECKED' '0 absent module\(s\) needed' '!NEEDS' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-inapp
+ctl gm12-module-in-plan-pass 0 '0 absent module\(s\) needed' '!NEEDS' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan-newmod.txt --cache $T/cache-gm12-inplan
+ctl gm12-module-not-in-plan-catch 1 '^NEEDS NewMod: called by NotifProd' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-inplan
+ctl gm12-uncached-not-checked-catch 3 '^NOT CHECKED NotifProd 4\.1\.0: the package 4444-4\.1\.0\.mpk is not in the cache' '0 package\(s\) read, 1 NOT CHECKED' 'NOT CHECKED \(not clean\)' '!^NEEDS' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-none
+ctl gm12-same-version-skipped-pass 0 '0 package\(s\) read, 0 NOT CHECKED, 1 skipped' '!NEEDS|NOT CHECKED NotifProd' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan-same.txt --cache $T/cache-gm12-absent
+ctl gm12-no-plan-invalid 2 'give --plan-file' -- python3 $B/absentmods.py $M/gm12-app
+ctl gm12-missing-plan-invalid 2 'absentmods:' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-no-such-plan.txt
+# plan-pre.txt (10.x to 11 runs): its updates are checked and its modules count as planned
+for m in gm12-app2 gm12-pkg-pre gm12-pkg-addon; do model $m > /dev/null; done
+mkdir -p $T/cache-gm12-pre $T/cache-gm12-addon
+(cd $M/gm12-pkg-pre && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-gm12-pre/6666-2.0.0.mpk','w'); z.write('App.mpr'); z.close()")
+cp $T/cache-gm12-inplan/4444-4.1.0.mpk $T/cache-gm12-pre/4444-4.1.0.mpk
+(cd $M/gm12-pkg-addon && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-gm12-addon/4444-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+printf '6666 2.0.0 PreMod\n7777 1.0.0 NewMod\n' > $T/gm12-plan-pre.txt
+printf '6666 2.0.0 PreMod\n' > $T/gm12-plan-premod.txt
+ctl gm12-plan-pre-checked-catch 1 '^NEEDS MxTokenModule: called by PreMod 1\.0\.0 -> 2\.0\.0' '2 package\(s\) read' -- python3 $B/absentmods.py $M/gm12-app2 --plan-file $T/gm12-plan.txt --plan-file $T/gm12-plan-pre.txt --cache $T/cache-gm12-pre
+ctl gm12-plan-pre-module-planned-pass 0 '!NEEDS NewMod' '1 package\(s\) read' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --plan-file $T/gm12-plan-pre.txt --cache $T/cache-gm12-pre
+ctl gm12-plan-pre-not-given-catch 1 '^NEEDS NewMod: called by NotifProd' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-pre
+# System and an add-on (modules/*.mxmodule) of the app are not absent
+cp -r $M/gm12-app $T/gm12-app-addon; mkdir -p $T/gm12-app-addon/modules; : > $T/gm12-app-addon/modules/AddonMod.mxmodule
+ctl gm12-system-addon-skipped-pass 0 '1 package\(s\) read' '0 absent module\(s\) needed' '!NEEDS' -- python3 $B/absentmods.py $T/gm12-app-addon --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-addon
+ctl gm12-addon-not-in-app-catch 1 '^NEEDS AddonMod: called by NotifProd' '!NEEDS System' -- python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-addon
+# NEEDS and NOT CHECKED together: NEEDS wins (exit 1) and the unchecked line is still printed
+printf '4444 4.1.0 NotifProd\n6666 2.0.0 PreMod\n' > $T/gm12-plan-both.txt
+ctl gm12-needs-wins-over-unchecked-catch 1 '^NEEDS MxTokenModule: called by NotifProd' '^NOT CHECKED PreMod 2\.0\.0' -- python3 $B/absentmods.py $M/gm12-app2 --plan-file $T/gm12-plan-both.txt --cache $T/cache-gm12-absent
 # repair row 28 as a tool: copydoc.py copies the dropped document from the pre-update model into an own module, with
 # fresh ids (pointers follow) and its roles mapped, and repoints the OWN users only (a Marketplace caller is left alone)
 model copydoc-base > /dev/null; model copydoc-new > /dev/null; model copydoc-v11 > /dev/null
@@ -7035,7 +7071,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
 # dojo_report.py, release_impact.py), so the parsers in bin/proposal.py read real output; plan.txt, kept.txt and stranded.md
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
-if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x | grep -Eq "$only"; then
+if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
 for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
@@ -7124,6 +7160,66 @@ for l in open('$FX/proposal-ra16/items.tsv'):
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
+# GM-20: items about one widget package merge into one item, the stronger finding first. The work folders under
+# controls/fixtures/proposal-gm20/ hold dojo-react.md and replacements.md in the layout the real tools write (hand-written rows, no model).
+# gm20.sh CASE: section 3 of the proposal for one case
+cat > $PR/gm20.sh <<'SH'
+#!/bin/bash
+w=$PR/gm20-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/$1/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3
+SH
+chmod +x $PR/gm20.sh; export PR FX
+ctl proposal-gm20-conflict-merges-replace-first-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: a newer widget version built for React 19 .*newer widget version without mx\.logger.*\| stay on 11 with the Dojo client' '!options: stay on 11' '!\| (stay on|keep)[^|]*\| (a newer|newer|local|rebuild|fork|drop|swap)' 'drop the feature \(S\) \| stay on 10\.24 \(S\) \| stay on 11' 'also RA-10: stay on 11 and schedule the rebuild' 'recommendation: follow replacements\.tsv row R35: a newer widget version built for React 19; and ' 'supporting, weaker: dojo-react\.md: can.t move' '!widget: R35' '!widget: R38' -- bash $PR/gm20.sh conflict
+# gm20r.sh MODE: an answer recorded before the merge does not attach to the merged item. The old line stays in DECISIONS.md as
+# `P-n~stale-merged | ...` (no reader's ^(P-\d+)\s*\| matches it); the work folder is rebuilt and DECISIONS.md and the id map seeded
+cat > $PR/gm20r.sh <<'SH'
+#!/bin/bash
+w=$PR/gm20r-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/conflict/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+OLD='asked | me | CONFIRMED | closes by: x'
+if [ $1 = absorbed ]; then
+  printf '{"check:Release notes": 1, "widget:Gantt.mpk 1.2.0": 2, "widget:R35 React 19 removed API": 5}' > $w/state/proposal-ids.json
+  printf 'P-5 | R35 React 19 removed API | widget | a newer widget version built for React 19 | %s\n' "$OLD" > $w/DECISIONS.md
+elif [ $1 = two ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\nP-2 | Gantt.mpk 1.2.0 | widget | swap to a successor | %s\n' "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = crlf ]; then
+  printf 'P-1 | Release notes | check | run the check first | %s\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\r\nP-9 | Other | widget | x | %s\r\n' "$OLD" "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = nonl ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s' "$OLD" > $w/DECISIONS.md
+else
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\n' "$OLD" > $w/DECISIONS.md
+fi
+bash $PR/prop.sh $w > /dev/null
+bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'
+echo "--- DECISIONS.md"; cat -A $w/DECISIONS.md; echo; echo "--- bytes"; wc -c < $w/DECISIONS.md
+echo "--- cockpit reads"; python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import cockpitpage as cp
+d = cp.parse_decisions_md(open('$w/DECISIONS.md').read()); print('ids', sorted(d))"
+if [ $1 = dojo ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | a newer widget version built for React 19 | asked again | me | CONFIRMED | closes by: x\n' >> $w/DECISIONS.md
+  rm -f $w/state/proposal-merges.json
+  echo "--- after a new answer and a lost record"; bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'; cat $w/DECISIONS.md
+fi
+SH
+chmod +x $PR/gm20r.sh
+ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 're-answer: merged from P-2; earlier answer P-2: .keep old package, accept the risk. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x$' '^--- after a new answer and a lost record$' 'answer: a newer widget version built for React 19 \(CONFIRMED\)' '^P-2 \| Gantt\.mpk 1\.2\.0 \| widget \| a newer widget version built for React 19 \| asked again' -- bash $PR/gm20r.sh dojo
+ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer P-5: .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-5~stale-merged \| R35 React 19 removed API \| widget \|' -- bash $PR/gm20r.sh absorbed
+ctl proposal-gm20-two-lines-same-id-both-marked-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| swap to a successor \| asked' '^  - answer: not yet$' '!answer: keep old package' '!answer: swap' '!^P-2 \|' -- bash $PR/gm20r.sh two
+ctl proposal-gm20-crlf-endings-kept-catch 0 '^P-1 \| Release notes \| check \| run the check first \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-9 \| Other \| widget \| x \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^  - answer: not yet$' '^[0-9]+$' -- bash $PR/gm20r.sh crlf
+ctl proposal-gm20-crlf-only-suffix-differs-pass 0 '^same-bytes-plus-13$' -- bash -c "printf 'P-1 | Release notes | check | run the check first | asked | me | CONFIRMED | closes by: x\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\r\nP-9 | Other | widget | x | asked | me | CONFIRMED | closes by: x\r\n' | wc -c > $PR/crlf-before.txt; bash $PR/gm20r.sh crlf > /dev/null; n=\$(wc -c < $PR/gm20r-crlf/DECISIONS.md); b=\$(cat $PR/crlf-before.txt); [ \$((n - b)) = 13 ] && echo same-bytes-plus-13 || echo \"delta \$((n - b))\""
+ctl proposal-gm20-no-trailing-newline-kept-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 .* closes by: x$' '^  - answer: not yet$' '^lastbyte:x$' -- bash -c "bash $PR/gm20r.sh nonl; tail -c 1 $PR/gm20r-nonl/DECISIONS.md | od -An -c | tr -d ' ' | sed 's/^/lastbyte:/'"
+ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
+ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
+ctl proposal-gm20-two-packages-other-untouched-pass 0 'evidence: dojo-react\.md: can.t move: Old\.widget\.Tree \(2\)$' 'options: stay on 11 with the Dojo client' '!supporting' '!R35' -- sh -c "bash $PR/gm20.sh two | sed -n '/Tree.mpk/,/answer:/p'"
+ctl proposal-gm20-ambiguous-identity-not-merged-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: R35 ' 'not merged with replacements\.md row R35: its evidence names 2 package\(s\) \(Gantt\.mpk, Other\.mpk\)' 'recommendation: stay on 11' '!supporting' -- bash $PR/gm20.sh ambig
+# GM-12: absentmods.json (bin/absentmods.py --json) makes one section-3 item "needs module X" per absent module; an update
+# whose package was not cached is listed under "not measured" in section 5, never as a clean plan
+mkw gm12; mkw gm12-unchecked
+python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-absent --json $PR/gm12/absentmods.json > /dev/null
+python3 $B/absentmods.py $M/gm12-app --plan-file $T/gm12-plan.txt --cache $T/cache-gm12-none --json $PR/gm12-unchecked/absentmods.json > /dev/null
+bash $PR/prop.sh $PR/gm12 > /dev/null; bash $PR/prop.sh $PR/gm12-unchecked > /dev/null
+ctl gm12-proposal-section3-item-catch 0 '^- \[P-[0-9]+\] module: needs module MxTokenModule' 'NotifProd 3\.1\.0 -> 4\.1\.0 calls it \(3 refs' 'install MxTokenModule' -- bash $PR/sec.sh $PR/gm12 3
+ctl gm12-proposal-unchecked-not-measured-catch 0 '!needs module' 'absentmods\.py NotifProd 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gm12-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm12-unchecked/PROPOSAL.md"
+ctl gm12-proposal-no-file-no-item-pass 0 '!needs module' '!absentmods' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
 # GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
 mkdir -p $PR/unk/state; cp $PR/plain/versions.txt $PR/unk/
 printf '# plan\n66876 3.1.0 TaskQueueHelpers\n99 2.0.0 FakeModuleXyz\n' > $PR/unk/plan.txt
