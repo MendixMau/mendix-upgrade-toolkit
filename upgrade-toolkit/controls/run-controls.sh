@@ -913,10 +913,20 @@ ctl gm11-jar-version-catch 1 'conf +CHANGED +jar +org\.example:lib-a +version 1\
 ctl gm11-jar-added-catch 1 'conf +ADDED +jar +org\.example:lib-a' -- python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
 ctl gm11-config-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' '!CONFIG edits [1-9]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
 ctl gm11-jar-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-same/App.mpr --module Administration
-ctl gm11-no-mxcli-not-compared-catch 0 'domain model unchanged \| element contents NOT compared \(no mxcli\)' '^CONTENTS NOT COMPARED \(no mxcli\)' '!: domain model unchanged$' -- env UPG_MXCLI=/nonexistent/mxcli python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-no-mxcli-not-compared-catch 0 'domain model unchanged.*\| element contents NOT compared \(no mxcli\)' '^CONTENTS NOT COMPARED \(no mxcli\)' '!: domain model unchanged$' -- env UPG_MXCLI=/nonexistent/mxcli python3 $B/localedits.py $M/base/App.mpr --module Administration
 ctl gm11-no-flag-not-compared-catch 0 'element contents NOT compared \(--mxcli-diff not given\)' '^CONTENTS NOT COMPARED \(--mxcli-diff not given\)' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
+# GM-11: no ModuleSettings unit on either side (base has no jars): said on the line and in the summary, never read as "no jars"
+ctl gm11-jar-unverified-catch 0 'jar dependencies not verified \(no ModuleSettings unit read\)' '^JAR DEPENDENCIES NOT VERIFIED \(no ModuleSettings unit read\): \[.Administration.\]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-jar-verified-no-note-pass 0 '!not verified' '!JAR DEPENDENCIES NOT VERIFIED' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-same/App.mpr --module Administration
 # the triage call passes --mxcli-diff when an mxcli runs and the model is Mendix 10+
 ctl gm11-triage-passes-mxcli-diff-catch 0 'UPG_TRIAGE_MXCLI_DIFF:-1.*le\+=\(--mxcli-diff\)' -- grep -n 'UPG_TRIAGE_MXCLI_DIFF' $B/cloud/upgrade-pipeline.sh
+# the opt-out and the 9.x skip, run on the pipeline's own gate line (extracted, not copied)
+GL=$(grep -F 'le+=(--mxcli-diff)' $B/cloud/upgrade-pipeline.sh | head -1)
+gate() { bash -c "le=(); $GL; echo \"FLAGS:\${le[*]:-none}\""; }
+ctl gm11-triage-default-adds-flag-pass 0 '^FLAGS:--mxcli-diff$' -- env MXCLI=/usr/bin/false pv=10.24.1 bash -c "$(declare -f gate); GL='$GL'; gate"
+ctl gm11-triage-optout-omits-flag-catch 0 '^FLAGS:none$' -- env MXCLI=/usr/bin/false pv=10.24.1 UPG_TRIAGE_MXCLI_DIFF=0 bash -c "$(declare -f gate); GL='$GL'; gate"
+ctl gm11-triage-9x-omits-flag-catch 0 '^FLAGS:none$' -- env MXCLI=/usr/bin/false pv=9.24.3 bash -c "$(declare -f gate); GL='$GL'; gate"
+ctl gm11-triage-no-mxcli-omits-flag-catch 0 '^FLAGS:none$' -- env MXCLI= pv=10.24.1 bash -c "$(declare -f gate); GL='$GL'; gate"
 # cold rfq: Encryption snippets flagged "local: SnippetParameter PasswordData". The package (before conversion) has Entity,
 # the converted app a Forms$SnippetParameter for the same entity: no local edit. A real snippet widget still counts.
 SNIPSIG="import sys; sys.path.insert(0,'$B'); import localedits as L
@@ -3006,6 +3016,12 @@ ctl convertmade-9to10-localedits-domain-catch 1 '^LOCAL: .*1 domain rows' -- bas
 # the offline layers compare no contents (a microflow body edit is invisible): without --mxcli-diff it is LOCAL
 ctl convertmade-9to10-localedits-nodiff-catch 1 '^LOCAL: .*element contents not compared' '!CONVERT-MADE' -- bash $B/convertmade.sh $CM/v9 FeedbackModule --localedits $CM/nodiff.json
 ctl convertmade-9to10-localedits-modified-catch 1 '^LOCAL: .*1 mxcli-diff modified elements' -- bash $B/convertmade.sh $CM/v9 FeedbackModule --localedits $CM/modified.json
+python3 - $CM/clean.json $CM/config.json <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1])); r[0]["config"] = [{"change": "CHANGED", "kind": "constant", "name": "FeedbackModule.K", "detail": "default '1' -> '2'"}]
+json.dump(r, open(sys.argv[2], "w"))
+PY
+ctl gm11-convertmade-config-edit-not-clean-catch 1 '^LOCAL: .*does not show FeedbackModule clean: 1 constant/jar rows' '!CONVERT-MADE' -- bash $B/convertmade.sh $CM/v9 FeedbackModule --localedits $CM/config.json
 ctl convertmade-9to10-localedits-absent-catch 1 '^LOCAL: .*not in the localedits report' -- bash $B/convertmade.sh $CM/v9 MendixSSO --localedits $CM/clean.json
 # MC-6: a "could not be read" refusal says when the pre-convert localedits report shows the module unedited, and names the route
 lejson $CM/clean-unread.json Unread 0 0 0
@@ -8578,6 +8594,7 @@ ctl editroute-cosmetic-pass 0 '^ROUTE Cosmo COSMETIC: only diagram layout differ
 ctl editroute-real-logic-held-catch 0 '^ROUTE Realmod HOLD: real logic edit: microflow RealFlow \(move it to Realmod_Ext' '!route-plan.txt: .* Realmod$' -- $ER plan
 ctl editroute-ui-constant-replay-pass 0 '^ROUTE Uimod REPLAY: 7 UI' '^force-ui.txt: Uimod ' -- $ER plan
 ctl editroute-unread-unedited-pass 0 '^ROUTE Unread UNREAD' -- $ER plan
+ctl gm11-editroute-unread-with-config-held-catch 0 '^ROUTE Unread HOLD: 5 elements unreadable and localedits shows domain, logic or constant/jar edits' '!^ROUTE Unread UNREAD' -- $ER unread-config
 ctl editroute-files-accept-pass 0 '^ROUTE Filesmod FILES' '^accept-unsaved.txt: Filesmod ' -- $ER plan
 ctl editroute-vendor-drop-unused-pass 0 '^ROUTE Vendmod VENDOR' '^approved.txt: Vendmod.E.Gone # editroute VENDOR' -- $ER plan
 ctl editroute-vendor-drop-used-catch 0 '^ROUTE Usedmod HOLD' '!approved.txt: Usedmod' -- $ER plan

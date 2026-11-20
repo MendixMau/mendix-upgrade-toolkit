@@ -1,6 +1,7 @@
 #!/bin/bash
 # editroute_control.sh CASE: controls of bin/editroute.py (kept modules routed to an update) and the cockpitcheck keep-recommended
 # rule. A stub mxcli answers describe and refs, so no project or network is needed.
+#   unread-config  an unreadable module with a constant/jar edit is HELD, not forced (GM-11)
 #   plan     one kept module per route; prints the ROUTE lines and the files editroute writes
 #   collect  the replay files after the routed update: the app's change merged onto the new element, never the saved whole element
 #   score    did each route work: on the plan's version, held, or replay failed; one ledger line per module across runs
@@ -117,6 +118,16 @@ for m in Cosmo Realmod Uimod Unread Filesmod Vendmod Usedmod Target Javamod; do 
 case "${1:-}" in
   plan) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?"
         for f in route-plan.txt force-ui.txt accept-unsaved.txt approved.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
+  unread-config) # GM-11: the same unreadable module, but localedits shows a changed constant default: kept (HOLD), not forced as UNREAD
+        python3 - "$W/localedits.json" <<'PY'
+import json, sys
+rep = json.load(open(sys.argv[1]))
+for e in rep:
+    if e["name"] == "Unread":
+        e["config"] = [{"change": "CHANGED", "kind": "constant", "name": "Unread.K", "detail": "default '1' -> '2'"}]
+json.dump(rep, open(sys.argv[1], "w"))
+PY
+        python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?" ;;
   collect) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         mkdir -p "$W/saved-edits/Uimod" "$W/saved-edits/Target"
         for e in snippet-L1 constant-K snippet-Added snippet-Bad layout-Redir layout-Spare layout-UsedOwn page-NotRefused entity-Whole; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done

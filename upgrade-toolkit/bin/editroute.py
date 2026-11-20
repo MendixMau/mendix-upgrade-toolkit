@@ -16,7 +16,7 @@ Routes, per refused module (the module is updated in all of them except HOLD):
             logic, only the UI elements are replayed. Why (cold test WM1, Atlas_Core): the saved whole element lost the
             layout's master-layout link (empty Atlas_Default, every page would lose the company design) and carried the old
             Sprintr widget's properties onto the new widget; replaying it was refused by mxcli (MDL081, MDL-WIDGET01)
-  UNREAD    mxcli could not read some elements and localedits shows no domain or logic edit: forced, whatever it could save replayed
+  UNREAD    mxcli could not read some elements and localedits shows no domain, logic or constant/jar edit: forced, whatever it could save replayed
   FILES     theme/JavaScript files could not be compared (installed package unreadable): the saved copies under
             .stepupdate/saved/<Module>/ stay, the update may commit (accept-unsaved.txt)
   VENDOR    the new version drops an attribute or entity of its own module and nothing outside the module refers to it
@@ -168,9 +168,10 @@ def route_module(mod, why, S, ledit, original, cache, mpr, planned=()):
     rows, unread = refusal(log)
     if unread and not rows:
         e = ledit or {}
-        if e and not e.get("domain") and not e.get("logic"):
+        # GM-11: constant default / jar dependency rows are local edits too; ASSUMED: such a module is HELD, not forced
+        if e and not e.get("domain") and not e.get("logic") and not e.get("config"):
             return "UNREAD", f"{unread} elements unreadable by mxcli; localedits shows no domain or logic edit", {}
-        return "HOLD", f"{unread} elements unreadable and localedits shows domain or logic edits", {}
+        return "HOLD", f"{unread} elements unreadable and localedits shows domain, logic or constant/jar edits", {}
     if not rows:
         return "HOLD", why, {}
     pkg = None

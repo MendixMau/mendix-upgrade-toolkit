@@ -108,6 +108,12 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
      version>` (probe `mxcli marketplace versions <id>`); lines then say "compared with" that version, and a
      difference is drift OR edit, decide per line. A proxy a major version away says so: expect much drift (E5b-5,
      E4-1, E4-6). `--mxcli-diff` does not follow `--proxy` (mxcli has no base-version option, E4-8).
+   - Triage passes `--mxcli-diff` itself (`bin/cloud/upgrade-pipeline.sh`) when an mxcli runs and the model is Mendix 10 or newer:
+     it compares microflow, page and layout contents and costs about 1 to 2 minutes per Marketplace module. `UPG_TRIAGE_MXCLI_DIFF=0`
+     turns it off (a big app, a quick look): every module line then says `element contents NOT compared`, and "domain model
+     unchanged" says nothing about contents. A 9.x model or no mxcli gives the same label (GM-11). Constant defaults and jar
+     dependencies are compared offline either way (`conf` rows, exit 1); `jar dependencies not verified` means no
+     ModuleSettings unit was read, which is not "no jars".
    - Layers it compares offline: domain model (RED), pages, layouts and snippets (`ui` lines: added, deleted, page
      layout changed, E5b-19), and logic documents present on one side only (`logic` lines: microflows, nanoflows,
      rules, Java and JavaScript actions, scheduled events, E5b-28). A changed validation rule on a persistent
