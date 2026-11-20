@@ -924,6 +924,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     say "localedits: reused the earlier result (same model, args and mxcli; UPG_LOCALEDITS_FRESH=1 redoes it)"
     note "localedits reused from the earlier run"
   else
+    rm -f "$WORK/localedits.md" "$WORK/localedits.json"  # a run that dies before its report must not leave an older one to be cached under exit 2
     rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
     [ "$DRY" = 1 ] || bash "$B/localedits_cache.sh" save "$APP" "$WORK" "$rc" "${le[@]}"
   fi

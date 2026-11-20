@@ -2,7 +2,8 @@
 # localedits_cache.sh: reuse the triage localedits result when nothing it read has changed.
 #
 #   localedits_cache.sh check APP WORK [ARG ...]   exit 0 = the earlier result is still good (prints its exit code), 1 = redo
-#   localedits_cache.sh save  APP WORK RC [ARG ...]   record the result: only RC 0 and 1 are kept (2 = some module UNKNOWN: redo)
+#   localedits_cache.sh save  APP WORK RC [ARG ...]   record the result: RC 0 and 1 are kept; RC 2 only when localedits.md is a
+#                                                     complete report with no NETWORK module (UNKNOWN is a permanent answer)
 #
 # Why (GA1): the module plan has no script, so triage stops with exit 13 "write plan.txt, rerun --from triage". The rerun repeated
 # localedits.py --mxcli-diff in full: 16 modules, about 15 minutes of `mxcli marketplace diff`, to print the same table.
@@ -10,6 +11,9 @@
 # (a file already dirty and edited again changes the stamp), bin/localedits.py itself, the localedits ARGs (--mxcli-diff, --cid,
 # --proxy ...) and the mxcli version the run recorded ($WORK/state/mxcli-version). A changed model, localedits.py, a new
 # localedits.args line or another mxcli redoes it; UPG_LOCALEDITS_FRESH=1 forces a redo. Needs $WORK/localedits.json and .md.
+# RC 2 (AIB, 3 modules whose installed label is a build number: UNKNOWN, a rerun redid 14 minutes of diff): a module UNKNOWN gives
+# the same answer every time, so the result is kept. It is NOT kept when localedits.md lacks its summary line (the run died before
+# the report: an early error is also exit 2) or that line counts a NETWORK module (transient: a blip must not be frozen).
 # An app where `git rev-parse HEAD` fails is never cached (check = redo, save = nothing kept); a missing rc file is a miss.
 # NOT in the key: the mpk cache (a marketplace module re-downloaded or changed upstream), the network, and UPG_MXCLI (the binary
 # path; only the recorded mxcli version counts). UPG_LOCALEDITS_FRESH=1 is the way to redo after any of those.
@@ -34,6 +38,9 @@ case "$cmd" in
       && [ "$(cat "$st" 2>/dev/null)" = "$stamp" ] || exit 1
     cat "$rcf" 2>/dev/null || exit 1 ;;
   save)
-    case "$rc" in 0|1) mkdir -p "$work/state"; printf '%s\n' "$stamp" > "$st"; printf '%s\n' "$rc" > "$rcf";; *) rm -f "$st" "$rcf";; esac ;;
+    keep=0
+    case "$rc" in 0|1) keep=1;; 2) grep -q '^modules: [0-9].*NETWORK (not judged, transient): 0$' "$work/localedits.md" 2>/dev/null \
+                                  && [ -s "$work/localedits.json" ] && keep=1;; esac
+    case "$keep" in 1) mkdir -p "$work/state"; printf '%s\n' "$stamp" > "$st"; printf '%s\n' "$rc" > "$rcf";; *) rm -f "$st" "$rcf";; esac ;;
   *) echo "localedits_cache: unknown command $cmd" >&2; exit 2;;
 esac
