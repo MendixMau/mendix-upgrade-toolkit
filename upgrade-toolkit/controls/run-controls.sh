@@ -8103,6 +8103,8 @@ FR1=$BTR/app-fr1; frapp $FR1
 ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -1 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
 FR2=$BTR/app-fr2; frapp $FR2; echo scratch > $FR2/notes-by-a-person.txt
 ctl fr1-other-dirt-still-refused-pass 4 'has uncommitted changes' '^\?\? notes-by-a-person.txt$' '!notes-by-a-person.txt.*toolkit' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR2 fr2 | grep uncommitted; git -C $FR2 status --porcelain; git -C $FR2 log -1 --format=%s; exit 4"
+FR3=$BTR/app-fr3; frapp $FR3; echo my-own-private-ignore >> $FR3/.gitignore
+ctl fr1-persons-own-gitignore-edit-refused-catch 4 'has uncommitted changes' '^ M \.gitignore$' '^original$' '!^toolkit: ignore tool folders$' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR3 fr3 | grep uncommitted; git -C $FR3 status --porcelain; git -C $FR3 log -1 --format=%s; exit 4"
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
