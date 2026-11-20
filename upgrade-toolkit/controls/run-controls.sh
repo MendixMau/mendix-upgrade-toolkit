@@ -9698,6 +9698,25 @@ ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py
 ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
 ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
 
+# issue 30: "old app did not start" (exit 4) named only a log path; the first CRITICAL (else error) line of the runtime log goes with it,
+# but only when THIS start saved the log (runapp.py prints "runapp: NOT started;" / "runapp: admin API did not come up;" into $LOG then).
+# app_up and its helpers are cut out of the pipeline script (PIPE=<file> runs the control against another copy, e.g. origin/main's)
+AU=$T/appup; mkdir -p $AU/w/logs $AU/w2/logs $AU/w3/logs $AU/w4/logs
+printf 'INFO Starting\nERROR - Connector: Cannot connect to database "kestrel": password authentication failed\nERROR second\n' > $AU/w/logs/runtime-old.log
+printf 'INFO Starting\nINFO Started\n' > $AU/w2/logs/runtime-old.log
+printf 'INFO Starting\nERROR - benign: legacy thing\nCRITICAL - Core: the real cause\n' > $AU/w3/logs/runtime-old.log
+printf 'INFO Start\0ing\nERROR - after a NUL byte\n' > $AU/w4/logs/runtime-old.log
+AUF="eval \"\$(sed -n '/^first_err() {/,/^}/p; /^app_up() {/,/^}/p; /^infra_rc() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; runenv() { RUNENV=(); }; DRY=0; B=$B"
+# xf: a failing start that saved the log (marker in the new tail of \$LOG); xs: a failing start that did not (stale runtime log)
+XF="x() { echo 'runapp: NOT started; log saved' >> \$LOG; return 1; }"
+XS="x() { echo 'runapp: INFRA none' >> \$LOG; return 1; }"
+ctl pipeline-appup-first-error-catch 0 'old did not start; first error in .*runtime-old\.log: ERROR - Connector: Cannot connect to database' '!ERROR second' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w/p1.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-admin-marker-catch 0 'first error in .*runtime-old\.log: ERROR - Connector' '^rc=1$' -- bash -c "$AUF; x() { echo 'runapp: admin API did not come up; log saved' >> \$LOG; return 1; }; LOG=$AU/w/p1b.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-stale-log-catch 0 '!first error' '^rc=1$' -- bash -c "$AUF; echo 'runapp: NOT started; an older start' > $AU/w/p2.log; $XS; LOG=$AU/w/p2.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-critical-first-catch 0 'first error in .*runtime-old\.log: CRITICAL - Core: the real cause' '!benign' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w3/p3.log; WORK=$AU/w3; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-nul-byte-catch 0 'first error in .*runtime-old\.log: ERROR - after a NUL byte' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w4/p4.log; WORK=$AU/w4; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-no-error-line-pass 0 '!first error' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w2/p5.log; WORK=$AU/w2; app_up old m 10.24.0 db; echo rc=\$?"
+ctl pipeline-appup-started-quiet-pass 0 '!first error' '^rc=0$' -- bash -c "$AUF; x() { return 0; }; LOG=$AU/w/p6.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
