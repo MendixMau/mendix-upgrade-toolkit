@@ -7231,7 +7231,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
 # dojo_report.py, release_impact.py), so the parsers in bin/proposal.py read real output; plan.txt, kept.txt and stranded.md
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
-if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x | grep -Eq "$only"; then
+if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
 for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
@@ -7398,6 +7398,23 @@ cp $PR/gm15-missing/keptvendor.json $PR/gm15-signed-run/keptvendor.json
 ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gm15-signed-run
 ctl gm15-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept styling uses what PlatformDesignSystem 45\.0\.0 removes \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!kept styling.*CONFIRMED' -- cat $PR/gm15-signed-run/DECISIONS.md
 ctl gm15-proposal-late-step-assumed-not-approved-catch 0 '^late-step-state:assumed$' '^other-steps-approved:[1-9][0-9]*$' -- python3 -c "import json,sys; ev=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; ap=[e for e in ev if e.get('field')=='approval']; late={e['id'] for e in ap if e['value'].get('source')=='after-signoff'}; st={}; [st.update({e['id']: e['value']['state']}) for e in ap]; print('late-step-state:' + ','.join(sorted({st[i] for i in late}))); print('other-steps-approved:%d' % sum(1 for i,v in st.items() if i not in late and v=='approved'))" $PR/gm15-signed-run/steps.jsonl
+# MC-11: keptstyle.json (bin/keptstyle.py --json, real output over the keptstyle fixture $T/ks above) makes one section-3 item per kept
+# module with platform widget selectors; an empty list adds nothing; invalid JSON is listed under not measured; no file, no item. Left out
+# of the plan hash like keptvendor.json: a signed proposal stays signed, and the late item is ASSUMED, never CONFIRMED.
+mkw mc11-risk; mkw mc11-clean; mkw mc11-bad; mkw mc11-signed
+python3 $B/keptstyle.py $T/ks --kept KeptA,KeptB --json $PR/mc11-risk/keptstyle.json > /dev/null || true
+python3 $B/keptstyle.py $T/ks --kept KeptB --json $PR/mc11-clean/keptstyle.json > /dev/null || true
+echo '{not json' > $PR/mc11-bad/keptstyle.json
+bash $PR/prop.sh $PR/mc11-risk > /dev/null; bash $PR/prop.sh $PR/mc11-clean > /dev/null; bash $PR/prop.sh $PR/mc11-bad > /dev/null
+ctl mc11-proposal-risk-item-catch 0 '^- \[P-[0-9]+\] theme: kept module KeptA styles platform widgets$' '2 platform widget selector\(s\) in the kept themesource of KeptA' '\.widget-datagrid \.td at themesource/KeptA/web/main\.scss:3' '\.mx-listview-item at themesource/KeptA/web/main\.scss:6' '!KeptB' -- bash $PR/sec.sh $PR/mc11-risk 3
+ctl mc11-proposal-risk-not-in-not-measured-pass 0 '!keptstyle\.json' -- sh -c "sed -n '/^## 5\\./,/^## 6\\./p' $PR/mc11-risk/PROPOSAL.md"
+ctl mc11-proposal-clean-adds-nothing-pass 0 '!styles platform widgets' '!keptstyle\.json' -- sh -c "bash $PR/sec.sh $PR/mc11-clean 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/mc11-clean/PROPOSAL.md"
+ctl mc11-proposal-invalid-json-not-measured-catch 0 '!styles platform widgets' 'keptstyle\.json.*not valid JSON' -- sh -c "bash $PR/sec.sh $PR/mc11-bad 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/mc11-bad/PROPOSAL.md"
+ctl mc11-proposal-no-file-no-item-pass 0 '!styles platform widgets' '!keptstyle' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
+rm -rf $PR/mc11-signed-run; cp -R $PR/plain $PR/mc11-signed-run; rm -f $PR/mc11-signed-run/PROPOSAL.md; bash $PR/prop.sh $PR/mc11-signed-run > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/mc11-signed-run/PROPOSAL.md; rm -f $PR/mc11-signed-run/PROPOSAL.md.sedi
+cp $PR/mc11-risk/keptstyle.json $PR/mc11-signed-run/keptstyle.json
+ctl mc11-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/mc11-signed-run
+ctl mc11-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept module KeptA styles platform widgets \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!styles platform widgets.*CONFIRMED' -- cat $PR/mc11-signed-run/DECISIONS.md
 # GM-21: a plan that only SHRANK against the signed one (hold-back) asks for a shrink confirmation of the removed items only; an added
 # or changed item, or a signed file from before the item set was stored (or with a junk item set), asks the whole proposal again. The action
 # is the same as before (sign section 6 again); only the reading is lighter. Nothing is signed for the person. Only the shrink controls
