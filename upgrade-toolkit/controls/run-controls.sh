@@ -5632,6 +5632,10 @@ EOF
   ctl apimock-serve-public-host-bind-pass 0 'apimock: listening on 0\.0\.0\.0:' '^MendixSSO\.RolesLocation=http://host\.docker\.internal:[0-9]+/c/' \
     -- python3 $B/apimock.py serve $PF --exclude Teamcenter --state $AM/stph --port 0 --public-host host.docker.internal --background
   [ -f $AM/stph/pid ] && python3 $B/apimock.py stop --state $AM/stph > /dev/null
+  # serve with no --port listens on 9290+PORT_OFF (the real default, not only default_port())
+  ctl apimock-serve-default-port-follows-off-catch 0 'apimock: listening on 127\.0\.0\.1:16413 as ' -- env -u UPG_APIMOCK_PORT PORT_OFF=7123 python3 $B/apimock.py serve $PF --exclude Teamcenter --state $AM/stdp --background
+  [ -f $AM/stdp/pid ] && python3 $B/apimock.py stop --state $AM/stdp > /dev/null
+  ctl pipeline-standin-passes-port-off-pass 0 'env PORT_OFF="\$PORT_OFF" python3 "\$B/apimock.py" serve' -- grep -n 'apimock.py" serve' $B/cloud/upgrade-pipeline.sh
   # serve: ONE stand-in for both models (old and new app); a mocked REST call answers a body of the mapped shape
   S=$AM/st
   ctl apimock-serve-pass 0 '^MendixSSO\.RolesLocation=http://127\.0\.0\.1:[0-9]+/c/MendixSSO\.RolesLocation$' '^EmployeeManagement\.ODATA_EmployeeManagement_Location=http://127\.0\.0\.1:' \
@@ -9783,6 +9787,10 @@ ctl pipeline-appup-critical-first-catch 0 'first error in .*runtime-old\.log: CR
 ctl pipeline-appup-nul-byte-catch 0 'first error in .*runtime-old\.log: ERROR - after a NUL byte' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w4/p4.log; WORK=$AU/w4; app_up old m 10.24.0 db; echo rc=\$?"
 ctl pipeline-appup-no-error-line-pass 0 '!first error' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w2/p5.log; WORK=$AU/w2; app_up old m 10.24.0 db; echo rc=\$?"
 ctl pipeline-appup-started-quiet-pass 0 '!first error' '^rc=0$' -- bash -c "$AUF; x() { return 0; }; LOG=$AU/w/p6.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl apimock-default-port-off-catch 0 '^9990$' -- env -u UPG_APIMOCK_PORT PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
+ctl apimock-default-port-clear-of-admin-catch 0 '^clear$' -- env -u UPG_APIMOCK_PORT python3 -c "import sys; sys.path.insert(0,'$B'); import apimock, os; print('clear' if all(apimock.default_port() != 8090+o for o in range(0,1001,100) if not os.environ.__setitem__('PORT_OFF', str(o))) else 'CLASH')"
+ctl apimock-default-port-pass 0 '^9290$' -- env -u UPG_APIMOCK_PORT -u PORT_OFF python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
+ctl apimock-default-port-env-pass 0 '^9555$' -- env UPG_APIMOCK_PORT=9555 PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

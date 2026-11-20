@@ -2203,7 +2203,7 @@ heal_standin_start() { # the same stand-in for the old and the new app (apimock.
   [ ! -f "$WORK/apimock-classify.txt" ] || cls=(--classify "$WORK/apimock-classify.txt")
   [ ! -d "$WORK/apimock-recorded" ] || cls+=(--recorded "$WORK/apimock-recorded")   # recorded bodies for the stand-in (apimock.py header)
   x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true
-  must python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
+  must env PORT_OFF="$PORT_OFF" python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
   : > "$WORK/state/heal-standin"
 }
 heal_standin_stop() { rm -f "$WORK/state/heal-standin"; x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true; }
