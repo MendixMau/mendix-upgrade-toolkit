@@ -4099,7 +4099,14 @@ ctl mx10-mxbuild-says-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10$' -- env 
 ctl mx10-mxbuild-says-env-image-catch 0 '^mx10\.sh: mxbuild image mig-leaked$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-leaked zsh $B/mx10.sh 10.24.16 mxbuild --target=package x.mpr
 ctl mx10-mxbuild-says-j11-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10-j11$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
 ctl mx10-check-says-no-image-pass 0 '!mxbuild image' '^docker run' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
-ctl pipeline-build-stop-names-image-catch 0 'Build image' 'build-image.txt' -- grep -n 'Build image\|build-image.txt' $B/cloud/upgrade-pipeline.sh
+# issue 33: the write and the item are tested where they run: the build-stop block is cut out of the pipeline and run against stubs.
+# Catch = a mutant with the write moved above the block (still in the file, so the old whole-file grep passed; the block no longer writes it).
+ctl pipeline-build-stop-names-image-catch 0 '^build-image\.txt: mx10\.sh: mxbuild image mig-mx10-j11$' '^item: Build-image$' '^ok   stop path' -- bash $here/build_stop_image_control.sh $B/cloud/upgrade-pipeline.sh stop
+ctl pipeline-build-stop-image-good-build-pass 0 '^build-image\.txt: absent$' '^item: none$' '^ok   ok path' -- bash $here/build_stop_image_control.sh $B/cloud/upgrade-pipeline.sh ok
+awk '/mxbuild image .*build-image\.txt/ && /grep -m1/ {w=$0; next} {l[++k]=$0} END{for(i=1;i<=k;i++){ if (l[i] ~ /^  n=0; \[ "\$DRY" = 1 \]/) print w; print l[i] }}' $B/cloud/upgrade-pipeline.sh > $T/pipeline-image-moved.sh
+ctl pipeline-build-stop-image-moved-catch 1 '^FAIL stop path' -- bash $here/build_stop_image_control.sh $T/pipeline-image-moved.sh stop
+sed '/grep -m1 .\^mx10.sh: mxbuild image /d' $B/cloud/upgrade-pipeline.sh > $T/pipeline-image-gone.sh
+ctl pipeline-build-stop-image-gone-catch 1 '^FAIL stop path' -- bash $here/build_stop_image_control.sh $T/pipeline-image-gone.sh stop
 ctl runapp-image-10-9-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.9.0.31198'))"
 ctl runapp-image-10-6-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.6.3.26585'))"
 ctl runapp-image-10-24-java21-pass 0 '^eclipse-temurin:21-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.24.0.73019'))"
