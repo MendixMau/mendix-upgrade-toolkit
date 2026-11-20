@@ -4616,9 +4616,11 @@ ctl replace-java-entityid-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/repl
 # cold WM1: DeepLink 10.0.10 (no 11 release) imports com.mendix.core.conf.RuntimeVersion, gone in 11; Core.getRuntimeVersion() is clear
 ctl replace-java-rtver-catch 1 '^HIT +R18 ' 'in javasource/deeplink/implementation/handler/SessionHandler\.java \(2\)' -- $RC $M/replace-java-rtver --to 11.12.5
 ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-rtver-ok --to 11.12.5
-# GM-28: com.mendix.m2ee.api.IMxRuntimeRequest still exists in the 11 public API (8 false hits on a field app); other com.mendix.m2ee use still hits
+# GM-28: com.mendix.m2ee.api.IMxRuntimeRequest still exists in the 11 public API (8 false hits on a field app); IMxRuntimeResponse is exempt too
+# (the 10.0.0 note removes only its setStatus(int, String); nothing removes it in 11). Other com.mendix.m2ee use still hits: AdminAction below
+# is a stand-in for it, not proof that AdminAction is removed on 11.
 ctl gm28-r18-m2ee-request-catch 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-m2ee-ok --to 11.12.5
-ctl gm28-r18-m2ee-removed-pass 1 '^HIT +R18 ' 'in javasource/myown/actions/Rt\.java \(1\)' -- $RC $M/replace-java-m2ee --to 11.12.5
+ctl gm28-r18-other-m2ee-still-hits-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Rt\.java \(1\)' -- $RC $M/replace-java-m2ee --to 11.12.5
 # NS-1: the Mx10 metrics API (Core.metrics().counters()/timers()/gauges()) is gone in 11; DatadogConnector before 076dca76
 ctl replace-metrics-catch 1 '^HIT +R18 ' 'in javasource/datadogconnector/connector/DatadogConnector\.java \(3\)' -- $RC $M/replace-metrics --to 11.12.5
 ctl replace-metrics-new-pass 0 '^clear +R18 ' '!^HIT' -- $RC $M/replace-metrics-new --to 11.12.5
