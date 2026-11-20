@@ -865,7 +865,10 @@ async function anonymousVisit(page, baseUrl) {
     // "Customer not found" is no not-found page; [^.\n] keeps a match on one line, and 404 counts only at the start of the page text
     const pg = document.querySelectorAll('.mx-page')[0];
     const txt = (pg ? (pg.innerText || pg.textContent) : (document.body && document.body.innerText)) || '';
-    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)|^\s*(error\s*)?404\b/i.test(txt.slice(0, 2000));
+    // 404 is a signal only as the whole first line ("404", "Error 404", "404 - Page not found") on a short page: "404 open cases" is a tile
+    const t2 = txt.slice(0, 2000);
+    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)/i.test(t2)
+      || (/^[ \t\r\n]*(error[ \t\r\n]*)?404[ \t]*[-:\u2013]?[ \t]*((page|file|resource)[ \t]+)?(not found|error)?[ \t]*(\n|$)/i.test(t2) && t2.length < 300);
     const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
     return {
       guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),

@@ -48,7 +48,11 @@ const fake = ({ form, ev, dom }) => ({
   check('a stat tile reading 404 is not an error page -> ok', r.ok === true, JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Orders\n404 open orders' }) }), 'http://x');
   check('a table cell starting 404 on a later line is not an error page -> ok', r.ok === true, JSON.stringify(r));
-  for (const [t, why] of [['404 Not Found', '404 page'], ['Error\n\n404', 'error then 404'], ['Oops\nThe page does not exist', 'page does not exist']]) {
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: '404 open cases\nClosed 12\nOverdue 3' }) }), 'http://x');
+  check('a first tile reading "404 open cases" is not an error page -> ok', r.ok === true, JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: '404 Orders overdue' }) }), 'http://x');
+  check('page text that merely starts with 404 -> ok', r.ok === true, JSON.stringify(r));
+  for (const [t, why] of [['404 Not Found', '404 page'], ['404', 'bare 404 heading'], ['Error 404', 'Error 404'], ['404 - Page not found', '404 dash page not found'], ['Error\n\n404', 'error then 404'], ['Oops\nThe page does not exist', 'page does not exist']]) {
     r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: t }) }), 'http://x');
     check('not-found text still fails: ' + why + ' -> not ok', r.ok === false && /not-found text/.test(r.reason), JSON.stringify(r));
   }
