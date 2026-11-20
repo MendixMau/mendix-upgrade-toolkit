@@ -572,6 +572,18 @@ timing_close() { # timing_close EXITCODE
 # rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
 # --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
 # ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+# localedits_args FILE: the words of FILE, one per output line. A line is split into words, so `--cid Administration=23513`
+# (the form steps/triage.md and the stop text show) reaches localedits.py as two arguments; `--cid=Administration=23513`
+# (the form rung2_cids writes) stays one. Before: the whole line was one argv word and localedits.py exited 2 ("unrecognized
+# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank lines and lines starting with # (after indent) are skipped.
+localedits_args() {
+  local l w
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "${l#"${l%%[![:space:]]*}"}" in ''|\#*) continue ;; esac
+    IFS=$' \t\n' read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
+  done < "$1"
+}
 rung2_cids() { # rung2_cids PLAN ARGSFILE
   [ -f "$1" ] || return 0
   local cid ver mod
@@ -610,7 +622,14 @@ cleanup() {
   # the run is not working (MTA: page "agent is working", brief "waiting"; exit 3 stopped the same way and left the last in-step page).
   # After timing_close, which ends "running". Exit 2 (usage) and a run with no work folder yet have no page to refresh.
   if [ "$rc" != 0 ] && [ "$rc" -lt 10 ] && [ "$rc" != 2 ] && [ -d "${WORK:-/nonexistent}/state" ] && [ ! -f "${WORK:-}/NEEDS-JUDGMENT.md" ] \
-     && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
+     && declare -F cockpit_regen > /dev/null; then
+    # the exact command that resumes the failed step (rung 2 carries its env prefix and --work): the page and the brief quote it, so a
+    # reader holding the ladder command is not sent to rerun rung 1; cockpitpage.failed_step ignores it unless the last timing row is this step
+    printf '%s\t%s\n' "$st" "$(rerun_cmd)" > "$WORK/state/failed-rerun.txt" 2> /dev/null || true
+    cockpit_regen || true
+    # the brief at exit 4 too (issue 30: it was printed at judgment stops only, so a failed step ended on one error line and no "what next")
+    [ "$rc" != 4 ] || ! declare -F brief_say > /dev/null || brief_say || true
+  fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
@@ -930,7 +949,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   # mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh (GA1: 16 of 16 UNKNOWN)
   [ "$DRY" = 1 ] || bash "$B/mxbuild_link.sh" "$UPG_TOOLS" "$SOURCE" ${TARGET:+"$TARGET"} ${TARGET2:+"$TARGET2"} ${VIA:+"$VIA"} 2>&1 | while IFS= read -r l; do note "$l"; done
   local le=() a
-  if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
+  while IFS= read -r a; do le+=("$a"); done < <(localedits_args "$WORK/localedits.args")
   # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
   # mxcli runs here and the model is Mendix 10+ (mx below 10 has no module-import); otherwise localedits.py prints
   # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).
@@ -1004,7 +1023,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
 The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
-\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
+\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (\`--cid Module=ID\` or \`--proxy Module=VER\` arguments; each line is split into words, so \`--cid Module=ID\` on one line works), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
     nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
     nj_flush
@@ -1448,6 +1467,21 @@ step_convert() {
 run_stepupdate() { # run_stepupdate PLAN label
   local plan=$1 rc=0 cmd="${UPG_UPDATE_CMD:-}"
   if [ "$DRY" != 1 ] && ! grep -qvE '^[[:space:]]*(#|$)' "$plan"; then note "$2 plan $plan has no module lines: no module updates"; return 0; fi
+  # WK-6 (WKS and ERRH field runs): on a ladder a plan runs on one rung. A pick whose min Mendix is above the project's
+  # version (the 11 picks at 10.24, or the 10.24 picks before the convert at 10.21) kept every module with no cause named.
+  if [ "$DRY" != 1 ] && [ -d "$WORK/modvers" ]; then
+    local rf rfv; rfv=$(project_version "$APP")
+    if [ -z "$rfv" ]; then if [ "$2" = pre-convert ]; then rfv=$SOURCE; else rfv=$TARGET; fi; fi   # an unreadable MPR: the rung's own version
+    if [ -n "$rfv" ]; then
+      local rfrom=update; [ "$2" = pre-convert ] && rfrom=convert   # plan-pre.txt runs inside step_convert
+      rf=0; python3 "$B/rungfit.py" "$plan" --at "$rfv" --modvers "$WORK/modvers" > "$WORK/rungfit-$2.out" 2>&1 || rf=$?
+      if [ "$rf" = 1 ]; then
+        nj_meta agent; nj_add 13 "Module plan has picks that need a newer Mendix than this rung ($2, project $rfv)" "$(grep '^MISFIT' "$WORK/rungfit-$2.out") Plan each rung with its own target (steps/triage.md item 3): plan-pre.txt = picks that install at the SOURCE version, plan.txt = picks for the version the project has after the convert; the picks for the next rung go in that rung's plan. Rewrite $plan, then rerun --from $rfrom."
+        nj_flush
+      fi
+      tail -n 1 "$WORK/rungfit-$2.out" | sed 's/^/rungfit: /' | while IFS= read -r l; do note "$l"; done
+    fi
+  fi
   [ -f "$WORK/approved.txt" ] || { [ "$DRY" = 1 ] || printf '# accepted step-idcheck findings: <pattern> # reason\n' > "$WORK/approved.txt"; }
   # an MPR name with a space broke the unquoted {mpr} in T1, T4, T8: quote it
   if [ -n "$cmd" ] && [[ "$cmd" != *"'{mpr}'"* ]] && [[ "$cmd" != *'"{mpr}"'* ]]; then cmd=${cmd//\{mpr\}/\'\{mpr\}\'}; fi
@@ -2184,7 +2218,7 @@ heal_standin_start() { # the same stand-in for the old and the new app (apimock.
   [ ! -f "$WORK/apimock-classify.txt" ] || cls=(--classify "$WORK/apimock-classify.txt")
   [ ! -d "$WORK/apimock-recorded" ] || cls+=(--recorded "$WORK/apimock-recorded")   # recorded bodies for the stand-in (apimock.py header)
   x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true
-  must python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
+  must env PORT_OFF="$PORT_OFF" python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
   : > "$WORK/state/heal-standin"
 }
 heal_standin_stop() { rm -f "$WORK/state/heal-standin"; x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true; }

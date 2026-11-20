@@ -621,7 +621,7 @@ PY
   # GM-23 / A-1: read the model check before the commit, never after it (a chained "update && git commit" committed 31 CE1613)
   if [ -n "$stepchk" ]; then
     stepcheck_run "$st/step$n-$mod.check"
-    python3 "$bin/stepcheck.py" "$st/check-prev.log" "$st/step$n-$mod.check" --module "$mod" --version "$ver" ${chkacc:+--accepted "$chkacc"} --fields > "$st/step$n-$mod.stepcheck" 2>&1; crc=$?
+    python3 "$bin/stepcheck.py" "$st/check-prev.log" "$st/step$n-$mod.check" --module "$mod" --version "$ver" ${chkacc:+--accepted "$chkacc"} ${forceui:+--force-ui "$forceui"} --fields > "$st/step$n-$mod.stepcheck" 2>&1; crc=$?
     grep -E '^(NEW|stepcheck:)' "$st/step$n-$mod.stepcheck" | sed 's/^/   /'
     case $crc in
       0) cp "$st/step$n-$mod.check" "$st/check-prev.log.next";;

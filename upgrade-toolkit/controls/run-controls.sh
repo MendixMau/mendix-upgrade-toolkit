@@ -222,6 +222,9 @@ ctl idcheck-netzero-new-element-pass 0 'transient: not in the original app \(nam
 # GM-23 / A-1: stepcheck.py, the model check read after each step. Captured-shape logs (fixtures/check): worse adds errors, better only drops
 SC=$FX/check
 ctl stepcheck-new-errors-catch 1 '^NEW CE6085' 'adds? ?|new error\(s\) \(CE6085 x' '^Q.*breaks the model' '^R.*keep$' '^O.*keep\|Keep ModX at the installed version' '^W.*keep\|step-keep\.txt\|ModX' '^W.*accept\|stepcheck-accepted\.txt\|ModX CE6085' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields
+# issue 44: a module named by --force-ui is meant to be updated, so the stop recommends accept; any other module keeps `keep`
+ctl stepcheck-forceui-recommends-accept-catch 1 '^R.*accept$' '!^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModX, --fields
+ctl stepcheck-forceui-other-module-keeps-catch 1 '^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModY, --fields
 ctl stepcheck-fewer-errors-pass 0 'no new error' '!^NEW' -- python3 $B/stepcheck.py $SC/before.log $SC/after-better.log --module ModX --version 2.0.0 --fields
 echo 'ModX CE6085  # accepted by a person' > $T/sc-acc.txt
 ctl stepcheck-accepted-pass 0 'no new error' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --accepted $T/sc-acc.txt
@@ -2355,6 +2358,11 @@ ctl stepupdate-stepcheck-catch 4 'STOP: step1-adds 1\.6\.0 adds model errors' 'N
 ctl stepupdate-stepcheck-nothing-committed 0 'base' '!step: step1-adds' -- git -C $S5/app log --format=%s
 ctl stepupdate-stepcheck-tree-undone 0 '!.' -- git -C $S5/app status --porcelain --untracked-files=no
 ctl stepupdate-stepcheck-stop-file 0 '^Q.*breaks the model' '^R.*keep$' '^W.*keep\|step-keep\.txt\|step1-adds' -- cat $S5/app/.stepupdate/stepcheck-stop.txt
+S5f=$T/step-chk-forceui; mkdir -p $S5f/app $S5f/edits; cp $M/base/App.mpr $S5f/app/App.mpr; cp $S5/plan.txt $S5f/
+(cd $S5f/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+printf '#!/bin/sh\ncp "$1" "$2"\n' > $S5f/upd.sh
+ctl stepupdate-forceui-wired-recommends-accept-catch 4 'STOP: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" UPG_UPDATE_CMD="sh $S5f/upd.sh $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S5f/app $S5f/plan.txt --force-ui step1-adds --saved-edits $S5f/edits
+ctl stepupdate-forceui-wired-stop-file 0 '^R.*accept$' '!^R.*keep$' -- cat $S5f/app/.stepupdate/stepcheck-stop.txt
 echo 'step1-adds CE6085  # accepted' > $S5/acc.txt
 ctl stepupdate-stepcheck-accepted-pass 0 'committed' '!STOP' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt --check-accepted $S5/acc.txt
 S6=$T/step-chk2; mkdir -p $S6/app $S6/step1-adds; cp $M/base/App.mpr $S6/app/App.mpr; cp $M/step1-adds/App.mpr $S6/step1-adds/; cp $S5/plan.txt $S5/chk-clean.sh $S5/chk-none.sh $S6/
@@ -2735,6 +2743,18 @@ mkdir -p $NJ/w13; printf '1 1.0 Administration\n' > $NJ/w13/plan.txt
 ctl pipeline-no-plan-pre-catch 0 'needs judgment \(exit 13\)' 'plan-pre.txt missing on a 10.x to 11 run' '!mx convert exit' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13 --from convert --only convert; cat $NJ/w13/NEEDS-JUDGMENT.md"
 mkdir -p $NJ/w13b; printf '1 1.0 Administration\n' > $NJ/w13b/plan.txt; printf '# nothing before the convert\n' > $NJ/w13b/plan-pre.txt
 ctl pipeline-plan-pre-stated-pass 0 '!plan-pre.txt missing' 'convert' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13b --from convert --only convert; cat $NJ/w13b/NEEDS-JUDGMENT.md 2>/dev/null; true"
+# WK-6 (WKS, ERRH): on a ladder the plan of each rung holds picks that fit THAT rung (11 picks at 10.24 / 10.24 picks at 10.21 kept every module)
+mkdir -p $NJ/rf/modvers $NJ/rfw/modvers
+printf 'VERSION  MIN MENDIX  PUBLISHED   NAME\n4.7.1    11.0.0      2026-11-20  Atlas Core\n3.22.1    10.24.0      2026-10-01  Atlas Core\n' > $NJ/rf/modvers/versions-117187.txt
+printf '117187 4.7.1 Atlas_Core\n' > $NJ/rf/plan-11.txt; printf '117187 3.22.1 Atlas_Core\n' > $NJ/rf/plan-1024.txt
+ctl rungfit-11-pick-at-1024-catch 1 '^MISFIT +Atlas_Core 4\.7\.1: min Mendix 11\.0\.0 is above 10\.24\.13' '1 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-11.txt --at 10.24.13.86719 --modvers $NJ/rf/modvers
+ctl rungfit-1024-pick-at-1021-catch 1 '^MISFIT +Atlas_Core 3\.22\.1: min Mendix 10\.24\.0 is above 10\.21\.1' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.21.1.64969 --modvers $NJ/rf/modvers
+ctl rungfit-fit-pass 0 '^FIT +Atlas_Core 3\.22\.1' '0 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rf/modvers
+ctl rungfit-unknown-not-green-pass 0 '^NOT CHECKED +Atlas_Core' '1 not checked' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rfw/modvers
+mkdir -p $NJ/rf4/modvers; printf 'VERSION  MIN MENDIX  PUBLISHED   NAME\n3.22.1    10.24.0.0      2026-10-01  Atlas Core\n' > $NJ/rf4/modvers/versions-117187.txt
+ctl rungfit-four-part-min-three-part-at-pass 0 '^FIT +Atlas_Core 3\.22\.1' '0 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.0 --modvers $NJ/rf4/modvers
+mkdir -p $NJ/rfp $NJ/rfapp; git init -q $NJ/rfapp; git -C $NJ/rfapp -c user.email=c@c -c user.name=c commit -q --allow-empty -m 'convert 10.24.26.1'; cp -r $NJ/rf/modvers $NJ/rfp/modvers; cp $NJ/rf/plan-11.txt $NJ/rfp/plan.txt
+ctl pipeline-update-misfit-stops-catch 0 'needs judgment \(exit 13\)' 'picks that need a newer Mendix than this rung' 'MISFIT +Atlas_Core 4\.7\.1' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/rfapp --source 10.24.26.1 --target 10.24.26.1 --work $NJ/rfp --from update --only update; cat $NJ/rfp/NEEDS-JUDGMENT.md"
 # WM1 cold test 2026-11-17: 16 judgment stops, one question each. Interview mode auto parks a stop nothing later depends on
 # (here the gate's release-impact and kept-modules stops), goes on, and asks every parked item in one grouped list at the end
 for d in ga gm; do mkdir -p $NJ/$d; printf 'Admin 1.0\n' > $NJ/$d/kept.txt; printf '# release impact\n' > $NJ/$d/release-impact.md; done
@@ -5633,6 +5653,10 @@ EOF
   ctl apimock-serve-public-host-bind-pass 0 'apimock: listening on 0\.0\.0\.0:' '^MendixSSO\.RolesLocation=http://host\.docker\.internal:[0-9]+/c/' \
     -- python3 $B/apimock.py serve $PF --exclude Teamcenter --state $AM/stph --port 0 --public-host host.docker.internal --background
   [ -f $AM/stph/pid ] && python3 $B/apimock.py stop --state $AM/stph > /dev/null
+  # serve with no --port listens on 9290+PORT_OFF (the real default, not only default_port())
+  ctl apimock-serve-default-port-follows-off-catch 0 'apimock: listening on 127\.0\.0\.1:16413 as ' -- env -u UPG_APIMOCK_PORT PORT_OFF=7123 python3 $B/apimock.py serve $PF --exclude Teamcenter --state $AM/stdp --background
+  [ -f $AM/stdp/pid ] && python3 $B/apimock.py stop --state $AM/stdp > /dev/null
+  ctl pipeline-standin-passes-port-off-pass 0 'env PORT_OFF="\$PORT_OFF" python3 "\$B/apimock.py" serve' -- grep -n 'apimock.py" serve' $B/cloud/upgrade-pipeline.sh
   # serve: ONE stand-in for both models (old and new app); a mocked REST call answers a body of the mapped shape
   S=$AM/st
   ctl apimock-serve-pass 0 '^MendixSSO\.RolesLocation=http://127\.0\.0\.1:[0-9]+/c/MendixSSO\.RolesLocation$' '^EmployeeManagement\.ODATA_EmployeeManagement_Location=http://127\.0\.0\.1:' \
@@ -9499,6 +9523,15 @@ printf '%s\n' '--cid=DataWidgets=999' > $R2C/args
 awk '/^rung2_cids\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $R2C/fn.sh
 ctl pipeline-rung2-cids-pass 0 '^--cid=Atlas_Core=117187$' '^--cid=Administration=23513$' '^--cid=DataWidgets=999$' '!DataWidgets=116540' '!plan' -- bash -c ". $R2C/fn.sh; rung2_cids $R2C/plan.txt $R2C/args; cat $R2C/args"
 ctl pipeline-rung2-cids-wired-pass 0 'rung2_cids "\$WORK/plan.txt" "\$WORK/rung2/localedits.args"' -- grep -n 'rung2_cids "' $B/cloud/upgrade-pipeline.sh
+# localedits_args: a line of localedits.args is split into words. The two-word form the triage stop text shows
+# (`--cid Administration=23513`) was passed as ONE argv word and localedits.py exited 2 (field run ERRH); the
+# `--cid=Mod=ID` form rung2_cids writes stays one word, comments and blank lines are skipped.
+LA=$T/ledargs; mkdir -p $LA
+printf '%s\n' '# comment' '  # indented note' '--cid Administration=23513' '' '--cid=Atlas_Core=117187' '--proxy   Foo=1.2.3' > $LA/args
+awk '/^localedits_args\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $LA/fn.sh
+ctl pipeline-localedits-args-split-catch 0 '^--cid$' '^Administration=23513$' '^--proxy$' '^Foo=1\.2\.3$' '!--cid Administration' -- bash -c ". $LA/fn.sh && localedits_args $LA/args"
+ctl pipeline-localedits-args-oneword-pass 0 '^--cid=Atlas_Core=117187$' '!comment' '!^#$' '!^note$' -- bash -c ". $LA/fn.sh && localedits_args $LA/args"
+ctl pipeline-localedits-args-wired-pass 0 'localedits_args "\$WORK/localedits.args"' -- grep -n 'localedits_args "' $B/cloud/upgrade-pipeline.sh
 
 # submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
 # internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a
@@ -9713,6 +9746,49 @@ ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback
 ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
 
+# issue 30: exit 4 (a failed step, no stop file) prints the brief, like a judgment stop does; cleanup() is cut out of the pipeline script
+CL4=$T/cl4; mkdir -p $CL4/w/state
+CLF="eval \"\$(sed -n '/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { echo BRIEF-PRINTED; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=build; WORK=$CL4/w; APPS_UP=()"
+ctl pipeline-exit4-prints-brief-catch 0 '^REGEN$' '^BRIEF-PRINTED$' -- bash -c "$CLF; ( exit 4 ); cleanup; true"
+ctl pipeline-exit0-no-brief-pass 0 '!BRIEF-PRINTED' '!REGEN' -- bash -c "$CLF; ( exit 0 ); cleanup; true"
+ctl pipeline-exit4-after-stop-file-no-second-brief-pass 0 '!BRIEF-PRINTED' -- bash -c "$CLF; : > $CL4/w/NEEDS-JUDGMENT.md; ( exit 4 ); cleanup; true"
+
+# issue 30, the brief AFTER the failure: the real brief.py and cockpit model on a synthetic work folder (steps done, last timing row exit N, no stop file)
+# the old code said "No step is running right now" and "Nothing to do now"; a failed last attempt is now said, with the log and the rerun
+FB=$T/fb; for n in 4 0 7 2; do mkdir -p $FB/w$n/state $FB/w$n/logs; for st in triage baseline; do echo 2026-10-20T10:00:00Z > $FB/w$n/state/$st.done; done
+  printf 'step\tstart_utc\tend_utc\texit\ntriage\t2026-10-20T10:00:00Z\t2026-10-20T10:05:00Z\t0\nbaseline\t2026-10-20T10:05:00Z\t2026-10-20T10:10:00Z\t0\nconvert\t2026-10-20T10:10:00Z\t2026-10-20T10:15:00Z\t%s\n' $n > $FB/w$n/state/timing.tsv; done
+# a failure and then a successful rerun: only the newest row counts
+cp -r $FB/w4 $FB/wre; printf 'convert\t2026-10-20T12:00:00Z\t2026-10-20T12:09:00Z\t0\n' >> $FB/wre/state/timing.tsv
+# a failure and a rerun in progress (running marker with this shell's pid)
+cp -r $FB/w4 $FB/wrun; printf 'convert\t%s\t%s\n' "$(date +%s)" "$$" > $FB/wrun/state/running
+ctl brief-exit4-says-failed-catch 0 'Step convert failed \(exit 4\)' 'logs/convert.log' '--from convert' '!Nothing to do now' '!No step is running right now' -- python3 $B/brief.py --work $FB/w4
+ctl brief-exit7-says-failed-catch 0 'Step convert failed \(exit 7\)' '--from convert' '!Nothing to do now' -- python3 $B/brief.py --work $FB/w7
+ctl cockpit-model-exit4-failed-catch 0 'failed=convert,4' 'dot=bad' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+m=c.build_model('$FB/w4'); print('failed=%s,%s' % (m['failed']['step'], m['failed']['code']), 'dot='+m['state']['dot']); print(m['state']['text'])"
+ctl brief-exit0-no-failed-pass 0 '!failed' '!--from convert' -- python3 $B/brief.py --work $FB/w0
+ctl brief-exit2-usage-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/w2
+ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wre
+ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
+ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
+
+# issue 30, rung 2: the work folder is <run>/rung2 and its page is the run's one cockpit, so the advice must be the rung-2 command
+# (env prefix, --work .../rung2), not the plain ladder command: after rung 2's convert the ladder refuses --from X (ladder_from_guard),
+# before it --from baseline reruns rung 1 on a converted app. cleanup() records the command, the page and the brief quote it.
+mkdir -p $FB/r2/rung2/state $FB/r2s/rung2/state
+for d in r2 r2s; do cp $FB/w4/state/timing.tsv $FB/$d/rung2/state/timing.tsv; done
+printf 'convert\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert\n' > $FB/r2/rung2/state/failed-rerun.txt
+printf 'build\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from build\n' > $FB/r2s/rung2/state/failed-rerun.txt
+CLR="eval \"\$(sed -n '/^quoted() {/p;/^rerun_cmd() {/,/^}/p;/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { :; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=convert; SELF=/x/upgrade-pipeline.sh; ARGS_ORIG=(--work /r/rung2 --from convert); RUN=/r; UPG_PHASE=2; WORK=$CL4/rung2; APPS_UP=(); mkdir -p \$WORK/state"
+ctl pipeline-exit4-rung2-records-rung2-command-catch 0 'convert.env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' -- bash -c "$CLR; ( exit 4 ); cleanup; cat $CL4/rung2/state/failed-rerun.txt"
+ctl brief-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'rung2/logs/convert.log, fix the cause, then rerun this command. env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' '!Read logs/convert.log' -- sh -c "python3 $B/brief.py --work $FB/r2/rung2 | tr -s ' \\n' '  '"
+ctl cockpit-model-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'UPG_PHASE=2' 'rerun: env RUN' '!Read logs/convert.log' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+print(c.build_model('$FB/r2/rung2')['state']['text'])"
+ctl brief-exit4-rung2-other-step-command-ignored-pass 0 'Read rung2/logs/convert.log' 'rerun with --from convert' '!--from build' -- sh -c "python3 $B/brief.py --work $FB/r2s/rung2 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-text-unchanged-pass 0 'Read logs/convert.log, fix the cause, then rerun with --from convert' '!rung2' -- sh -c "python3 $B/brief.py --work $FB/w4 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-recorded-command-pass 0 '^  /x/upgrade-pipeline.sh --work /r --from convert$' '!rung2' -- sh -c "cp -r $FB/w4 $FB/w4c; printf 'convert\t/x/upgrade-pipeline.sh --work /r --from convert\n' > $FB/w4c/state/failed-rerun.txt; python3 $B/brief.py --work $FB/w4c"
+
 # issue 30: "old app did not start" (exit 4) named only a log path; the first CRITICAL (else error) line of the runtime log goes with it,
 # but only when THIS start saved the log (runapp.py prints "runapp: NOT started;" / "runapp: admin API did not come up;" into $LOG then).
 # app_up and its helpers are cut out of the pipeline script (PIPE=<file> runs the control against another copy, e.g. origin/main's)
@@ -9732,6 +9808,10 @@ ctl pipeline-appup-critical-first-catch 0 'first error in .*runtime-old\.log: CR
 ctl pipeline-appup-nul-byte-catch 0 'first error in .*runtime-old\.log: ERROR - after a NUL byte' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w4/p4.log; WORK=$AU/w4; app_up old m 10.24.0 db; echo rc=\$?"
 ctl pipeline-appup-no-error-line-pass 0 '!first error' '^rc=1$' -- bash -c "$AUF; $XF; LOG=$AU/w2/p5.log; WORK=$AU/w2; app_up old m 10.24.0 db; echo rc=\$?"
 ctl pipeline-appup-started-quiet-pass 0 '!first error' '^rc=0$' -- bash -c "$AUF; x() { return 0; }; LOG=$AU/w/p6.log; WORK=$AU/w; app_up old m 10.24.0 db; echo rc=\$?"
+ctl apimock-default-port-off-catch 0 '^9990$' -- env -u UPG_APIMOCK_PORT PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
+ctl apimock-default-port-clear-of-admin-catch 0 '^clear$' -- env -u UPG_APIMOCK_PORT python3 -c "import sys; sys.path.insert(0,'$B'); import apimock, os; print('clear' if all(apimock.default_port() != 8090+o for o in range(0,1001,100) if not os.environ.__setitem__('PORT_OFF', str(o))) else 'CLASH')"
+ctl apimock-default-port-pass 0 '^9290$' -- env -u UPG_APIMOCK_PORT -u PORT_OFF python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
+ctl apimock-default-port-env-pass 0 '^9555$' -- env UPG_APIMOCK_PORT=9555 PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
