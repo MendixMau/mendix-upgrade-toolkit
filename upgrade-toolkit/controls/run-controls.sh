@@ -7158,6 +7158,57 @@ for l in open('$FX/proposal-ra16/items.tsv'):
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
+# GM-20: items about one widget package merge into one item, the stronger finding first. The work folders under
+# controls/fixtures/proposal-gm20/ hold dojo-react.md and replacements.md in the layout the real tools write (hand-written rows, no model).
+# gm20.sh CASE: section 3 of the proposal for one case
+cat > $PR/gm20.sh <<'SH'
+#!/bin/bash
+w=$PR/gm20-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/$1/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3
+SH
+chmod +x $PR/gm20.sh; export PR FX
+ctl proposal-gm20-conflict-merges-replace-first-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: a newer widget version built for React 19 .*newer widget version without mx\.logger.*\| stay on 11 with the Dojo client' '!options: stay on 11' '!\| (stay on|keep)[^|]*\| (a newer|newer|local|rebuild|fork|drop|swap)' 'drop the feature \(S\) \| stay on 10\.24 \(S\) \| stay on 11' 'also RA-10: stay on 11 and schedule the rebuild' 'recommendation: follow replacements\.tsv row R35: a newer widget version built for React 19; and ' 'supporting, weaker: dojo-react\.md: can.t move' '!widget: R35' '!widget: R38' -- bash $PR/gm20.sh conflict
+# gm20r.sh MODE: an answer recorded before the merge does not attach to the merged item. The old line stays in DECISIONS.md as
+# `P-n~stale-merged | ...` (no reader's ^(P-\d+)\s*\| matches it); the work folder is rebuilt and DECISIONS.md and the id map seeded
+cat > $PR/gm20r.sh <<'SH'
+#!/bin/bash
+w=$PR/gm20r-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/conflict/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+OLD='asked | me | CONFIRMED | closes by: x'
+if [ $1 = absorbed ]; then
+  printf '{"check:Release notes": 1, "widget:Gantt.mpk 1.2.0": 2, "widget:R35 React 19 removed API": 5}' > $w/state/proposal-ids.json
+  printf 'P-5 | R35 React 19 removed API | widget | a newer widget version built for React 19 | %s\n' "$OLD" > $w/DECISIONS.md
+elif [ $1 = two ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\nP-2 | Gantt.mpk 1.2.0 | widget | swap to a successor | %s\n' "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = crlf ]; then
+  printf 'P-1 | Release notes | check | run the check first | %s\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\r\nP-9 | Other | widget | x | %s\r\n' "$OLD" "$OLD" "$OLD" > $w/DECISIONS.md
+elif [ $1 = nonl ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s' "$OLD" > $w/DECISIONS.md
+else
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | %s\n' "$OLD" > $w/DECISIONS.md
+fi
+bash $PR/prop.sh $w > /dev/null
+bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'
+echo "--- DECISIONS.md"; cat -A $w/DECISIONS.md; echo; echo "--- bytes"; wc -c < $w/DECISIONS.md
+echo "--- cockpit reads"; python3 -I -c "
+import sys; sys.path.insert(0, '$B'); import cockpitpage as cp
+d = cp.parse_decisions_md(open('$w/DECISIONS.md').read()); print('ids', sorted(d))"
+if [ $1 = dojo ]; then
+  printf 'P-2 | Gantt.mpk 1.2.0 | widget | a newer widget version built for React 19 | asked again | me | CONFIRMED | closes by: x\n' >> $w/DECISIONS.md
+  rm -f $w/state/proposal-merges.json
+  echo "--- after a new answer and a lost record"; bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3 | sed -n '/Gantt/,/^  - answer:/p'; cat $w/DECISIONS.md
+fi
+SH
+chmod +x $PR/gm20r.sh
+ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 're-answer: merged from P-2; earlier answer P-2: .keep old package, accept the risk. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x$' '^--- after a new answer and a lost record$' 'answer: a newer widget version built for React 19 \(CONFIRMED\)' '^P-2 \| Gantt\.mpk 1\.2\.0 \| widget \| a newer widget version built for React 19 \| asked again' -- bash $PR/gm20r.sh dojo
+ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer P-5: .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-5~stale-merged \| R35 React 19 removed API \| widget \|' -- bash $PR/gm20r.sh absorbed
+ctl proposal-gm20-two-lines-same-id-both-marked-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| swap to a successor \| asked' '^  - answer: not yet$' '!answer: keep old package' '!answer: swap' '!^P-2 \|' -- bash $PR/gm20r.sh two
+ctl proposal-gm20-crlf-endings-kept-catch 0 '^P-1 \| Release notes \| check \| run the check first \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-9 \| Other \| widget \| x \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^  - answer: not yet$' '^[0-9]+$' -- bash $PR/gm20r.sh crlf
+ctl proposal-gm20-crlf-only-suffix-differs-pass 0 '^same-bytes-plus-13$' -- bash -c "printf 'P-1 | Release notes | check | run the check first | asked | me | CONFIRMED | closes by: x\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\r\nP-9 | Other | widget | x | asked | me | CONFIRMED | closes by: x\r\n' | wc -c > $PR/crlf-before.txt; bash $PR/gm20r.sh crlf > /dev/null; n=\$(wc -c < $PR/gm20r-crlf/DECISIONS.md); b=\$(cat $PR/crlf-before.txt); [ \$((n - b)) = 13 ] && echo same-bytes-plus-13 || echo \"delta \$((n - b))\""
+ctl proposal-gm20-no-trailing-newline-kept-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 .* closes by: x$' '^  - answer: not yet$' '^lastbyte:x$' -- bash -c "bash $PR/gm20r.sh nonl; tail -c 1 $PR/gm20r-nonl/DECISIONS.md | od -An -c | tr -d ' ' | sed 's/^/lastbyte:/'"
+ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
+ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
+ctl proposal-gm20-two-packages-other-untouched-pass 0 'evidence: dojo-react\.md: can.t move: Old\.widget\.Tree \(2\)$' 'options: stay on 11 with the Dojo client' '!supporting' '!R35' -- sh -c "bash $PR/gm20.sh two | sed -n '/Tree.mpk/,/answer:/p'"
+ctl proposal-gm20-ambiguous-identity-not-merged-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: R35 ' 'not merged with replacements\.md row R35: its evidence names 2 package\(s\) \(Gantt\.mpk, Other\.mpk\)' 'recommendation: stay on 11' '!supporting' -- bash $PR/gm20.sh ambig
 # GM-12: absentmods.json (bin/absentmods.py --json) makes one section-3 item "needs module X" per absent module; an update
 # whose package was not cached is listed under "not measured" in section 5, never as a clean plan
 mkw gm12; mkw gm12-unchecked

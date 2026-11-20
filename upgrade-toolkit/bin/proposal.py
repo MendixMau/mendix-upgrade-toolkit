@@ -350,6 +350,8 @@ class Facts:
                           f"{rep} (replacements.tsv row {rid})" if rep and rep != "-" else "see replacements.tsv row " + rid,
                           f"follow replacements.tsv row {rid}: {rep}" if rep and rep != "-" else "hand to a named person",
                           eff, (col(head, r, "risk") or "see the row")[:80])
+                # GM-20: the packages this hit names (widgets/<file>.mpk in its evidence), for the per-package merge
+                self.items3[-1]["rpkgs"] = sorted(set(re.findall(r"widgets/([^\s;/]+\.mpk)\b", ev))) if st == "HIT" and kind == "widget" else []
 
     def dojo(self):
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
@@ -374,6 +376,7 @@ class Facts:
                               "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
                               "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
+                    self.items3[-1]["dojopkg"] = pkg
                 elif st in ("can move", "delete"):
                     self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
@@ -383,6 +386,49 @@ class Facts:
                                   "keep on the Dojo client for now | HTML Element widget | JavaScript action + nanoflow + Events | pluggable widget | hand to a named person",
                                   "HTML Element widget for every snippet that holds HTML only; classify the rest (script, DOM work) per snippet", "M",
                                   "script in a snippet runs on the Dojo page DOM; Mendix 12 removes the Dojo client")
+
+    def merge_packages(self):
+        """GM-20: one item per widget package. A replacement HIT (crash or replace finding) and the dojo-report item name the
+        same package by its file name (`widgets/<file>.mpk` in the evidence, `package` column of dojo-react.md). The stronger
+        finding leads: the replacement advice comes first, "keep, accept the risk" (or the catalogue's "stay on 11") last, and the dojo line stays in the
+        evidence as the supporting one. An identity that is not exact (a hit naming several packages, a package listed twice
+        in the dojo report) is not merged; the dojo item says so."""
+        dojo = {}
+        for it in self.items3:
+            if it.get("dojopkg"):
+                dojo.setdefault(it["dojopkg"], []).append(it)
+        merged, gone = {}, set()
+        for rep in self.items3:
+            pk = rep.get("rpkgs") or []
+            hit = [x for x in pk if x in dojo]
+            if not hit:
+                continue
+            if len(pk) != 1 or len(dojo[pk[0]]) != 1:
+                for x in hit:
+                    for d in dojo[x]:
+                        d["evidence"] += (f"; not merged with replacements.md row {rep['name'].split()[0]}: its evidence names "
+                                          f"{len(pk)} package(s) ({', '.join(pk)}), so the package identity is ambiguous")
+                continue
+            merged.setdefault(id(dojo[pk[0]][0]), (dojo[pk[0]][0], []))[1].append(rep)
+            gone.add(id(rep))
+        for d, reps in merged.values():
+            # the dojo item's catalogue link (its RA tag and recommendation) survives as a supporting line; the replacement
+            # findings lead. Every keep / "stay on" option, whichever side it came from, goes after the last other option.
+            tag = re.search(r"\[(RA-\d+)[^\]]*\]", d["rec"])
+            also = (f"; also {tag.group(1)}: {re.sub(chr(32) + r'*\[RA-\d+[^]]*\]', '', d['rec'])} [playbooks/rearchitecture.md]") if tag else ""
+            allopts = [o for r in reps for o in r["options"].split(" | ")] + d["options"].split(" | ")
+            opts = []
+            for o in allopts:
+                if o not in opts:
+                    opts.append(o)
+            isk = lambda o: o.startswith(("keep", "stay on"))
+            d["options"] = " | ".join([o for o in opts if not isk(o)] + [o for o in opts if isk(o)])
+            d["evidence"] = ("; ".join(dict.fromkeys(r["evidence"] for r in reps)) + "; supporting, weaker: " + d["evidence"] + also)
+            d["rec"] = "; and ".join(r["rec"] for r in reps)
+            d["effort"] = max([d["effort"]] + [r["effort"] for r in reps], key="SML".index)
+            d["risk"] = "; ".join(dict.fromkeys(r["risk"] for r in reps)) + "; " + d["risk"]
+            d["merged_keys"] = [f"{d['kind']}:{d['name']}"] + [f"{r['kind']}:{r['name']}" for r in reps]
+        self.items3 = [i for i in self.items3 if id(i) not in gone]
 
     def sizes_and_actions(self):
         t = read(self.p("actions.json"))
@@ -529,6 +575,7 @@ class Facts:
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
                     break
+        self.merge_packages()   # after the catalogue prefill: the merged item takes each finding's own options and recommendation
         self.filedoc_item()
         # section 4: a person anyway
         if self.release_open:
@@ -682,6 +729,7 @@ def approve_steps(work, ids, state, signer, source, answers=None):
 
 
 def decisions(work):
+    """P-n -> fields of DECISIONS.md. A line whose id carries the `~stale-merged` marker (reanswer()) does not match."""
     out = {}
     for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
         m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
@@ -689,6 +737,50 @@ def decisions(work):
             f = [x.strip() for x in m.group(2).split("|")]
             out[m.group(1)] = f
     return out
+
+
+def reanswer(items, work):
+    """GM-20: a merged item has a new recommendation order, so an answer given to the dojo item or to one of the absorbed
+    replacement items before the merge is not carried over. Each such answer line in DECISIONS.md is rewritten in place to
+    `P-n~stale-merged | <rest>` (every reader's `^(P-\\d+)\\s*\\|` then skips it; nothing is deleted) and the item's evidence names
+    all of them. The file is the only state: an id that already has a stale-merged line is never marked again, so an answer
+    written after the merge (a plain P-n line) counts, and a rerun finds the same note."""
+    try:
+        ids = json.load(open(os.path.join(work, "state", "proposal-ids.json")))
+    except (OSError, ValueError):
+        ids = {}
+    dpath = os.path.join(work, "DECISIONS.md")
+    for it in items:
+        keys = it.get("merged_keys")
+        if not keys:
+            continue
+        frm = [f"P-{ids[k]}" for k in keys if k in ids]
+        stale = lambda: {m.group(1): [x.strip() for x in m.group(2).split("|")]
+                         for m in (re.match(r"^(P-\d+)~stale-merged\s*\|(.*)$", ln) for ln in lines_of(dpath) or []) if m}
+        have = stale()
+        live = decisions(work)
+        for pid in frm:
+            if pid in live and pid not in have:
+                mark_stale(dpath, pid)
+        have = stale()
+        olds = [(pid, have[pid]) for pid in frm if pid in have]
+        if olds:
+            txt = "; ".join(f"{pid}: '{f[2] if len(f) > 2 else '?'}'" for pid, f in olds)
+            it["evidence"] += f"; re-answer: merged from {'/'.join(frm)}; earlier answer {txt} was given to the unmerged item (kept in DECISIONS.md as ~stale-merged)"
+
+
+def mark_stale(path, pid):
+    """Rewrite every `pid | ...` line of DECISIONS.md to `pid~stale-merged | ...` (decisions() is last-wins, so marking only the
+    last one would revive an earlier line). Every other byte stays: line endings are kept (newline=""). The read-then-replace
+    window can lose a line that write_decisions appends meanwhile; the pipeline runs one proposal.py at a time."""
+    with open(path, encoding="utf-8", newline="") as f:
+        text = f.read()
+    lines = text.split("\n")
+    for n, ln in enumerate(lines):
+        lines[n] = re.sub(rf"^{re.escape(pid)}(\s*\|)", rf"{pid}~stale-merged\1", ln, count=1)
+    with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(lines))
+    os.replace(path + ".tmp", path)
 
 
 def testing_plan(F):
@@ -866,6 +958,7 @@ def main():
     F = Facts(a)
     F.build()
     ids_for(F.items3, a.work)
+    reanswer(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
