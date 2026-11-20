@@ -9698,6 +9698,23 @@ ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py
 ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
 ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
 
+# issue 30, rung 2: the work folder is <run>/rung2 and its page is the run's one cockpit, so the advice must be the rung-2 command
+# (env prefix, --work .../rung2), not the plain ladder command: after rung 2's convert the ladder refuses --from X (ladder_from_guard),
+# before it --from baseline reruns rung 1 on a converted app. cleanup() records the command, the page and the brief quote it.
+mkdir -p $FB/r2/rung2/state $FB/r2s/rung2/state
+for d in r2 r2s; do cp $FB/w4/state/timing.tsv $FB/$d/rung2/state/timing.tsv; done
+printf 'convert\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert\n' > $FB/r2/rung2/state/failed-rerun.txt
+printf 'build\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from build\n' > $FB/r2s/rung2/state/failed-rerun.txt
+CLR="eval \"\$(sed -n '/^quoted() {/p;/^rerun_cmd() {/,/^}/p;/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { :; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=convert; SELF=/x/upgrade-pipeline.sh; ARGS_ORIG=(--work /r/rung2 --from convert); RUN=/r; UPG_PHASE=2; WORK=$CL4/rung2; APPS_UP=(); mkdir -p \$WORK/state"
+ctl pipeline-exit4-rung2-records-rung2-command-catch 0 'convert.env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' -- bash -c "$CLR; ( exit 4 ); cleanup; cat $CL4/rung2/state/failed-rerun.txt"
+ctl brief-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'rung2/logs/convert.log, fix the cause, then rerun this command. env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' '!Read logs/convert.log' -- sh -c "python3 $B/brief.py --work $FB/r2/rung2 | tr -s ' \\n' '  '"
+ctl cockpit-model-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'UPG_PHASE=2' 'rerun: env RUN' '!Read logs/convert.log' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+print(c.build_model('$FB/r2/rung2')['state']['text'])"
+ctl brief-exit4-rung2-other-step-command-ignored-pass 0 'Read rung2/logs/convert.log' 'rerun with --from convert' '!--from build' -- sh -c "python3 $B/brief.py --work $FB/r2s/rung2 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-text-unchanged-pass 0 'Read logs/convert.log, fix the cause, then rerun with --from convert' '!rung2' -- sh -c "python3 $B/brief.py --work $FB/w4 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-recorded-command-pass 0 '^  /x/upgrade-pipeline.sh --work /r --from convert$' '!rung2' -- sh -c "cp -r $FB/w4 $FB/w4c; printf 'convert\t/x/upgrade-pipeline.sh --work /r --from convert\n' > $FB/w4c/state/failed-rerun.txt; python3 $B/brief.py --work $FB/w4c"
+
 # issue 30: "old app did not start" (exit 4) named only a log path; the first CRITICAL (else error) line of the runtime log goes with it,
 # but only when THIS start saved the log (runapp.py prints "runapp: NOT started;" / "runapp: admin API did not come up;" into $LOG then).
 # app_up and its helpers are cut out of the pipeline script (PIPE=<file> runs the control against another copy, e.g. origin/main's)

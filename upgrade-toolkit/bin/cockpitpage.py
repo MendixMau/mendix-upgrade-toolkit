@@ -418,8 +418,26 @@ def failed_step(work):
         if len(f) >= 4:
             last = f
     if last and last[3].strip().isdigit() and 1 <= int(last[3]) <= 9 and int(last[3]) != 2:
-        return (last[0], int(last[3]))
+        # the pipeline writes the exact rerun command of the failed step (rung 2 needs its env prefix and --work); it counts only
+        # for the row that failed, never a leftover of an earlier failure
+        cmd = ""
+        fr = (rd(os.path.join(work, "state", "failed-rerun.txt")) or "").strip("\n").split("\t", 1)
+        if len(fr) == 2 and fr[0] == last[0] and fr[1].strip():
+            cmd = fr[1].strip()
+        return (last[0], int(last[3]), cmd, failed_log(work, last[0]))
     return None
+
+
+def failed_log(work, step):
+    """The failed step's log, relative to the run folder: rung 2's work folder is <run>/rung2, so its logs are rung2/logs/X.log."""
+    return ("rung2/" if os.path.basename(os.path.abspath(work)) == "rung2" else "") + f"logs/{step}.log"
+
+
+def failed_say(step, code, cmd, log):
+    """One sentence for the page and the brief; the plain text is the fallback when no rerun command was recorded."""
+    if cmd:
+        return f"Step {step} failed (exit {code}). Read {log}, fix the cause, then rerun: {cmd}"
+    return f"Step {step} failed (exit {code}). Read {log}, fix the cause and rerun with --from {step}."
 
 
 def running(work, now=None):
@@ -908,7 +926,7 @@ def build_model(work):
     elif stopped:
         state = ("bad", f"Stopped at {stopped[0]}. {pl(nn, 'thing')} {'needs' if nn == 1 else 'need'} you before the run goes on.")
     elif failed:
-        state = ("bad", f"Step {failed[0]} failed (exit {failed[1]}). Read logs/{failed[0]}.log, fix the cause and rerun with --from {failed[0]}.")
+        state = ("bad", failed_say(*failed))
     elif nn:
         state = ("warn", f"Waiting for you. {pl(nn, 'thing')} {'needs' if nn == 1 else 'need'} you.")
     elif gate["overall"] == "PASS":
@@ -931,7 +949,7 @@ def build_model(work):
         sub += f" · {failed[0]} failed"
     return {"title": f"{app_name(work)} upgrade", "sub": sub, "state": {"dot": state[0], "text": state[1]}, "planHash": P["hash"],
             "signed": list(signed) if signed else None, "phases": phases, "items": items, "running": run,
-            "stopped": stopinfo, "failed": {"step": failed[0], "code": failed[1]} if failed else None}
+            "stopped": stopinfo, "failed": {"step": failed[0], "code": failed[1], "cmd": failed[2], "log": failed[3]} if failed else None}
 
 
 # --live: poll the server's status (the "Running now" bar, in place) and stamp, reload on change and keep the scroll place; an open drawer holds the reload until it closes
