@@ -393,6 +393,74 @@ stepcheck_stop() {
   nj_flush
 }
 
+# widgetskew_stop: the decision of the WIDGET-SKEW stop (field run RKT: it offered update / restore / accept with nothing
+# recommended, and `update` could not succeed: the kept module had been kept for a data finding only approved.txt clears).
+# The recommendation follows why the module was kept: a data finding (idcheck, approved.txt) = accept (update needs the data
+# approval first); local file edits (steps/repair.md row 32: often OS junk) or a network failure = update; a package no
+# Studio Pro here can import = restore; an owner's --skip or anything else = accept.
+# Reads $WORK/widgetskew.out (the module the styles belong to) and $APP/.stepupdate/kept.txt ("<module> <why it was kept>").
+widgetskew_stop() {
+  local mods mod reason what="" cls="other" c rec upd body q ack="$WORK/widgetskew-ack.txt"
+  mods=$(sed -nE 's/^WIDGET-SKEW .* ships with ([^ ]+) [^ ;]+;.*/\1/p' "$WORK/widgetskew.out" 2> /dev/null | awk '!s[$0]++' | paste -sd, - | sed 's/,/, /g' || true)
+  for mod in ${mods//,/}; do
+    reason=$(awk -v m="$mod" '$1 == m { if (NF > 1) { sub(/^[^ ]+ +/, ""); print }; exit }' "$APP/.stepupdate/kept.txt" 2> /dev/null || true)
+    if printf '%s' "$reason" | grep -Eqi '^idcheck|approved\.txt|persistence'; then c=data
+      what="$what$mod was kept because updating it would remove or change data the app stores. "
+    elif printf '%s' "$reason" | grep -Eqi 'theme/javascript file edits'; then c=files
+      what="$what$mod was kept because it has local theme/javascript file edits. "
+    elif printf '%s' "$reason" | grep -Eqi 'FILES-EDITED javasource'; then c=javasrc
+      what="$what$mod was kept because it has local Java code edits (real logic). "
+    elif printf '%s' "$reason" | grep -Eqi 'local edits refuse'; then c=model
+      what="$what$mod was kept because it has local model edits (real changes). "
+    elif printf '%s' "$reason" | grep -Eqi 'NETWORK'; then c=net
+      what="$what$mod was not updated because the network failed, not because anything was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'skipped by --skip'; then c=skip
+      what="$what$mod was left out on request (--skip); nothing was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'made before 10\.21'; then c=pre
+      what="$what$mod has no importable target package here (it was made before Studio Pro 10.21, and Mendix 11 cannot import it). "
+    elif printf '%s' "$reason" | grep -Eqi 'made before'; then c=old
+      what="$what$mod has no importable target package (it was made for an older Studio Pro). "
+    else c=other; what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
+    # one class for the whole stop: the earliest in this list wins
+    for k in data javasrc model files net skip pre old other; do
+      if [ "$k" = "$c" ] || [ "$k" = "$cls" ]; then cls=$k; break; fi
+    done
+  done
+  [ -n "$mods" ] || mods="the kept module"
+  case "$cls" in
+    data) rec=accept
+      upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
+      body="Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $ack with the reason." ;;
+    files) rec=update
+      upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update the module with --force-ui <module> (stepupdate saves the edits it overwrites), or through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
+      body="Recommended: update the kept module. ${what}Such edits are often only OS junk, and a field app was left with 23 unstyled grid pages by accepting the skew. $upd To accept the skew instead, create $ack with the reason." ;;
+    javasrc) rec=accept
+      upd="The local Java code edits are real logic and the update would overwrite them: port them by hand with --port-java <module>, then update."
+      body="Recommended: accept the skew. ${what}Updating it means porting those edits first (--port-java <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    model) rec=accept
+      upd="The local model edits are real changes and the update would refuse them: port them to the new version by hand, then update."
+      body="Recommended: accept the skew. ${what}Updating it means porting those edits to the new version by hand first, which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    net) rec=update
+      upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
+      body="Recommended: update the kept module. ${what}Rerunning the update is the fix. To accept the skew instead, create $ack with the reason." ;;
+    skip) rec=accept
+      upd="Nothing refused it; take it off --skip and rerun the update."
+      body="Recommended: accept the skew, since the owner left $mods out on purpose. ${what}If the grids matter more, take it off --skip and update. To accept, create $ack with the reason." ;;
+    pre) rec=accept
+      upd="Not possible here: Mendix 11 cannot import this package. The update belongs in plan-pre.txt, before the convert (steps/triage.md)."
+      body="Recommended: accept the skew. ${what}The update belongs in plan-pre.txt, before the convert, so it cannot be done at this point. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    old) rec=accept
+      upd="Not possible: the target package cannot be imported here (it was made for an older Studio Pro)."
+      body="Recommended: accept the skew. ${what}No update can cure it, and putting the old widget back can leave pages that no longer build. Grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    *) rec=accept
+      upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."
+      body="Recommended: accept the skew. The app still builds and no data changes; grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}To accept, create $ack with the reason." ;;
+  esac
+  q="A module update replaced a widget whose styles stay with a kept module. What should we do?"
+  nj_meta person "$q" "$rec" "update|Update the kept module|$upd" "restore|Put the old widget back|The old widget package returns; pages already saved with the new widget can then stop building." "accept|Accept the skew|The app builds and its data is untouched; grids may look unstyled until $mods is updated. Create $ack."
+  nj_add 13 "Decision" "$body"
+}
+
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
 decisions_apply() {
   [ "$DRY" != 1 ] || return 0
@@ -1733,7 +1801,7 @@ step_update() {
     xo "$WORK/widgetskew.out" python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetskew-ack.txt" ]; then
       nj_meta info; nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
-      nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
+      widgetskew_stop
       nj_park
     fi
     # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
