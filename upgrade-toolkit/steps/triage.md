@@ -63,10 +63,10 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    AWSAuthentication 4.x broke at javac, Administration on MendixSSO at mx check (CE0117). Rerun it whenever the plan changes.
    crosscalls judges kept callers against the plan; the reverse (an updated module that needs what a kept one lacks, T6R-7)
    is checked after the steps by `keptdeps.py` (steps/upgrade.md, step 1).
-   Caps while another module is installed (GM-14): `python3 $B/atlascap.py $W/localedits.json $W/plan.txt` reads
+   Caps while another module is installed (GM-14): `python3 $B/atlascap.py $W/localedits.json $W/plan.txt --app app/` reads
    `playbooks/module-caps.tsv`; with PlatformDesignSystem installed it holds Atlas_Core at 3.19.0 (Atlas 3.20+ `@extend .col-<bp>-3`
    needs the PDS grid: mx check and idcheck pass, only the mxbuild theme compile fails). `CAP` (exit 1) = `--write` the plan, then
-   rerun to exit 0. The row is marked `check` (boundary not verified): say so in the proposal. Pass `--app app/` so an internal PDS module is found too. A CONFLICT line (WorkflowCommons 4.3+ needs Atlas 4) means the owner decides; `--write` then changes nothing. A theme compile after each theme step is still wanted.
+   rerun to exit 0. The row is marked `check` (boundary not verified): say so in the proposal. `--app` also finds an internal PDS module. A CONFLICT line (WorkflowCommons 4.3+ needs Atlas 4) means the owner decides; `--write` then changes nothing. A theme compile after each theme step is still wanted.
    Theme of kept modules (MC-11): a kept module's themesource styling can hit platform widgets the plan updates (a rule on
    `.widget-datagrid`, `.mx-listview` and so on): the markup changes with the widget major, the model check and the build see
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
@@ -247,6 +247,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    can't move (no React path found) or not researched, plus legacy core widgets, Marketplace modules not React-ready and Dojo JavaScript. On an 11.x target
    it is ADVISORY (exit 0): put its open items in the report as the plan for the React switch. On 12 or above it is
    BLOCKING (exit 1). A "not researched" package gets a researched row in the table (cite the source), never a guess.
+   Before any widget is removed or replaced (delete, can move, R35/R36 swaps), read its `removing it removes:` note (SKILL.md, package XML rule).
    Every auto entry reads `not relevant (auto): <rule>: <fact>`; read them, and replace one with
    your own entry where the fact is wrong for that row (a rerun never overwrites a human entry). Rows about a
    feature the app uses stay open: a breaking, removal or runtime row needs a scan (grep the model for the

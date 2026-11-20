@@ -1167,6 +1167,7 @@ replacement_report() {
   case "$rc" in
     0) ;;
     1) note "replacement_check.py: $(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) for ${TARGET2:-$TARGET} (open in the proposal), see $WORK/replacements.md" ;;
+    2) note "replacement_check.py exit 2: the app could not be read or an extra rule table failed ($(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) printed for ${TARGET2:-$TARGET}), see $WORK/replacements.out" ;;
     *) note "replacement_check.py exit $rc, see $WORK/replacements.out" ;;
   esac
 }

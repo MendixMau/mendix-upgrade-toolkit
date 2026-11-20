@@ -126,7 +126,13 @@ if __name__ == "__main__":
     except (OSError, ValueError, TypeError, AttributeError, KeyError) as e:
         print(f"atlascap: cannot read input ({type(e).__name__}: {e})", file=sys.stderr)
         sys.exit(2)
-    app = a[a.index("--app") + 1] if "--app" in a else None
+    app = None
+    if "--app" in a:
+        i = a.index("--app")
+        app = a[i + 1] if i + 1 < len(a) and not a[i + 1].startswith("--") else None
+        if not app or not os.path.exists(app):
+            print(f"atlascap: --app needs an app folder or .mpr that exists (got {app!r})", file=sys.stderr)
+            sys.exit(2)
     msgs, new, n, conflict = run(installed, lines, rows, write, internal_modules(app))
     if write and n and not conflict:
         if not os.path.exists(a[1] + ".orig"):

@@ -4444,7 +4444,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -4541,10 +4541,12 @@ ctl replace-mxlogger-global-catch 1 '^HIT +R38 ' 'evidence: widgets/BootstrapToo
 ctl replace-mxlogger-global-lookalike-pass 1 '^clear +R38 ' '!^HIT +R38' '!widgets/Quiet\.mpk' -- $RC $M/replace-mxlogger-global-quiet --to 11.12.6
 # cold CMM: the pipeline never ran replacement_check.py (agent-only triage item 10), so R38 never named MicroflowTimer's
 # mx.logger before the 11.12.7 build. replacement_report runs it against the last rung; propose fills a missing report
-RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state
+RR=$T/rrep; mkdir -p $RR/w/state $RR/w2/state $RR/w3/state
 { awk '/^replacement_report\(\) \{/,/^}$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh}; printf '%s\n' 'say() { echo "$*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' \
   'note() { echo "$STEP: $*" >> "$WORK/state/notes.txt"; }' 'replacement_report; echo rc=$?'; } > $RR/fn.sh
 ctl pipeline-replacements-run-catch 0 '^rc=0$' '^r38-hit$' '[0-9]+ HIT row\(s\) for 11\.12\.6 \(open in the proposal\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 bash $RR/fn.sh; grep -qE '^HIT +R38 ' $RR/w/replacements.out && echo r38-hit; cat $RR/w/state/notes.txt"
+# an extra rule table that cannot be read makes replacement_check exit 2: the note says so and still gives the HIT count
+ctl pipeline-replacements-exit2-catch 0 '^rc=0$' 'exit 2: the app could not be read or an extra rule table failed \([0-9]+ HIT row\(s\) printed for 11\.12\.6\)' -- bash -c "B=$B APP=$M/replace-mxlogger WORK=$RR/w3 STEP=triage DRY=0 TARGET=10.24.16 TARGET2=11.12.6 UPG_RULES=/nonexistent/rules.tsv UPG_BRAIN=/nonexistent bash $RR/fn.sh; cat $RR/w3/state/notes.txt"
 ctl pipeline-replacements-unused-pass 0 '^rc=0$' '^written$' '!^r38-hit$' -- bash -c "B=$B APP=$M/replace-mxlogger-quiet WORK=$RR/w2 STEP=triage DRY=0 TARGET=11.12.6 TARGET2= bash $RR/fn.sh; test -s $RR/w2/replacements.md && echo written; grep -qE '^HIT +R38 ' $RR/w2/replacements.out && echo r38-hit; true"
 ctl pipeline-replacements-wired-catch 0 '^triage$' '^propose$' -- bash -c "awk '/^step_triage\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q '^  replacement_report\$' && echo triage; awk '/^step_propose\\(\\) \\{/,/^}\$/' ${PIPE:-$B/cloud/upgrade-pipeline.sh} | grep -q 'replacement_report\$' && echo propose"
 # cold WM1: editroute held both Atlas layouts (edit-routes.json held[]) inside a replay that ran fine; nothing stopped and
@@ -7756,6 +7758,8 @@ ctl gm14-write-holds-plan-catch 1 'plan rewritten \(1 line' -- python3 $B/atlasc
 ctl gm14-write-result-pass 0 '^no cap applies' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-w.txt
 ctl gm14-write-keeps-other-lines-pass 0 '^99 1\.0\.0 Plainmod$' '^# held by atlascap' -- cat $AC/plan-w.txt
 ctl gm14-unreadable-input-catch 2 'cannot read input' -- python3 $B/atlascap.py $AC/none.json $AC/plan.txt
+ctl gm14-app-bare-catch 2 '--app needs an app folder' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan.txt --app
+ctl gm14-app-missing-catch 2 '--app needs an app folder' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan.txt --app $AC/no-such-app
 printf '[{"name":"PlatformDesignSystem","cid":1,"version":"44.5.0"},{"name":"Atlas_Core","cid":117187,"version":"3.10.0"}]' > $AC/le-old.json
 cp $AC/plan.txt $AC/plan-o.txt
 ctl gm14-write-lowers-version-catch 1 'plan rewritten' -- python3 $B/atlascap.py $AC/le-old.json $AC/plan-o.txt --write
