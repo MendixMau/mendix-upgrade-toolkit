@@ -34,7 +34,11 @@ first, its step stopped with 7 CE0462 "could not find widget". Read from the pac
 with --no-fetch): the widget ids on the pages of the package's project.mpr against the widgets/*.mpk the other packages hold.
 Printed: `ORDER <Provider> before <User>: ...` per pair, and always one `widget order:` line with the denominator (packages read
 of planned). A package that could not be read is named there and its widget needs are NOT in the order: never read as "needs
-none". A cycle between providers is said (`CYCLE-WIDGET`) and the widget order is not applied.
+none". Without --no-fetch, modplan DOWNLOADS the planned packages it does not find in --cache
+(like planbuild.py does); with --no-fetch it reads only what is cached. A widget pair can override --last (a --last module that provides a widget
+moves before its users). Widget pairs are judged against the order the associations leave. A pair that conflicts with the
+association order is said (`CYCLE-WIDGET`) and the widget order is not applied; an association cycle on its own keeps the
+widget order and prints the plain CYCLE lines.
 While any module is NOT PICKED nothing is written (exit 3); --allow-unresolved writes the files with a
 "# NOT PICKED <Module>: <why>" comment per module and still exits 3.
 Exit: 0 every module resolved, 3 at least one NOT PICKED, 2 input error.
@@ -247,18 +251,24 @@ def main():
                 unread.append(f"{n} {v} ({why})")
             else:
                 uses[n], provides[n] = u, pr
-        e_widget = widget_edges(names, uses, provides)
+        base = names
+        if e_assoc:
+            import planorder
+            base, _ = planorder.order(names, e_assoc)  # pairs are judged against the order the associations leave, not the listing
+        e_widget = widget_edges(base, uses, provides)
         print(f"widget order: {len(uses)} of {len(plan)} planned package(s) read"
               + (f"; NOT read, their widget needs are not in the order: {'; '.join(unread)}" if unread else "")
               + (f"; {len(e_widget)} provider-before-user pair(s)" if e_widget else ""))
     if model is not None or e_widget:
         import planorder
         new, cyc = planorder.order(names, {**e_widget, **e_assoc})
-        if cyc and e_widget:  # a cycle through the widget pairs: say so, keep the association rule alone
-            print(f"CYCLE-WIDGET {', '.join(cyc)}: they use each other's widgets, no widget provider order exists on the plan; "
-                  "the widget order is NOT applied")
-            e_widget = {}
-            new, cyc = planorder.order(names, e_assoc)
+        if e_widget:
+            _, cyc_a = planorder.order(names, e_assoc)
+            if set(cyc) - set(cyc_a):  # stuck only with the widget pairs: they conflict with the association order
+                print(f"CYCLE-WIDGET {', '.join(sorted(set(cyc) - set(cyc_a)))}: the widget provider order conflicts with the association "
+                      "order on the plan; the widget order is NOT applied")
+                e_widget = {}
+                new, cyc = planorder.order(names, e_assoc)
         for c in cyc:
             print(f"CYCLE {c} is part of a cross-module association cycle on the plan: cannot be ordered, reimport its owner after both")
         ver = {p[0]: p[2] for p in plan}
