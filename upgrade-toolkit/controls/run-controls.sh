@@ -4118,6 +4118,11 @@ ctl gen-create-data-rung-pass 0 '"creates": "Shop.Item"' -- sh -c "$GJ --out-dir
 # E2E-9: a field that names its attribute adds the own-row check (the run's own ${RUN_ID} row, expect 1); none is warned
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'][0]['attr']='Name'; json.dump(d, open('$T/create-spec-attr.json', 'w'))"
 ctl gen-create-own-row-pass 0 "SELECT COUNT\\(\\*\\) AS n FROM Shop.Item WHERE Name = 'Item \\$\\{RUN_ID\\}'" '"expect": 1' -- sh -c "$GJ --out-dir $T/gen-create3 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create3/journeys/Admin/create-save.journey.json"
+# RM-2: a singleton edit-save adds no row: the spec's "delta" reaches the data rung (default stays 1; junk is refused)
+python3 -c "import json; d=json.load(open('$T/create-spec-attr.json')); d['delta']=0; json.dump(d, open('$T/create-spec-delta0.json', 'w')); d['delta']='x'; json.dump(d, open('$T/create-spec-deltabad.json', 'w'))"
+ctl gen-create-delta-zero-pass 0 '"delta": 0' -- sh -c "$GJ --out-dir $T/gen-create-d0 --create $T/create-spec-delta0.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d0/journeys/Admin/create-save.journey.json"
+ctl gen-create-delta-default-catch 0 '"delta": 1' -- sh -c "$GJ --out-dir $T/gen-create-d1 --create $T/create-spec-attr.json --data-rung > /dev/null 2>&1; cat $T/gen-create-d1/journeys/Admin/create-save.journey.json"
+ctl gen-create-delta-bad-catch 1 'delta.*whole number' -- $GJ --out-dir $T/gen-create-dx --create $T/create-spec-deltabad.json --data-rung
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['nav']['nth']=4; json.dump(d, open('$T/create-spec-nth.json', 'w'))"
 ctl gen-create-nav-nth-catch 0 '"nth": 4' -- sh -c "$GJ --out-dir $T/gen-create-nth --create $T/create-spec-nth.json > /dev/null 2>&1; cat $T/gen-create-nth/journeys/Admin/create-save.journey.json"
 ctl gen-create-nav-no-nth-pass 0 '!"nth"' -- sh -c "cat $T/gen-create/journeys/Admin/create-save.journey.json"

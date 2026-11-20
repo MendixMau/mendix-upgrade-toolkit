@@ -131,7 +131,9 @@ unique per run, so a reused database cannot satisfy the check with a row from an
 "Data" below), since no runapp runtime answers `mxcli oql --direct` (E5b-11). Name the attribute each field writes
 (`"attr": "Alias"`): with `--data-rung` every such field adds an own-row check, `COUNT(*) FROM <entity> WHERE <attr> =
 '<value with ${RUN_ID}>'` = 1, so the row judged is this run's row and not one an earlier run left (E2E-9); without any
-`attr` gen_journeys warns that only +1 is checked.
+`attr` gen_journeys warns that only +1 is checked. A form that edits a singleton (the page retrieves the one row, else creates it) never adds a row: put
+`"delta": 0` in the create spec (default 1) and the data rung asks for no change in the count; the own-row check on `attr` then
+carries the proof that the save landed (RM-2).
 
 ## At the gate (new app, on a copy of X_frozen)
 

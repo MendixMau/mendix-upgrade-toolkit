@@ -476,7 +476,11 @@ def create_journey(spec, data_rung=False):
             ui[k] = spec[k]
     step = {"name": f"create and save one {spec['entity']}", "actions": acts, "ui": ui}
     if data_rung:
-        step["data"] = {"creates": spec["entity"], "delta": 1, "scope": {"newRowsBy": "id"}}
+        # RM-2: a form that edits a singleton (retrieve first, else create) never adds a row: the spec says "delta": 0
+        delta = spec.get("delta", 1)
+        if isinstance(delta, bool) or not isinstance(delta, int) or delta < 0:
+            sys.exit(f"create spec: \"delta\" must be a whole number of 0 or more (rows the save adds), got {delta!r}")
+        step["data"] = {"creates": spec["entity"], "delta": delta, "scope": {"newRowsBy": "id"}}
         # E2E-9: +1 says some row arrived; the own-row check says it is THIS run's row with the typed value
         own = [{"label": f"the run's own row: {f['attr']} = {f['value']}", "expect": 1,
                 "sql": f"SELECT COUNT(*) AS n FROM {spec['entity']} WHERE {f['attr']} = '{f['value']}'"}
