@@ -7,7 +7,7 @@ change, and a kept module's rule for the old class names either stops matching o
 model check, build and smoke walk see none of it; only a screenshot does. Asset Console kept a module whose theme
 styled the data grid, and the grid looked wrong only on the client.
 
-  keptstyle.py <app dir> --kept A,B   (or --kept-file .stepupdate/kept.txt)   [--json out.json]
+  keptstyle.py <app dir> --kept A,B   (or --kept-file .stepupdate/kept.txt: the first word of each line is the module)   [--json out.json]
 
 Scans themesource/<Module>/**/*.scss|css of each kept module (and the app's own theme/ folders when --kept lists
 `theme`) for selectors on platform widget classes: .widget-* (Data Grid 2, Gallery, Combo box, Pop-up menu, ...),

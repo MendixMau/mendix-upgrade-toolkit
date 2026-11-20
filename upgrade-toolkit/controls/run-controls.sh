@@ -4568,7 +4568,7 @@ ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/
 MW=$T/mc11wire; mkdir -p $MW/b
 printf '%s\n' 'import sys, os' 'd = os.path.dirname(os.path.abspath(__file__))' 'open(d + "/argv.txt", "w").write("\n".join(sys.argv[1:]) + "\n")' 'sys.stdout.write(open(d + "/out.txt").read())' 'sys.exit(int(open(d + "/code.txt").read()))' > $MW/b/keptstyle.py
 { sed -n '/^kept_style_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
-  printf '%s\n' 'x() { "$@"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'kept_style_check "$MODE"'; } > $MW/fn.sh
+  printf '%s\n' 'x() { echo "X: $*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'kept_style_check "$MODE"'; } > $MW/fn.sh
 mw() { local d=$MW/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $MW/b/keptstyle.py "$d/bin/"; echo "$2" > "$d/bin/code.txt"
   printf 'RISK KeptA themesource/KeptA/web/main.scss:3 .widget-datagrid .td\nRISK KeptB themesource/KeptB/web/a.scss:1 .mx-listview\nkeptstyle: 2 kept module(s) scanned\n' > "$d/bin/out.txt"
   printf 'shots-*/x # old cause [gridlayout]\n* # stale [keptstyle]\n' > "$d/w/screen-causes.txt"
@@ -4582,7 +4582,10 @@ ctl mc11-wire-clean-drops-stale-cause-pass 0 '^argv: ' '!NOTE' '!\[keptstyle\]' 
 ctl mc11-wire-input-error-not-measured-catch 0 '^NOTE: keptstyle exit 2: .*NOT measured \(never read as clean\)' '!style platform widgets;' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun bad update"
 ctl mc11-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptstyle NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept triage"
 ctl mc11-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
-ctl mc11-wire-dry-prints-command-catch 0 '^argv: .*--json .*keptstyle\.json' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage 1"
+ctl mc11-wire-dry-prints-command-catch 0 '^X: python3 .*keptstyle\.py .*--kept-file .*--json .*keptstyle\.json' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage _ 1"
+ctl mc11-wire-no-kept-list-drops-stale-cause-pass 0 '^NOTE: keptstyle NOT MEASURED' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/nokept/w/keptstyle.json; mwrun nokept triage; test -e $MW/nokept/w/keptstyle.json || echo 'json: gone'"
+ctl mc11-wire-no-kept-list-update-drops-stale-cause-pass 0 '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
+ctl mc11-wire-input-error-drops-stale-cause-pass 0 '^NOTE: keptstyle exit 2' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/bad/w/keptstyle.json; mwrun bad update; test -e $MW/bad/w/keptstyle.json || echo 'json: gone'"
 ctl mc11-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_style_check triage' && echo triage; grep -q '^    kept_style_check update\$' \$P && echo update"
 ctl mc11-wire-kept-file-first-word-catch 0 '^RISK KeptA ' '1 kept module\(s\) scanned' -- bash -c "printf 'KeptA kept: reason words\n' > $T/ks/kept-words.txt; python3 $B/keptstyle.py $T/ks --kept-file $T/ks/kept-words.txt; true"
 printf 'shots-*/x # a [gridlayout]\n* # b [keptstyle]\n' > $T/screen-causes-two.txt
