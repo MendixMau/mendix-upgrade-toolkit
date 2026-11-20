@@ -1003,6 +1003,19 @@ step_baseline() {
       app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start after the seed (log: $LOG)"
       app_down old
     fi
+    # GM-A5: the baseline is frozen only from a CLEAN start: read the old app's start log first (bin/startcheck.py).
+    # UNCLEAN (after-startup ERROR, unfinished after-startup) and INVALID (log missing or unreadable) both stop: a log
+    # nobody read proves nothing. Accept a known benign line with $WORK/startup-allow.txt (fnmatch, "# reason").
+    local sc_rc=0 sc_out sc_allow=()
+    [ ! -s "$WORK/startup-allow.txt" ] || sc_allow=(--allow "$WORK/startup-allow.txt")
+    if [ "$DRY" != 1 ]; then
+      sc_out=$(python3 "$B/startcheck.py" "$WORK/logs/runtime-old.log" ${sc_allow[@]+"${sc_allow[@]}"} 2>&1) || sc_rc=$?
+      if [ "$sc_rc" != 0 ]; then
+        note "baseline NOT frozen: $(printf '%s' "$sc_out" | head -1)"
+        die4 "the old app did not start cleanly, so $X_FROZEN was not frozen (startcheck exit $sc_rc). Fix the cause or, for a benign line, add a pattern to $WORK/startup-allow.txt and re-run:
+$sc_out"
+      fi
+    fi
     copy_db "$X" "$X_FROZEN"; frozen_stamp
   fi
   # endpoint probe on its own copy (steps/triage.md item 8): drop listed paths that answer 404 on the old app

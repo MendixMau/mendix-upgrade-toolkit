@@ -8929,6 +8929,18 @@ G10B=$T/gm10b; mkdir -p $G10B/app $G10B/shim; cp $M/base/App.mpr $G10B/app/App.m
 (cd $G10B/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
 printf '#!/bin/sh\nif [ -e "%s/break" ] && [ "$1" = -C ] && [ "$3" = rev-parse ]; then echo "fatal: not a git repository: /gone/.git/worktrees/app" >&2; exit 128; fi\nexec %s "$@"\n' "$G10B" "$(command -v git)" > $G10B/shim/git; chmod +x $G10B/shim/git
 ctl stepupdate-clone-lost-between-steps-catch 2 'committed' "STOP at step 2 \\(guid-changed\\)" 'not a working git tree' 'fatal: not a git repository' 'rerun with --from guid-changed' -- env PATH="$G10B/shim:$PATH" UPG_UPDATE_CMD="cp $G10/{module}/App.mpr {mpr} && touch $G10B/break" bash $B/stepupdate.sh $G10B/app $G10B/plan.txt
+# --- GM-A5: the baseline is frozen only from a clean start (bin/startcheck.py, called by upgrade-pipeline.sh) ---
+SC=$FX/startcheck
+ctl startcheck-after-startup-error-catch 1 '^startcheck: UNCLEAN' 'line 3: .*ERROR - ActionManager: An error occurred in after-startup-action' -- python3 $B/startcheck.py $SC/after-startup-error.log
+ctl startcheck-after-startup-unfinished-catch 1 '^startcheck: UNCLEAN' 'never ended' -- python3 $B/startcheck.py $SC/after-startup-unfinished.log
+ctl startcheck-not-started-catch 1 '^startcheck: UNCLEAN' "no 'Mendix Runtime successfully started'" -- python3 $B/startcheck.py $SC/not-started.log
+ctl startcheck-clean-pass 0 '^startcheck: CLEAN' '!line ' -- python3 $B/startcheck.py $SC/clean.log
+ctl startcheck-allowed-error-pass 0 '^startcheck: CLEAN' 'accepted: known, not an app fault' -- python3 $B/startcheck.py $SC/allowed-error.log --allow $SC/allow.txt
+ctl startcheck-allow-needed-catch 1 '^startcheck: UNCLEAN' -- python3 $B/startcheck.py $SC/allowed-error.log
+ctl startcheck-missing-log-catch 2 '^startcheck: INVALID' 'cannot read' '!CLEAN' -- python3 $B/startcheck.py $SC/no-such.log
+ctl startcheck-no-mendix-lines-catch 2 '^startcheck: INVALID' 'nothing was read' -- python3 $B/startcheck.py $SC/garbage.log
+# the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
+ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

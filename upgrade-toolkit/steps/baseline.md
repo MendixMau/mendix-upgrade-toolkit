@@ -53,7 +53,7 @@ copy's converted model.
    that constant and CONST_OVERRIDES does not name it (HARNESS CONDITION line, T9), the same for both apps. The old app needs an mxbuild first; mx9.sh / mx10.sh refuse an incomplete toolset (no
    `modeler/runtemplates/deployment` or `modeler/tools/node/node_modules`): the symptom is "dojo-web
    DirectoryNotFoundException" (9.x, 10.12) or "copyDeploymentArtifacts NoSuchFileException" (10.24), and the fix is a
-   fresh extraction of `mxbuild-<full ver>.tar.gz` (E4-20, E5b-1). Stop it, then freeze: `createdb -T X X_frozen`. Never drop or start anything on X_frozen.
+   fresh extraction of `mxbuild-<full ver>.tar.gz` (E4-20, E5b-1). Stop it, then READ its start log before freezing (GM-A5): `python3 $B/startcheck.py $W/logs/runtime-old.log` must say `CLEAN` (exit 0): no ERROR/CRITICAL line in the start window, the after-startup section ended, "successfully started" present. UNCLEAN (exit 1) or INVALID (exit 2, log missing or unreadable) means do not freeze: fix the cause first (a failed after-startup microflow leaves half-written state in the baseline), or accept a known benign line in `$W/startup-allow.txt` (`ERROR Node: message*  # reason`). `upgrade-pipeline.sh` does this itself and stops with exit 4. Then freeze: `createdb -T X X_frozen`. Never drop or start anything on X_frozen.
 3. Restart-neutral data baseline: start the OLD app again on a fresh copy `createdb -T X_frozen X_base`, then
    `python3 $B/snapshot.py --label before --ledger $W/db-ledger.txt --psql "... -d X_base" ... --out $W/before.json`
    (db, http with swagger.json or openapi.json contracts, start log window, admin). This snapshot already contains
