@@ -125,6 +125,12 @@ fi
 for v in "$SOURCE" "$TARGET" ${TARGET2:+"$TARGET2"}; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || usage_die "'$v' is not a full version (10.24.26.123458)"
 done
+# FR-3: Mendix 10 converts no 9.x project below 9.24 ("the version '9.12.1.42381' of the mpr file is not supported"), and the ladder plans no
+# 9.24 rung: before this check a 9.12 source ran triage, baseline and basewalk (about 15 minutes) before the convert refused it.
+_fs=${SOURCE#*.}; _fs=${_fs%%.*}
+if [ "${SOURCE%%.*}" -eq 9 ] && [ "$_fs" -lt 24 ] && [ "${TARGET%%.*}" -ge 10 ]; then
+  usage_die "$SOURCE is below 9.24: Mendix 10 cannot convert it (playbooks/9-to-10.md: 9.x must be on 9.24 first). Open it in Studio Pro 9.24 (or convert it with a 9.24 mxbuild) and give the 9.24 version as --source; this run is refused now so nothing is built first"
+fi
 for s in "$FROM" "$ONLY"; do
   [ -z "$s" ] || [[ " ${STEPS[*]} " == *" $s "* ]] || usage_die "unknown step '$s' (steps: ${STEPS[*]})"
 done

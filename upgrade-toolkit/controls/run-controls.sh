@@ -2567,6 +2567,8 @@ ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-u
 # the version ladder: --to picks the route from the start version (9.x through the newest 10.24 toolset; 10.24 straight on)
 mkdir -p $V/ltools/mxbuild-10.24.9.1 $V/ltools/mxbuild-10.24.27.1
 ctl pipeline-ladder-9-goes-through-10-24-pass 0 'version ladder 9\.24\.2\.1 -> 10\.24\.27\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
+ctl fr3-source-below-9-24-refused-catch 2 'is below 9\.24: Mendix 10 cannot convert it' '!unexpected failure' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.12.1.42381 --to 11.12.8 --work $V/lw --dry-run
+ctl fr3-source-9-24-still-runs-pass 0 'version ladder 9\.24\.0\.1 -> 10\.24\.27\.1 -> 11\.12\.7' '!below 9\.24' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.0.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-10-24-goes-straight-pass 0 'version ladder 10\.24\.3\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.3.1 --to 11.12.7 --work $V/lw --dry-run
 # cold CMM 2026-11-17: 13 of 23 walk steps were microflows, SKIPPED without a word (the notice fired only on an INVALID walk)
 ctl pipeline-smoke-mf-plan-microflow-catch 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"kind\": \"microflow\"}' > \$WORK/plan.json; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf"
