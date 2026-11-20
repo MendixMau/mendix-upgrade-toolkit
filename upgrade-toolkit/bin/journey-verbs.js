@@ -257,11 +257,37 @@ async function toggle(page, a, value) {
   return got;
 }
 
+async function radio(page, radios, nr, a, want) {
+  const items = [];
+  for (let i = 0; i < nr; i++) {
+    const r = radios.nth(i);
+    const text = await r.evaluate(e => ((e.closest('label') || e.parentElement || e).textContent || '').trim());
+    items.push({ r, text, off: await r.isDisabled().catch(() => false) });
+  }
+  let it;
+  if (a.first) it = items.find(x => !x.off);
+  else it = items.find(x => x.text === want && !x.off) || items.find(x => want && x.text.includes(want) && !x.off);
+  if (!it) {
+    throw new Error(`${a.widget}: no radio button matches "${a.first ? '(first enabled)' : want}". Options were: ` +
+      items.slice(0, 8).map(x => `"${x.text}"${x.off ? ' (disabled)' : ''}`).join(', ') + (items.length > 8 ? ` (+${items.length - 8} more)` : ''));
+  }
+  await it.r.check();
+  await page.waitForTimeout(300);
+  if (!(await it.r.isChecked().catch(() => false))) throw new Error(`${a.widget}: radio "${it.text}" is not checked after choosing it`);
+  return it.text;
+}
+
 async function select(page, a, want) {
   const box = await topmost(page, a.widget);
   await visibleOrThrow(box, `.mx-name-${a.widget}`);
   let sel = box.locator('select').first();
   if (!(await sel.count().catch(() => 0))) {
+    // Radio buttons (an enumeration or boolean shown as Radio buttons) are no <select>: choose the radio whose own
+    // label is the caption asked for (a.first: the first enabled one) and read the choice back. A create-spec field
+    // {"widget": "radioButtons1", "do": "select"} used to FAIL the healthy OLD app here (field run RMS).
+    const radios = box.locator('input[type="radio"]');
+    const nr = await radios.count().catch(() => 0);
+    if (nr) return radio(page, radios, nr, a, want);
     const tag = await box.evaluate(e => e.tagName).catch(() => '');
     if (String(tag).toUpperCase() !== 'SELECT') throw new Error(`${a.widget}: no <select> inside .mx-name-${a.widget} (a Combo box widget needs "combo")`);
     sel = box;

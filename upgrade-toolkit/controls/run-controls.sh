@@ -3404,6 +3404,9 @@ if command -v node > /dev/null; then
   # B4T2-11: the tab verb opens a tab page and fails when the tab never becomes active (wired once run_journeys dispatches it)
   ctl journeys-verbs-tab-pass 0 '^ok +tab opens the tab page' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-tab-catch 0 '^ok +tab stays inactive catch' '^ok +tab missing catch' '!^FAIL' -- node $here/journey_verbs_control.js
+  # a create-spec select field on Radio buttons chooses by label (first = first enabled) and reads it back; before, it FAILed with "no <select>"
+  ctl journeys-verbs-radio-pass 0 '^ok +radio select by label' '^ok +radio select first enabled' '!^FAIL' -- node $here/journey_verbs_control.js
+  ctl journeys-verbs-radio-catch 0 '^ok +radio select missing label catch' '^ok +radio select only disabled catch' '^ok +radio not taken catch' '^ok +radio absent is still the no-select error catch' '!^FAIL' -- node $here/journey_verbs_control.js
   # PR-F27: the 11.12.5 date picker placeholder is "dd mmm yyyy"; "1/15/2027" typed there is "Invalid date"
   ctl journeys-verbs-date-pass 0 '^ok +dateAs follows the placeholder: returned "15 Jan 2027"' '^ok +dateAs time after hours is minutes: returned "15-01-2027 12:00"' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-date-catch 0 '^ok +dateAs leaves a text placeholder catch: returned "1/15/2027"' '^ok +dateAs leaves a non-date value catch: returned "U-1-2"' '!^FAIL' -- node $here/journey_verbs_control.js

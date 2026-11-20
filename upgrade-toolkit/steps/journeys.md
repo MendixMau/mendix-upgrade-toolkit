@@ -122,7 +122,7 @@ counted as INFO UNPROVEN: they stay INVALID in the gate, but they are not contro
 
 create-spec.json, once per app: `{"role", "nav": {"group", "item", "nth"?}, "newButton", "fields": [{"widget", "value", "attr"}],
 "saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. A reference selector is a field
-`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). Without it create-and-save stays a todo,
+`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). The same field also drives a Radio buttons group (`match` = the radio's own label, else the first enabled radio). Without it create-and-save stays a todo,
 which is INVALID, never covered. `textPresent` is the saved value as the grid shows it, `textAbsent` the validation
 messages: a ready selector alone was satisfied by the grid BEHIND a popup whose save was refused (E4-14, E5b-12), and
 gen_journeys warns when the spec has no textPresent. Put `${RUN_ID}` in the field value and in textPresent: it is
