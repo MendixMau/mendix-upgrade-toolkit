@@ -8129,7 +8129,7 @@ ctl fr4-source-mismatch-unknown-version-pass 2 "the project is version 'unknown'
 
 # FR-6: a rerun of baseline after an environment stop. A fake docker keeps the databases as folders (comment in a file) and answers
 # the five calls the pipeline makes (exists?, createdb -T, dropdb, COMMENT ON DATABASE, its comment). The functions are the real ones.
-FR6=$T/fr6; mkdir -p $FR6/bin; for f in db_exists copy_db db_stamp seed_copy; do awk -v n="$f" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$f"'\(\) \{.*\}$/{exit} p&&/^'"$f"'\(\) .*;$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $FR6/fns.sh
+FR6=$T/fr6; mkdir -p $FR6/bin; for f in db_exists copy_db db_stamp frozen_stamp seed_copy; do awk -v n="$f" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$f"'\(\) \{.*\}$/{exit} p&&/^'"$f"'\(\) .*;$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $FR6/fns.sh
 cat > $FR6/bin/docker <<'EOF2'
 #!/bin/bash
 [ "$1" = exec ] || exit 0
@@ -8164,6 +8164,13 @@ ctl fr6-seed-copy-other-run-refused-pass 4 'database upg_a already exists and th
 # FR-6 review nit (#152): a quote in the run path must not break the stamp (the COMMENT string is SQL)
 ctl fr6-seed-copy-quote-in-run-path-stamped-catch 0 '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" '!syntax error' -- bash -c "$(declare -f fr6run); FR6=$FR6; export FR6RUNP=\"/runs/it's\"; fr6run ':'"
 ctl fr6-seed-copy-quote-in-run-path-own-leftover-dropped-pass 0 '^note: dropping upg_a' '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" -- bash -c "$(declare -f fr6run); FR6=$FR6; export FR6RUNP=\"/runs/it's\"; fr6run 'mkdir \$s/upg_a; echo \"upgrade-toolkit run \$FR6RUNP\" > \$s/upg_a/comment'"
+# FR-6 review fix round (#155): frozen_stamp doubles a quote in the run path too, and the owner read still matches the undoubled string
+fr6frozen() { local s=$FR6/pg; rm -rf $s; mkdir -p $s/upg_a_frozen
+  ( export PATH=$FR6/bin:$PATH FAKE_PG=$s; PGC=mig-pg; DRY=0; RUNP=$1; X_FROZEN=upg_a_frozen
+    die4() { echo "upgrade-pipeline.sh: $*" >&2; exit 4; }; must() { "$@" || die4 "command failed: $*"; }
+    . $FR6/fns.sh; frozen_stamp; echo "rc=$?"; echo "comment: $(cat $s/$X_FROZEN/comment 2> /dev/null)" ); }
+ctl fr6-frozen-stamp-quote-in-run-path-catch 0 '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" '!syntax error' -- bash -c "$(declare -f fr6frozen); FR6=$FR6; fr6frozen \"/runs/it's\""
+ctl fr6-frozen-stamp-plain-run-path-pass 0 '^rc=0$' '^comment: upgrade-toolkit run /runs/a$' -- bash -c "$(declare -f fr6frozen); FR6=$FR6; fr6frozen /runs/a"
 ctl fr6-baseline-wired-pass 0 '^[0-9]+:    if \[ -n "\$SEED_FROM" \]; then seed_copy "\$SEED_FROM" "\$X"; fi$' '!copy_db "\$SEED_FROM"' -- grep -n 'SEED_FROM" "\$X"' $B/cloud/upgrade-pipeline.sh
 # FR-6, the port: the INFRA line names a toolkit container with the command to remove it (never run by the code); a foreign holder gets no command
 FR6P="import sys; sys.path.insert(0, '$B'); import runapp as r; print(r.port_busy_message(8080, sys.argv[1]))"
