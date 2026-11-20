@@ -654,6 +654,10 @@ Add new items at the end with status open; the next triage round gives each one 
 | DV-13 | The cockpit brief said "1 choice was assumed by the agent" but no item identifies which choice that was | fixed (PR #107: the sign-off card lists each row behind the count, one list and one count) | bin/cockpitpage.py lines 700-704: the count is the D rows of AGENT-DECISIONS.md plus unanswered plan choices, so an assumed "choice" can be a D row with no plan item. Wanted: the sign-off card lists which rows make up the count Controls: cockpit-signoff-names-the-assumed-d-row-catch, cockpit-signoff-count-equals-listed-mixed-pass, cockpit-signoff-assumed-list-capped-pass | - |
 | DV-14 | The cockpit `/status` returned null, which cannot be told apart from no server state or nothing running | fixed (PR #101: /status returns an idle object naming the reason, no-work-dir or no-step-running; the live page hides its Running-now bar on it) | bin/cockpitserve.py lines 8 and 89 document null when no step runs or `.cockpit-work` is missing; `.cockpit-work` is written only by cockpit_live, so after the early return of DV-4 /status is always null. Wanted: an idle payload that says why. Related: DV-4 | cockpit-status-idle-says-why-catch, cockpit-status-running-keeps-payload-pass |
 | DV-15 | After the DV-9 fix, a step skipped on purpose (for example basewalk) is not done, so every later `--from` refuses; the only way on is `--only` per remaining step | open | bin/cloud/upgrade-pipeline.sh from_guard refuses when an earlier required step has no done marker, and there is no way to mark a step as skipped on purpose. Found in the PR #99 review. Wanted: a recorded deliberate skip (with a reason) that from_guard accepts, or a decision that per-step `--only` is the intended path. Owner decision. Related: DV-9 | - |
+| FR-1 | A run on an app that already has its own git stops at fetch with "has uncommitted changes", though the only change is the toolkit's own `.gitignore` edit for its tool folders | fixed (the toolkit commits that one path with the `Changed-By: toolkit` trailer; other dirt is still refused) | bin/cloud/upgrade-pipeline.sh resolve_app: `buildout.py exclude` edits the tracked .gitignore and the very next check refuses the tree. Field run FR (9.12.1 workflow showcase, public repo cloned as-is). Fixture: the real .gitignore of that app's first commit, app name replaced | fr1-existing-gitignore-committed-catch, fr1-other-dirt-still-refused-pass |
+| FR-2 | A fresh box set up with `setup-container.sh` stops at triage with "brain: none found"; `upg-env.sh` never sets UPG_BRAIN although SETUP.md says the release-note brain ships in this repo | fixed (the env step writes UPG_BRAIN: what brainpath.py finds, else the repo's company-brain-test/brain) | bin/setup-container.sh step 10 wrote UPG_ROOT, UPG_TOOLS, WORKDIR, UPG_EXTRA and the timeout only. Found in field run FR | fr2-env-file-brain-catch, fr2-env-file-brain-pass |
+| FR-3 | A 9.x source below 9.24 (9.12.1 here) goes straight to the 10.24 convert, which refuses it ("the version '9.12.1.42381' of the mpr file is not supported") after baseline and basewalk have already run; triage and propose did not say a 9.24 rung is needed | open | playbooks/9-to-10.md says 9.x must be on 9.24 first; the `--to` ladder in bin/cloud/upgrade-pipeline.sh only inserts the newest 10.24 and plans no 9.24 rung. Wanted: triage or propose refuses early with the missing rung named, or the ladder plans it. Owner decision (a 9.24 toolset is about 700 MB). Found in field run FR | - |
+| FR-4 | The refusal "the project is version A, not --source B" does not say what to fetch | open | bin/cloud/upgrade-pipeline.sh source check names both versions but not the toolset the person must download (the app's exact full version). Found in field run FR | - |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -966,13 +970,15 @@ Recounted from the table on 19 Nov after GM-1 to GM-42 (730 rows: the 688 above 
 
 Recounted from the table on 19 Nov after DV-1 to DV-14 (744 rows: the 730 above plus 14; counted by the first word of the status column: 403 fixed, 97 doc, 14 closed, 7 won't fix, 8 unproved, 176 backlog, 39 open). All 14 DV rows are open: none is fixed by this change. Since that count: DV-2 fixed (PR #96), DV-14 fixed (PR #101), DV-9 fixed (PR #99), DV-11 fixed (PR #100), DV-4 and DV-10 fixed (PR #102), DV-15 added (open); this snapshot line is not recounted per PR.
 
+FR-1 to FR-4 added after that (FR-1, FR-2 fixed; FR-3, FR-4 open); the table below counts them.
+
 | status | count |
 |---|---|
-| fixed | 403 |
+| fixed | 405 |
 | doc (closed by guidance) | 97 |
 | closed | 14 |
 | won't fix | 7 |
 | unproved | 8 |
 | backlog | 176 |
-| open | 39 |
-| total | 744 |
+| open | 41 |
+| total | 748 |

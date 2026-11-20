@@ -3920,6 +3920,8 @@ ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
 ctl setup-check-no-rsync-catch 1 'NOT READY: rsync missing' '!done: source' -- setup home-nr PATH=$SC/bin3:$NR UPG_PYTHON=$T/py-ok UPG_SETUP_STEPS=host,check
 ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
+ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
+ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
 # S1-S3 (Apple Silicon / laptop): setup-container.sh through stubbed uname (Darwin/arm64), docker, make, npm and npx; no real
 # Docker or Mac. S1 mxcli is cross-built GOOS=linux GOARCH=amd64 and a Mac's own mxcli is never replaced; S2 every docker
 # pull/build in step 4 carries --platform linux/amd64; S3 no /opt/pw-browsers = install Chromium (or a NEXT-STEP line
@@ -8077,6 +8079,15 @@ ctl bt10-pipeline-baseline-gate-catch 3 "step 'baseline': DISK FULL: only 12 MB 
 # DV-6 resume gap: the baseline step itself adds the exclude to an app repo that has none (a run whose run start predates it)
 BXA=$BTR/app-bx; rm -rf $BXA; mkdir -p $BXA; (cd $BXA && git init -q && touch App.mpr && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original)
 ctl buildout-baseline-step-adds-exclude-catch 0 '^/\.classpath$' '^/\.project$' '^/\*\.launch$' -- bash -c "env PATH=$BTR/bin:\$PATH MXCLI= UPG_FREE_MB=12 bash $B/cloud/upgrade-pipeline.sh --app-dir $BXA --source 10.24.26.1 --target 11.15.0.1 --work $BTR/work-bx --only baseline > /dev/null 2>&1; cat $BXA/.git/info/exclude"
+# FR-1: an app that arrives with its own git and a tracked .gitignore (the Studio Pro template one, fixtures/fr/mendix-gitignore.txt,
+# captured from a public sample app's first commit, name replaced by App) got the tool folders appended and was then refused at the
+# first step: "has uncommitted changes" over the toolkit's own edit. Now only that path is committed; other dirt still refuses.
+frapp() { local d=$1; rm -rf $d; mkdir -p $d; (cd $d && git init -q && touch App.mpr && cp $FX/fr/mendix-gitignore.txt .gitignore && ${2:-:} && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original); }
+frrun() { env PATH=$BTR/bin:$PATH MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $1 --source 10.24.26.1 --target 11.15.0.1 --work $BTR/work-$2 --only fetch 2>&1; }
+FR1=$BTR/app-fr1; frapp $FR1
+ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -1 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
+FR2=$BTR/app-fr2; frapp $FR2; echo scratch > $FR2/notes-by-a-person.txt
+ctl fr1-other-dirt-still-refused-pass 4 'has uncommitted changes' '^\?\? notes-by-a-person.txt$' '!notes-by-a-person.txt.*toolkit' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR2 fr2 | grep uncommitted; git -C $FR2 status --porcelain; git -C $FR2 log -1 --format=%s; exit 4"
 # the two helpers themselves: a full disk adds the DISK FULL judgment item; a plain build failure adds none
 sed -n '/^disk_gate() {/,/^}/p;/^disk_cause() {/,/^}/p' $B/cloud/upgrade-pipeline.sh > $BTR/disk-fn.sh
 btdisk() { ( B=$B; WORK=$T; DRY=0; LOG=$BTF/baseline-enospc.log; NJ_TMP=$BTR/nj.tmp; : > $NJ_TMP; NJ_CODE=0
