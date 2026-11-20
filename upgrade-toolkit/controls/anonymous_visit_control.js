@@ -11,11 +11,11 @@ let fail = 0;
 const check = (name, ok, detail) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); };
 if (!m) { check('engine has anonymousVisit', false, 'function not found in ' + process.argv[2]); process.exit(1); }
 const anonymousVisit = new Function(`${m[0]}; return anonymousVisit;`)();
-const fakeDom = ({ els = [], body = '', guest = true, pages = 1 }) => fn => {
+const fakeDom = ({ els = [], body = '', main, guest = true, pages = 1 }) => fn => {
   const mk = e => ({ offsetParent: {}, className: e.cls || '', textContent: e.text || '', getClientRects: () => [{}] });
   const q = sel => els.filter(e => sel.split(',').map(x => x.trim()).includes(e.sel)).map(mk);
   const saved = [global.document, global.window];
-  global.document = { querySelectorAll: sel => sel === '.mx-page' ? new Array(pages).fill({}) : q(sel), body: { innerText: body } };
+  global.document = { querySelectorAll: sel => sel === '.mx-page' ? new Array(pages).fill({ innerText: main === undefined ? body : main }) : q(sel), body: { innerText: body } };
   global.window = { mx: { session: { isGuest: () => guest } } }; global.mx = global.window.mx;
   try { return fn(); } finally { [global.document, global.window] = saved; delete global.mx; }
 };
@@ -40,6 +40,10 @@ const fake = ({ form, ev, dom }) => ({
   check('real probe, guest home page renders -> ok, distinct detail', r.ok === true && r.user === 'anonymous (guest home, no sign-in form)', JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'The page you requested could not be found.' }) }), 'http://x');
   check('guest session on a not-found page -> not ok', r.ok === false && /error or not-found page/.test(r.reason), JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Home\nPages\nSettings\nCustomer not found', main: 'Customers\nCustomer not found' }) }), 'http://x');
+  check('nav item "Pages" and an empty state "Customer not found" -> ok', r.ok === true, JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Pages\nCustomer not found' }) }), 'http://x');
+  check('"Pages" and "not found" on separate lines in one page -> ok', r.ok === true, JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.mx-dialog-error', text: 'An error occurred. Contact your administrator' }] }) }), 'http://x');
   check('guest session with an error dialog -> not ok', r.ok === false && /error or not-found page \(error dialog\)/.test(r.reason), JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.alert-danger', text: 'x', cls: 'alert alert-danger' }] }) }), 'http://x');

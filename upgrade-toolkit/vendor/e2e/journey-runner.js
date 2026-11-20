@@ -861,7 +861,11 @@ async function anonymousVisit(page, baseUrl) {
     // .alert-danger that is not a validation message), plus the client's own not-found text
     const dlg = all('.mx-dialog, .modal-dialog, .mx-dialog-error').filter(shown).find(e => /An error occurred/i.test(e.textContent || ''));
     const danger = all('.alert-danger').filter(shown).find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || ''));
-    const nf = /(page|resource)[^.]{0,40}(not found|could not be found|does not exist)|^\s*404\b/i.test((document.body && document.body.innerText || '').slice(0, 2000));
+    // the wording is tested on the page content (.mx-page), not the whole body: a nav item "Pages" beside an empty state
+    // "Customer not found" is no not-found page; [^.\n] keeps a match on one line
+    const pg = document.querySelectorAll('.mx-page')[0];
+    const txt = (pg ? (pg.innerText || pg.textContent) : (document.body && document.body.innerText)) || '';
+    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)|^\s*404\b/im.test(txt.slice(0, 2000));
     const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
     return {
       guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),

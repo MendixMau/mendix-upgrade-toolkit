@@ -1756,7 +1756,8 @@ def main():
         import apimock
         nc_lines = apimock.mark_journeys(summary["journeys"], a.apimock_log, apimock.systems_arg(a.exclude_systems))
     if a.compare:
-        before = json.load(open(cmp_summary)).get("journeys", {})
+        before_all_cmp = json.load(open(cmp_summary))
+        before = before_all_cmp.get("journeys", {})
         for j, s in summary["journeys"].items():
             b = before.get(j, {}).get("verdict")
             if s["verdict"] != "FAIL":  # INVALID stays INVALID: it says nothing about the upgrade
@@ -1769,7 +1770,7 @@ def main():
                 s["compare"] = f"BASELINE DEFECT (before {b})"
         # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
         # visitor sees; both PASS, so no verdict flips: say it (a note, not a failure)
-        before_roles = json.load(open(cmp_summary)).get("roles", {})
+        before_roles = before_all_cmp.get("roles", {})
         summary["login_changes"] = [{"role": r, "before": before_roles[r].get("login_detail", ""), "after": s.get("login_detail", "")}
                                     for r, s in summary["roles"].items()
                                     if r in before_roles and s.get("login_detail", "").startswith("anonymous")
