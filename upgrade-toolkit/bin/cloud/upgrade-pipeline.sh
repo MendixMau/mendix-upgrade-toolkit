@@ -515,11 +515,26 @@ infra_rc() { # infra_rc RC NAME: runapp.py exit 3 is an environment fault (F21: 
     # FR-6: say what the INFRA line says (which port, which container, the command), not only where to find it
     echo "upgrade-pipeline.sh: $2 could not start: environment fault: $(grep -h 'runapp: INFRA' "$LOG" 2> /dev/null | tail -n 1 | sed 's/^runapp: INFRA //') (log: $LOG)" >&2; exit 3; }
 }
+first_err() { # first_err FILE: the first CRITICAL line, else the first ERROR/Exception line (at most 200 characters), or nothing
+  [ -s "$1" ] || return 0
+  local l
+  l=$(grep -a -m1 'CRITICAL' "$1" 2> /dev/null || true)
+  [ -n "$l" ] || l=$(grep -a -m1 -E 'ERROR|Exception' "$1" 2> /dev/null || true)
+  printf '%s\n' "$l" | cut -c1-200
+}
 app_up() { # app_up NAME MDA FULLVER DB  -> 0 started
-  local rc=0
+  local rc=0 e n0=0
   runenv
+  [ ! -f "$LOG" ] || n0=$(wc -l < "$LOG" | tr -d ' ')
   x env "${RUNENV[@]}" python3 "$B/runapp.py" start "$1" "$2" "$3" "$4" || rc=$?
   infra_rc "$rc" "$1"
+  # a start that failed says why in the first line a person reads (lane B, DVS: exit 4 named only a log path).
+  # Only when THIS start saved the runtime log: runapp.py prints one of these two markers into $LOG just when it does (save_log).
+  if [ "$rc" != 0 ] && [ "$DRY" != 1 ] && [ -f "$LOG" ] &&
+    tail -n +"$((n0 + 1))" "$LOG" | grep -aqE '^runapp: (NOT started;|admin API did not come up;)'; then
+    e=$(first_err "$WORK/logs/runtime-$1.log")
+    [ -z "$e" ] || echo "upgrade-pipeline.sh: $1 did not start; first error in $WORK/logs/runtime-$1.log: $e" >&2
+  fi
   [ "$rc" != 0 ] || APPS_UP+=("$1")
   return "$rc"
 }
