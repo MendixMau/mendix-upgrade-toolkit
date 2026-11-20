@@ -7030,6 +7030,20 @@ for l in open('$FX/proposal-ra16/items.tsv'):
 ctl proposal-ra19-ra20-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '!RA-19' '!RA-20' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
 mkw ra-none kept
 ctl proposal-ra-missing-file-pass 0 'widget: Stuck\.mpk' 'widget: com\.mendix\.widget\.custom\.mxtreetable|widget: Stuck' '!\[RA-' -- sh -c "bash $PR/prop.sh $PR/ra-none --ra-file /nonexistent > /dev/null; sed -n '/^## 3\\./,/^## 4\\./p' $PR/ra-none/PROPOSAL.md"
+# GM-20: items about one widget package merge into one item, the stronger finding first. The work folders under
+# controls/fixtures/proposal-gm20/ hold dojo-react.md and replacements.md in the layout the real tools write (hand-written rows, no model).
+# gm20.sh CASE: section 3 of the proposal for one case
+cat > $PR/gm20.sh <<'SH'
+#!/bin/bash
+w=$PR/gm20-$1; rm -rf $w; mkdir -p $w/state; cp $FX/proposal-gm20/$1/*.md $w/; printf 'app: 10.24.26.1\n' > $w/versions.txt
+bash $PR/prop.sh $w > /dev/null; bash $PR/sec.sh $w 3
+SH
+chmod +x $PR/gm20.sh; export PR FX
+ctl proposal-gm20-conflict-merges-replace-first-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: a newer widget version built for React 19 .*newer widget version without mx\.logger.*\| stay on 11 with the Dojo client' '!options: stay on 11' 'recommendation: follow replacements\.tsv row R35: a newer widget version built for React 19; and ' 'supporting, weaker: dojo-react\.md: can.t move' '!widget: R35' '!widget: R38' -- bash $PR/gm20.sh conflict
+ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
+ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
+ctl proposal-gm20-two-packages-other-untouched-pass 0 'evidence: dojo-react\.md: can.t move: Old\.widget\.Tree \(2\)$' 'options: stay on 11 with the Dojo client' '!supporting' '!R35' -- sh -c "bash $PR/gm20.sh two | sed -n '/Tree.mpk/,/answer:/p'"
+ctl proposal-gm20-ambiguous-identity-not-merged-catch 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: R35 ' 'not merged with replacements\.md row R35: its evidence names 2 package\(s\) \(Gantt\.mpk, Other\.mpk\)' 'recommendation: stay on 11' '!supporting' -- bash $PR/gm20.sh ambig
 # GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
 mkdir -p $PR/unk/state; cp $PR/plain/versions.txt $PR/unk/
 printf '# plan\n66876 3.1.0 TaskQueueHelpers\n99 2.0.0 FakeModuleXyz\n' > $PR/unk/plan.txt

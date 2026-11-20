@@ -322,6 +322,8 @@ class Facts:
                           f"{rep} (replacements.tsv row {rid})" if rep and rep != "-" else "see replacements.tsv row " + rid,
                           f"follow replacements.tsv row {rid}: {rep}" if rep and rep != "-" else "hand to a named person",
                           eff, (col(head, r, "risk") or "see the row")[:80])
+                # GM-20: the packages this hit names (widgets/<file>.mpk in its evidence), for the per-package merge
+                self.items3[-1]["rpkgs"] = sorted(set(re.findall(r"widgets/([^\s;/]+\.mpk)\b", ev))) if st == "HIT" and kind == "widget" else []
 
     def dojo(self):
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
@@ -346,6 +348,7 @@ class Facts:
                               "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
                               "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
+                    self.items3[-1]["dojopkg"] = pkg
                 elif st in ("can move", "delete"):
                     self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
@@ -355,6 +358,43 @@ class Facts:
                                   "keep on the Dojo client for now | HTML Element widget | JavaScript action + nanoflow + Events | pluggable widget | hand to a named person",
                                   "HTML Element widget for every snippet that holds HTML only; classify the rest (script, DOM work) per snippet", "M",
                                   "script in a snippet runs on the Dojo page DOM; Mendix 12 removes the Dojo client")
+
+    def merge_packages(self):
+        """GM-20: one item per widget package. A replacement HIT (crash or replace finding) and the dojo-report item name the
+        same package by its file name (`widgets/<file>.mpk` in the evidence, `package` column of dojo-react.md). The stronger
+        finding leads: the replacement advice comes first, "keep, accept the risk" (or the catalogue's "stay on 11") last, and the dojo line stays in the
+        evidence as the supporting one. An identity that is not exact (a hit naming several packages, a package listed twice
+        in the dojo report) is not merged; the dojo item says so."""
+        dojo = {}
+        for it in self.items3:
+            if it.get("dojopkg"):
+                dojo.setdefault(it["dojopkg"], []).append(it)
+        merged, gone = {}, set()
+        for rep in self.items3:
+            pk = rep.get("rpkgs") or []
+            hit = [x for x in pk if x in dojo]
+            if not hit:
+                continue
+            if len(pk) != 1 or len(dojo[pk[0]]) != 1:
+                for x in hit:
+                    for d in dojo[x]:
+                        d["evidence"] += (f"; not merged with replacements.md row {rep['name'].split()[0]}: its evidence names "
+                                          f"{len(pk)} package(s) ({', '.join(pk)}), so the package identity is ambiguous")
+                continue
+            merged.setdefault(id(dojo[pk[0]][0]), (dojo[pk[0]][0], []))[1].append(rep)
+            gone.add(id(rep))
+        for d, reps in merged.values():
+            keep = [o for o in d["options"].split(" | ") if o.startswith(("keep", "stay on"))]
+            opts = []
+            for o in [o for r in reps for o in r["options"].split(" | ")] + [o for o in d["options"].split(" | ") if o not in keep] + keep:
+                if o not in opts:
+                    opts.append(o)
+            d["evidence"] = ("; ".join(r["evidence"] for r in reps) + "; supporting, weaker: " + d["evidence"])
+            d["options"] = " | ".join(opts)
+            d["rec"] = "; and ".join(r["rec"] for r in reps)
+            d["effort"] = max([d["effort"]] + [r["effort"] for r in reps], key="SML".index)
+            d["risk"] = "; ".join(dict.fromkeys(r["risk"] for r in reps)) + "; " + d["risk"]
+        self.items3 = [i for i in self.items3 if id(i) not in gone]
 
     def sizes_and_actions(self):
         t = read(self.p("actions.json"))
@@ -501,6 +541,7 @@ class Facts:
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
                     break
+        self.merge_packages()   # after the catalogue prefill: the merged item takes each finding's own options and recommendation
         self.filedoc_item()
         # section 4: a person anyway
         if self.release_open:
