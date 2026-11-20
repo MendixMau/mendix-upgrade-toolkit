@@ -2614,7 +2614,24 @@ from_guard() {
   [ "${#opt[@]}" = 0 ] || echo "from      --from $FROM skips ${opt[*]} (not done, optional)"
 }
 
+# ORG (issue 35): `--from update` on the LADDER command (the one with --to or --target2) restarts rung 1, but once rung 2 has converted the
+# app folder to the final version rung 1's mx 10.24 check refuses it ("version 11.x of the mpr file is not supported", exit 10) after
+# minutes of work. The rung-2 stop's own rerun line (rung2/NEEDS-JUDGMENT.md) carries --work <work>/rung2; refuse here and name it.
+ladder_from_guard() {
+  [ -n "$FROM" ] && [ -z "$ONLY" ] && [ -n "$TARGET2" ] && [ "$(basename "$WORK")" != rung2 ] || return 0
+  [ -f "$WORK/rung2/state/convert.done" ] && [ -n "$APP_DIR_ARG" ] || return 0
+  local mpr ver
+  mpr=$(ls "$APP_DIR_ARG"/*.mpr 2> /dev/null | head -1); [ -n "$mpr" ] || return 0
+  ver=$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select _ProductVersion from _MetaData").fetchone()[0])' "$mpr" 2> /dev/null) || return 0
+  case "$ver" in "$TARGET2"|"$TARGET2".*) ;; *) return 0 ;; esac
+  echo "upgrade-pipeline.sh: --from $FROM refused on the ladder command: rung 2 has already converted $APP_DIR_ARG to $ver, and rung 1 ($SOURCE -> $TARGET) cannot run on it. Nothing was changed." >&2
+  echo "  To resume rung 2: use the rerun line in $WORK/rung2/NEEDS-JUDGMENT.md (it carries --work $WORK/rung2 and the rung-2 --from)." >&2
+  echo "  To redo rung 1: put the app back on its $TARGET commit first (git checkout), then rerun." >&2
+  exit 2
+}
+
 main() {
+  ladder_from_guard
   from_guard
   preflight
   resolve_app
