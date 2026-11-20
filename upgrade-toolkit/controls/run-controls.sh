@@ -2722,6 +2722,16 @@ mkdir -p $NJ/w13; printf '1 1.0 Administration\n' > $NJ/w13/plan.txt
 ctl pipeline-no-plan-pre-catch 0 'needs judgment \(exit 13\)' 'plan-pre.txt missing on a 10.x to 11 run' '!mx convert exit' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13 --from convert --only convert; cat $NJ/w13/NEEDS-JUDGMENT.md"
 mkdir -p $NJ/w13b; printf '1 1.0 Administration\n' > $NJ/w13b/plan.txt; printf '# nothing before the convert\n' > $NJ/w13b/plan-pre.txt
 ctl pipeline-plan-pre-stated-pass 0 '!plan-pre.txt missing' 'convert' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/w13b --from convert --only convert; cat $NJ/w13b/NEEDS-JUDGMENT.md 2>/dev/null; true"
+# WK-6 (WKS, ERRH): on a ladder the plan of each rung holds picks that fit THAT rung (11 picks at 10.24 / 10.24 picks at 10.21 kept every module)
+mkdir -p $NJ/rf/modvers $NJ/rfw/modvers
+printf 'VERSION  MIN MENDIX  PUBLISHED   NAME\n4.7.1    11.0.0      2026-11-20  Atlas Core\n3.22.1    10.24.0      2026-10-01  Atlas Core\n' > $NJ/rf/modvers/versions-117187.txt
+printf '117187 4.7.1 Atlas_Core\n' > $NJ/rf/plan-11.txt; printf '117187 3.22.1 Atlas_Core\n' > $NJ/rf/plan-1024.txt
+ctl rungfit-11-pick-at-1024-catch 1 '^MISFIT +Atlas_Core 4\.7\.1: min Mendix 11\.0\.0 is above 10\.24\.13' '1 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-11.txt --at 10.24.13.86719 --modvers $NJ/rf/modvers
+ctl rungfit-1024-pick-at-1021-catch 1 '^MISFIT +Atlas_Core 3\.22\.1: min Mendix 10\.24\.0 is above 10\.21\.1' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.21.1.64969 --modvers $NJ/rf/modvers
+ctl rungfit-fit-pass 0 '^FIT +Atlas_Core 3\.22\.1' '0 misfit' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rf/modvers
+ctl rungfit-unknown-not-green-pass 0 '^NOT CHECKED +Atlas_Core' '1 not checked' -- python3 $B/rungfit.py $NJ/rf/plan-1024.txt --at 10.24.13.86719 --modvers $NJ/rfw/modvers
+mkdir -p $NJ/rfp $NJ/rfapp; git init -q $NJ/rfapp; git -C $NJ/rfapp -c user.email=c@c -c user.name=c commit -q --allow-empty -m 'convert 10.24.26.1'; cp -r $NJ/rf/modvers $NJ/rfp/modvers; cp $NJ/rf/plan-11.txt $NJ/rfp/plan.txt
+ctl pipeline-update-misfit-stops-catch 0 'needs judgment \(exit 13\)' 'picks that need a newer Mendix than this rung' 'MISFIT +Atlas_Core 4\.7\.1' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/rfapp --source 10.24.26.1 --target 10.24.26.1 --work $NJ/rfp --from update --only update; cat $NJ/rfp/NEEDS-JUDGMENT.md"
 # WM1 cold test 2026-11-17: 16 judgment stops, one question each. Interview mode auto parks a stop nothing later depends on
 # (here the gate's release-impact and kept-modules stops), goes on, and asks every parked item in one grouped list at the end
 for d in ga gm; do mkdir -p $NJ/$d; printf 'Admin 1.0\n' > $NJ/$d/kept.txt; printf '# release impact\n' > $NJ/$d/release-impact.md; done
