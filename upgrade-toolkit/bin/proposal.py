@@ -14,6 +14,7 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
   absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
   keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional, written once kept.txt exists)
+  keptstyle.json                                                    keptstyle.py --json: platform widget selectors in a kept themesource (MC-11; optional, written once kept.txt exists)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
   actions.json                                                      action_inventory.py summary (action count)
   journey-scope.json                                                journey_scope.py: reachable / out of scope split of the actions
@@ -133,6 +134,7 @@ class Facts:
         self.measured, self.not_measured = [], []
         self.plan = []          # (module, from, to, when)
         self.kv_seen = False    # keptvendor.json read (GM-15)
+        self.ks_seen = False    # keptstyle.json read (MC-11)
         self.kept = {}          # module -> reason
         self.stranded = {}      # module -> text
         self.items3 = []        # decision items
@@ -355,6 +357,36 @@ class Facts:
         for m, (why, uses) in sorted(unchecked.items()):
             self.not_measured.append((f"keptvendor.py {m}", f"{why}; {len(uses)} kept use(s) it defines are unverified"))
 
+    def keptstyle(self):
+        """MC-11: a kept module's themesource targets a platform widget selector (.widget-datagrid ...); after a widget major the
+        markup changes and the kept SCSS can break the layout, which only a screenshot shows. keptstyle.json is optional (written once
+        .stepupdate/kept.txt exists; an older run has none): a list of {module, file, line, selector, cls} rows, [] when clean. One
+        section-3 item per kept module with hits. A visual risk, not a stop. Not in the plan hash (see main), like keptvendor.json."""
+        t = read(self.p("keptstyle.json"))
+        if t is None:
+            return
+        try:
+            rows = json.loads(t)
+            by = {}
+            for x in rows:
+                by.setdefault(str(x["module"]), []).append(x)
+            for xs in by.values():
+                for x in xs:
+                    x["file"], x["line"], x["selector"]
+        except (ValueError, AttributeError, KeyError, TypeError):
+            self.not_measured.append(("keptstyle.json", "not valid JSON; kept themesource platform widget selectors were not checked"))
+            return
+        self.measured.append("keptstyle.json")
+        self.ks_seen = True
+        for m, xs in sorted(by.items()):
+            what = "; ".join(f"{str(x['selector']).rstrip(' ,{')} at {x['file']}:{x['line']}" for x in xs[:6]) + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
+            self.add3("theme", f"kept module {m} styles platform widgets",
+                      f"keptstyle.json: {len(xs)} platform widget selector(s) in the kept themesource of {m}: {what}",
+                      "look at a page with each of these widgets after the update and restyle the kept SCSS if it broke | accept the risk | hand to a named person",
+                      "look at a page with each widget after the update (the screens rung names this cause)",
+                      "S", f"a widget major can change the markup these selectors target; the layout may break with no build error ({len(xs)} selector(s) in {m})")
+            self.items3[-1]["own"] = True   # its options are fixed here: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
         for m in re.finditer(r"^\| (\d+) \|([^\n]*)$", t, re.M):
@@ -547,7 +579,7 @@ class Facts:
 
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.absent(); self.keptvend(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.absent(); self.keptvend(); self.keptstyle(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"
@@ -1029,10 +1061,11 @@ def main():
     # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
     # routed what it could, so what is still kept is exactly that held edit.
     H = F
-    if F.kept or F.kv_seen:
+    if F.kept or F.kv_seen or F.ks_seen:
         H = Facts(a)
         H.keptmods = lambda: None
         H.keptvend = lambda: None   # GM-15: keptvendor.json, like kept.txt, is written by the update step after the sign-off
+        H.keptstyle = lambda: None  # MC-11: keptstyle.json likewise
         H.build()
     ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
         + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
@@ -1047,7 +1080,7 @@ def main():
         todo = [it for it in F.items3 if it["id"] not in ans]
         rows = [(it["id"], it["name"], it["kind"], it["rec"], f"accepted with the sign-off of {signer} (no separate answer)")
                 for it in todo if not it.get("own")]
-        # an item that appeared after the sign-off (keptvendor.json) was never seen by the signer: ASSUMED, never CONFIRMED in their name
+        # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was never seen by the signer: ASSUMED, never CONFIRMED in their name
         late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
                 for it in todo if it.get("own")]
         n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
@@ -1066,7 +1099,7 @@ def main():
                 f.write(cur)
             os.replace(out_path + ".tmp", out_path)
         n, nl = accept_answers(so[1])
-        # an item that appeared after the sign-off (keptvendor.json) was not seen by the signer: its step is assumed, not approved in their name
+        # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was not seen by the signer: its step is assumed, not approved in their name
         late_ids = {it["id"] for it in F.items3 if it.get("own")}
         late = {s: k for s, k in sids.items() if k.startswith("3:") and k[2:] in late_ids}
         approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff", decisions(a.work))
