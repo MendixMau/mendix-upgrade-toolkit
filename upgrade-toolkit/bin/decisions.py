@@ -329,7 +329,8 @@ def cmd_apply(a):
                     changed += set_tagged(os.path.join(w, wr["file"]), tag, None)
         if not opt.get("writes"):
             notes.append(f"{item}: recorded ({opt['label']}), nothing to write for the pipeline")
-    # a stop's answer is acted on once: the run reads what it wrote, and the same id may be asked again by a later stop (stop:update:1)
+    # a stop's answer is acted on once: the run reads what it wrote. A later pipeline stop at the same step now carries ".<seq>" (cockpitpage.stop_seq: stop:update:1.2),
+    # so "consumed" only covers re-asking the same id (an in-flight run's second stop, or the same stop rewritten)
     lm = lastmap(rows)
     done = [i for i in lm if i.startswith("stop:") and i in items and any(o["key"] == lm[i].get("choice") for o in items[i]["options"])]
     if done:
