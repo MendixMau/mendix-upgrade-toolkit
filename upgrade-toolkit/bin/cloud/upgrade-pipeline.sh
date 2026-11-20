@@ -389,7 +389,7 @@ stepcheck_stop() {
   nj_meta person "$q" "$r" "${opts[@]}"; nj_writes "${ws[@]}"
   nj_add 13 "Decision" "${body%$'\n'}"
   # FR-7: auto mode parks a stop nothing later depends on; this one is not parked, and the person asks why it differs
-  if interview_auto; then nj_add 13 "Why the run stopped here in auto mode" "Interview mode auto parks only stops that no later step builds on. Every step after the updates (routes, replays, repair rows, the build) works on the model this step leaves, so the module update cannot be left open and decided at the end: answer it, then rerun."; fi
+  if interview_auto; then nj_meta info; nj_add 13 "Why the run stopped here in auto mode" "Interview mode auto parks only stops that no later step builds on. Every step after the updates (routes, replays, repair rows, the build) works on the model this step leaves, so the module update cannot be left open and decided at the end: answer it, then rerun."; fi
   nj_flush
 }
 
