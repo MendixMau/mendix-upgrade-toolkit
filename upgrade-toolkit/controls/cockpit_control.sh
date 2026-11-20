@@ -27,6 +27,11 @@ minw() { W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/cockpit/stops/$1.md" "
 mkstop() { W=$T/min/work; mkdir -p "$W"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""
   eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; eval "$1"
   { printf '# NEEDS JUDGMENT: step update, exit 13\n\nrun folder: x\nwork: x\nsource 10.24.0.1 -> target 11.12.5\nRule: ...\n\n    pipeline --from update\n'; cat "$NJ_TMP"; } > "$W/NEEDS-JUDGMENT.md"; }
+# parkw [running-step]: a work folder with markers written by the real nj_park, no header file
+parkw() { chkw "${1:-}"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""; WORK=$W; STEP=gate; DRY=0; interview_auto() { return 0; }; say() { :; }
+  eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p;/^nj_park() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"
+  nj_meta info; nj_add 12 "Release impact needs a look" "x"; nj_park; nj_meta info; nj_add 13 "Kept modules" "y"; nj_park; rm -f "$NJ_TMP"
+  ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p'; }
 cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc -l | tr -d ' ')"; }
 # a copy of a real unattended run (fixtures/cockpit/chk-unattended: plan with 19 choices taken at the recommendation, two modules held):
 # chkw [running-step]: the markers of a run that finished everything up to the new app's page walk, optionally with a step running
@@ -289,6 +294,15 @@ PY
             mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
             sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
             ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
+  # auto mode parks items and the run goes on: the page must say how many wait and where, never "Nothing needed" (WTD, round 4)
+  parked-idle) chkw; mkdir -p "$W/parked"; printf '# NEEDS JUDGMENT: 3 parked item(s) (Interview mode: auto), answer them in one round\n\nThe run went on past each of these.\n' > "$W/NEEDS-JUDGMENT.md"
+            printf '<!-- park exit 12 step gate -->\n## a (exit 12)\n<!-- park exit 13 step gate -->\n## b (exit 13)\n' > "$W/parked/gate.md"
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  # markers only, no NEEDS-JUDGMENT.md header: the live-run path, written by the pipeline's own nj_park (two rounds, two markers)
+  parked-markers) parkw ;;
+  # a rerun in progress: answered parked files of later steps are still there (only the step that reruns deletes its own), so it must not say "waits"
+  parked-rerun) parkw gate ;;
+  parked-none) chkw; ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'

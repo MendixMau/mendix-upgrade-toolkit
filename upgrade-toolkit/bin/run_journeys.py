@@ -1756,7 +1756,8 @@ def main():
         import apimock
         nc_lines = apimock.mark_journeys(summary["journeys"], a.apimock_log, apimock.systems_arg(a.exclude_systems))
     if a.compare:
-        before = json.load(open(cmp_summary)).get("journeys", {})
+        before_all_cmp = json.load(open(cmp_summary))
+        before = before_all_cmp.get("journeys", {})
         for j, s in summary["journeys"].items():
             b = before.get(j, {}).get("verdict")
             if s["verdict"] != "FAIL":  # INVALID stays INVALID: it says nothing about the upgrade
@@ -1767,6 +1768,14 @@ def main():
                 s["compare"] = "NOT IN BASELINE (run it on the old app too)"
             else:
                 s["compare"] = f"BASELINE DEFECT (before {b})"
+        # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
+        # visitor sees; both PASS, so no verdict flips: say it (a note, not a failure)
+        before_roles = before_all_cmp.get("roles", {})
+        summary["login_changes"] = [{"role": r, "before": before_roles[r].get("login_detail", ""), "after": s.get("login_detail", "")}
+                                    for r, s in summary["roles"].items()
+                                    if r in before_roles and s.get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail") != s.get("login_detail")]
         if not a.positive_control:  # T1-26 / T4-17: the screens line is printed (and stored) even when all pairs PASS
             import shotdiff
             rows = screen_compare(cmp_dir, out, summary["journeys"], a.shot_accept)
@@ -1862,6 +1871,8 @@ def main():
         print(f"  role {r:24} login {s['login']:7} {s.get('login_detail', '')[:60]}" + (f"  control {s['control']}" if "control" in s else ""))
         for e in s.get("data_errors", []):
             print(f"    data: {e[:160]}")
+    for c in summary.get("login_changes", []):
+        print(f"  NOTE anonymous role {c['role']}: the visitor's home changed, before \"{c['before']}\", now \"{c['after']}\" (not a failure; look at it)")
     scoped = collections.Counter(s["scope_class"] for s in summary["journeys"].values() if s.get("scope_class"))
     for k, n in sorted(scoped.items()):   # one line per class, the rows are in summary.json
         print(f"  INFO    out of scope ({k}): {n} actions listed, no journey, never INVALID (plan.json out_of_scope, scope.json)")

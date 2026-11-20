@@ -6,7 +6,7 @@
 # read scripts lazily), and an idcheck against the original went blind after the first accepted finding.
 #
 #   stepupdate.sh <app dir> <plan.txt> [--approved approved.txt] [--baseline original.mpr] [--dry-run]
-#                 [--force-ui Mod,Mod] [--port-java Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--unattended] [--no-fallback]
+#                 [--force-ui Mod,Mod] [--port-java Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--skip-reason Mod=why] [--unattended] [--no-fallback]
 #                 [--accept-unsaved Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
 #
 # plan.txt: one update per line, "<content id> <version> <ModuleName>", # comments allowed. Order matters: put the
@@ -132,7 +132,7 @@ bin=$(cd "$(dirname "$0")" && pwd)
 # kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
 steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
-approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""; chkacc=""; apptotal=""
+approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; skipr=""; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""; chkacc=""; apptotal=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --approved) approved=$2; shift 2;;
@@ -143,6 +143,7 @@ while [ $# -gt 0 ]; do
     --saved-edits) saved=$2; shift 2;;
     --from) from=$2; shift 2;;
     --skip) skipm=",$2,"; shift 2;;
+    --skip-reason) case "$2" in ?*=?*) skipr="$skipr$2"$'\n';; *) echo "stepupdate: --skip-reason wants 'Module=reason', got: $2" >&2; exit 2;; esac; shift 2;;
     --unattended) unattended=1; shift;;
     --no-fallback) fallback=0; shift;;
     --accept-unsaved) acceptun=",$2,"; shift 2;;
@@ -286,7 +287,10 @@ while read -r cid ver mod rest; do
   if [ $started = 0 ]; then
     if [ "$from" = "$n" ] || [ "$from" = "$mod" ]; then started=1; else echo "== step $n: $mod $ver skipped (before --from $from)"; continue; fi
   fi
-  case "$skipm" in *",$mod,"*) echo "== step $n: $mod $ver skipped (--skip)"; rec kept.txt "$mod" "$mod skipped by --skip"; continue;; esac
+  case "$skipm" in *",$mod,"*)
+    # why the owner keeps it (--skip-reason Mod=why): carried on the kept line; none given = the line as before
+    skipwhy=$(printf '%s' "$skipr" | awk -v m="$mod" 'index($0, m "=") == 1 { r = substr($0, length(m) + 2) } END { print r }')
+    echo "== step $n: $mod $ver skipped (--skip)"; rec kept.txt "$mod" "$mod skipped by --skip${skipwhy:+: $skipwhy}"; continue;; esac
   cmd=$(subst "$tmpl" cid "$cid"); cmd=$(subst "$cmd" version "$ver"); cmd=$(subst "$cmd" module "$mod"); cmd=$(subst "$cmd" mpr "$app/$mpr")
   case "$forceui" in *",$mod,"*) cmd="$cmd --save-edits $(printf %q "$saved/$mod") --force";; esac
   echo "== step $n: $mod $ver (content $cid)"
