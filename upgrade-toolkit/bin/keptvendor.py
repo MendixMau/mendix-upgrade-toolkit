@@ -24,7 +24,7 @@ When a planned module's target package is not in the cache (or cannot be read), 
 NOT CHECKED with the reason, never "clean":
   NOT CHECKED <Pkg> <version>: package not cached (<cid>-<version>.mpk); N kept use(s) it defines are unverified: ...
 A name defined nowhere (a Mendix core or Sass built-in name) is not reported; the summary counts the uses judged.
-Kept module folders are themesource/<Module>/**/*.scss; `theme` in --kept stands for the app's theme/ folder.
+`--kept-file` takes the first word of each line (not keptstyle's comma split). Kept module folders are themesource/<Module>/**/*.scss; `theme` in --kept stands for the app's theme/ folder.
 Exit: 0 every use judged and none missing, 1 at least one MISSING, 3 none missing but something NOT CHECKED, 2 input error.
 LIMITS: namespaced `ns.$x` / `@include ns.mixin` are not read; an @import that resolves outside the app is skipped; the
 package layout is assumed to hold themesource/<Module>/ at any depth of the .mpk (ASSUMED, not captured from a real package yet).
@@ -184,10 +184,11 @@ def main():
                 judged += 1
                 m = owners[0]
                 shown = ("$" if kind == "variable" else "") + n
-                if any(n in tgt[o][0][kind] for o in owners if o in tgt):
-                    continue
-                if m in notchecked_why and not any(o in tgt for o in owners):
-                    unchecked.setdefault(m, []).append(f"{kind} {shown} at {r}:{line}")
+                if any(n in t[0][kind] for t in tgt.values()):
+                    continue   # defined by some target package (a name may move between two planned packages)
+                if notchecked_why:   # it could live in a planned package whose target cannot be read
+                    um = next((o for o in owners if o in notchecked_why), next(iter(notchecked_why)))
+                    unchecked.setdefault(um, []).append(f"{kind} {shown} at {r}:{line}")
                     continue
                 missing.append(dict(kind=kind, name=shown, module=k, where=f"{r}:{line}", old=oldp[m][kind][n], pkg=m, version=plan[m][1]))
             for target, line in import_targets(tc.read(p)):
@@ -199,7 +200,7 @@ def main():
                     if full.startswith(pre) or full == mods[m]:
                         hit = (m, os.path.relpath(full, mods[m]).replace(os.sep, "/"))
                         break
-                if not hit or not any(os.path.exists(os.path.join(app, c)) or os.path.exists(os.path.join(mods[hit[0]], c)) for c in candidates(hit[1])):
+                if not hit or not any(os.path.exists(os.path.join(mods[hit[0]], c)) for c in candidates(hit[1])):
                     continue   # not into a planned module, or not a file of the current app at all
                 m, sub = hit
                 judged += 1

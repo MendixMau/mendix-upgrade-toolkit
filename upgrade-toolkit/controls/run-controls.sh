@@ -260,6 +260,13 @@ ctl gm15-kept-all-present-pass 0 '0 missing, 0 not checked' '!MISSING' -- python
 ctl gm15-kept-ok-uses-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptOk --plan-file $KV/plan.txt --cache $KVC/new
 ctl gm15-kept-own-and-app-theme-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptSelf --plan-file $KV/plan.txt --cache $KVC/new
 ctl gm15-kept-package-missing-not-checked 3 '^NOT CHECKED PlatformDesignSystem 45\.0\.0: package not cached \(9001-45\.0\.0\.mpk' 'mixin dark-theme at themesource/KeptMixin/web/main\.scss:4' '0 missing, [1-9][0-9]* not checked' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none
+# a name that moves between two planned packages is present in the target set, not MISSING; one that could live in an uncached or unreadable package is NOT CHECKED
+mkdir -p $KVC/move $KVC/half $KVC/corrupt
+kvzip $KV/pkg-move-pds $KVC/move/9001-45.0.0.mpk; kvzip $KV/pkg-move-atlas $KVC/move/9002-2.0.0.mpk
+cp $KVC/move/9001-45.0.0.mpk $KVC/half/; cp $KVC/move/9001-45.0.0.mpk $KVC/corrupt/; printf 'not a zip' > $KVC/corrupt/9002-2.0.0.mpk
+ctl gm15-kept-moved-between-planned-pass 0 '0 missing, 0 not checked' '!MISSING' '!NOT CHECKED' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/move
+ctl gm15-kept-uncached-sibling-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: package not cached' 'mixin moved-mixin at themesource/KeptMove/web/main\.scss:2' '!^MISSING' '!variable \$moved-var' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/half
+ctl gm15-kept-corrupt-package-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: cannot read 9002-2\.0\.0\.mpk' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/corrupt
 ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
