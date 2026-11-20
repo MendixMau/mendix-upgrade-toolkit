@@ -6,7 +6,8 @@
 #   "Unsupported class file major version 65", and the 10.6 runtime itself refuses anything but Java 11 ("Java 11 is required"),
 #   so the OLD app of a 10.6 source never built or started, CHK-1; any other 10.x whose toolset bundles Gradle 7.x, e.g. 10.9, gets the
 #   same image, DVS; 10.7 to 10.23 otherwise unchanged).
-#   mxbuild: refused on an incomplete toolset (toolcheck.sh); --java-home/--java-exe-path and HOME=/tmp are added.
+#   mxbuild: says `mx10.sh: mxbuild image <img>` on stderr first (the pipeline's build stop prints it);
+#   refused on an incomplete toolset (toolcheck.sh); --java-home/--java-exe-path and HOME=/tmp are added.
 #   11.x on an arm64 host (Docker emulating amd64): the tool is started through a small sh that sets LD_PRELOAD to those of
 #   libuuid.so.1, libfreetype.so.6, libfontconfig.so.1 (in /usr/lib/x86_64-linux-gnu) that EXIST in the image (M1: mxbuild
 #   11.12.x segfaulted, rc 139, intermittently in mx check / rename-design-properties; with the preload every later call
@@ -41,4 +42,5 @@ if [[ -z ${UPG_IMAGE10:-} && $v == 10.* ]]; then  # CHK-1: mxbuild 10.6 (Gradle 
   [[ $m -le 6 ]] && img=mig-mx10-j11
   [[ -n $(print -l $tb/modeler/tools/gradle/lib/gradle-wrapper-shared-7.*(N)) ]] && img=mig-mx10-j11  # DVS: 10.9 bundles Gradle 7.6.3 too (dies on JDK 21)
 fi
+[[ $tool == mxbuild ]] && echo "mx10.sh: mxbuild image $img" >&2  # issue 33: a build stop names the image next to its first error line (an inherited UPG_IMAGE10 once built 10.24 on JDK 11)
 exec ${0:A:h}/mxrun.sh -v "$tb":"$tb":ro -- $img $run "$@"
