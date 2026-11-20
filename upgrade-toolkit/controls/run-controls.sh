@@ -9632,6 +9632,13 @@ ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback
 ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
 
+# issue 30: exit 4 (a failed step, no stop file) prints the brief, like a judgment stop does; cleanup() is cut out of the pipeline script
+CL4=$T/cl4; mkdir -p $CL4/w
+CLF="eval \"\$(sed -n '/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { echo BRIEF-PRINTED; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=build; WORK=$CL4/w; APPS_UP=()"
+ctl pipeline-exit4-prints-brief-catch 0 '^REGEN$' '^BRIEF-PRINTED$' -- bash -c "$CLF; ( exit 4 ); cleanup; true"
+ctl pipeline-exit0-no-brief-pass 0 '!BRIEF-PRINTED' '!REGEN' -- bash -c "$CLF; ( exit 0 ); cleanup; true"
+ctl pipeline-exit4-after-stop-file-no-second-brief-pass 0 '!BRIEF-PRINTED' -- bash -c "$CLF; : > $CL4/w/NEEDS-JUDGMENT.md; ( exit 4 ); cleanup; true"
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
