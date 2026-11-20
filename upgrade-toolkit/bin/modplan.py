@@ -23,10 +23,12 @@ One line per module:
 Prereleases (a letter in the version) and rows whose version or min Mendix cannot be read are ignored and counted.
 
 --out writes the plan ("<content id> <version> <Module>   # was <installed>"; refuses an existing file unless --force,
-which keeps the old one as <out>.pre-modplan, .1, .2 ...). --jumps writes the same lines with the installed version as
-a fourth field, the input of release_impact.py --plan. Order: the lines keep the module order of localedits.json,
+which keeps the old one as <out>.pre-modplan, .1, .2 ...). --jumps writes "<Module> <installed> -> <new> <content id>", the form diff.py --module-jumps, proposal.py and
+release_impact.py --plan read. Order: the lines keep the module order of localedits.json,
 --last moves the named modules to the end, and --app (an app folder or .mpr) puts the target of a cross-module
 association before its owner, planorder.py's rule (PV-2), whose CYCLE and NOTE lines are printed too.
+While any module is NOT PICKED nothing is written (exit 3); --allow-unresolved writes the files with a
+"# NOT PICKED <Module>: <why>" comment per module and still exits 3.
 Exit: 0 every module resolved, 3 at least one NOT PICKED, 2 input error.
 """
 import argparse, json, os, re, shutil, sys
@@ -38,7 +40,8 @@ VER = re.compile(r"^\d+(?:\.\d+){1,3}$")
 
 
 def tup(s):
-    return tuple(int(x) for x in s.split("."))
+    t = tuple(int(x) for x in s.split("."))
+    return t + (0,) * (4 - len(t))  # 4.5 == 4.5.0
 
 
 def parse_versions(text):
@@ -79,7 +82,7 @@ def pick(installed, rows, target):
     if not fit:
         return "STRANDED", None
     best = max(fit, key=lambda r: tup(r[0]))
-    if VER.match(installed or "") and tup(best[0]) <= tup(installed):
+    if tup(best[0]) <= tup(installed):
         return "CURRENT", best[0]
     return "PICK", best
 
@@ -91,6 +94,7 @@ def main():
     ap.add_argument("--versions-dir"); ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--skip", default=""); ap.add_argument("--last", default="")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--allow-unresolved", action="store_true")
     a = ap.parse_args()
     if not VER.match(a.target):
         print(f"modplan: --target {a.target}: not a Mendix version", file=sys.stderr); return 2
@@ -110,37 +114,44 @@ def main():
         renamed = {r["module"] for r in renamed_modules.find(mods)}
     except Exception:  # a table problem must not stop the plan: the proposal still lists the rename
         pass
-    plan, unresolved, ignored_total = [], 0, 0
+    plan, unresolved, ignored_total, notes = [], 0, 0, []
+
+    def not_picked(n, why):
+        nonlocal unresolved
+        unresolved += 1
+        notes.append(f"# NOT PICKED {n}: {why}")
+        print(f"NOT PICKED {n}: {why}")
     for m in mods:
         n, cid, inst = m["name"], m.get("cid"), m.get("version") or ""
         if n in skip or n in renamed:
             print(f"SKIP {n}: " + ("named in --skip" if n in skip else "renamed or republished (renamed_modules.py): not a version update"))
             continue
         if not cid:
-            unresolved += 1
-            print(f"NOT PICKED {n}: no content id in the MPR; give it with localedits.py --cid {n}=<id>")
+            not_picked(n, f"no content id in the MPR; give it with localedits.py --cid {n}=<id>")
+            continue
+        if not VER.match(inst):
+            not_picked(n, f"installed version not comparable ({inst or 'none'!r}): not a plain release, so no newer one can be told from a downgrade")
             continue
         path = os.path.join(vdir, f"versions-{cid}.txt")
-        if not os.path.isfile(path):
+        cached = os.path.isfile(path)
+        if not cached:
             ok, why = (False, "versions not cached and --no-fetch given") if a.no_fetch else fetch(cid, path)
             if not ok:
-                unresolved += 1
-                print(f"NOT PICKED {n}: {why}")
+                not_picked(n, why)
                 continue
         rows, ign = parse_versions(open(path, encoding="utf-8", errors="replace").read())
         ignored_total += ign
         if not rows:
-            unresolved += 1
-            print(f"NOT PICKED {n}: {path} has no readable version rows")
+            not_picked(n, f"{path} has no readable version rows")
             continue
         kind, v = pick(inst, rows, target)
         if kind == "STRANDED":
             print(f"STRANDED {n} {inst}: no version at all has a min Mendix at or below {a.target} (list it in stranded.md, steps/triage.md)")
         elif kind == "CURRENT":
-            print(f"CURRENT {n} {inst}: no newer version fits {a.target} (newest that fits: {v})")
+            print(f"CURRENT {n} {inst}: no newer version fits {a.target} (newest that fits: {v})" + (" (cached)" if cached else ""))
         else:
             plan.append((n, cid, v[0], inst))
-            print(f"PICK {n} {inst or '?'} -> {v[0]} (min Mendix {v[1]})")
+            print(f"PICK {n} {inst} -> {v[0]} (min Mendix {v[1]})" + (" (cached)" if cached else ""))
     plan.sort(key=lambda r: (r[0] in last, last.index(r[0]) if r[0] in last else 0))
     if a.app and plan:
         import idcheck, planorder
@@ -162,22 +173,29 @@ def main():
     print(f"modplan: {len(mods)} module(s): {len(plan)} to update, {unresolved} not picked"
           + (f"; {ignored_total} unreadable or prerelease row(s) ignored" if ignored_total else "")
           + ("; not picked is not a pass" if unresolved else ""))
-    for path, with_old in ((a.out, False), (a.jumps, True)):
-        if not path:
-            continue
+    outs = [(p, k) for p, k in ((a.out, "plan"), (a.jumps, "jumps")) if p]
+    if unresolved and outs and not a.allow_unresolved:
+        print(f"modplan: {unresolved} module(s) NOT PICKED: nothing written (a plan without them would drop them silently); "
+              "fix the cause, or --allow-unresolved writes the files with a '# NOT PICKED' comment per module", file=sys.stderr)
+        return 3
+    for path, _ in outs:  # both paths are checked before either is written
+        if os.path.exists(path) and not a.force:
+            print(f"modplan: {path} exists; --force keeps it as {path}.pre-modplan and writes the new one", file=sys.stderr)
+            return 2
+    for path, kind in outs:
         if os.path.exists(path):
-            if not a.force:
-                print(f"modplan: {path} exists; --force keeps it as {path}.pre-modplan and writes the new one", file=sys.stderr)
-                return 2
             bak, k = path + ".pre-modplan", 0
             while os.path.exists(bak):
                 k += 1; bak = f"{path}.pre-modplan.{k}"
             shutil.copyfile(path, bak)
-        body = "".join(f"{c} {v} {n}   # was {o or '?'}\n" if not with_old else f"{c} {v} {n} {o or '?'}\n"
-                       for n, c, v, o in plan)
+        if kind == "plan":
+            body = "".join(f"{c} {v} {n}   # was {o}\n" for n, c, v, o in plan)
+        else:  # "<Module> <old> -> <new> <cid>": the form diff.py, proposal.py and release_impact.py read
+            body = "".join(f"{n} {o} -> {v} {c}\n" for n, c, v, o in plan)
+        body = "".join(x + "\n" for x in notes) + body
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(body or "# no module update fits the target\n")
+            fh.write(body if plan or notes else "# no module update fits the target\n")
         os.replace(tmp, path)
         print(f"modplan: wrote {path} ({len(plan)} line(s))")
     return 3 if unresolved else 0

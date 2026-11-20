@@ -22,7 +22,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    and `modules/<module>.md`; the index has no per-target selection, so take the newest version whose min Mendix is
    not above the target from `mxcli marketplace versions <content id>` (E6-5). `python3 $B/modplan.py $W/localedits.json --target <target>
    --app app/ --out $W/plan.txt --jumps $W/module-jumps.txt` does exactly that (GA-4): PICK / CURRENT / STRANDED / SKIP (renamed) /
-   NOT PICKED per module (never green by absence: exit 3), the target of a cross-module association before its owner (planorder.py's rule),
+   NOT PICKED per module (never green by absence: exit 3), nothing written while one is NOT PICKED unless `--allow-unresolved`; each module's version table is cached in `$W/modvers/versions-<cid>.txt` (output says `(cached)`; delete the file to refetch), the target of a cross-module association before its owner (planorder.py's rule),
    `--last A,B` to force the end, `--skip A,B` to leave modules out. For a 10.x source run it twice with the SOURCE-rung target
    for `plan-pre.txt` and the final target for `plan.txt`; a module whose two picks are the same version goes in `plan-pre.txt` only. The pipeline does
    not run it (the plan is a decision, exit 13 until the agent has written it); the rest of this item still applies to its output. "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
@@ -80,6 +80,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    (MxModelReflection is the usual one); their update drops associations other modules own. The exception (PV-2): a
    target goes BEFORE a planned module that owns an association into it, because the owner's import restores it;
    `python3 $B/planorder.py app/ $W/plan.txt` lists each pair in the wrong order and `--write` reorders the plan.
+   So LAST holds for a target with no planned owner; with a planned owner the target goes before that owner and the two rules agree (`modplan.py --app` applies only the pair rule; use `--last` for the rest).
    Callers of the OLD API (T5-15, T5F-4): a module that stays kept (stranded, edited, refused) keeps calling the API it
    was built against. Once the plan and the kept/stranded list exist: `python3 $B/crosscalls.py app/ --kept <A,B> --planned <C,D>`
    (or `--kept-file .stepupdate/kept.txt --plan-file $W/plan.txt`; `--kept ''` when nothing stays). A `CAP <P> at <newest
