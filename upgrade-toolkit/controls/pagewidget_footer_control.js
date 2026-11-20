@@ -47,7 +47,7 @@ let bad = 0;
 const say = (ok, c) => { console.log(`${ok ? 'ok' : 'FAIL'} ${c}`); if (!ok) bad++; };
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
   const page = await browser.newPage();
   const text = async (html, fn) => {
     await page.setContent(`<!doctype html><html><body>${html}</body></html>`);

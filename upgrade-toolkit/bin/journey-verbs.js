@@ -84,7 +84,7 @@ function pageWidget(els) { // runs in the page: index of the shown element neste
   const shown = [];
   els.forEach((e, i) => { if (e.getClientRects().length) shown.push(i); });
   const depthOf = (e) => { let d = 0; for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++; return d; };
-  const inFooter = (e) => !!e.closest('footer, [role="contentinfo"]');
+  const inFooter = (e) => typeof e.closest === 'function' && !!e.closest('footer, [role="contentinfo"]'); // guarded: a thrown error here falls back to index 0 (the layout widget)
   const pageSide = shown.filter((i) => !inFooter(els[i]) && depthOf(els[i]) >= 1);
   const pool = pageSide.length ? pageSide : shown;
   let best = 0, depth = -1;
