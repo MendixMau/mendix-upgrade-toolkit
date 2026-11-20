@@ -9479,6 +9479,38 @@ ctl startcheck-captured-new-same-pass 0 '^startcheck: CLEAN ' -- python3 $B/star
 ctl startcheck-captured-lazy-error-after-window-pass 0 '^startcheck: CLEAN ' '!SAML' -- python3 $B/startcheck.py $FX/logs/old-lazy-error.log
 # text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
 ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
+# --- GA1: mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh
+#     (16 of 16 modules UNKNOWN). bin/mxbuild_link.sh links the run's toolset there when the cache has none.
+ML=$T/mxlink; mkdir -p $ML/tools/mxbuild-10.24.10.1 $ML/tools/mxbuild-10.24.13.2 $ML/h1/.mxcli/mxbuild/10.24.13.2 $ML/h2/.mxcli/mxbuild $ML/h3
+ln -sfn $ML/gone $ML/h2/.mxcli/mxbuild/10.24.10.1
+ctl mxbuild-link-missing-catch 0 'mxbuild_link: .*/\.mxcli/mxbuild/10\.24\.10\.1 -> .*/mxbuild-10\.24\.10\.1' -- sh -c "HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h3/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-missing-resolves-pass 0 'resolves' -- sh -c "HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h3/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-existing-dir-untouched-pass 0 '!mxbuild_link:' 'still-real' -- sh -c "HOME=$ML/h1 bash $B/mxbuild_link.sh $ML/tools 10.24.13.2; test ! -L $ML/h1/.mxcli/mxbuild/10.24.13.2 && echo still-real"
+ctl mxbuild-link-dangling-relinked-catch 0 'mxbuild_link: ' 'resolves' -- sh -c "HOME=$ML/h2 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h2/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-no-toolset-pass 0 '!mxbuild_link:' -- env HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.99.0.0
+ctl mxbuild-link-usage-catch 2 'usage: mxbuild_link.sh' -- bash $B/mxbuild_link.sh
+# text-order guard: triage links the toolset BEFORE localedits runs
+ctl mxbuild-link-pipeline-before-localedits-catch 0 'ok' -- awk '/mxbuild_link\.sh/ && !l {l=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (l && d && l<d) ? "ok" : "bad link=" l " localedits=" d}' $B/cloud/upgrade-pipeline.sh
+# --- GA1: the module-plan stop says "rerun --from triage" and the rerun repeated 15 minutes of mxcli diff. bin/localedits_cache.sh reuses
+#     the result while the model, the localedits args and the mxcli build are unchanged.
+LC=$T/lecache; mkdir -p $LC/app $LC/w/state; git -C $LC/app init -q 2>/dev/null; git -C $LC/app -c user.email=a@b -c user.name=t commit -q --allow-empty -m one 2>/dev/null
+echo 78bdfa5 > $LC/w/state/mxcli-version; echo '{}' > $LC/w/localedits.json; echo '# localedits' > $LC/w/localedits.md
+ctl localedits-cache-empty-redo-catch 1 -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-save-pass 0 'rc=1' -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 1 --mxcli-diff; echo rc=\$(cat $LC/w/state/localedits.rc)"
+ctl localedits-cache-same-reused-pass 0 '^1$' -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-other-args-redo-catch 1 -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff --cid Mod=5
+ctl localedits-cache-fresh-redo-catch 1 -- env UPG_LOCALEDITS_FRESH=1 bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-other-mxcli-redo-catch 1 -- sh -c "echo v0.99 > $LC/w/state/mxcli-version; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff; rc=\$?; echo 78bdfa5 > $LC/w/state/mxcli-version; exit \$rc"
+ctl localedits-cache-model-changed-redo-catch 1 -- sh -c "echo x > $LC/app/new.mpr; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff; rc=\$?; rm $LC/app/new.mpr; exit \$rc"
+ctl localedits-cache-incomplete-not-kept-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-result-deleted-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/localedits.md; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-dirty-file-edited-redo-catch 1 -- sh -c "echo a > $LC/app/d.txt; git -C $LC/app -c user.email=a@b -c user.name=t add d.txt; git -C $LC/app -c user.email=a@b -c user.name=t commit -q -m d; echo b >> $LC/app/d.txt; bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; echo c >> $LC/app/d.txt; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-untracked-edited-redo-catch 1 -- sh -c "echo a > $LC/app/u.txt; bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; echo b >> $LC/app/u.txt; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-no-git-redo-catch 1 -- sh -c "mkdir -p $LC/nogit; bash $B/localedits_cache.sh save $LC/nogit $LC/w 0 --mxcli-diff; bash $B/localedits_cache.sh check $LC/nogit $LC/w --mxcli-diff"
+ctl localedits-cache-rc-missing-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/state/localedits.rc; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl mxbuild-link-pipeline-all-versions-pass 0 'ok' -- sh -c "grep -q 'mxbuild_link.sh\" \"\$UPG_TOOLS\" \"\$SOURCE\" .*TARGET2.*VIA' $B/cloud/upgrade-pipeline.sh && echo ok"
+ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
+ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"
