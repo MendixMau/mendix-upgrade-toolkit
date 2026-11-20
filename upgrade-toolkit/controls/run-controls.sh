@@ -9479,6 +9479,18 @@ ctl startcheck-captured-new-same-pass 0 '^startcheck: CLEAN ' -- python3 $B/star
 ctl startcheck-captured-lazy-error-after-window-pass 0 '^startcheck: CLEAN ' '!SAML' -- python3 $B/startcheck.py $FX/logs/old-lazy-error.log
 # text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
 ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
+# --- GA1: mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh
+#     (16 of 16 modules UNKNOWN). bin/mxbuild_link.sh links the run's toolset there when the cache has none.
+ML=$T/mxlink; mkdir -p $ML/tools/mxbuild-10.24.10.1 $ML/tools/mxbuild-10.24.13.2 $ML/h1/.mxcli/mxbuild/10.24.13.2 $ML/h2/.mxcli/mxbuild $ML/h3
+ln -sfn $ML/gone $ML/h2/.mxcli/mxbuild/10.24.10.1
+ctl mxbuild-link-missing-catch 0 'mxbuild_link: .*/\.mxcli/mxbuild/10\.24\.10\.1 -> .*/mxbuild-10\.24\.10\.1' -- sh -c "HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h3/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-missing-resolves-pass 0 'resolves' -- sh -c "HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h3/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-existing-dir-untouched-pass 0 '!mxbuild_link:' 'still-real' -- sh -c "HOME=$ML/h1 bash $B/mxbuild_link.sh $ML/tools 10.24.13.2; test ! -L $ML/h1/.mxcli/mxbuild/10.24.13.2 && echo still-real"
+ctl mxbuild-link-dangling-relinked-catch 0 'mxbuild_link: ' 'resolves' -- sh -c "HOME=$ML/h2 bash $B/mxbuild_link.sh $ML/tools 10.24.10.1; test -d $ML/h2/.mxcli/mxbuild/10.24.10.1/ && echo resolves"
+ctl mxbuild-link-no-toolset-pass 0 '!mxbuild_link:' -- env HOME=$ML/h3 bash $B/mxbuild_link.sh $ML/tools 10.99.0.0
+ctl mxbuild-link-usage-catch 2 'usage: mxbuild_link.sh' -- bash $B/mxbuild_link.sh
+# text-order guard: triage links the toolset BEFORE localedits runs
+ctl mxbuild-link-pipeline-before-localedits-catch 0 'ok' -- awk '/mxbuild_link\.sh/ && !l {l=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (l && d && l<d) ? "ok" : "bad link=" l " localedits=" d}' $B/cloud/upgrade-pipeline.sh
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

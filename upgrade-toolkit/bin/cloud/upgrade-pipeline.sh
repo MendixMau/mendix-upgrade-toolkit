@@ -907,6 +907,8 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     fi
   fi
   must mxcli_run -p "$MPR" -c "REFRESH CATALOG FULL"
+  # mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh (GA1: 16 of 16 UNKNOWN)
+  [ "$DRY" = 1 ] || bash "$B/mxbuild_link.sh" "$UPG_TOOLS" "$SOURCE" 2>&1 | while IFS= read -r l; do note "$l"; done
   local le=() a
   if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
   # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
