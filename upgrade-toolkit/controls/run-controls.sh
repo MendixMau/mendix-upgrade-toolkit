@@ -900,7 +900,7 @@ ctl localedits-layout-content-catch 0 'ui +CHANGED +layout +Administration\.Layo
 ctl localedits-layout-content-pass 0 'UI edits \(pages, layouts\): 0' 'force-ui: none' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-same-app/App.mpr --module Administration
 # GM-11: constant defaults and jar dependencies compared offline (conf rows, exit 1); element contents never reported as unchanged
 # without mxcli. cache = the package without jars (constant PasswordMinLength 8), cache-jar = the package with lib-a 1.0.0.
-model gm11-const-edit > /dev/null; model gm11-const-pkg > /dev/null; model gm11-secret-edit > /dev/null; model gm11-jar-edit > /dev/null; model gm11-jar-pkg > /dev/null; model gm11-jar-same > /dev/null
+model gm11-const-edit > /dev/null; model gm11-const-pkg > /dev/null; model gm11-secret-edit > /dev/null; model gm11-jar-edit > /dev/null; model gm11-jar-added > /dev/null; model gm11-jar-empty > /dev/null; model gm11-jar-pkg > /dev/null; model gm11-jar-same > /dev/null
 mkdir -p $T/cache-jar
 (cd $M/gm11-jar-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-jar/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
 model gm11-const-pkg > /dev/null; mkdir -p $T/cache-const
@@ -910,13 +910,17 @@ ctl gm11-const-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies;
 # a constant named like a secret never prints its values
 ctl gm11-const-secret-name-hidden-catch 1 'conf +CHANGED +constant +Administration\.PasswordMinLength +default \(not shown\)' '!'"'12'" -- python3 $B/localedits.py $M/gm11-secret-edit/App.mpr --module Administration
 ctl gm11-jar-version-catch 1 'conf +CHANGED +jar +org\.example:lib-a +version 1\.0\.0 -> 2\.0\.0' 'CONFIG edits 1' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
-ctl gm11-jar-added-catch 1 'conf +ADDED +jar +org\.example:lib-a' -- python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
+ctl gm11-jar-added-catch 1 'conf +ADDED +jar +org\.example:lib-b' 'CONFIG edits 1' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-added/App.mpr --module Administration
+# one side unread: no jar rows, never every jar as ADDED or REMOVED (and not exit 1); the note says so
+ctl gm11-jar-one-side-unread-pkg-has-jars-catch 0 'jar dependencies not verified \(one side unread\)' '!conf ' 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '^JAR DEPENDENCIES NOT VERIFIED .*\[.Administration.\]' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-jar-one-side-unread-app-has-jars-catch 0 'jar dependencies not verified \(one side unread\)' '!conf ' -- python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
+ctl gm11-jar-one-side-empty-list-pass 0 '!not verified' '!conf ' '!JAR DEPENDENCIES NOT VERIFIED' -- python3 $B/localedits.py $M/gm11-jar-empty/App.mpr --module Administration
 ctl gm11-config-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' '!CONFIG edits [1-9]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
 ctl gm11-jar-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-same/App.mpr --module Administration
 ctl gm11-no-mxcli-not-compared-catch 0 'domain model unchanged.*\| element contents NOT compared \(no mxcli\)' '^CONTENTS NOT COMPARED \(no mxcli\)' '!: domain model unchanged$' -- env UPG_MXCLI=/nonexistent/mxcli python3 $B/localedits.py $M/base/App.mpr --module Administration
 ctl gm11-no-flag-not-compared-catch 0 'element contents NOT compared \(--mxcli-diff not given\)' '^CONTENTS NOT COMPARED \(--mxcli-diff not given\)' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
 # GM-11: no ModuleSettings unit on either side (base has no jars): said on the line and in the summary, never read as "no jars"
-ctl gm11-jar-unverified-catch 0 'jar dependencies not verified \(no ModuleSettings unit read\)' '^JAR DEPENDENCIES NOT VERIFIED \(no ModuleSettings unit read\): \[.Administration.\]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-jar-unverified-catch 0 'jar dependencies not verified \(no ModuleSettings unit read\)' '^JAR DEPENDENCIES NOT VERIFIED \(no ModuleSettings unit read, or one side unread\): \[.Administration.\]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
 ctl gm11-jar-verified-no-note-pass 0 '!not verified' '!JAR DEPENDENCIES NOT VERIFIED' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-same/App.mpr --module Administration
 # the triage call passes --mxcli-diff when an mxcli runs and the model is Mendix 10+
 ctl gm11-triage-passes-mxcli-diff-catch 0 'UPG_TRIAGE_MXCLI_DIFF:-1.*le\+=\(--mxcli-diff\)' -- grep -n 'UPG_TRIAGE_MXCLI_DIFF' $B/cloud/upgrade-pipeline.sh

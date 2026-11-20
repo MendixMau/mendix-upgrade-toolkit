@@ -277,7 +277,7 @@ def build(spec, out):
             units.append((msid, mid, {"$ID": msid, "$Type": "Security$ModuleSecurity",
                                       "ModuleRoles": lst([{"$ID": gid(f"mr:{mn}.{r}"), "$Type": "Security$ModuleRole", "Name": r}
                                                           for r in m["module_roles"]])}))
-        if m.get("jars"):   # GM-11: "jars": [{"group": G, "artifact": A, "version": V}] = Projects$ModuleSettings JarDependencies
+        if m.get("jars") is not None:   # GM-11: "jars": [{"group": G, "artifact": A, "version": V}] = Projects$ModuleSettings JarDependencies
             jsid = gid(f"modsettings:{mn}")
             units.append((jsid, mid, {"$ID": jsid, "$Type": "Projects$ModuleSettings",
                                       "JarDependencies": lst([{"$ID": gid(f"jd:{mn}.{j['group']}:{j['artifact']}"), "$Type": "Projects$JarDependency",

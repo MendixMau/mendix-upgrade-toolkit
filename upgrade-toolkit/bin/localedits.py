@@ -362,7 +362,15 @@ def config_diff(app_model, pkg_model, mod):
             rows.append({"change": "CHANGED", "kind": "constant", "name": qn,
                          "detail": what + " (the update puts the package default back: restore it after, constcheck.py)"})
     (a, ra), (p, rp) = jar_index(app_model, mod), jar_index(pkg_model, mod)
-    jars_read = ra or rp
+    # jar rows only when BOTH sides were read; one side read: with no jars there both are empty (verified), else not verified
+    if ra and rp:
+        jars_read = True
+    elif ra or rp:
+        jars_read = "one side unread" if (a if ra else p) else True
+        a, p = {}, {}
+    else:
+        jars_read = False
+        a, p = {}, {}
     for k in sorted(set(a) | set(p)):
         if k in a and k not in p:
             rows.append({"change": "ADDED", "kind": "jar", "name": k, "detail": f"local jar dependency {a[k]}, removed by the update"})
@@ -538,7 +546,7 @@ def main():
             entry["ui"] = ui_diff(app_model, pkg_model, m["name"])
             entry["logic"] = logic_diff(app_model, pkg_model, m["name"])
             entry["config"], entry["jars_verified"] = config_diff(app_model, pkg_model, m["name"])
-            if not entry["jars_verified"]:
+            if entry["jars_verified"] is not True:
                 jars_unverified.append(m["name"])
         if err:
             entry["files"], entry["files_error"] = None, "package not readable"
@@ -612,6 +620,8 @@ def main():
             px += "]"
         if entry.get("jars_verified") is False:
             status += " | jar dependencies not verified (no ModuleSettings unit read)"
+        elif entry.get("jars_verified") == "one side unread":
+            status += " | jar dependencies not verified (one side unread)"
         if not args.mxcli_diff and entry["domain"] is not None:
             el = f" | element contents NOT compared ({not_compared}): microflows, pages and layouts may differ"
         lines.append(f"## {m['name']} {m['version']} (content {m['cid']}): {status}{el}{px}")
@@ -644,7 +654,7 @@ def main():
               f"CONFIG edits (constant defaults, jar dependencies; exit 1): {config_total}",
               *([f"CONTENTS NOT COMPARED ({not_compared}): microflow, nanoflow, page and layout contents were not judged; "
                  "'domain model unchanged' says nothing about them. Run with --mxcli-diff."] if not args.mxcli_diff else []),
-              *([f"JAR DEPENDENCIES NOT VERIFIED (no ModuleSettings unit read): {jars_unverified}: this is not 'no jars'; "
+              *([f"JAR DEPENDENCIES NOT VERIFIED (no ModuleSettings unit read, or one side unread): {jars_unverified}: this is not 'no jars'; "
                  "run --mxcli-diff (JAR_DEPENDENCY rows) or compare in Studio Pro."] if jars_unverified else []),
               f"UI edits (pages, layouts): {sum(len(e.get('ui') or []) for e in report)}"
               + (f", partially verified (mxcli diff verified=false): {partial}" if partial else ""),
