@@ -110,6 +110,10 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    `grep -rl "topic: upgrade" $BR/internal | grep -v -e '/_snapshot-' -e '/_prefix' | xargs grep -l "versions:.*<major.minor>"`
    Frontmatter `applies_to` says what kind of note it is; `versions` says where it is valid. A note outside its range
    is a hint, not a fact. Read titles first; open only the notes for modules on your plan.
+   Version rules ("module X needs >= Y on target Z") are not read by hand: the brain owner keeps them as rows in
+   `$BR/baseline/upgrade-rules.tsv` (or `$UPG_RULES`, colon separated), and step 10's `replacement_check.py` reads that file
+   without a flag and prints each as a `V` row (HIT = open). Row format and grammar: the header of `bin/replacement_check.py`
+   (`--rules`). No such file = say so in the plan; the notes above stay a manual read. GM-41.
 8. Test inventory for step 2: `python3 $B/test_inventory.py app/ --md $W/test-inventory.md --endpoints $W/endpoints.txt`
    (after a FULL catalog build). It counts jars from the files and groups duplicates by artifact, inside userlib too
    (commons-lang3 3.12 and 3.14 in E5b): those are "present BEFORE the upgrade", so they are not blamed on it (E5b-4).

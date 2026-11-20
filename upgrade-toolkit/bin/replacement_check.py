@@ -20,6 +20,13 @@ JavaIndex), userlib/*.jar names, javascriptsource/, theme/ and themesource/, wid
   --accept FILE   one line per accepted package, `<sha256 of the .mpk> <reason>`: an mpkjs hit on exactly that file is not
                   reported (the row says "accepted by checksum"). For a package a person patched (V3D-2: 3D Viewer 4.0.0
                   with the react-loading spinner replaced keeps the dead React 16 copy, so R36 still matches the file).
+  --rules FILE    an extra rule table (repeatable), same columns and grammar as the table; GM-41. A version rule is a row:
+                  `modver:Mod:<Y` in detect, `->Z` in applies_on_jump = "module Mod needs a version >= Y when the target is Z or
+                  later". Also read without the flag: the files named in $UPG_RULES (colon separated) or UPG_RULES= in
+                  ~/.config/upgrade-toolkit/local.env, and <brain>/baseline/upgrade-rules.tsv when the brain (brainpath.py) has
+                  one. A named or found file that cannot be read, or an id that repeats one of the main table, exits 2: a rule
+                  that was not read is never silently skipped. No file anywhere = only the main table (the toolkit runs
+                  without a brain). Rules are the owner's data and live with the owner (the brain), never in this repo.
   --no-newer A,B  widgets or modules with no newer version for the target (stranded, private owner): an mpkjs hit on one
                   of them says BLOCKER in its evidence and the run prints a `blockers:` line (NR2-24). Still exit 1.
 
@@ -133,6 +140,29 @@ def read_table(path):
     if len(set(ids)) != len(ids):
         raise TableError(f"{path}: duplicate ids")
     return rows
+
+
+def extra_tables(flags):
+    """[(path, how)] of the extra rule tables: --rules, $UPG_RULES, local.env UPG_RULES=, <brain>/baseline/upgrade-rules.tsv."""
+    out = [(f, "--rules") for f in flags]
+    env = os.environ.get("UPG_RULES")
+    if not env:
+        try:
+            for ln in (Path.home() / ".config" / "upgrade-toolkit" / "local.env").read_text().splitlines():
+                if ln.strip().startswith("UPG_RULES="):
+                    env = ln.split("=", 1)[1].strip().strip("'\"")
+        except OSError:
+            pass
+    out += [(os.path.expanduser(f), "UPG_RULES") for f in (env or "").split(":") if f.strip()]
+    try:
+        import brainpath
+        brain, _ = brainpath.find()
+        f = os.path.join(brain, "baseline", "upgrade-rules.tsv") if brain else None
+        if f and os.path.exists(f):
+            out.append((f, "brain"))
+    except Exception:
+        pass
+    return list(dict.fromkeys(out))
 
 
 def parse_detect(s, where):
@@ -726,6 +756,7 @@ def main():
     ap.add_argument("--to", required=True, help="target Studio Pro version")
     ap.add_argument("--from", dest="frm", help="source version (default: the .mpr's)")
     ap.add_argument("--table", default=str(DEFAULT_TABLE))
+    ap.add_argument("--rules", action="append", default=[], help="extra rule table (repeatable); see the header")
     ap.add_argument("--out", help="markdown report (one row per table row, a handled column for the open ones)")
     ap.add_argument("--json", help="JSON report")
     ap.add_argument("--accept", help="file: one line per accepted widget package, `<sha256 of the .mpk> <reason>` ('#' lines skipped); "
@@ -752,6 +783,18 @@ def main():
     except (OSError, TableError) as e:
         print(f"replacement_check: cannot read the table: {e}")
         return 2
+    extra = extra_tables(a.rules)
+    for f, how in extra:
+        try:
+            more = read_table(f)
+        except (OSError, TableError, UnicodeDecodeError) as e:
+            print(f"replacement_check: cannot read the rule table {f} ({how}): {e}")
+            return 2
+        dup = sorted({r["id"] for r in more} & {r["id"] for r in rows})
+        if dup:
+            print(f"replacement_check: rule table {f} ({how}) repeats id(s) {', '.join(dup)} of an earlier table: give its rows ids of their own (e.g. V1)")
+            return 2
+        rows += more
     try:
         app = App(a.app)
     except SystemExit as e:  # mprmodel exits with a message on a folder without exactly one .mpr, or without bson
@@ -769,6 +812,8 @@ def main():
         print(f"replacement_check: --from {frm!r} / --to {a.to!r}: not a version (give both, e.g. --from 10.24.16 --to 11.12.5)")
         return 2
     byid = {r["id"]: r for r in rows}
+    if extra:
+        print(f"replacement_check: extra rule tables: {', '.join(f'{f} ({h})' for f, h in extra)}")
     results = []
     try:
         for r in rows:

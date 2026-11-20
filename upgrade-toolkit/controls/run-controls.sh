@@ -4449,6 +4449,17 @@ ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
 ctl replace-modver-catch 1 '^HIT +R11 ' 'evidence: module DataWidgets 2\.30\.4 \(Marketplace\) is <3\.0\.0' -- $RC $M/replace-datagrid2 --to 10.24.16
+# GM-41: a version rule from an extra table (--rules, $UPG_RULES or <brain>/baseline/upgrade-rules.tsv) becomes a row of the run, not a note read by hand.
+# UPG_BRAIN is pointed at nothing so a brain on the machine running the controls cannot add rows.
+VR=$FX/version-rules
+ctl replace-rules-version-catch 1 '^HIT +V1 +DataWidgets below 3\.0\.0' 'evidence: module DataWidgets 2\.30\.4 \(Marketplace\) is <3\.0\.0' '38 rows: 2 HIT' 'extra rule tables: .*rules-datawidgets\.tsv \(--rules\)' -- env UPG_BRAIN=/nonexistent $RC $M/replace-datagrid2 --to 11.12.5 --rules $VR/rules-datawidgets.tsv
+ctl replace-rules-env-catch 1 '^HIT +V1 ' '\(UPG_RULES\)' -- env UPG_BRAIN=/nonexistent UPG_RULES=$VR/rules-datawidgets.tsv $RC $M/replace-datagrid2 --to 11.12.5
+ctl replace-rules-jump-na-pass 1 '^NOT APPLICABLE V1 ' 'applies_on_jump ->11\.0: not reached' '!^HIT +V1' -- env UPG_BRAIN=/nonexistent $RC $M/replace-datagrid2 --to 10.24.16 --rules $VR/rules-datawidgets.tsv
+ctl replace-rules-clear-pass 0 '^clear +V1 ' '38 rows: 0 HIT' '!^HIT' -- env UPG_BRAIN=/nonexistent $RC $M/replace-clean --to 11.12.5 --rules $VR/rules-datawidgets.tsv
+ctl replace-rules-none-pass 0 '37 rows: 0 HIT' '!extra rule tables' -- env UPG_BRAIN=/nonexistent UPG_RULES= $RC $M/replace-clean --to 11.12.5
+ctl replace-rules-unreadable-catch 2 'cannot read the rule table /nonexistent/rules\.tsv \(UPG_RULES\)' '!^HIT' -- env UPG_BRAIN=/nonexistent UPG_RULES=/nonexistent/rules.tsv $RC $M/replace-clean --to 11.12.5
+ctl replace-rules-bad-header-catch 2 'cannot read the rule table .*rules-bad\.tsv \(--rules\).*header is not' -- env UPG_BRAIN=/nonexistent $RC $M/replace-clean --to 11.12.5 --rules $VR/rules-bad.tsv
+ctl replace-rules-dup-id-catch 2 'rules-dup\.tsv \(--rules\) repeats id\(s\) R3' -- env UPG_BRAIN=/nonexistent $RC $M/replace-clean --to 11.12.5 --rules $VR/rules-dup.tsv
 ctl replace-java-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Old\.java \(1\)' -- $RC $M/replace-java --to 11.12.5
 # PV-5: IMendixIdentifier.getEntityId() (removed in 11) is a hit of R18; getType() and a longer method name are not
 ctl replace-java-entityid-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Ids\.java \(1\)' -- $RC $M/replace-java-id --to 11.12.5
