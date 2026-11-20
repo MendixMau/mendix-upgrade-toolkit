@@ -430,7 +430,8 @@ def signout_journey(role, f, login):
     path, button, clicks = f.get("sign_out_item"), f.get("sign_out_button"), f.get("sign_out_clicks")
     if not path and not button and not clicks:
         return None
-    ready = f".mx-name-{login['button']}" if login.get("button") else "#loginButton,.mx-name-loginButton,input[type=password]"
+    # a login page that folds the local form under a "Show alternative login" link (SITS) has no visible button or password field
+    ready = f".mx-name-{login['button']}" if login.get("button") else "#loginButton,.mx-name-loginButton,input[type=password],a.alt-login"
     shown = f.get("menu_visible") or []
     if path:
         acts = [{"do": "nav", "group": path[0] if len(path) > 1 else None, "item": path[-1], "settleMs": 5000, "label": "Sign out"}]
