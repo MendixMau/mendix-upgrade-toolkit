@@ -865,7 +865,18 @@ async function anonymousVisit(page, baseUrl) {
     // "Customer not found" is no not-found page; [^.\n] keeps a match on one line, and 404 counts only at the start of the page text
     const pg = document.querySelectorAll('.mx-page')[0];
     const txt = (pg ? (pg.innerText || pg.textContent) : (document.body && document.body.innerText)) || '';
-    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)|^\s*(error\s*)?404\b/i.test(txt.slice(0, 2000));
+    // 404 is a signal only as the first non-empty line on its own. An explicit form ("404 Not Found", "Error 404", "404 | Not Found.")
+    // counts at any page length; a bare "404" counts only when it is the whole page or the next line has not-found wording: "404 open cases"
+    // and a KPI tile "404 / Open cases / Closed 12" are no error page
+    const t2 = txt.slice(0, 2000);
+    let ln = t2.split('\n').map(x => x.trim()).filter(Boolean);
+    if (ln.length > 1 && /^error$/i.test(ln[0])) ln = ['Error ' + ln[1]].concat(ln.slice(2));
+    const l0 = ln[0] || '';
+    const f404 = /^(error\s*)?404(\.\d+)?[\s\-:|.–—]*((page|file|resource)\s+)?(not found|error)?[\s.!]*$/i.test(l0);
+    // "404. That's an error." : the number ends a sentence, and the line then says error / not found
+    const explicit = (f404 && /(not found|error)/i.test(l0)) || /^(error\s*)?404[.:!|\u2013\u2014-]\s*\S.*(not found|error|oops|sorry|does not exist)/i.test(l0);
+    const bare = f404 && !explicit && (ln.length === 1 || /not found|oops|sorry|exist|error/i.test(ln[1] || ''));
+    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)/i.test(t2) || explicit || bare;
     const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
     return {
       guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),

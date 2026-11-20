@@ -75,11 +75,22 @@ async function lastVisible(loc) {
 }
 
 function pageWidget(els) { // runs in the page: index of the shown element nested in the most placeholders, else 0
+  // SITS (an SSO starter app; synthetic fixture, no capture kept): the layout footer's links share the page's widget names
+  // (actionButton5 = "New Account" on the page and "Terms of Use" in the footer) and sit deeper in placeholders, so the
+  // footer won and create-save FAILed on the new app only. A shown match inside a footer / [role=contentinfo] is demoted
+  // only when a shown match outside one sits in a page placeholder (depth >= 1): then that one is the page's own. With no
+  // such match (a layout topbar at depth 0 is not the page) the footer stays in the pool, so a page widget inside a
+  // <footer> within its placeholder still wins over the layout (R38). A sole shown match is kept wherever it is.
+  const shown = [];
+  els.forEach((e, i) => { if (e.getClientRects().length) shown.push(i); });
+  const depthOf = (e) => { let d = 0; for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++; return d; };
+  const inFooter = (e) => typeof e.closest === 'function' && !!e.closest('footer, [role="contentinfo"]'); // guarded: a thrown error here falls back to index 0 (the layout widget)
+  const pageSide = shown.filter((i) => !inFooter(els[i]) && depthOf(els[i]) >= 1);
+  const pool = pageSide.length ? pageSide : shown;
   let best = 0, depth = -1;
-  els.forEach((e, i) => {
-    if (!e.getClientRects().length) return;
+  pool.forEach((i) => {
     let d = 0;
-    for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
+    for (let a = els[i].parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
     if (d > depth) { best = i; depth = d; }
   });
   return best;

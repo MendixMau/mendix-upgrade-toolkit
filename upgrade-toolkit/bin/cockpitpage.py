@@ -507,6 +507,15 @@ def stop_repeats(work, step, code):
     return n
 
 
+def stop_seq(work, step):
+    """How many stops at this step the run has had (state/stops.tsv, one row per stop), the latest included; 0 = no record.
+    A stop's items are asked as stop:<step>:<n>; a LATER stop at the same step must not reuse an earlier stop's ids (run SITS:
+    stop:update:2 twice, the second stop's question read as answered by the first), so the second and later stops carry
+    ".<seq>" after the id. The first stop, and a run with no record, keep the plain id."""
+    rows = [ln.split("\t") for ln in (rd(os.path.join(work, "state", "stops.tsv")) or "").splitlines()]
+    return sum(1 for r in rows if len(r) >= 3 and r[0] == step)
+
+
 def stop_handoff(secs, meta, repeats):
     """An agent-owned stop the agent cannot close alone: (why, needs), else None. Two shapes: (1) the always-on user paths FAIL on the OLD app
     itself: the pipeline has no route past a baseline that does not pass (lane B, PMNT and LDMS basewalk), and no step the agent can
@@ -654,18 +663,20 @@ def build_model(work):
                     "owners": [m["owner"] for m in meta], "agent_titles": [s[0] for s, m in zip(secs, meta) if m["owner"] == "agent"],
                     "regs": stop_regressions(secs), "repeats": stop_repeats(work, stopped[0], stopped[1]), "handoff": None}
         stopinfo["handoff"] = stop_handoff(secs, meta, stopinfo["repeats"])
+        seq = stop_seq(work, stopped[0])
+        sid = f".{seq}" if seq > 1 else ""   # see stop_seq
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
     if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
         for k, ((title, code, body), mt) in enumerate(zip(secs, meta), 1):
             if mt["owner"] in ("agent", "info"):
                 continue   # the agent's own task or a result listing: nothing for a person to answer
             if mt["owner"] == "person" and mt["question"] and mt["options"]:
-                add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
+                add({"id": f"stop:{stopped[0]}:{k}{sid}", "kind": "judgment", "asked": True, "dot": "bad", "title": mt["question"], "step": stopped[0],
                      "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                      "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"], "norec_why": mt["why"],
                      "options": [dict({"key": o[0], "label": o[1], "causes": o[2]}, **({"writes": [{"file": w[1], "line": w[2]} for w in mt["writes"] if w[0] == o[0]]} if any(w[0] == o[0] for w in mt["writes"]) else {})) for o in mt["options"]]})
                 continue
-            add({"id": f"stop:{stopped[0]}:{k}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
+            add({"id": f"stop:{stopped[0]}:{k}{sid}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                  "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),
                  "rec": "rerun", "rec_text": "Decide in writing as the text says, then rerun from this step.",
