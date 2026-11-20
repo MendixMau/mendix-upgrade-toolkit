@@ -572,6 +572,18 @@ timing_close() { # timing_close EXITCODE
 # rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
 # --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
 # ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+# localedits_args FILE: the words of FILE, one per output line. A line is split into words, so `--cid Administration=23513`
+# (the form steps/triage.md and the stop text show) reaches localedits.py as two arguments; `--cid=Administration=23513`
+# (the form rung2_cids writes) stays one. Before: the whole line was one argv word and localedits.py exited 2 ("unrecognized
+# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank and # lines are skipped.
+localedits_args() {
+  local l w
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in ''|\#*) continue ;; esac
+    read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
+  done < "$1"
+}
 rung2_cids() { # rung2_cids PLAN ARGSFILE
   [ -f "$1" ] || return 0
   local cid ver mod
@@ -930,7 +942,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   # mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh (GA1: 16 of 16 UNKNOWN)
   [ "$DRY" = 1 ] || bash "$B/mxbuild_link.sh" "$UPG_TOOLS" "$SOURCE" ${TARGET:+"$TARGET"} ${TARGET2:+"$TARGET2"} ${VIA:+"$VIA"} 2>&1 | while IFS= read -r l; do note "$l"; done
   local le=() a
-  if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
+  while IFS= read -r a; do le+=("$a"); done < <(localedits_args "$WORK/localedits.args")
   # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
   # mxcli runs here and the model is Mendix 10+ (mx below 10 has no module-import); otherwise localedits.py prints
   # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).

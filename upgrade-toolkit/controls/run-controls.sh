@@ -9464,6 +9464,14 @@ printf '%s\n' '--cid=DataWidgets=999' > $R2C/args
 awk '/^rung2_cids\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $R2C/fn.sh
 ctl pipeline-rung2-cids-pass 0 '^--cid=Atlas_Core=117187$' '^--cid=Administration=23513$' '^--cid=DataWidgets=999$' '!DataWidgets=116540' '!plan' -- bash -c ". $R2C/fn.sh; rung2_cids $R2C/plan.txt $R2C/args; cat $R2C/args"
 ctl pipeline-rung2-cids-wired-pass 0 'rung2_cids "\$WORK/plan.txt" "\$WORK/rung2/localedits.args"' -- grep -n 'rung2_cids "' $B/cloud/upgrade-pipeline.sh
+# localedits_args: a line of localedits.args is split into words. The two-word form the triage stop text shows
+# (`--cid Administration=23513`) was passed as ONE argv word and localedits.py exited 2 (field run ERRH); the
+# `--cid=Mod=ID` form rung2_cids writes stays one word, comments and blank lines are skipped.
+LA=$T/ledargs; mkdir -p $LA
+printf '%s\n' '# comment' '--cid Administration=23513' '' '--cid=Atlas_Core=117187' '--proxy   Foo=1.2.3' > $LA/args
+awk '/^localedits_args\(\) \{/,/^}$/' $B/cloud/upgrade-pipeline.sh > $LA/fn.sh
+ctl pipeline-localedits-args-split-catch 0 '^--cid$' '^Administration=23513$' '^--proxy$' '^Foo=1\.2\.3$' '!--cid Administration' -- bash -c ". $LA/fn.sh && localedits_args $LA/args"
+ctl pipeline-localedits-args-oneword-pass 0 '^--cid=Atlas_Core=117187$' '!comment' -- bash -c ". $LA/fn.sh && localedits_args $LA/args"
 
 # submit-learnings.sh: a sandbox repo with a local bare remote. The checks refuse a denylisted name, a home folder path,
 # internal brain text sent to the toolkit, and a brain inbox inside the toolkit repo; a clean draft is pushed as a
