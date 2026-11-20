@@ -33,6 +33,8 @@
 #              --rejudge); needs only SMOKE_BEFORE. With --only the pipeline's diff step still carries the afterwalk's smoke verdict.
 #   Report-only keys (no rung): GATE_NOTES=<file> (L56: every non-empty non-# line is listed as "needs a decision" and counted in Progress;
 #              it never changes a verdict), HEAL_JSON=<work>/heal.json (the heal step's "heal:" summary line).
+#              GM-40: <work>/edit-routes.json held[] (editroute.py) is listed as one "needs a decision" item plus a module | document |
+#              reason list; none held = no item; file missing = "not checked" line.
 #   screens    SMOKE_BEFORE_SHOTS [SMOKE_SHOT_ACCEPT]  compares against $GATE_DIR/smoke-after-shots (the smoke rung's)
 #   layout     LAYOUT_OLD LAYOUT_NEW [LAYOUT_ACCEPT]   layoutdiff.py on the folders layoutwalk.js wrote for the old and the new app
 #              (widget widths, cut text and image sizes per page; data independent). Optional rung: without LAYOUT_OLD / LAYOUT_NEW it
@@ -628,6 +630,31 @@ if [ -n "$V_GATE_NOTES" ] && [ -f "$V_GATE_NOTES" ]; then
   done < "$V_GATE_NOTES"
   ndec=$((ndec + NOTES_N))
 fi
+# GM-40: a saved local edit that cannot be replayed (describe output does not round-trip, e.g. a legacy data grid or ContentParams;
+# the replay is refused or held) is in <work>/edit-routes.json held[] (bin/editroute.py collect writes "<kind> <name>: <reason>").
+# Each one is an open item for a person: they redo it by hand. No held edit: no item. No readable file: "not checked", never clean.
+UNREPL_LINES=""; UNREPL_N=0
+UNREPL_FILE="$V_WORK/edit-routes.json"
+if [ -f "$UNREPL_FILE" ] && UNREPL_ROWS=$("$PY" - "$UNREPL_FILE" 2>/dev/null <<'PY'
+import json, sys
+for x in json.load(open(sys.argv[1])):
+    for h in x.get("held") or []:
+        doc, _, why = str(h).partition(": ")
+        print(f"{x.get('module')}\t{doc}\t{why or 'not replayable'}")
+PY
+); then
+  while IFS=$'\t' read -r um ud ur; do
+    [ -n "$um" ] || continue
+    UNREPL_N=$((UNREPL_N + 1)); UNREPL_LINES="$UNREPL_LINES$um | $ud | $ur
+"
+  done <<< "$UNREPL_ROWS"
+  UNREPL_STATE=checked
+else UNREPL_STATE="not checked"; fi
+if [ "$UNREPL_N" -gt 0 ]; then
+  ndec=$((ndec + 1))
+  REPORT_LINES="${REPORT_LINES}editroute: needs a decision: $UNREPL_N saved edit(s) cannot be replayed on the new version; a person redoes each by hand (listed under Unreplayable saved edits; $UNREPL_FILE)
+"
+fi
 HEAL_LINE=""
 if [ -n "$V_HEAL_JSON" ] && [ -f "$V_HEAL_JSON" ] && [ -f "$here/heal.py" ]; then HEAL_LINE=$("$PY" "$here/heal.py" summary --work "$(dirname "$V_HEAL_JSON")" 2>/dev/null | tail -1); fi
 nclosed=$npass
@@ -697,6 +724,11 @@ mkdir -p "$G" 2>/dev/null
   [ -n "$PROPOSAL_NOTE" ] && { echo "$PROPOSAL_NOTE"; echo; }
   [ -n "$MERGED" ] && { echo "Merged (--only $only): rungs$MERGED keep their row from the earlier summary; the overall verdict counts them."; echo; }
   table; echo
+  if [ "$UNREPL_N" -gt 0 ]; then
+    echo "Unreplayable saved edits ($UNREPL_N, open for a person; module | document | reason; from \`$UNREPL_FILE\`):"
+    printf '%s' "$UNREPL_LINES" | sed 's/^/- /'; echo
+  elif [ "$UNREPL_STATE" = checked ]; then echo "Unreplayable saved edits: none (checked \`$UNREPL_FILE\`)."; echo
+  else echo "Unreplayable saved edits: not checked (\`$UNREPL_FILE\` is missing or unreadable: editroute did not run, or no module was kept)."; echo; fi
   if [ -n "$NC_ITEMS" ]; then
     echo "NOT CHECKED (excluded systems, E2E-14): $nitems items. Each needs the real system; none of them is a PASS:"
     printf '%s' "$NC_ITEMS" | sed 's/^/- /'; echo

@@ -8391,6 +8391,14 @@ printf '# a comment\nthe layout of the home page changed on purpose: confirm wit
 mkdir -p $GI/hw; printf '{"rows": [], "rounds": []}\n' > $GI/hw/heal.json
 echo '{}' > $GI/smoke-after.json; cp $GI/smoke-after.json $GI/w/smoke-after.json
 ctl gate-heal-notes-listed-catch 0 'notes: needs a decision: the layout of the home page changed on purpose' '[1-9][0-9]* need a decision' '!a comment' -- gcase hnotes PORT=8080 GATE_NOTES=$GI/notes.txt
+# GM-40: unreplayable saved edits (edit-routes.json held[]) are an open person item in the gate summary. The fixture has the shape
+# bin/editroute.py cmd_collect writes (derived from its code: a JSON list, one row per module, "held": ["<kind> <name>: <reason>"]).
+printf '[{"module": "Atlasmod", "route": "REPLAY", "held": ["page Account_Overview: mxcli check refuses the result: NOT re-executable Forms$DataGrid (grid12)", "layout Atlas_Default: unreadable in the original model"]}, {"module": "Cosmo", "route": "COSMETIC", "held": []}]\n' > $GI/w/edit-routes.json
+ctl gm40-unreplayable-listed-catch 0 'editroute: needs a decision: 2 saved edit\(s\) cannot be replayed' '^- Atlasmod \| page Account_Overview \| mxcli check refuses the result: NOT re-executable' '^- Atlasmod \| layout Atlas_Default \| unreadable in the original model' 'edit-routes\.json' '!not checked' -- gcase gm40a PORT=8080
+printf '[{"module": "Cosmo", "route": "COSMETIC", "held": []}]\n' > $GI/w/edit-routes.json
+ctl gm40-none-pass 0 '^Unreplayable saved edits: none' '!editroute: needs a decision' '!not checked' -- gcase gm40b PORT=8080
+rm -f $GI/w/edit-routes.json
+ctl gm40-missing-input-not-checked-catch 0 '^Unreplayable saved edits: not checked' '!editroute: needs a decision' '!^Unreplayable saved edits: none' -- gcase gm40c PORT=8080
 ctl gate-heal-notes-absent-pass 0 '!notes: needs a decision' -- gcase hnone --dry-run
 ctl gate-heal-line-printed-pass 0 '^heal: 0 failing row\(s\) classified' -- gcase hline PORT=8080 HEAL_JSON=$GI/hw/heal.json
 ctl gate-heal-smoke-rejudge-catch 0 '^\[smoke\] .*smokewalk\.js .*--rejudge .*smoke-after\.json .*--compare ' '!smokewalk\.js .*--user ' -- gcase hrej --dry-run SMOKE_REJUDGE=1
