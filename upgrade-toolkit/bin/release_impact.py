@@ -853,7 +853,7 @@ def close_proved(path, final_dir, build_log):
         if section == "Studio Pro" and c and len(c) >= 8 and re.match(r"^\d+$", c[0]) and c[-1] == "" and re.search(r"\|\s*\|\s*$", line):
             h = proved_by_build(c[3].lower(), c[2], c[5], facts)
             if h:
-                line = re.sub(r"\|\s*\|\s*$", "| " + h.replace("|", "\\|").replace("\n", " ") + " |", line)
+                line = re.sub(r"\|\s*\|\s*$", lambda _m: "| " + h.replace("|", "\\|").replace("\n", " ") + " |", line)
                 closed.append(c[0])
         out.append(line)
     if not closed:
@@ -861,16 +861,30 @@ def close_proved(path, final_dir, build_log):
         return 0
     k, text = len(closed), []
     gone = {f"- row {n} (" for n in closed}
+    in_open, sect, left = False, [], 0
+    def flush():
+        # the Open rows section: dropped whole when its last bullet closed (what triage writes with no open row), else its count is updated
+        nonlocal sect, left
+        if sect and left > 0:
+            m = re.match(r"^(## Open rows: what to do \()(\d+)(\))", sect[0])
+            sect[0] = f"{m.group(1)}{left}{m.group(3)}" + sect[0][m.end():]
+            text.extend(sect)
+        sect = []
     for line in out:
-        if any(line.startswith(g) for g in gone):
+        if line.startswith("## "):
+            flush()
+            in_open = line.startswith("## Open rows: what to do (")
+        if in_open:
+            if any(line.startswith(g) for g in gone):
+                continue
+            left += line.startswith("- row ")
+            sect.append(line)
             continue
         m = re.search(r"This run: (\d+) auto, (\d+) kept from a person, (\d+) open", line)
         if m:
             line = line.replace(m.group(0), f"This run: {int(m.group(1)) + k} auto, {m.group(2)} kept from a person, {max(int(m.group(3)) - k, 0)} open")
-        m = re.match(r"^(## Open rows: what to do \()(\d+)(\))", line)
-        if m:
-            line = f"{m.group(1)}{max(int(m.group(2)) - k, 0)}{m.group(3)}" + line[m.end():]
         text.append(line)
+    flush()
     tmp = p.with_name(p.name + ".tmp")
     tmp.write_text("\n".join(text))
     os.replace(tmp, p)

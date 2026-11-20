@@ -4566,6 +4566,13 @@ ctl gm38-close-symbol-present-open-catch 0 'closed 0 rows' '^identical$' -- sh -
 ctl gm38-close-human-entry-survives-pass 0 '^\| 2 \| .*handled: kept by hand \|$' '!^< \| [2-9] \|' '^changed-lines-ok$' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl human h1 plain build-green.log >/dev/null; grep -E '^\| 2 \| ' $CL/h1.md; diff $CL/human.md $CL/h1.md | grep '^<' | grep -vcE '^< (\| 1 \||- row 1 \(|## Open rows|.*This run:)' | grep -qx 0 && echo changed-lines-ok"
 # idempotent: a second run changes nothing
 ctl gm38-close-twice-identical-pass 0 '^identical$' 'closed 0 rows' -- sh -c "$(declare -f cl); CL=$CL RI=$RI B=$B; cl before t1 plain build-green.log >/dev/null; cp $CL/t1.md $CL/t1a.md; python3 $B/release_impact.py --close-proved $CL/t1.md --final-dir $RI/jp-plain --build-log $RI/build-green.log; cmp $CL/t1.md $CL/t1a.md && echo identical"
+# a Windows-style path (backslash) in --build-log: the row still closes (the entry is written literally, never as a regex template)
+cp $RI/build-green.log "$CL/bs\\Users\\x.log"; touch "$CL/bs\\Users\\x.log"
+printf '%s\n' "cp $CL/before.md $CL/bs1.md" "python3 $B/release_impact.py --close-proved $CL/bs1.md --final-dir $RI/jp-plain --build-log \"\$1\"" > $CL/bs.sh
+ctl gm38-close-backslash-path-pass 0 'closed 1 row\(s\) as java-removal-proved-by-build: 1' '!bad escape' -- sh $CL/bs.sh "$CL/bs\\Users\\x.log"
+# the Open rows section goes away with its last bullet (as triage writes none when no row is open), and the counts follow
+sed -E '/^- row ([2-9]|[0-9][0-9]+) \(/d; s/^(\| ([2-9]|[0-9][0-9]+) \| .*)\|  \|$/\1| handled: by hand |/' $CL/before.md > $CL/one-open.md
+ctl gm38-close-last-open-row-drops-section-pass 0 '!^## Open rows: what to do' '!^- row 1 \(' 'java-removal-proved-by-build' -- sh -c "cp $CL/one-open.md $CL/ls.md; python3 $B/release_impact.py --close-proved $CL/ls.md --final-dir $RI/jp-plain --build-log $RI/build-green.log >/dev/null; cat $CL/ls.md; python3 $B/release_impact.py --check $CL/ls.md | tail -2"
 # the pipeline: close_proved_rows (real function) runs the real tool after a green build, never fails the step, and does nothing without the log/project
 CP=$CL/pipe; mkdir -p $CP/w $CP/app; : > $CP/app/App.mpr; cp $CL/before.md $CP/w/release-impact.md; cp $RI/build-green.log $CP/w/build-10.0.0.log
 { sed -n '/^ri_build_args() {/,/^}/p;/^close_proved_rows() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
