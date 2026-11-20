@@ -1419,6 +1419,10 @@ ctl planbuild-mpk-unavailable-not-checked-catch 3 '^NOT CHECKED NotCached 1\.0\.
 ctl planbuild-target-10-nothing-checked-pass 0 'below 11' '!DROPPED' -- python3 $B/planbuild.py $PB/plan-mixed.txt --target 10.24.1 --cache $PB/cache --no-download
 cp $PB/plan-mixed.txt $PB/plan-w.txt
 ctl planbuild-write-comments-dropped-line-pass 1 '^# dropped: OldBuilt 2\.0\.2 built with 10\.5\.0\.50001' '^222 4\.1\.0 NewBuilt$' '!^111 2\.0\.2' -- bash -c "python3 $B/planbuild.py $PB/plan-w.txt --target 11.12.2 --cache $PB/cache --no-download --write > /dev/null; rc=\$?; cat $PB/plan-w.txt; exit \$rc"
+# GM-17 review nit (#130): a second --write must not overwrite the first backup (the only copy of the original plan)
+cp $PB/plan-mixed.txt $PB/plan-w2.txt; echo first > $PB/plan-w2.txt.pre-gm17
+ctl planbuild-write-keeps-existing-backup-catch 1 '^first$' '^111 2\.0\.2 OldBuilt$' 'old file kept as .*plan-w2\.txt\.pre-gm17\.1' -- bash -c "python3 $B/planbuild.py $PB/plan-w2.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; rc=\${PIPESTATUS[0]}; cat $PB/plan-w2.txt.pre-gm17 $PB/plan-w2.txt.pre-gm17.1; exit \$rc"
+ctl planbuild-write-first-backup-pass 1 'old file kept as .*plan-w3\.txt\.pre-gm17\)$' '!\.pre-gm17\.1' -- bash -c "cp $PB/plan-mixed.txt $PB/plan-w3.txt; python3 $B/planbuild.py $PB/plan-w3.txt --target 11.12.2 --cache $PB/cache --no-download --write | tail -1; exit \${PIPESTATUS[0]}"
 ctl test-inventory-addons-catch 0 'EXFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['EXFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
 import sys; sys.path.insert(0,'$B'); import mxversion as m, test_inventory as t
 for f, v in m.addons('$AD'): print([f, v, m.below(v, 10, 21)])
@@ -4571,6 +4575,9 @@ ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept t
 ctl gm15-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
 ctl gm15-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
 ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
+# GM-15 review nit (#144): a plan.txt without a final newline must not fuse its last line with the first of plan-pre.txt
+gk prenonl 0 kept pre; printf '9001 45.0.0 PlatformDesignSystem' > $GK/prenonl/w/plan.txt
+ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
 ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
 # MC-11 wiring: kept_style_check (the real function) runs keptstyle.py in step_triage and after the update step; RISK reaches the
 # screens rung as a [keptstyle] line in screen-causes.txt, never a stop. Stub keptstyle.py records argv and prints out.txt. Synthetic: no field run.
@@ -7389,7 +7396,7 @@ ctl proposal-gm20-old-answer-on-dojo-id-reasked-catch 0 're-answer: merged from 
 ctl proposal-gm20-old-answer-on-absorbed-id-reasked-catch 0 'merged from P-2/P-5; earlier answer P-5: .a newer widget version built for React 19. was given to the unmerged item' '^  - answer: not yet$' '^ids \[\]$' '^P-5~stale-merged \| R35 React 19 removed API \| widget \|' -- bash $PR/gm20r.sh absorbed
 ctl proposal-gm20-two-lines-same-id-both-marked-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| swap to a successor \| asked' '^  - answer: not yet$' '!answer: keep old package' '!answer: swap' '!^P-2 \|' -- bash $PR/gm20r.sh two
 ctl proposal-gm20-crlf-endings-kept-catch 0 '^P-1 \| Release notes \| check \| run the check first \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 \| widget \| keep old package, accept the risk \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^P-9 \| Other \| widget \| x \| asked \| me \| CONFIRMED \| closes by: x\^M\$$' '^  - answer: not yet$' '^[0-9]+$' -- bash $PR/gm20r.sh crlf
-ctl proposal-gm20-crlf-only-suffix-differs-pass 0 '^same-bytes-plus-13$' -- bash -c "printf 'P-1 | Release notes | check | run the check first | asked | me | CONFIRMED | closes by: x\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\r\nP-9 | Other | widget | x | asked | me | CONFIRMED | closes by: x\r\n' | wc -c > $PR/crlf-before.txt; bash $PR/gm20r.sh crlf > /dev/null; n=\$(wc -c < $PR/gm20r-crlf/DECISIONS.md); b=\$(cat $PR/crlf-before.txt); [ \$((n - b)) = 13 ] && echo same-bytes-plus-13 || echo \"delta \$((n - b))\""
+ctl proposal-gm20-crlf-only-suffix-differs-pass 0 '^identical-but-the-stale-mark$' -- bash -c "printf 'P-1 | Release notes | check | run the check first | asked | me | CONFIRMED | closes by: x\r\nP-2 | Gantt.mpk 1.2.0 | widget | keep old package, accept the risk | asked | me | CONFIRMED | closes by: x\r\nP-9 | Other | widget | x | asked | me | CONFIRMED | closes by: x\r\n' | sed 's/^P-2 /P-2~stale-merged /' > $PR/crlf-expect.txt; bash $PR/gm20r.sh crlf > /dev/null; cmp -s $PR/crlf-expect.txt $PR/gm20r-crlf/DECISIONS.md && echo identical-but-the-stale-mark || echo differs"
 ctl proposal-gm20-no-trailing-newline-kept-catch 0 '^P-2~stale-merged \| Gantt\.mpk 1\.2\.0 .* closes by: x$' '^  - answer: not yet$' '^lastbyte:x$' -- bash -c "bash $PR/gm20r.sh nonl; tail -c 1 $PR/gm20r-nonl/DECISIONS.md | od -An -c | tr -d ' ' | sed 's/^/lastbyte:/'"
 ctl proposal-gm20-dojo-only-unchanged-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' 'options: stay on 11 with the Dojo client' 'recommendation: stay on 11' '!supporting' '!not merged' -- bash $PR/gm20.sh dojo-only
 ctl proposal-gm20-two-packages-stay-separate-pass 0 '^- \[P-[0-9]+\] widget: Gantt\.mpk 1\.2\.0$' '^- \[P-[0-9]+\] widget: Tree\.mpk 2\.0\.0$' '!widget: R35' -- bash $PR/gm20.sh two
@@ -8122,7 +8129,7 @@ ctl fr4-source-mismatch-unknown-version-pass 2 "the project is version 'unknown'
 
 # FR-6: a rerun of baseline after an environment stop. A fake docker keeps the databases as folders (comment in a file) and answers
 # the five calls the pipeline makes (exists?, createdb -T, dropdb, COMMENT ON DATABASE, its comment). The functions are the real ones.
-FR6=$T/fr6; mkdir -p $FR6/bin; for f in db_exists copy_db db_stamp seed_copy; do awk -v n="$f" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$f"'\(\) \{.*\}$/{exit} p&&/^'"$f"'\(\) .*;$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $FR6/fns.sh
+FR6=$T/fr6; mkdir -p $FR6/bin; for f in db_exists copy_db db_stamp frozen_stamp seed_copy; do awk -v n="$f" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit} p&&/^'"$f"'\(\) \{.*\}$/{exit} p&&/^'"$f"'\(\) .*;$/{exit}' $B/cloud/upgrade-pipeline.sh; done > $FR6/fns.sh
 cat > $FR6/bin/docker <<'EOF2'
 #!/bin/bash
 [ "$1" = exec ] || exit 0
@@ -8137,14 +8144,16 @@ case $cmd in
     case $sql in
       "SELECT 1 FROM"*) n=${sql##*datname=\'}; n=${n%\'}; [ ! -d "$S/$n" ] || echo 1;;
       "SELECT shobj"*) n=${sql##*datname=\'}; n=${n%\'}; cat "$S/$n/comment" 2> /dev/null || true;;
-      "COMMENT ON DATABASE"*) n=$(echo "$sql" | awk '{print $4}'); c=${sql#*IS \'}; echo "${c%\'}" > "$S/$n/comment";;
+      "COMMENT ON DATABASE"*) n=$(echo "$sql" | awk '{print $4}'); c=${sql#*IS \'}; c=${c%\'}
+      d=${c//\'\'/}; case $d in *\'*) echo "ERROR:  syntax error at or near \"$d\"" >&2; exit 1;; esac   # a lone quote ends the string early, as in Postgres
+      echo "${c//\'\'/\'}" > "$S/$n/comment";;
     esac;;
 esac
 EOF2
 chmod +x $FR6/bin/docker
 fr6run() { # fr6run STATE-SETUP-CMD: a fresh fake server with the seed database, the setup, then seed_copy as the pipeline calls it
   local s=$FR6/pg; rm -rf $s; mkdir -p $s/seed_src; eval "$1"
-  ( export PATH=$FR6/bin:$PATH FAKE_PG=$s; PGC=mig-pg; DRY=0; RUNP=/runs/a; X=upg_a
+  ( export PATH=$FR6/bin:$PATH FAKE_PG=$s; PGC=mig-pg; DRY=0; RUNP=${FR6RUNP:-/runs/a}; X=upg_a
     note() { echo "note: $*"; }; die4() { echo "upgrade-pipeline.sh: $*" >&2; exit 4; }; x() { "$@"; }; must() { "$@" || die4 "command failed: $*"; }
     . $FR6/fns.sh; seed_copy seed_src $X; rc=$?; echo "rc=$rc"; echo "dbs: $(ls $s | tr '\n' ' ')"; echo "comment: $(cat $s/$X/comment 2> /dev/null)" ); }
 ctl fr6-seed-copy-fresh-pass 0 '^rc=0$' '^dbs: seed_src upg_a $' '^comment: upgrade-toolkit run /runs/a$' '!dropping' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run ':'"
@@ -8152,6 +8161,16 @@ ctl fr6-seed-copy-own-leftover-dropped-catch 0 '^note: dropping upg_a: the seed 
 ctl fr6-seed-copy-unstamped-refused-pass 4 'database upg_a already exists and this run did not stamp it' 'docker exec mig-pg dropdb -U mendix upg_a' '!^rc=' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; touch \$s/upg_a/keep-me'"
 ctl fr6-seed-copy-unstamped-kept-pass 0 '^keep-me$' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; touch \$s/upg_a/keep-me' > /dev/null 2>&1; ls $FR6/pg/upg_a"
 ctl fr6-seed-copy-other-run-refused-pass 4 'database upg_a already exists and this run did not stamp it' -- bash -c "$(declare -f fr6run); FR6=$FR6; fr6run 'mkdir \$s/upg_a; echo \"upgrade-toolkit run /runs/b\" > \$s/upg_a/comment'"
+# FR-6 review nit (#152): a quote in the run path must not break the stamp (the COMMENT string is SQL)
+ctl fr6-seed-copy-quote-in-run-path-stamped-catch 0 '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" '!syntax error' -- bash -c "$(declare -f fr6run); FR6=$FR6; export FR6RUNP=\"/runs/it's\"; fr6run ':'"
+ctl fr6-seed-copy-quote-in-run-path-own-leftover-dropped-pass 0 '^note: dropping upg_a' '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" -- bash -c "$(declare -f fr6run); FR6=$FR6; export FR6RUNP=\"/runs/it's\"; fr6run 'mkdir \$s/upg_a; echo \"upgrade-toolkit run \$FR6RUNP\" > \$s/upg_a/comment'"
+# FR-6 review fix round (#155): frozen_stamp doubles a quote in the run path too, and the owner read still matches the undoubled string
+fr6frozen() { local s=$FR6/pg; rm -rf $s; mkdir -p $s/upg_a_frozen
+  ( export PATH=$FR6/bin:$PATH FAKE_PG=$s; PGC=mig-pg; DRY=0; RUNP=$1; X_FROZEN=upg_a_frozen
+    die4() { echo "upgrade-pipeline.sh: $*" >&2; exit 4; }; must() { "$@" || die4 "command failed: $*"; }
+    . $FR6/fns.sh; frozen_stamp; echo "rc=$?"; echo "comment: $(cat $s/$X_FROZEN/comment 2> /dev/null)" ); }
+ctl fr6-frozen-stamp-quote-in-run-path-catch 0 '^rc=0$' "^comment: upgrade-toolkit run /runs/it's\$" '!syntax error' -- bash -c "$(declare -f fr6frozen); FR6=$FR6; fr6frozen \"/runs/it's\""
+ctl fr6-frozen-stamp-plain-run-path-pass 0 '^rc=0$' '^comment: upgrade-toolkit run /runs/a$' -- bash -c "$(declare -f fr6frozen); FR6=$FR6; fr6frozen /runs/a"
 ctl fr6-baseline-wired-pass 0 '^[0-9]+:    if \[ -n "\$SEED_FROM" \]; then seed_copy "\$SEED_FROM" "\$X"; fi$' '!copy_db "\$SEED_FROM"' -- grep -n 'SEED_FROM" "\$X"' $B/cloud/upgrade-pipeline.sh
 # FR-6, the port: the INFRA line names a toolkit container with the command to remove it (never run by the code); a foreign holder gets no command
 FR6P="import sys; sys.path.insert(0, '$B'); import runapp as r; print(r.port_busy_message(8080, sys.argv[1]))"
@@ -9477,7 +9496,7 @@ ctl startcheck-no-mendix-lines-catch 2 '^startcheck: INVALID' 'nothing was read'
 ctl startcheck-captured-old-pass 0 '^startcheck: CLEAN ' -- python3 $B/startcheck.py $FX/logs/old.log
 ctl startcheck-captured-new-same-pass 0 '^startcheck: CLEAN ' -- python3 $B/startcheck.py $FX/logs/new-same.log
 ctl startcheck-captured-lazy-error-after-window-pass 0 '^startcheck: CLEAN ' '!SAML' -- python3 $B/startcheck.py $FX/logs/old-lazy-error.log
-# text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
+# text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and a non-zero exit must stop as a judgment item (nj_flush), not die)
 ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
 # --- GA1: mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh
 #     (16 of 16 modules UNKNOWN). bin/mxbuild_link.sh links the run's toolset there when the cache has none.
