@@ -927,7 +927,7 @@ kept_java_check() { # a plan that keeps a module whose Java calls Runtime API th
     [ -z "$f" ] || hits+="$m: $(printf '%s\n' "$f" | wc -l | tr -d ' ') file(s), e.g. $(printf '%s\n' "$f" | head -2 | tr '\n' ' ')"$'\n'
   done
   [ -n "$hits" ] || return 0
-  nj_add 13 "Kept module calls Java API Mendix $TARGET removed (javac will fail at the build)" "Not on the plan, and their Java calls Core.retrieveXPathQuery*, Core.isSubClassOf or com.mendix.core.conf.RuntimeVersion (playbooks/10-to-11.md: update those modules, do not edit their code):
+  nj_meta agent; nj_add 13 "Kept module calls Java API Mendix $TARGET removed (javac will fail at the build)" "Not on the plan, and their Java calls Core.retrieveXPathQuery*, Core.isSubClassOf or com.mendix.core.conf.RuntimeVersion (playbooks/10-to-11.md: update those modules, do not edit their code):
 
 $hits
 Put each Marketplace module on $WORK/plan.txt (newest version for $TARGET); a module with no 11 release or an own module is ported as a repair (playbooks/10-to-11.md row 11): name it in $WORK/java-port.txt, one per line."
@@ -948,7 +948,7 @@ charts11_check() { # Charts 3.x widgets on an 11 target: the build stops on them
   # (widget_routes) and asks its own one OK at the end, so this early stop stands down; it stays only when no route can be read (exit 2).
   rc=0; xo "$WORK/widgetroute-triage.txt" python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt" || rc=$?
   [ "$rc" -ge 2 ] || return 0
-  nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
+  nj_meta agent; nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
 
 They build, but fail at runtime on Mendix 11 (T7-29). Route per module: the app's own pages get the Charts 6.x widgets
 (playbooks/widgets.md) on the 10.24 rung; a Marketplace module's own demo pages go with that module (update it on the
@@ -1673,7 +1673,7 @@ step_build() {
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/java-port-done.txt" ]; then
     local pjl; pjl=$(cat "$WORK"/stepupdate-*.out 2> /dev/null | grep -E '^ *PORT-JAVA ' | sed 's/^ *//' | sort -u || true)
     if [ -n "$pjl" ]; then
-      nj_add 13 "Local Java edits to port by hand before the build" "The update replaced these files; the old edited copy is under the path shown. Port each edit onto the new file, commit it in the app, then write $WORK/java-port-done.txt (one line per file: what was ported) and rerun.
+      nj_meta agent; nj_add 13 "Local Java edits to port by hand before the build" "The update replaced these files; the old edited copy is under the path shown. Port each edit onto the new file, commit it in the app, then write $WORK/java-port-done.txt (one line per file: what was ported) and rerun.
 
 $pjl"
       nj_flush
