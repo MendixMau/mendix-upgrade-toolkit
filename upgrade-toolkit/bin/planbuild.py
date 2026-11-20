@@ -19,7 +19,8 @@ plan.txt lines are "<content id> <version> <Module>" (# comments allowed). The p
 
 Not checked is never a pass: it is counted on the last line and exit 3 says so. A target below 11 checks nothing
 (prints one line, exit 0). --write rewrites plan.txt with each DROPPED line turned into a "# dropped: ..." comment
-(the old file is kept as plan.txt.pre-gm17); NOT CHECKED lines stay.
+(the old file is kept as plan.txt.pre-gm17, or .pre-gm17.1, .2 ... when that backup already exists: a backup is never
+overwritten; the rewrite is atomic); NOT CHECKED lines stay.
 Exit: 0 every line checked and none dropped (or target < 11), 1 a line dropped, 3 none dropped but a line not
 checked, 2 input error. A dropped line wins over not checked.
 """
@@ -87,9 +88,15 @@ def main():
     print(f"planbuild: {kept + dropped + unchecked} plan line(s): {kept} kept, {dropped} dropped, {unchecked} not checked"
           + ("; not checked is not a pass" if unchecked else ""))
     if a.write and dropped:
-        shutil.copyfile(a.plan, a.plan + ".pre-gm17")
-        open(a.plan, "w", encoding="utf-8").write("\n".join(out) + "\n")
-        print(f"planbuild: wrote {a.plan} (old file kept as {a.plan}.pre-gm17)")
+        bak, n = a.plan + ".pre-gm17", 0
+        while os.path.exists(bak):  # a backup is the only copy of an earlier plan: never clobber it
+            n += 1; bak = f"{a.plan}.pre-gm17.{n}"
+        shutil.copyfile(a.plan, bak)
+        tmp = a.plan + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(out) + "\n")
+        os.replace(tmp, a.plan)  # atomic: a crash leaves the old plan, never half a file
+        print(f"planbuild: wrote {a.plan} (old file kept as {bak})")
     sys.exit(1 if dropped else 3 if unchecked else 0)
 
 
