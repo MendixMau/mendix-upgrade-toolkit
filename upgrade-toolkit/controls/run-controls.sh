@@ -8397,8 +8397,12 @@ printf '[{"module": "Atlasmod", "route": "REPLAY", "held": ["page Account_Overvi
 ctl gm40-unreplayable-listed-catch 0 'editroute: needs a decision: 2 saved edit\(s\) cannot be replayed' '^- Atlasmod \| page Account_Overview \| mxcli check refuses the result: NOT re-executable' '^- Atlasmod \| layout Atlas_Default \| unreadable in the original model' 'edit-routes\.json' '!not checked' -- gcase gm40a PORT=8080
 printf '[{"module": "Cosmo", "route": "COSMETIC", "held": []}]\n' > $GI/w/edit-routes.json
 ctl gm40-none-pass 0 '^Unreplayable saved edits: none' '!editroute: needs a decision' '!not checked' -- gcase gm40b PORT=8080
+printf '[{"module":"M","route":"REPLAY"}]\n' > $GI/w/edit-routes.json
+ctl gm40-plan-only-not-checked-catch 0 '^Unreplayable saved edits: not checked \(collect has not run' '!editroute: needs a decision' '!^Unreplayable saved edits: none' -- gcase gm40c PORT=8080
+printf 'not json' > $GI/w/edit-routes.json
+ctl gm40-unreadable-not-checked-catch 0 '^Unreplayable saved edits: not checked \(unreadable or malformed' '!^Unreplayable saved edits: none' -- gcase gm40d PORT=8080
 rm -f $GI/w/edit-routes.json
-ctl gm40-missing-input-not-checked-catch 0 '^Unreplayable saved edits: not checked' '!editroute: needs a decision' '!^Unreplayable saved edits: none' -- gcase gm40c PORT=8080
+ctl gm40-absent-no-routing-pass 0 '^Unreplayable saved edits: no kept module routed' '!not checked' '!editroute: needs a decision' -- gcase gm40e PORT=8080
 ctl gate-heal-notes-absent-pass 0 '!notes: needs a decision' -- gcase hnone --dry-run
 ctl gate-heal-line-printed-pass 0 '^heal: 0 failing row\(s\) classified' -- gcase hline PORT=8080 HEAL_JSON=$GI/hw/heal.json
 ctl gate-heal-smoke-rejudge-catch 0 '^\[smoke\] .*smokewalk\.js .*--rejudge .*smoke-after\.json .*--compare ' '!smokewalk\.js .*--user ' -- gcase hrej --dry-run SMOKE_REJUDGE=1

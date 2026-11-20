@@ -34,7 +34,7 @@
 #   Report-only keys (no rung): GATE_NOTES=<file> (L56: every non-empty non-# line is listed as "needs a decision" and counted in Progress;
 #              it never changes a verdict), HEAL_JSON=<work>/heal.json (the heal step's "heal:" summary line).
 #              GM-40: <work>/edit-routes.json held[] (editroute.py) is listed as one "needs a decision" item plus a module | document |
-#              reason list; none held = no item; file missing = "not checked" line.
+#              reason list; none held = no item; file absent = "no kept module routed"; unreadable or no held[] (collect not run) = "not checked".
 #   screens    SMOKE_BEFORE_SHOTS [SMOKE_SHOT_ACCEPT]  compares against $GATE_DIR/smoke-after-shots (the smoke rung's)
 #   layout     LAYOUT_OLD LAYOUT_NEW [LAYOUT_ACCEPT]   layoutdiff.py on the folders layoutwalk.js wrote for the old and the new app
 #              (widget widths, cut text and image sizes per page; data independent). Optional rung: without LAYOUT_OLD / LAYOUT_NEW it
@@ -635,24 +635,35 @@ fi
 # Each one is an open item for a person: they redo it by hand. No held edit: no item. No readable file: "not checked", never clean.
 UNREPL_LINES=""; UNREPL_N=0
 UNREPL_FILE="$V_WORK/edit-routes.json"
-if [ -f "$UNREPL_FILE" ] && UNREPL_ROWS=$("$PY" - "$UNREPL_FILE" 2>/dev/null <<'PY'
+# Only edits collect tried and failed to replay: a module on the HOLD route has no held[] entries and is reported by the pipeline
+# (route_kept note, editroute-score). replay-held.txt (upgrade-pipeline.sh held_routes) is a copy of the same held[] for the
+# pipeline's own stop; the gate reads the source file, the two coexist.
+if [ ! -e "$UNREPL_FILE" ]; then UNREPL_STATE=absent   # editroute writes the file only when a kept module was routed
+else
+  UNREPL_ROWS=$("$PY" - "$UNREPL_FILE" 2>/dev/null <<'PY'
 import json, sys
-for x in json.load(open(sys.argv[1])):
-    for h in x.get("held") or []:
+rows = json.load(open(sys.argv[1]))
+if not isinstance(rows, list) or any(not isinstance(x, dict) or not isinstance(x.get("held"), list) for x in rows):
+    sys.exit(3)   # plan wrote the rows, collect adds held[] to every one: no held[] = collect has not run
+for x in rows:
+    for h in x["held"]:
         doc, _, why = str(h).partition(": ")
         print(f"{x.get('module')}\t{doc}\t{why or 'not replayable'}")
 PY
-); then
-  while IFS=$'\t' read -r um ud ur; do
-    [ -n "$um" ] || continue
-    UNREPL_N=$((UNREPL_N + 1)); UNREPL_LINES="$UNREPL_LINES$um | $ud | $ur
+  ); urc=$?
+  if [ $urc = 0 ]; then
+    while IFS=$'\t' read -r um ud ur; do
+      [ -n "$um" ] || continue
+      UNREPL_N=$((UNREPL_N + 1)); UNREPL_LINES="$UNREPL_LINES$um | $ud | $ur
 "
-  done <<< "$UNREPL_ROWS"
-  UNREPL_STATE=checked
-else UNREPL_STATE="not checked"; fi
+    done <<< "$UNREPL_ROWS"
+    UNREPL_STATE=checked
+  elif [ $urc = 3 ]; then UNREPL_STATE="not checked (collect has not run: a row has no held list)"
+  else UNREPL_STATE="not checked (unreadable or malformed)"; fi
+fi
 if [ "$UNREPL_N" -gt 0 ]; then
   ndec=$((ndec + 1))
-  REPORT_LINES="${REPORT_LINES}editroute: needs a decision: $UNREPL_N saved edit(s) cannot be replayed on the new version; a person redoes each by hand (listed under Unreplayable saved edits; $UNREPL_FILE)
+  REPORT_LINES="${REPORT_LINES}editroute: needs a decision: $UNREPL_N saved edit(s) cannot be replayed on the new version; edits collect tried and failed to replay, a person redoes each by hand (listed under Unreplayable saved edits; $UNREPL_FILE)
 "
 fi
 HEAL_LINE=""
@@ -727,8 +738,9 @@ mkdir -p "$G" 2>/dev/null
   if [ "$UNREPL_N" -gt 0 ]; then
     echo "Unreplayable saved edits ($UNREPL_N, open for a person; module | document | reason; from \`$UNREPL_FILE\`):"
     printf '%s' "$UNREPL_LINES" | sed 's/^/- /'; echo
-  elif [ "$UNREPL_STATE" = checked ]; then echo "Unreplayable saved edits: none (checked \`$UNREPL_FILE\`)."; echo
-  else echo "Unreplayable saved edits: not checked (\`$UNREPL_FILE\` is missing or unreadable: editroute did not run, or no module was kept)."; echo; fi
+  elif [ "$UNREPL_STATE" = checked ]; then echo "Unreplayable saved edits: none (checked \`$UNREPL_FILE\`; modules held whole on the HOLD route are listed elsewhere)."; echo
+  elif [ "$UNREPL_STATE" = absent ]; then echo "Unreplayable saved edits: no kept module routed (no edit-routes.json)."; echo
+  else echo "Unreplayable saved edits: $UNREPL_STATE (\`$UNREPL_FILE\`)."; echo; fi
   if [ -n "$NC_ITEMS" ]; then
     echo "NOT CHECKED (excluded systems, E2E-14): $nitems items. Each needs the real system; none of them is a PASS:"
     printf '%s' "$NC_ITEMS" | sed 's/^/- /'; echo
