@@ -555,7 +555,17 @@ def build_verdict(path, final_dir=None):
         return None, f"build result {path} cannot be read ({e.strerror or e})"
     if final_dir:
         fd = Path(final_dir)
-        newer = [f for f in list((fd / "javasource").rglob("*.java")) + list(fd.glob("*.mpr")) if f.stat().st_mtime > mt]
+        newer = []
+        try:
+            files = list((fd / "javasource").rglob("*.java")) + list(fd.glob("*.mpr")) + list(fd.glob("*/*.mpr"))
+        except OSError as e:
+            return False, f"build log freshness not checkable: {final_dir} unreadable ({e.strerror or e})"
+        for f in files:
+            try:
+                if f.stat().st_mtime > mt:
+                    newer.append(f)
+            except OSError as e:  # a dangling symlink, or a file removed during the walk
+                return False, f"build log freshness not checkable: {f} unreadable ({e.strerror or e})"
         if newer:
             return False, (f"build log older than final javasource/mpr: {path} predates {newer[0]}"
                            f"{' (and %d more)' % (len(newer) - 1) if len(newer) > 1 else ''}")
@@ -1310,6 +1320,12 @@ def generate(a):
                 ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
                 if not ok:
                     lost.append(f"java-removal-proved-by-build: {why}: Java removal rows stay open")
+                else:
+                    fix = JavaIndex.of(facts["final_dir"][0])
+                    if not (fix.ok and fix.java):
+                        lost.append("java-removal-proved-by-build: final scan incomplete: "
+                                    + ("; ".join(fix.bad) if fix.bad else f"no .java under {fix.root}/javasource")
+                                    + ": Java removal rows stay open")
         for l in dict.fromkeys(lost):
             print(f"auto cannot use: {l}")
     ev = None

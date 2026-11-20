@@ -4424,7 +4424,11 @@ ctl release-impact-gm38-stale-log-stays-open 1 '^OPEN Studio Pro row 1: .*AdminE
 # a corrupt userlib jar makes the final scan incomplete (ix.ok False): green build, row stays open
 python3 $here/lib/mkjavaproj.py $RI/jp-badjar; printf 'not a zip' > $RI/jp-badjar/userlib/broken.jar
 gm38 own badjar build-green.log badjar; touch $RI/build-green.log
-ctl release-impact-gm38-corrupt-jar-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-badjar.json --out $RI/gm38-badjar.md >/dev/null; cat $RI/gm38-badjar.md; python3 $B/release_impact.py --check $RI/gm38-badjar.md"
+ctl release-impact-gm38-corrupt-jar-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: final scan incomplete: broken\.jar' '!handled \(auto\): java-removal-proved-by-build' -- sh -c "$RT --facts $RI/gm38-badjar.json --out $RI/gm38-badjar.md; cat $RI/gm38-badjar.md; python3 $B/release_impact.py --check $RI/gm38-badjar.md"
+# a dangling symlink in the final javasource: freshness is not checkable, the row stays open, no crash
+python3 $here/lib/mkjavaproj.py $RI/jp-dangle; ln -s $RI/nowhere.java $RI/jp-dangle/javasource/myfirstmodule/actions/Gone.java
+gm38 own dangle build-green.log dangle; touch $RI/build-green.log
+ctl release-impact-gm38-dangling-symlink-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log freshness not checkable: .*Gone\.java unreadable' '!handled \(auto\): java-removal-proved-by-build' '!Traceback' -- sh -c "$RT --facts $RI/gm38-dangle.json --out $RI/gm38-dangle.md || exit 9; cat $RI/gm38-dangle.md; python3 $B/release_impact.py --check $RI/gm38-dangle.md"
 mkdir -p $RI/fp; cp $M/facts-clean/App.mpr $RI/fp/; python3 $here/lib/mkjavaproj.py $RI/fp --git
 ctl release-impact-tools-facts-pass 0 '"project_dir": ".*/fp"' '"vcs": "git"' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $RI/fp/App.mpr --facts-out $RI/fp-facts.json >/dev/null; cat $RI/fp-facts.json"
 mkdir -p $RI/fnj; cp $M/facts-clean/App.mpr $RI/fnj/
