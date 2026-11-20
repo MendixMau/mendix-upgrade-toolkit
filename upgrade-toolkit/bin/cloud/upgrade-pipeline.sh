@@ -926,7 +926,10 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   if [ "$DRY" != 1 ] && rc=$(bash "$B/localedits_cache.sh" check "$APP" "$WORK" "${le[@]}"); then
     say "localedits: reused the earlier result (same model, args and mxcli; UPG_LOCALEDITS_FRESH=1 redoes it)"
     note "localedits reused from the earlier run"
+    # an UNKNOWN can also come from the environment (DNS, a proxy 407, a missing toolchain): say how to redo it once that is fixed
+    [ "$rc" != 2 ] || say "localedits: the reused result has UNKNOWN modules; if their cause was the network or this machine and is fixed now, UPG_LOCALEDITS_FRESH=1 redoes it"
   else
+    [ "$DRY" = 1 ] || rm -f "$WORK/localedits.md" "$WORK/localedits.json"  # a dry run deletes nothing; a run that dies before its report must not leave an older one to be cached under exit 2
     rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
     [ "$DRY" = 1 ] || bash "$B/localedits_cache.sh" save "$APP" "$WORK" "$rc" "${le[@]}"
   fi

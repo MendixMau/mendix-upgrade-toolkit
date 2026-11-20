@@ -9660,6 +9660,16 @@ ctl localedits-cache-rc-missing-redo-catch 1 -- sh -c "bash $B/localedits_cache.
 ctl mxbuild-link-pipeline-all-versions-pass 0 'ok' -- sh -c "grep -q 'mxbuild_link.sh\" \"\$UPG_TOOLS\" \"\$SOURCE\" .*TARGET2.*VIA' $B/cloud/upgrade-pipeline.sh && echo ok"
 ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
 ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# AIB: exit 2 because a module is UNKNOWN (installed label is a build number) is permanent; it was never kept, so every rerun redid 14 minutes
+LU=$T/lecache-unknown; mkdir -p $LU/w/state; cp -r $LC/app $LU/app; echo 78bdfa5 > $LU/w/state/mxcli-version; echo '[{}]' > $LU/w/localedits.json
+printf '%s\n' '## Mod 1.0 (content 1): UNKNOWN (package not readable: version "108746" not found)' 'modules: 1, RED data-bearing edits: 0, UNKNOWN (not judged): 1 ['"'"'Mod'"'"']: use x, NETWORK (not judged, transient): 0' > $LU/w/localedits.md
+ctl localedits-cache-unknown-kept-catch 0 '^2$' -- sh -c "bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-model-changed-redo-catch 1 -- sh -c "echo x > $LU/app/new.mpr; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff; rc=\$?; rm $LU/app/new.mpr; exit \$rc"
+ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i 's/transient): 0/transient): 1/' $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-no-report-not-kept-catch 1 -- sh -c "rm -f $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; echo '# x' > $LU/w/localedits.md; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-pipeline-clears-old-report-pass 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {r=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (r && d && r<d) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
+# a dry run prints the commands and runs nothing: it must not delete the saved report (then the next real run redoes ~14 minutes of diff)
+ctl localedits-cache-dry-run-keeps-report-catch 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {n++; if ($0 ~ /"\$DRY" = 1 \] \|\| rm -f/) g++} END {print (n && n==g) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
 python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"
