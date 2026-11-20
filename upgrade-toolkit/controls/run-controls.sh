@@ -222,6 +222,9 @@ ctl idcheck-netzero-new-element-pass 0 'transient: not in the original app \(nam
 # GM-23 / A-1: stepcheck.py, the model check read after each step. Captured-shape logs (fixtures/check): worse adds errors, better only drops
 SC=$FX/check
 ctl stepcheck-new-errors-catch 1 '^NEW CE6085' 'adds? ?|new error\(s\) \(CE6085 x' '^Q.*breaks the model' '^R.*keep$' '^O.*keep\|Keep ModX at the installed version' '^W.*keep\|step-keep\.txt\|ModX' '^W.*accept\|stepcheck-accepted\.txt\|ModX CE6085' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --fields
+# issue 44: a module named by --force-ui is meant to be updated, so the stop recommends accept; any other module keeps `keep`
+ctl stepcheck-forceui-recommends-accept-catch 1 '^R.*accept$' '!^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModX, --fields
+ctl stepcheck-forceui-other-module-keeps-catch 1 '^R.*keep$' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --version 2.0.0 --force-ui ,ModY, --fields
 ctl stepcheck-fewer-errors-pass 0 'no new error' '!^NEW' -- python3 $B/stepcheck.py $SC/before.log $SC/after-better.log --module ModX --version 2.0.0 --fields
 echo 'ModX CE6085  # accepted by a person' > $T/sc-acc.txt
 ctl stepcheck-accepted-pass 0 'no new error' -- python3 $B/stepcheck.py $SC/before.log $SC/after-worse.log --module ModX --accepted $T/sc-acc.txt

@@ -67,7 +67,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("before"); ap.add_argument("after")
     ap.add_argument("--module", required=True); ap.add_argument("--version", default="")
-    ap.add_argument("--accepted"); ap.add_argument("--fields", action="store_true"); ap.add_argument("--max", type=int, default=8)
+    ap.add_argument("--accepted"); ap.add_argument("--force-ui", default="", help="the run's --force-ui list (comma separated): a module on it is meant to be updated, so the recommendation is accept")
+    ap.add_argument("--fields", action="store_true"); ap.add_argument("--max", type=int, default=8)
     a = ap.parse_args()
     (before, bdied), (after, adied) = read(a.before), read(a.after)
     if adied:
@@ -94,7 +95,8 @@ def main():
     q = (f"Updating {mod}{' to ' + ver if ver else ''} breaks the model: {len(new)} new error(s) ({codes}) that the app did not have "
          f"before this update{' (' + says + ')' if says else ''}. The app would not build until they are repaired. What should we do?")
     print(f"Q\t{q}")
-    print("R\tkeep")
+    forced = mod in [m.strip() for m in a.force_ui.split(",") if m.strip()]
+    print("R\taccept" if forced else "R\tkeep")
     print(f"O\tkeep|Keep {mod} at the installed version|The update is undone and {mod} stays as it is, so the app has no more errors than before; "
           f"modules whose update needs the newer {mod} are reported before the build")
     print(f"O\taccept|Carry on with the update and repair these errors in the build step|The update stays, the app does not build until "
