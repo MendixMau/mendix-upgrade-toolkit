@@ -489,6 +489,10 @@ ctl cockpit-dvs-stop-names-module-recommends-catch 0 '^7 data grids would forget
 ctl cockpit-dvs-stop-no-fit-says-why-catch 0 '^No recommendation: this one is your call\. No newer DataWidgets fits Mendix 10\.24\.0' 'Only you know whether losing them matters' -- bash $here/cockpit_control.sh dvs-stop-nofit
 ctl cockpit-dvs-stop-answer-writes-plan-line-catch 0 '^    chat: decisions\.py add .* --item stop:update:1 --choice update --by NAME --source chat$' '^116540 2\.32\.4 DataWidgets # \[item:stop:update:1\] by Ana via page' '^stepupdate reads: cid=116540 ver=2\.32\.4 module=DataWidgets$' -- bash $here/cockpit_control.sh dvs-stop-update
 ctl cockpit-dvs-stop-answer-acts-once-catch 0 '^ack: accepted: 7 data grids' '^asked after the run went on: 0$' '^asked by the next stop with the same id: 1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-twice
+ctl cockpit-chat-line-says-recommended-catch 0 '^    chat: decisions\.py add .* --item P-2 --choice rec --by NAME --source chat   # rec = use design properties$' -- bash $here/cockpit_control.sh pending-rec-says-what
+ctl cockpit-dvs-stop-flushed-twice-second-id-pass 0 '^rows: 2$' '^--item stop:update:1\.2$' '!^--item stop:update:1$' '^1$' -- bash $here/cockpit_control.sh dvs-stop-flush
+ctl cockpit-stop-ids-first-stop-plain-pass 0 '^--item stop:update:1$' -- bash $here/cockpit_control.sh stop-ids-first
+ctl cockpit-stop-ids-later-stop-own-id-catch 0 '^--item stop:update:1\.2$' '!^--item stop:update:1$' -- bash $here/cockpit_control.sh stop-ids-later
 # the pipeline's own stop site goes through widget_drop_stop; a failing widgetfix falls back to the generic wording (the controls above)
 ctl pipeline-update-widgetdrop-uses-widgetfix-catch 0 'nj_writes "\$\{ws\[@\]\}"' '--json "\$WORK/widgetdrop\.json"' '^  decisions_apply   # resume' -- grep -E 'nj_writes "\$\{ws|--json "\$WORK/widgetdrop.json"|^  decisions_apply   # resume' $B/cloud/upgrade-pipeline.sh
 # widgetrestore.py (repair row 33, cold CMM): an app where update-widgets already dropped the Roles filter's association
@@ -1413,20 +1417,23 @@ ctl mxversion-mxmodule-short-pass 0 '^10\.24\.26$' -- python3 $B/mxversion.py $A
 echo notazip > $AD/modules/Broken.mxmodule
 ctl mxversion-mxmodule-unreadable-catch 2 'no Mendix version found' -- python3 $B/mxversion.py $AD/modules/Broken.mxmodule
 # RM-3: stepcheck-run finds a toolset unpacked under its full name (mxbuild-10.24.0.73019); the short name is still tried first
-SC=$T/sc; mkdir -p $SC/bin $SC/tools/mxbuild-10.24.0.73019 $SC/tools/mxbuild-10.24.9 $SC/app
+SC=$T/sc; mkdir -p $SC/bin $SC/tools/mxbuild-10.24.0.73019/modeler $SC/tools/mxbuild-10.24.9/modeler $SC/tools/mxbuild-10.24.5 $SC/tools/mxbuild-10.24.5.81000/modeler $SC/app
+for d in mxbuild-10.24.0.73019 mxbuild-10.24.9 mxbuild-10.24.5.81000; do printf '#!/bin/sh\n' > $SC/tools/$d/modeler/mx; chmod +x $SC/tools/$d/modeler/mx; done
 cp $B/stepcheck-run.sh $B/mxversion.py $B/checkwhere.py $SC/bin/
 printf '#!/bin/sh\nshift; exec "$@"\n' > $SC/bin/heavy-lock.sh
-printf '#!/bin/sh\nif [ -e "$UPG_TOOLS/mxbuild-$1" ]; then echo "mx10 used toolset $1"; echo "The app contains: 0 errors"; else echo "mx10.sh: no $UPG_TOOLS/mxbuild-$1/modeler/mx" >&2; exit 2; fi\n' > $SC/bin/mx10.sh
+printf '#!/bin/sh\nif [ -x "$UPG_TOOLS/mxbuild-$1/modeler/mx" ]; then echo "mx10 used toolset $1"; echo "The app contains: 0 errors"; else echo "mx10.sh: no $UPG_TOOLS/mxbuild-$1/modeler/mx" >&2; exit 2; fi\n' > $SC/bin/mx10.sh
 chmod +x $SC/bin/*.sh
 python3 - <<PYEOF
 import sqlite3
-for name, ver in (("full", "10.24.0.73019"), ("short", "10.24.9.80000")):
+for name, ver in (("full", "10.24.0.73019"), ("short", "10.24.9.80000"), ("partial", "10.24.5.81000")):
     c = sqlite3.connect("$SC/app/%s.mpr" % name)
     c.execute("create table _MetaData (_ProductVersion text, _BuildVersion text, _SchemaHash text)")
     c.execute("insert into _MetaData values (?, ?, '')", (ver, ver)); c.commit(); c.close()
 PYEOF
 ctl stepcheck-run-full-name-pass 0 'mx10 used toolset 10\.24\.0\.73019' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/full.mpr $SC/full.log; cat $SC/full.log"
 ctl stepcheck-run-short-name-pass 0 'mx10 used toolset 10\.24\.9$' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/short.mpr $SC/short.log; cat $SC/short.log"
+# The empty mxbuild-10.24.5 folder is no toolset (mx10.sh would refuse it): the complete full-name one is used (catch: -e picked the empty one)
+ctl stepcheck-run-empty-short-folder-pass 0 'mx10 used toolset 10\.24\.5\.81000' '!MXCHECK' -- sh -c "UPG_TOOLS=$SC/tools bash $SC/bin/stepcheck-run.sh $SC/app/partial.mpr $SC/partial.log; cat $SC/partial.log"
 # GM-17: a 10 to 11 plan names packages built before 10.21; planbuild.py reads the build version of each cached .mpk up front
 # (BizzomateDevTools 2.0.2 / 3.0.0 on a real run were found only by the run-time SKIP). Fixtures: mkaddon makes the zip holding project.mpr.
 PB=$T/planbuild; mkdir -p $PB/cache
@@ -3334,7 +3341,16 @@ if command -v node > /dev/null; then
   # Catch for the error / not-found exclusion: a mutant with the `g.bad` guard cut out (sed) passes an error page as a guest home
   sed 's/g\.guest && g\.pages > 0 && g\.bad/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noerrcheck.js
   ctl anonymous-visit-error-page-catch 1 '^FAIL +guest session on a not-found page -> not ok' '^FAIL +guest session with an error dialog -> not ok' '^FAIL +guest session with a red error box -> not ok' '^ok +real probe, guest home page renders' '^ok +a validation message is not an error page' -- node $here/anonymous_visit_control.js $T/journey-runner-noerrcheck.js
-  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '^ok +real probe, guest home page renders -> ok, distinct detail' '^ok +guest session on a not-found page -> not ok' '^ok +guest session with an error dialog -> not ok' '^ok +guest session with a red error box -> not ok' '^ok +nav item "Pages" and an empty state "Customer not found" -> ok' '^ok +"Pages" and "not found" on separate lines in one page -> ok' '^ok +a stat tile reading 404 is not an error page -> ok' '^ok +a table cell starting 404 on a later line is not an error page -> ok' '^ok +not-found text still fails: 404 page -> not ok' '^ok +not-found text still fails: error then 404 -> not ok' '^ok +not-found text still fails: page does not exist -> not ok' '^ok +a validation message is not an error page -> ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
+  # Catch for 404-as-prefix: a mutant that adds the old `^\s*(error\s*)?404\b` test back judges "404 open cases" a not-found page
+  sed 's/|| explicit || bare;/|| \/^\\s*(error\\s*)?404\\b\/i.test(t2);/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-404prefix.js
+  ctl anonymous-visit-404-prefix-catch 1 '^FAIL +a first tile reading "404 open cases" is not an error page -> ok' '^FAIL +page text that merely starts with 404 -> ok' '^ok +not-found text still fails: 404 page -> not ok' -- node $here/anonymous_visit_control.js $T/journey-runner-404prefix.js
+  # Catch for a page-length cap on an explicit form: "404 Not Found" followed by a long body must still FAIL
+  sed 's/|| explicit ||/|| (explicit \&\& t2.length < 300) ||/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-404cap.js
+  ctl anonymous-visit-404-longbody-catch 1 '^FAIL +not-found text still fails: 404 Not Found with long body -> not ok' '^ok +a KPI tile 404 / Open cases / Closed 12 -> ok' -- node $here/anonymous_visit_control.js $T/journey-runner-404cap.js
+  # Catch for the "Error" strip: testing l0 with a leading "Error" removed lets "Error 404" + a body pass as a page
+  sed 's|\.test(l0))|.test(l0.replace(/^error\\s*/i, "")))|' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-errstrip.js
+  ctl anonymous-visit-error-404-strip-catch 1 '^FAIL +not-found text still fails: Error 404 with long body -> not ok' '^FAIL +not-found text still fails: Error then 404 with long body -> not ok' -- node $here/anonymous_visit_control.js $T/journey-runner-errstrip.js
+  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '^ok +real probe, guest home page renders -> ok, distinct detail' '^ok +guest session on a not-found page -> not ok' '^ok +guest session with an error dialog -> not ok' '^ok +guest session with a red error box -> not ok' '^ok +nav item "Pages" and an empty state "Customer not found" -> ok' '^ok +"Pages" and "not found" on separate lines in one page -> ok' '^ok +a stat tile reading 404 is not an error page -> ok' '^ok +a table cell starting 404 on a later line is not an error page -> ok' '^ok +not-found text still fails: 404 page -> not ok' '^ok +not-found text still fails: error then 404 -> not ok' '^ok +not-found text still fails: page does not exist -> not ok' '^ok +a validation message is not an error page -> ok' '^ok +a first tile reading "404 open cases" is not an error page -> ok' '^ok +page text that merely starts with 404 -> ok' '^ok +not-found text still fails: bare 404 heading -> not ok' '^ok +not-found text still fails: Error 404 -> not ok' '^ok +not-found text still fails: 404 dash page not found -> not ok' '^ok +a KPI tile 404 / Open cases / Closed 12 -> ok' '^ok +not-found text still fails: 404 Not Found with long body -> not ok' '^ok +not-found text still fails: 404 pipe Not Found -> not ok' '^ok +not-found text still fails: 404 Not Found full stop -> not ok' '^ok +not-found text still fails: 404 em dash Not Found -> not ok' '^ok +not-found text still fails: 404 that is an error -> not ok' '^ok +not-found text still fails: Error 404 with long body -> not ok' '^ok +not-found text still fails: Error then 404 with long body -> not ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
@@ -3444,7 +3460,10 @@ if [ -f ${TOOLKIT_E2E:-$B/../vendor/e2e}/journey-runner.js ]; then
     # SITS: a login page that folds the local form under "Show alternative login": bin/loginreveal.js (walks) and the engine patch (journeys) click it
     ctl journeys-login-reveal-catch 0 '^ok +loginreveal on the folded page shows the form' '^ok +unpatched engine on the folded page: login refused' '^ok +patched engine on the folded page signs in and reaches the app shell' '!^FAIL' -- env NODE_PATH=$PWNP node $here/login_reveal_control.js $T/engine-login $T/engine-plain
     ctl journeys-login-reveal-pass 0 '^ok +loginreveal on the unfolded page returns false' '^ok +loginreveal on a page with no form returns false' '^ok +loginreveal never clicks a "Hide' '^ok +patched engine on the unfolded page still signs in' '!^FAIL' -- env NODE_PATH=$PWNP node $here/login_reveal_control.js $T/engine-login $T/engine-plain
-  else skip journeys-login-reveal-catch "no playwright with a browser"; skip journeys-login-reveal-pass "no playwright with a browser"; skip journeys-engine-login-page-home-catch "no playwright with a browser"; skip journeys-landing-guard-catch "no playwright with a browser"; skip journeys-landing-guard-pass "no playwright with a browser"; fi
+    # SITS: a footer link shares the page button's widget name; the page body wins, a sole footer match is kept
+    ctl journeys-pagewidget-footer-catch 0 '^ok +old pick, body \+ footer share the name: the footer link' '^ok +topmost: body \+ footer share the name: the page body button' '^ok +topmost: body \+ \[role=contentinfo\] share it: the page body button' '!^FAIL' -- env NODE_PATH=$PWNP node $here/pagewidget_footer_control.js
+    ctl journeys-pagewidget-footer-pass 0 '^ok +topmost: only a footer match: the footer match is kept' '^ok +topmost: body match hidden, footer shown: the footer match' '^ok +topmost: two body matches, deeper placeholder: the deeper one' '^ok +topmost: page widget in a footer inside the placeholder beats a layout topbar widget at depth 0 \(R38\)' '!^FAIL' -- env NODE_PATH=$PWNP node $here/pagewidget_footer_control.js
+  else skip journeys-pagewidget-footer-catch "no playwright with a browser"; skip journeys-pagewidget-footer-pass "no playwright with a browser"; skip journeys-login-reveal-catch "no playwright with a browser"; skip journeys-login-reveal-pass "no playwright with a browser"; skip journeys-engine-login-page-home-catch "no playwright with a browser"; skip journeys-landing-guard-catch "no playwright with a browser"; skip journeys-landing-guard-pass "no playwright with a browser"; fi
 else skip journeys-engine-patch-pass "no shared journey engine"; skip journeys-engine-syntax-pass "no shared journey engine"; skip journeys-engine-ready-any-match-pass "no shared journey engine"; skip journeys-engine-patch-drift-catch "no shared journey engine"
   skip journeys-engine-login-page-home-patch-pass "no shared journey engine"; skip journeys-engine-login-page-home-catch "no shared journey engine"; fi
 # E2E-R1: the rendered verb (bin/widgetrender.js) on fixtures/widgetrender in a real browser: a collapsed or display:none part fails,
@@ -4092,7 +4111,14 @@ ctl mx10-mxbuild-says-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10$' -- env 
 ctl mx10-mxbuild-says-env-image-catch 0 '^mx10\.sh: mxbuild image mig-leaked$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok UPG_IMAGE10=mig-leaked zsh $B/mx10.sh 10.24.16 mxbuild --target=package x.mpr
 ctl mx10-mxbuild-says-j11-image-catch 0 '^mx10\.sh: mxbuild image mig-mx10-j11$' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.6.3 mxbuild --target=package x.mpr
 ctl mx10-check-says-no-image-pass 0 '!mxbuild image' '^docker run' -- env "PATH=$T/fakedocker:$PATH" UPG_ROOT=$T UPG_TOOLS=$TS/ok zsh $B/mx10.sh 10.24.16 mx check x.mpr
-ctl pipeline-build-stop-names-image-catch 0 'Build image' 'build-image.txt' -- grep -n 'Build image\|build-image.txt' $B/cloud/upgrade-pipeline.sh
+# issue 33: the write and the item are tested where they run: the build-stop block is cut out of the pipeline and run against stubs.
+# Catch = a mutant with the write moved above the block (still in the file, so the old whole-file grep passed; the block no longer writes it).
+ctl pipeline-build-stop-names-image-catch 0 '^build-image\.txt: mx10\.sh: mxbuild image mig-mx10-j11$' '^item: Build-image$' '^ok   stop path' -- bash $here/build_stop_image_control.sh $B/cloud/upgrade-pipeline.sh stop
+ctl pipeline-build-stop-image-good-build-pass 0 '^build-image\.txt: absent$' '^item: none$' '^ok   ok path' -- bash $here/build_stop_image_control.sh $B/cloud/upgrade-pipeline.sh ok
+awk '/mxbuild image .*build-image\.txt/ && /grep -m1/ {w=$0; next} {l[++k]=$0} END{for(i=1;i<=k;i++){ if (l[i] ~ /^  n=0; \[ "\$DRY" = 1 \]/) print w; print l[i] }}' $B/cloud/upgrade-pipeline.sh > $T/pipeline-image-moved.sh
+ctl pipeline-build-stop-image-moved-catch 1 '^FAIL stop path' -- bash $here/build_stop_image_control.sh $T/pipeline-image-moved.sh stop
+sed '/grep -m1 .\^mx10.sh: mxbuild image /d' $B/cloud/upgrade-pipeline.sh > $T/pipeline-image-gone.sh
+ctl pipeline-build-stop-image-gone-catch 1 '^FAIL stop path' -- bash $here/build_stop_image_control.sh $T/pipeline-image-gone.sh stop
 ctl runapp-image-10-9-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.9.0.31198'))"
 ctl runapp-image-10-6-java11-catch 0 '^eclipse-temurin:11-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.6.3.26585'))"
 ctl runapp-image-10-24-java21-pass 0 '^eclipse-temurin:21-jdk$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import runapp; print(runapp.image_for('10.24.0.73019'))"
@@ -9686,6 +9712,49 @@ ctl gen-create-combo-catch 0 '"do": "combo"' '"widget": "comboBox1"' '"first": t
 ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback' -- sh -c "$GJ --out-dir $T/gen-create-bad --create $T/create-spec-badDo.json 2>&1"
 ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
 ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
+
+# issue 30: exit 4 (a failed step, no stop file) prints the brief, like a judgment stop does; cleanup() is cut out of the pipeline script
+CL4=$T/cl4; mkdir -p $CL4/w/state
+CLF="eval \"\$(sed -n '/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { echo BRIEF-PRINTED; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=build; WORK=$CL4/w; APPS_UP=()"
+ctl pipeline-exit4-prints-brief-catch 0 '^REGEN$' '^BRIEF-PRINTED$' -- bash -c "$CLF; ( exit 4 ); cleanup; true"
+ctl pipeline-exit0-no-brief-pass 0 '!BRIEF-PRINTED' '!REGEN' -- bash -c "$CLF; ( exit 0 ); cleanup; true"
+ctl pipeline-exit4-after-stop-file-no-second-brief-pass 0 '!BRIEF-PRINTED' -- bash -c "$CLF; : > $CL4/w/NEEDS-JUDGMENT.md; ( exit 4 ); cleanup; true"
+
+# issue 30, the brief AFTER the failure: the real brief.py and cockpit model on a synthetic work folder (steps done, last timing row exit N, no stop file)
+# the old code said "No step is running right now" and "Nothing to do now"; a failed last attempt is now said, with the log and the rerun
+FB=$T/fb; for n in 4 0 7 2; do mkdir -p $FB/w$n/state $FB/w$n/logs; for st in triage baseline; do echo 2026-10-20T10:00:00Z > $FB/w$n/state/$st.done; done
+  printf 'step\tstart_utc\tend_utc\texit\ntriage\t2026-10-20T10:00:00Z\t2026-10-20T10:05:00Z\t0\nbaseline\t2026-10-20T10:05:00Z\t2026-10-20T10:10:00Z\t0\nconvert\t2026-10-20T10:10:00Z\t2026-10-20T10:15:00Z\t%s\n' $n > $FB/w$n/state/timing.tsv; done
+# a failure and then a successful rerun: only the newest row counts
+cp -r $FB/w4 $FB/wre; printf 'convert\t2026-10-20T12:00:00Z\t2026-10-20T12:09:00Z\t0\n' >> $FB/wre/state/timing.tsv
+# a failure and a rerun in progress (running marker with this shell's pid)
+cp -r $FB/w4 $FB/wrun; printf 'convert\t%s\t%s\n' "$(date +%s)" "$$" > $FB/wrun/state/running
+ctl brief-exit4-says-failed-catch 0 'Step convert failed \(exit 4\)' 'logs/convert.log' '--from convert' '!Nothing to do now' '!No step is running right now' -- python3 $B/brief.py --work $FB/w4
+ctl brief-exit7-says-failed-catch 0 'Step convert failed \(exit 7\)' '--from convert' '!Nothing to do now' -- python3 $B/brief.py --work $FB/w7
+ctl cockpit-model-exit4-failed-catch 0 'failed=convert,4' 'dot=bad' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+m=c.build_model('$FB/w4'); print('failed=%s,%s' % (m['failed']['step'], m['failed']['code']), 'dot='+m['state']['dot']); print(m['state']['text'])"
+ctl brief-exit0-no-failed-pass 0 '!failed' '!--from convert' -- python3 $B/brief.py --work $FB/w0
+ctl brief-exit2-usage-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/w2
+ctl brief-failed-then-rerun-ok-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wre
+ctl brief-failed-rerun-running-no-failed-pass 0 '!failed' -- python3 $B/brief.py --work $FB/wrun
+ctl brief-failed-with-stop-file-keeps-stop-pass 0 '!failed' -- sh -c "cp -r $FB/w4 $FB/wst; printf '# NEEDS JUDGMENT: step convert, exit 11\n\n## One thing\nwhy\n' > $FB/wst/NEEDS-JUDGMENT.md; python3 $B/brief.py --work $FB/wst"
+
+# issue 30, rung 2: the work folder is <run>/rung2 and its page is the run's one cockpit, so the advice must be the rung-2 command
+# (env prefix, --work .../rung2), not the plain ladder command: after rung 2's convert the ladder refuses --from X (ladder_from_guard),
+# before it --from baseline reruns rung 1 on a converted app. cleanup() records the command, the page and the brief quote it.
+mkdir -p $FB/r2/rung2/state $FB/r2s/rung2/state
+for d in r2 r2s; do cp $FB/w4/state/timing.tsv $FB/$d/rung2/state/timing.tsv; done
+printf 'convert\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert\n' > $FB/r2/rung2/state/failed-rerun.txt
+printf 'build\tenv RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from build\n' > $FB/r2s/rung2/state/failed-rerun.txt
+CLR="eval \"\$(sed -n '/^quoted() {/p;/^rerun_cmd() {/,/^}/p;/^cleanup() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; timing_close() { :; }; cockpit_regen() { echo REGEN; }; brief_say() { :; }; feedback_finish() { :; }; record_runlog() { :; }; DRY=0; STEP=convert; SELF=/x/upgrade-pipeline.sh; ARGS_ORIG=(--work /r/rung2 --from convert); RUN=/r; UPG_PHASE=2; WORK=$CL4/rung2; APPS_UP=(); mkdir -p \$WORK/state"
+ctl pipeline-exit4-rung2-records-rung2-command-catch 0 'convert.env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' -- bash -c "$CLR; ( exit 4 ); cleanup; cat $CL4/rung2/state/failed-rerun.txt"
+ctl brief-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'rung2/logs/convert.log, fix the cause, then rerun this command. env RUN=/r UPG_PHASE=2 /x/upgrade-pipeline.sh --work /r/rung2 --from convert' '!Read logs/convert.log' -- sh -c "python3 $B/brief.py --work $FB/r2/rung2 | tr -s ' \\n' '  '"
+ctl cockpit-model-exit4-rung2-quotes-rung2-command-catch 0 'rung2/logs/convert.log' 'UPG_PHASE=2' 'rerun: env RUN' '!Read logs/convert.log' -- python3 -c "
+import sys; sys.path.insert(0,'$B'); import cockpitpage as c
+print(c.build_model('$FB/r2/rung2')['state']['text'])"
+ctl brief-exit4-rung2-other-step-command-ignored-pass 0 'Read rung2/logs/convert.log' 'rerun with --from convert' '!--from build' -- sh -c "python3 $B/brief.py --work $FB/r2s/rung2 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-text-unchanged-pass 0 'Read logs/convert.log, fix the cause, then rerun with --from convert' '!rung2' -- sh -c "python3 $B/brief.py --work $FB/w4 | tr -s ' \\n' '  '"
+ctl brief-exit4-rung1-recorded-command-pass 0 '^  /x/upgrade-pipeline.sh --work /r --from convert$' '!rung2' -- sh -c "cp -r $FB/w4 $FB/w4c; printf 'convert\t/x/upgrade-pipeline.sh --work /r --from convert\n' > $FB/w4c/state/failed-rerun.txt; python3 $B/brief.py --work $FB/w4c"
 
 # issue 30: "old app did not start" (exit 4) named only a log path; the first CRITICAL (else error) line of the runtime log goes with it,
 # but only when THIS start saved the log (runapp.py prints "runapp: NOT started;" / "runapp: admin API did not come up;" into $LOG then).

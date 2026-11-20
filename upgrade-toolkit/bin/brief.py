@@ -28,7 +28,7 @@ def fields(work):
     a = b["act"]
     act = " ".join(x for x in (a["text"], a.get("rec"), a.get("time")) if x)
     return {"act_parts": [x for x in (a["text"], a.get("rec")) if x], "status": b["status"], "broken": b["broken"]["text"], "unmeasured": b["unmeasured"] or "nothing; every check has run.", "act": act,
-            "who": b["who"], "n": b["n"], "kind": a["kind"]}
+            "who": b["who"], "n": b["n"], "kind": a["kind"], "cmd": a.get("cmd") or ""}
 
 
 def sentences(t):
@@ -64,6 +64,9 @@ def lines(f):
         out = [l for key, label in LABELS for l in fit(label, texts[key], room[key], tail=(key == "who"))]
         if len(out) <= MAX_LINES:
             break
+    if f.get("cmd"):   # a command to run is printed whole on its own line, so it can be copied; it may pass the line limit
+        i = next(n for n, l in enumerate(out) if l.startswith("Who changed what"))
+        out.insert(i, "  " + f["cmd"])
     return out
 
 
