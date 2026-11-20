@@ -4574,7 +4574,7 @@ mw() { local d=$MW/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $MW/b/k
   printf 'shots-*/x # old cause [gridlayout]\n* # stale [keptstyle]\n' > "$d/w/screen-causes.txt"
   [ "$3" = kept ] && printf 'KeptA kept\n' > "$d/app/.stepupdate/kept.txt"; return 0; }
 mwrun() { local d=$MW/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=${4:-0} MODE=$2 bash $MW/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "causes: $(tr '\n' '|' < "$d/w/screen-causes.txt" 2> /dev/null)"; }
-mw risk 1 kept; mw clean 0 kept; mw bad 2 kept; mw nokept 0 nokept
+mw risk 1 kept; mw dry 1 kept; mw clean 0 kept; mw bad 2 kept; mw nokept 0 nokept
 ctl mc11-wire-args-catch 0 '^argv: .*/app --kept-file .*/mc11wire/risk/app/\.stepupdate/kept\.txt --json .*/w/keptstyle\.json $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage"
 ctl mc11-wire-risk-is-note-and-cause-catch 0 '^NOTE: keptstyle RISK \(exit 1\): kept module\(s\) KeptA,KeptB style platform widgets; a visual risk, not a stop' '^causes: shots-\*/x # old cause \[gridlayout\]\|\* # kept module\(s\) KeptA,KeptB style platform widgets .*\[keptstyle\]\|$' '!stale' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk update"
 ctl mc11-wire-risk-never-a-stop-catch 0 '^no stop helper in kept_style_check$' '^RISK is a note$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; sed -n '/^kept_style_check() {/,/^}/p' \$P | grep -Eq '^[^#]*(nj_(add|file|meta)|stop_code)' || echo 'no stop helper in kept_style_check'; sed -n '/^kept_style_check() {/,/^}/p' \$P | grep -q 'note \"keptstyle RISK' && echo 'RISK is a note'"
@@ -4582,7 +4582,7 @@ ctl mc11-wire-clean-drops-stale-cause-pass 0 '^argv: ' '!NOTE' '!\[keptstyle\]' 
 ctl mc11-wire-input-error-not-measured-catch 0 '^NOTE: keptstyle exit 2: .*NOT measured \(never read as clean\)' '!style platform widgets;' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun bad update"
 ctl mc11-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptstyle NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept triage"
 ctl mc11-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
-ctl mc11-wire-dry-prints-command-catch 0 '^X: python3 .*keptstyle\.py .*--kept-file .*--json .*keptstyle\.json' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage _ 1"
+ctl mc11-wire-dry-prints-command-catch 0 '^X: python3 .*keptstyle\.py .*--kept-file .*--json .*keptstyle\.json' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun dry triage _ 1"
 ctl mc11-wire-no-kept-list-drops-stale-cause-pass 0 '^NOTE: keptstyle NOT MEASURED' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/nokept/w/keptstyle.json; mwrun nokept triage; test -e $MW/nokept/w/keptstyle.json || echo 'json: gone'"
 ctl mc11-wire-no-kept-list-update-drops-stale-cause-pass 0 '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
 ctl mc11-wire-input-error-drops-stale-cause-pass 0 '^NOTE: keptstyle exit 2' '^causes: shots-\*/x # old cause \[gridlayout\]\|$' '!keptstyle\]' '^json: gone$' -- bash -c "$(declare -f mwrun); MW=$MW; echo x > $MW/bad/w/keptstyle.json; mwrun bad update; test -e $MW/bad/w/keptstyle.json || echo 'json: gone'"
