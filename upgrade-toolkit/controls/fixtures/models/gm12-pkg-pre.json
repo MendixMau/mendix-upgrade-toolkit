@@ -1,0 +1,4 @@
+{"modules": [
+  {"name": "PreMod", "appstore": [6666, "2.0.0"],
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Pre", "refs": {"Microflow": ["MxTokenModule.ACT_Token"]}}]}
+ ]}
