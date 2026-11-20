@@ -1983,6 +1983,9 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     disk_cause "$WORK/build-$TARGET.log"
     nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
     nj_meta info; nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
+    # issue 33: the image the build ran in (UPG_IMAGE10 left in env.sh once built 10.24 on JDK 11: "release version 21 not supported")
+    grep -m1 '^mx10.sh: mxbuild image ' "$WORK/build-$TARGET.log" > "$WORK/build-image.txt" 2> /dev/null || true
+    [ ! -s "$WORK/build-image.txt" ] || { nj_meta info; nj_add 10 "Build image" "$(sed 's/^mx10.sh: mxbuild image /The build ran in the image /' "$WORK/build-image.txt") (UPG_IMAGE10 overrides the default; a JDK 11 image for a 10.24 or newer build fails with \"release version 21 not supported\")"; }
     # cold CMM: a userlib fat jar's older Netty hid the class MendixSSO 10.6.2 needs; name the jar, not only the error
     if grep -q 'error: cannot find symbol' "$WORK/build-$TARGET.log" 2> /dev/null; then
       xo "$WORK/javacjar.out" python3 "$B/repair/javacjar.py" "$APP" "$WORK/build-$TARGET.log" || true
