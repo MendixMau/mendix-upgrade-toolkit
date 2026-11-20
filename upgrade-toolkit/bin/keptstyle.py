@@ -66,7 +66,9 @@ def main():
             raw = open(a.kept_file).read()
         except OSError as e:
             die("keptstyle: " + str(e))
-        kept = [x for x in re.split(r"[,\s]+", raw) if x and not x.startswith("#")]
+        # stepupdate's kept.txt is "<Module> <reason words>": the first word of each line is the module, never the reason
+        kept = [w for ln in raw.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
+                for w in ln.split()[0].split(",") if w]
     else:
         kept = [x for x in a.kept.split(",") if x.strip()]
     rows, mods = [], set()

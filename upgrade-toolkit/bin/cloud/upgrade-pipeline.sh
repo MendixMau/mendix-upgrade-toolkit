@@ -939,6 +939,7 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
   kept_java_check
   charts11_check
   kept_vendor_check triage
+  kept_style_check triage
   nj_flush
 }
 
@@ -964,6 +965,28 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
        fi ;;
     3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
     *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;
+  esac
+}
+
+kept_style_check() { # MC-11: does a KEPT module's themesource carry rules on platform widgets (.widget-*, .mx-listview ...) the plan updates?
+  # kept_style_check triage|update. keptstyle.py exit: 0 none, 1 RISK hits, 2 input error. RISK hits are visual risks, never a stop (no nj
+  # item, no new stop code): the widget markup changes with its major and only a screenshot shows it. They reach the screens rung as a
+  # line in $WORK/screen-causes.txt (gate.sh passes it to shotdiff --causes): a pixel-only REVIEW of any page then names the kept module(s)
+  # as the likely cause. The cause names no page: the screens rung shoots the pages the walk reaches, not a list this step can extend.
+  # Runs in triage (a rerun has kept.txt) and again after the update step, which is the first point a first run has the final kept list.
+  local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" cf="$WORK/screen-causes.txt" mods
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptstyle.py" "$APP" --kept-file "$kf" --json "$WORK/keptstyle.json"; return 0; fi
+  if [ ! -s "$kf" ]; then
+    [ "$mode" != triage ] || note "keptstyle NOT MEASURED: no $kf yet (the update step writes the kept list); kept themesources are scanned for platform widget selectors after it"
+    return 0
+  fi
+  xo "$WORK/keptstyle.out" python3 "$B/keptstyle.py" "$APP" --kept-file "$kf" --json "$WORK/keptstyle.json" || rc=$?
+  case "$rc" in
+    0) rm -f "$WORK/keptstyle.json"; [ ! -f "$cf" ] || { grep -v '\[keptstyle\]' "$cf" > "$cf.tmp" 2> /dev/null; mv "$cf.tmp" "$cf"; } ;;
+    1) mods=$(sed -n 's/^RISK \([^ ]*\) .*/\1/p' "$WORK/keptstyle.out" | sort -u | paste -sd, -)
+       note "keptstyle RISK (exit 1): kept module(s) $mods style platform widgets; a visual risk, not a stop: read a screenshot of a page with that widget (screens rung REVIEW names this cause), see $WORK/keptstyle.out"
+       { [ ! -f "$cf" ] || grep -v '\[keptstyle\]' "$cf"; echo "* # kept module(s) $mods style platform widgets (keptstyle RISK, MC-11): look at a page with that widget [keptstyle]"; } > "$cf.tmp" && mv "$cf.tmp" "$cf" ;;
+    *) note "keptstyle exit $rc: kept themesources' platform widget selectors NOT measured (never read as clean), see $WORK/keptstyle.out" ;;
   esac
 }
 
@@ -1589,6 +1612,7 @@ step_update() {
     # a stale kept.txt from an earlier pass parked a module updated since (cold WM1: Email_Connector, on 6.4.4 by then)
     if [ -s "$APP/.stepupdate/kept.txt" ]; then cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"; else rm -f "$WORK/kept.txt"; fi
     kept_vendor_check update
+    kept_style_check update
     local rc=0
     xo "$WORK/jarclash.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md" || rc=$?
     [ "$rc" = 0 ] || note "jarclash after the updates exit $rc: classes in two jars, see $WORK/jarclash.md (clashes listed in jarclash-before.md are older than the upgrade)"

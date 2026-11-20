@@ -4563,6 +4563,30 @@ ctl gm15-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED:
 ctl gm15-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
 ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
 ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
+# MC-11 wiring: kept_style_check (the real function) runs keptstyle.py in step_triage and after the update step; RISK reaches the
+# screens rung as a [keptstyle] line in screen-causes.txt, never a stop. Stub keptstyle.py records argv and prints out.txt. Synthetic: no field run.
+MW=$T/mc11wire; mkdir -p $MW/b
+printf '%s\n' 'import sys, os' 'd = os.path.dirname(os.path.abspath(__file__))' 'open(d + "/argv.txt", "w").write("\n".join(sys.argv[1:]) + "\n")' 'sys.stdout.write(open(d + "/out.txt").read())' 'sys.exit(int(open(d + "/code.txt").read()))' > $MW/b/keptstyle.py
+{ sed -n '/^kept_style_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'x() { "$@"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'kept_style_check "$MODE"'; } > $MW/fn.sh
+mw() { local d=$MW/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $MW/b/keptstyle.py "$d/bin/"; echo "$2" > "$d/bin/code.txt"
+  printf 'RISK KeptA themesource/KeptA/web/main.scss:3 .widget-datagrid .td\nRISK KeptB themesource/KeptB/web/a.scss:1 .mx-listview\nkeptstyle: 2 kept module(s) scanned\n' > "$d/bin/out.txt"
+  printf 'shots-*/x # old cause [gridlayout]\n* # stale [keptstyle]\n' > "$d/w/screen-causes.txt"
+  [ "$3" = kept ] && printf 'KeptA kept\n' > "$d/app/.stepupdate/kept.txt"; return 0; }
+mwrun() { local d=$MW/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=${4:-0} MODE=$2 bash $MW/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "causes: $(tr '\n' '|' < "$d/w/screen-causes.txt" 2> /dev/null)"; }
+mw risk 1 kept; mw clean 0 kept; mw bad 2 kept; mw nokept 0 nokept
+ctl mc11-wire-args-catch 0 '^argv: .*/app --kept-file .*/mc11wire/risk/app/\.stepupdate/kept\.txt --json .*/w/keptstyle\.json $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage"
+ctl mc11-wire-risk-is-note-and-cause-catch 0 '^NOTE: keptstyle RISK \(exit 1\): kept module\(s\) KeptA,KeptB style platform widgets; a visual risk, not a stop' '^causes: shots-\*/x # old cause \[gridlayout\]\|\* # kept module\(s\) KeptA,KeptB style platform widgets .*\[keptstyle\]\|$' '!stale' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk update"
+ctl mc11-wire-risk-never-a-stop-catch 0 '^no stop helper in kept_style_check$' '^RISK is a note$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; sed -n '/^kept_style_check() {/,/^}/p' \$P | grep -Eq '^[^#]*(nj_(add|file|meta)|stop_code)' || echo 'no stop helper in kept_style_check'; sed -n '/^kept_style_check() {/,/^}/p' \$P | grep -q 'note \"keptstyle RISK' && echo 'RISK is a note'"
+ctl mc11-wire-clean-drops-stale-cause-pass 0 '^argv: ' '!NOTE' '!\[keptstyle\]' '\[gridlayout\]' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun clean triage"
+ctl mc11-wire-input-error-not-measured-catch 0 '^NOTE: keptstyle exit 2: .*NOT measured \(never read as clean\)' '!style platform widgets;' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun bad update"
+ctl mc11-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptstyle NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept triage"
+ctl mc11-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun nokept update"
+ctl mc11-wire-dry-prints-command-catch 0 '^argv: .*--json .*keptstyle\.json' -- bash -c "$(declare -f mwrun); MW=$MW; mwrun risk triage 1"
+ctl mc11-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_style_check triage' && echo triage; grep -q '^    kept_style_check update\$' \$P && echo update"
+ctl mc11-wire-kept-file-first-word-catch 0 '^RISK KeptA ' '1 kept module\(s\) scanned' -- bash -c "printf 'KeptA kept: reason words\n' > $T/ks/kept-words.txt; python3 $B/keptstyle.py $T/ks --kept-file $T/ks/kept-words.txt; true"
+printf 'shots-*/x # a [gridlayout]\n* # b [keptstyle]\n' > $T/screen-causes-two.txt
+ctl mc11-wire-shotdiff-names-both-causes-catch 1 'likely cause: Data grid 2 layout: repaired, OK one grid page; b$' -- bash -c "printf 'shots-*/dash* # Data grid 2 layout: repaired, OK one grid page [gridlayout]\n* # b [keptstyle]\n' > $T/screen-causes-two.txt; python3 $B/shotdiff.py $SH/old $SH/taller --causes $T/screen-causes-two.txt"
 ctl gm38-wire-both-passed-catch 0 '^--final-dir$' '^.*/gm38wire/both/app dir$' '^--build-log$' '^.*/gm38wire/both/w/build-10\.24\.16\.log$' '^--auto$' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun both"
 ctl gm38-wire-no-build-not-passed-pass 0 '^--auto$' '^--facts-from-mpr$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nobuild"
 ctl gm38-wire-no-project-not-passed-pass 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nomodel"
