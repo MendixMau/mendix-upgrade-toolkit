@@ -916,7 +916,15 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).
   local pv; pv=$(project_version "$MPR")
   if [ "${UPG_TRIAGE_MXCLI_DIFF:-1}" != 0 ] && [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ] && [ "${pv%%.*}" -ge 10 ] 2> /dev/null; then le+=(--mxcli-diff); fi
-  rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
+  # GA1: "rerun --from triage" after the module plan stop repeated all of localedits (about 15 minutes of mxcli diff): reuse it while
+  # the model, the args and the mxcli build are the same (bin/localedits_cache.sh; UPG_LOCALEDITS_FRESH=1 redoes it)
+  if [ "$DRY" != 1 ] && rc=$(bash "$B/localedits_cache.sh" check "$APP" "$WORK" "${le[@]}"); then
+    say "localedits: reused the earlier result (same model, args and mxcli; UPG_LOCALEDITS_FRESH=1 redoes it)"
+    note "localedits reused from the earlier run"
+  else
+    rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
+    [ "$DRY" = 1 ] || bash "$B/localedits_cache.sh" save "$APP" "$WORK" "$rc" "${le[@]}"
+  fi
   [ "$rc" -le 2 ] || die4 "localedits.py failed (exit $rc), see $WORK/localedits.out"
   [ "$rc" = 0 ] || note "localedits exit $rc (1 = RED local edits, 2 = some module UNKNOWN): never read as 'no edits'; stepupdate refuses edited modules and keeps them"
   # BT-6: a renamed or republished Marketplace module is outside every version plan; name it (playbooks/module-renames.tsv)

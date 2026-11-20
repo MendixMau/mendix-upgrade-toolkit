@@ -9491,6 +9491,21 @@ ctl mxbuild-link-no-toolset-pass 0 '!mxbuild_link:' -- env HOME=$ML/h3 bash $B/m
 ctl mxbuild-link-usage-catch 2 'usage: mxbuild_link.sh' -- bash $B/mxbuild_link.sh
 # text-order guard: triage links the toolset BEFORE localedits runs
 ctl mxbuild-link-pipeline-before-localedits-catch 0 'ok' -- awk '/mxbuild_link\.sh/ && !l {l=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (l && d && l<d) ? "ok" : "bad link=" l " localedits=" d}' $B/cloud/upgrade-pipeline.sh
+# --- GA1: the module-plan stop says "rerun --from triage" and the rerun repeated 15 minutes of mxcli diff. bin/localedits_cache.sh reuses
+#     the result while the model, the localedits args and the mxcli build are unchanged.
+LC=$T/lecache; mkdir -p $LC/app $LC/w/state; git -C $LC/app init -q 2>/dev/null; git -C $LC/app -c user.email=a@b -c user.name=t commit -q --allow-empty -m one 2>/dev/null
+echo 78bdfa5 > $LC/w/state/mxcli-version; echo '{}' > $LC/w/localedits.json; echo '# localedits' > $LC/w/localedits.md
+ctl localedits-cache-empty-redo-catch 1 -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-save-pass 0 'rc=1' -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 1 --mxcli-diff; echo rc=\$(cat $LC/w/state/localedits.rc)"
+ctl localedits-cache-same-reused-pass 0 '^1$' -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-other-args-redo-catch 1 -- bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff --cid Mod=5
+ctl localedits-cache-fresh-redo-catch 1 -- env UPG_LOCALEDITS_FRESH=1 bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff
+ctl localedits-cache-other-mxcli-redo-catch 1 -- sh -c "echo v0.99 > $LC/w/state/mxcli-version; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff; rc=\$?; echo 78bdfa5 > $LC/w/state/mxcli-version; exit \$rc"
+ctl localedits-cache-model-changed-redo-catch 1 -- sh -c "echo x > $LC/app/new.mpr; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff; rc=\$?; rm $LC/app/new.mpr; exit \$rc"
+ctl localedits-cache-incomplete-not-kept-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-result-deleted-redo-catch 1 -- sh -c "bash $B/localedits_cache.sh save $LC/app $LC/w 0 --mxcli-diff; rm $LC/w/localedits.md; bash $B/localedits_cache.sh check $LC/app $LC/w --mxcli-diff"
+ctl localedits-cache-usage-catch 2 'usage: localedits_cache.sh' -- bash $B/localedits_cache.sh
+ctl localedits-cache-pipeline-wired-pass 0 'ok' -- awk '/localedits_cache\.sh" check/ {c=1} /localedits_cache\.sh" save/ {s=1} END {print (c && s) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
