@@ -44,6 +44,14 @@ const fake = ({ form, ev, dom }) => ({
   check('nav item "Pages" and an empty state "Customer not found" -> ok', r.ok === true, JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Pages\nCustomer not found' }) }), 'http://x');
   check('"Pages" and "not found" on separate lines in one page -> ok', r.ok === true, JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Open cases\n404\nClosed 12' }) }), 'http://x');
+  check('a stat tile reading 404 is not an error page -> ok', r.ok === true, JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Orders\n404 open orders' }) }), 'http://x');
+  check('a table cell starting 404 on a later line is not an error page -> ok', r.ok === true, JSON.stringify(r));
+  for (const [t, why] of [['404 Not Found', '404 page'], ['Error\n\n404', 'error then 404'], ['Oops\nThe page does not exist', 'page does not exist']]) {
+    r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: t }) }), 'http://x');
+    check('not-found text still fails: ' + why + ' -> not ok', r.ok === false && /not-found text/.test(r.reason), JSON.stringify(r));
+  }
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.mx-dialog-error', text: 'An error occurred. Contact your administrator' }] }) }), 'http://x');
   check('guest session with an error dialog -> not ok', r.ok === false && /error or not-found page \(error dialog\)/.test(r.reason), JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.alert-danger', text: 'x', cls: 'alert alert-danger' }] }) }), 'http://x');
