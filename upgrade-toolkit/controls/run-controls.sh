@@ -4525,6 +4525,29 @@ ctl release-impact-gm38-corrupt-jar-stays-open 1 '^OPEN Studio Pro row 1: .*Admi
 python3 $here/lib/mkjavaproj.py $RI/jp-dangle; ln -s $RI/nowhere.java $RI/jp-dangle/javasource/myfirstmodule/actions/Gone.java
 gm38 own dangle build-green.log dangle; touch $RI/build-green.log
 ctl release-impact-gm38-dangling-symlink-stays-open 1 '^OPEN Studio Pro row 1: .*AdminException' 'auto cannot use: java-removal-proved-by-build: build log freshness not checkable: .*Gone\.java unreadable' '!handled \(auto\): java-removal-proved-by-build' '!Traceback' -- sh -c "$RT --facts $RI/gm38-dangle.json --out $RI/gm38-dangle.md || exit 9; cat $RI/gm38-dangle.md; python3 $B/release_impact.py --check $RI/gm38-dangle.md"
+# GM-38 wiring: step_triage's release-impact call passes --final-dir and --build-log only when this run's target build log AND the
+# project folder exist. Harness: the real ri_build_args and the real release-impact block of step_triage, run against a stub
+# release_impact.py that records its argv (one word per line); no build, no mxcli. Synthetic: no field run.
+GW=$T/gm38wire; mkdir -p $GW/b
+printf '%s\n' 'import sys' 'open(sys.argv[0].rsplit("/",1)[0] + "/argv.txt", "w").write("\n".join(sys.argv[1:]) + "\n")' > $GW/b/release_impact.py
+{ sed -n '/^ri_build_args() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'say() { echo "$*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "$*" >> "$WORK/notes.txt"; }' 'dojo_report() { :; }' 'replacement_report() { :; }' 'nj_park() { :; }' \
+    'step_x() {' '  local rc=0' \
+    "$(sed -n '/^  local riargs=(--from/,/^  \[ "\$rc" = 0 \] || note "release_impact.py exit/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh})" \
+    '}' 'step_x'; } > $GW/fn.sh
+# gw NAME LOGFLAG MPRFLAG: a run folder with (or without) the project and the target build log
+gw() { local d=$GW/$1; mkdir -p "$d/w" "$d/app dir/javasource" "$d/bin"; cp $GW/b/release_impact.py "$d/bin/"; [ "$3" = mpr ] && : > "$d/app dir/App.mpr"; [ "$2" = log ] && : > "$d/w/build-10.24.16.log"; return 0; }
+gwrun() { local d=$GW/$1; local m="$d/app dir/App.mpr"; [ -f "$m" ] || m="$d/app dir/<app>.mpr"; (B="$d/bin" WORK="$d/w" SOURCE=9.24.1 TARGET=10.24.16 MPR="$m" DRY=0 bash $GW/fn.sh) > "$d/out.txt" 2>&1; cat "$d/bin/argv.txt" 2> /dev/null; }
+gw both log mpr; gw nobuild nolog mpr; gw nomodel log nompr; gw nothing nolog nompr
+ctl gm38-wire-both-passed-catch 0 '^--final-dir$' '^.*/gm38wire/both/app dir$' '^--build-log$' '^.*/gm38wire/both/w/build-10\.24\.16\.log$' '^--auto$' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun both"
+ctl gm38-wire-no-build-not-passed-pass 0 '^--auto$' '^--facts-from-mpr$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nobuild"
+ctl gm38-wire-no-project-not-passed-pass 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nomodel"
+ctl gm38-wire-nothing-not-passed-pass 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nothing"
+# the log is the one of THIS target: a log of another target version in the same work folder is not offered
+gw other nolog mpr; : > $GW/other/w/build-11.12.6.log
+ctl gm38-wire-other-target-log-not-passed-catch 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun other"
+# wired: the call site in step_triage uses ri_build_args (the helper exists and is called, not just defined)
+ctl gm38-wire-call-site-catch 0 '^defined$' '^called$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; grep -q '^ri_build_args() {' \$P && echo defined; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'ri_build_args' && echo called"
 mkdir -p $RI/fp; cp $M/facts-clean/App.mpr $RI/fp/; python3 $here/lib/mkjavaproj.py $RI/fp --git
 ctl release-impact-tools-facts-pass 0 '"project_dir": ".*/fp"' '"vcs": "git"' -- sh -c "python3 $B/release_impact.py --facts-from-mpr $RI/fp/App.mpr --facts-out $RI/fp-facts.json >/dev/null; cat $RI/fp-facts.json"
 mkdir -p $RI/fnj; cp $M/facts-clean/App.mpr $RI/fnj/
