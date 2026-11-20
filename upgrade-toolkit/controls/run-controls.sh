@@ -1311,6 +1311,20 @@ ctl mxversion-mxmodule-pass 0 '^9\.24\.4\.58223$' -- python3 $B/mxversion.py $AD
 ctl mxversion-mxmodule-short-pass 0 '^10\.24\.26$' -- python3 $B/mxversion.py $AD/modules/NewVendor.mxmodule --short
 echo notazip > $AD/modules/Broken.mxmodule
 ctl mxversion-mxmodule-unreadable-catch 2 'no Mendix version found' -- python3 $B/mxversion.py $AD/modules/Broken.mxmodule
+# GM-17: a 10 to 11 plan names packages built before 10.21; planbuild.py reads the build version of each cached .mpk up front
+# (BizzomateDevTools 2.0.2 / 3.0.0 on a real run were found only by the run-time SKIP). Fixtures: mkaddon makes the zip holding project.mpr.
+PB=$T/planbuild; mkdir -p $PB/cache
+mkaddon $PB/cache/111-2.0.2.mpk 10.5.0.50001
+mkaddon $PB/cache/222-4.1.0.mpk 10.24.26.123458
+printf '%s\n' '# plan' '111 2.0.2 OldBuilt' '222 4.1.0 NewBuilt' > $PB/plan-mixed.txt
+printf '%s\n' '222 4.1.0 NewBuilt' > $PB/plan-new.txt
+printf '%s\n' '333 1.0.0 NotCached' '222 4.1.0 NewBuilt' > $PB/plan-nocache.txt
+ctl planbuild-old-build-dropped-catch 1 '^DROPPED OldBuilt 2\.0\.2: built with 10\.5\.0\.50001, 11 needs >= 10\.21' '^KEEP NewBuilt 4\.1\.0' '1 kept, 1 dropped, 0 not checked' -- python3 $B/planbuild.py $PB/plan-mixed.txt --target 11.12.2 --cache $PB/cache --no-download
+ctl planbuild-new-build-kept-pass 0 '^KEEP NewBuilt 4\.1\.0: built with 10\.24\.26\.123458' '!DROPPED' '!NOT CHECKED' -- python3 $B/planbuild.py $PB/plan-new.txt --target 11.12.2 --cache $PB/cache --no-download
+ctl planbuild-mpk-unavailable-not-checked-catch 3 '^NOT CHECKED NotCached 1\.0\.0: package not cached: build version unknown' 'not checked is not a pass' '^KEEP NewBuilt' '!DROPPED' -- python3 $B/planbuild.py $PB/plan-nocache.txt --target 11.12.2 --cache $PB/cache --no-download
+ctl planbuild-target-10-nothing-checked-pass 0 'below 11' '!DROPPED' -- python3 $B/planbuild.py $PB/plan-mixed.txt --target 10.24.1 --cache $PB/cache --no-download
+cp $PB/plan-mixed.txt $PB/plan-w.txt
+ctl planbuild-write-comments-dropped-line-pass 1 '^# dropped: OldBuilt 2\.0\.2 built with 10\.5\.0\.50001' '^222 4\.1\.0 NewBuilt$' '!^111 2\.0\.2' -- bash -c "python3 $B/planbuild.py $PB/plan-w.txt --target 11.12.2 --cache $PB/cache --no-download --write > /dev/null; rc=\$?; cat $PB/plan-w.txt; exit \$rc"
 ctl test-inventory-addons-catch 0 'EXFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['EXFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
 import sys; sys.path.insert(0,'$B'); import mxversion as m, test_inventory as t
 for f, v in m.addons('$AD'): print([f, v, m.below(v, 10, 21)])

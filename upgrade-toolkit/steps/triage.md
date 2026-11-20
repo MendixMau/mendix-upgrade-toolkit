@@ -39,6 +39,12 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    package stepupdate re-imports first (Purchase Request: the refusals named 9.24 to 10.17, the installed versions,
    not the targets). Split each module: its newest version that installs on 10.24 goes to `$W/plan-pre.txt`; the
    version that needs 11 stays in `$W/plan.txt`, and post-convert it then has a 10.21+ baseline. The pipeline stops before the convert when a 10.x to 11 run has no plan-pre.txt (F13).
+   BUILD VERSION CHECK (GM-17): "min Mendix" is not the build version (BizzomateDevTools 2.0.2 / 3.0.0 were planned and
+   refused only mid-batch). On a target of 11, once plan.txt exists: `python3 $B/planbuild.py $W/plan.txt --target <target>`
+   reads the Studio Pro version that built each line's package (cached `<id>-<version>.mpk`, downloaded when missing)
+   and prints KEEP / DROPPED (built before 10.21: it cannot be imported on 11; move it to plan-pre.txt or leave the
+   module out; `--write` comments the line out) / NOT CHECKED (package unavailable: say so in the proposal, never
+   treat it as a pass). stepupdate's run-time SKIP stays as the backstop.
    ADD-ON modules (`modules/*.mxmodule`, a vendor binary; not in the catalog, so mxcli, localedits, stepupdate and
    the module list do not see them, T2-2): `python3 $B/test_inventory.py app/` lists each with the Studio Pro version
    that built it (`mxversion.py modules/<x>.mxmodule` for one file); `missing_deps.py` says "ADD-ON (.mxmodule, built
