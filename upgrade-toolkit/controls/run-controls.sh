@@ -7127,6 +7127,9 @@ mkledger() { # mkledger NAME [unlabelled]: before-run commit, the run-start mark
   [ "${2:-}" != unlabelled ] || tr_commit "$r" "quick fix by hand"
 }
 mkledger lg unlabelled; mkledger lgok
+# GM-43: the gate-changes controls judge the Changes line, not build staleness; the stand-in build log of the gate cases (written long before these
+# ledger repos, whose App.mpr is new) is dated after them, as the log of a build that ran after the model's last edit would be
+touch -t 203001010000 "$GI/build.log"
 printf 'Customer.Name # a renamed label the owner approved\nlog.start Warning # known noise of the old build\n' > $CL/allow.txt
 printf 'S-1 | modules: Viewer3D | module | keep old version | no successor yet | Pat | CONFIRMED | closes by: widgets PASS\n' > $CL/DECISIONS.md
 CHG="python3 $B/changelog.py --app $CL/lg --work $CL/w --accept ALLOW=$CL/allow.txt --decisions $CL/DECISIONS.md"
