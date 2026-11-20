@@ -845,6 +845,11 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   must mxcli_run -p "$MPR" -c "REFRESH CATALOG FULL"
   local le=() a
   if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
+  # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
+  # mxcli runs here and the model is Mendix 10+ (mx below 10 has no module-import); otherwise localedits.py prints
+  # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).
+  local pv; pv=$(project_version "$MPR")
+  if [ "${UPG_TRIAGE_MXCLI_DIFF:-1}" != 0 ] && [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ] && [ "${pv%%.*}" -ge 10 ] 2> /dev/null; then le+=(--mxcli-diff); fi
   rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
   [ "$rc" -le 2 ] || die4 "localedits.py failed (exit $rc), see $WORK/localedits.out"
   [ "$rc" = 0 ] || note "localedits exit $rc (1 = RED local edits, 2 = some module UNKNOWN): never read as 'no edits'; stepupdate refuses edited modules and keeps them"
