@@ -397,6 +397,12 @@ decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "s
 decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
 PY
             ;;
+  # run SITS: a plan choice's recommended key is the placeholder "rec"; the chat line must also say what is recommended
+  pending-rec-says-what) dec pending | grep -- '--item P-2 ' ;;
+  # run SITS: a later stop at the same step must not reuse the first stop's ids (state/stops.tsv holds one row per stop)
+  stop-ids-first|stop-ids-later) mkstop 'nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module|Before the build." "accept|Accept the loss|Create the ack file."; nj_add 13 "Decision" "x"'
+            mkdir -p "$W/state"; printf 'update\t13\t111\n' > "$W/state/stops.tsv"; [ "$case_" != stop-ids-later ] || printf 'update\t13\t222\n' >> "$W/state/stops.tsv"
+            dec pending | grep -o -- '--item stop:[^ ]*' ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
