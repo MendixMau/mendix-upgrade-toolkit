@@ -78,6 +78,11 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
    <file>:<line> <selector>` per hit (exit 1 = REVIEW). Treat each module with hits as a visual risk: add a page that
    shows the widget to the screens step and read the screenshot. Rerun it whenever the kept list changes.
+   The same kept themesource can also use a mixin, variable or file a planned package removes (GM-15: PlatformDesignSystem 45
+   dropped `dark-theme`): `python3 $B/keptvendor.py app/ --kept-file .stepupdate/kept.txt --plan-file $W/plan.txt` reads every
+   `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
+   module (own theme and the kept file itself count as definitions). `MISSING` (exit 1) = fix the kept SCSS or hold the package;
+   `NOT CHECKED` (exit 3) = the target package is not in the cache: say so in the proposal, never read it as clean.
 5. Local edits in Marketplace modules, BEFORE any update:
    `python3 $B/localedits.py app/ --md $W/localedits.md --json $W/localedits.json`
    - RED = data-bearing local edit (added attribute or association, changed storage): a stop rule (SKILL).
