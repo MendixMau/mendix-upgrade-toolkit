@@ -924,7 +924,33 @@ Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for
   fi
   kept_java_check
   charts11_check
+  kept_vendor_check triage
   nj_flush
+}
+
+kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the mixins, variables and files it uses in the planned packages?
+  # kept_vendor_check triage|update. keptvendor.py exit: 0 judged and none missing, 1 MISSING, 3 NOT CHECKED (package not cached or
+  # unreadable: never clean), 2 input error. The kept list is .stepupdate/kept.txt, written by the update step: a first triage has none,
+  # so it says "not measured" (never "clean") and the update step runs this again once the list exists. Only a triage MISSING stops (nj
+  # item, code 13); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
+  local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" pf="$WORK/keptvendor-plan.txt"
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
+  if [ ! -s "$kf" ]; then
+    [ "$mode" != triage ] || note "keptvendor NOT MEASURED: no $kf yet (the update step writes the kept list); mixins, variables and files of kept themesources are checked against the planned packages after it"
+    return 0
+  fi
+  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the kept themesources against"; return 0; }
+  cat "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || cat "$WORK/plan.txt" > "$pf"
+  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "keptvendor MISSING (exit 1): a kept themesource uses a mixin, variable or file a planned package removed; fix the kept SCSS or hold the package, see $WORK/keptvendor.out"
+       if [ "$mode" = triage ]; then
+         nj_meta info; nj_file 13 "A kept module's styling uses something a planned package removes (GM-15: the theme compile would fail)" "$WORK/keptvendor.out" 20 '^MISSING'
+       fi ;;
+    3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
+    *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;
+  esac
 }
 
 kept_java_check() { # a plan that keeps a module whose Java calls Runtime API that Mendix 11 removed: javac fails at the build
@@ -1548,6 +1574,7 @@ step_update() {
   if [ "$DRY" != 1 ]; then
     # a stale kept.txt from an earlier pass parked a module updated since (cold WM1: Email_Connector, on 6.4.4 by then)
     if [ -s "$APP/.stepupdate/kept.txt" ]; then cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"; else rm -f "$WORK/kept.txt"; fi
+    kept_vendor_check update
     local rc=0
     xo "$WORK/jarclash.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md" || rc=$?
     [ "$rc" = 0 ] || note "jarclash after the updates exit $rc: classes in two jars, see $WORK/jarclash.md (clashes listed in jarclash-before.md are older than the upgrade)"

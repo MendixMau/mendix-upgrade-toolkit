@@ -4539,6 +4539,30 @@ printf '%s\n' 'import sys' 'open(sys.argv[0].rsplit("/",1)[0] + "/argv.txt", "w"
 gw() { local d=$GW/$1; mkdir -p "$d/w" "$d/app dir/javasource" "$d/bin"; cp $GW/b/release_impact.py "$d/bin/"; [ "$3" = mpr ] && : > "$d/app dir/App.mpr"; [ "$2" = log ] && : > "$d/w/build-10.24.16.log"; return 0; }
 gwrun() { local d=$GW/$1; local m="$d/app dir/App.mpr"; [ -f "$m" ] || m="$d/app dir/<app>.mpr"; (B="$d/bin" WORK="$d/w" SOURCE=9.24.1 TARGET=10.24.16 MPR="$m" DRY=0 bash $GW/fn.sh) > "$d/out.txt" 2>&1; cat "$d/bin/argv.txt" 2> /dev/null; }
 gw both log mpr; gw nobuild nolog mpr; gw nomodel log nompr; gw nothing nolog nompr
+# GM-15 wiring: kept_vendor_check (the real function) runs keptvendor.py in step_triage and again in the update step once
+# .stepupdate/kept.txt exists. Harness: the real function against a stub keptvendor.py (records argv, prints out.txt, exits with
+# code.txt); note and the nj_* helpers are stubs that print what they were given. Synthetic: no field run.
+GK=$T/gm15wire; mkdir -p $GK/b
+printf '%s\n' 'import sys, os' 'd = os.path.dirname(os.path.abspath(__file__))' 'open(d + "/argv.txt", "w").write("\n".join(sys.argv[1:]) + "\n")' 'sys.stdout.write(open(d + "/out.txt").read())' 'sys.exit(int(open(d + "/code.txt").read()))' > $GK/b/keptvendor.py
+{ sed -n '/^kept_vendor_check() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'x() { "$@"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'nj_meta() { :; }' 'nj_file() { echo "NJ: $2 | $3 | $5"; }' \
+    'kept_vendor_check "$MODE"'; } > $GK/fn.sh
+# gk NAME CODE KEPT PREFLAG: a run folder; CODE = the stub's exit code; KEPT = kept|nokept; PREFLAG = pre adds plan-pre.txt
+gk() { local d=$GK/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $GK/b/keptvendor.py "$d/bin/"; echo "$2" > "$d/bin/code.txt"
+  printf 'MISSING mixin dark-theme: used in themesource/K/web/main.scss:4\nNOT CHECKED Pkg 1.0.0: package not cached\n' > "$d/bin/out.txt"
+  printf '9001 45.0.0 PlatformDesignSystem\n' > "$d/w/plan.txt"; [ "${4:-}" = pre ] && printf '9002 2.0.0 AtlasLite\n' > "$d/w/plan-pre.txt"
+  [ "$3" = kept ] && printf 'MendixProjectStyling kept\n' > "$d/app/.stepupdate/kept.txt"; return 0; }
+gkrun() { local d=$GK/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=0 MODE=$2 bash $GK/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "planfile: $(tr '\n' ' ' < "$d/w/keptvendor-plan.txt" 2> /dev/null)"; }
+gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
+ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
+ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: A kept module.s styling uses something a planned package removes .*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
+ctl gm15-wire-missing-update-note-only-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing update"
+ctl gm15-wire-not-checked-not-clean-catch 0 '^NOTE: keptvendor NOT CHECKED \(exit 3\).*NOT measured \(never read as clean\)' '!NJ:' '!MISSING \(exit' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun notchecked triage"
+ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept themesources NOT measured' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun bad update"
+ctl gm15-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
+ctl gm15-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
+ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
+ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
 ctl gm38-wire-both-passed-catch 0 '^--final-dir$' '^.*/gm38wire/both/app dir$' '^--build-log$' '^.*/gm38wire/both/w/build-10\.24\.16\.log$' '^--auto$' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun both"
 ctl gm38-wire-no-build-not-passed-pass 0 '^--auto$' '^--facts-from-mpr$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nobuild"
 ctl gm38-wire-no-project-not-passed-pass 0 '^--auto$' '!--final-dir' '!--build-log' -- bash -c "$(declare -f gwrun); GW=$GW; gwrun nomodel"
