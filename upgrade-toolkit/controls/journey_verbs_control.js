@@ -13,6 +13,7 @@ function one(e) {
   return Object.assign(loc([e]), {
     id: e.id, isVisible: async () => e.visible !== false, click: async () => { e.clicked = (e.clicked || 0) + 1; if (e.onClick) e.onClick(); },
     getAttribute: async n => (n === 'aria-checked' && 'checked' in e ? String(e.checked) : null),
+    check: async () => { if (!e.stuck) e.checked = true; },
     isChecked: async () => !!e.checked, textContent: async () => e.text || '',
     isDisabled: async () => !!e.disabled, innerText: async () => (typeof e.inner === 'function' ? e.inner() : e.inner || ''),
     scrollIntoViewIfNeeded: async () => {},
@@ -42,6 +43,16 @@ const run = async (name, f, want) => {
   await run('select first option', () => V.select(P1, { widget: 'ref1', first: true }, 'undefined'), 'Team A');
   const P1c = page({ '.mx-name-ref1': loc([{ kids: { select: loc([sel([''])]) } }]) });
   await run('select first on empty list catch', () => V.select(P1c, { widget: 'ref1', first: true }, 'undefined'), /no option to choose \(first asked\): the list is empty, a fixture gap/);
+  // Radio buttons are no <select>: a create-spec select field chooses by label, first = first enabled, then reads it back
+  const rad = (text, o) => Object.assign({ dom: { closest: () => ({ textContent: ' ' + text + ' ' }), parentElement: null, textContent: text } }, o);
+  const radKids = els => ({ '.mx-name-auth1': loc([{ kids: { 'input[type="radio"]': loc(els) } }]) });
+  const rA = rad('Basic'), rB = rad('Bearer token');
+  await run('radio select by label', () => V.select(page(radKids([rA, rB])), { widget: 'auth1' }, 'Bearer token'), 'Bearer token');
+  await run('radio select first enabled', () => V.select(page(radKids([rad('Off', { disabled: true }), rad('On')])), { widget: 'auth1', first: true }, 'undefined'), 'On');
+  await run('radio select missing label catch', () => V.select(page(radKids([rad('Basic'), rad('Bearer token')])), { widget: 'auth1' }, 'OAuth'), /no radio button matches "OAuth". Options were: "Basic", "Bearer token"/);
+  await run('radio select only disabled catch', () => V.select(page(radKids([rad('Basic', { disabled: true })])), { widget: 'auth1' }, 'Basic'), /no radio button matches "Basic". Options were: "Basic" \(disabled\)/);
+  await run('radio not taken catch', () => V.select(page(radKids([rad('Basic', { stuck: true })])), { widget: 'auth1' }, 'Basic'), /radio "Basic" is not checked after choosing it/);
+  await run('radio absent is still the no-select error catch', () => V.select(page({ '.mx-name-auth1': loc([{ kids: {}, tag: 'DIV' }]) }), { widget: 'auth1' }, 'Basic'), /no <select> inside \.mx-name-auth1/);
   // E2E-10: row clicks the first row of the list; no row is a fixture gap, never a pass
   const r1 = {};
   const P5 = page({ '.mx-name-grid1': loc([{ kids: { '.mx-listview-item': empty, '.mx-templategrid-item': empty, '.widget-gallery-item': empty, 'tbody tr': loc([r1]) } }]) });
