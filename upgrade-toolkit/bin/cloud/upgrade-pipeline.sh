@@ -393,6 +393,28 @@ stepcheck_stop() {
   nj_flush
 }
 
+# widgetskew_stop: the decision of the WIDGET-SKEW stop (field run RKT: it offered update / restore / accept with nothing
+# recommended, and `update` could not succeed: the kept module had been kept for a data finding only approved.txt clears).
+# Recommends accept: the app builds and no data changes; the cost is unstyled grids until the kept module is updated.
+# Reads $WORK/widgetskew.out (the module the styles belong to) and $APP/.stepupdate/kept.txt ("<module> <why it was kept>").
+widgetskew_stop() {
+  local mods mod reason what="" data=0 upd q
+  mods=$(sed -nE 's/^WIDGET-SKEW .* ships with ([^ ]+) [^ ;]+;.*/\1/p' "$WORK/widgetskew.out" 2> /dev/null | awk '!s[$0]++' | paste -sd, - | sed 's/,/, /g')
+  for mod in ${mods//,/}; do
+    reason=$(awk -v m="$mod" '$1 == m {sub(/^[^ ]+ +/, ""); print; exit}' "$APP/.stepupdate/kept.txt" 2> /dev/null)
+    if printf '%s' "$reason" | grep -Eqi 'idcheck REVIEW|approved\.txt|persistence'; then
+      data=1; what="$what$mod was kept because updating it would remove or change data the app stores. "
+    else what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
+  done
+  [ -n "$mods" ] || mods="the kept module"
+  if [ "$data" = 1 ]; then
+    upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
+  else upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."; fi
+  q="A module update replaced a widget whose styles stay with a kept module. What should we do?"
+  nj_meta person "$q" "accept" "update|Update the kept module|$upd" "restore|Put the old widget back|The old widget package returns; pages already saved with the new widget can then stop building." "accept|Accept the skew|The app builds and its data is untouched; grids may look unstyled until $mods is updated. Create $WORK/widgetskew-ack.txt."
+  nj_add 13 "Decision" "Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is therefore not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $WORK/widgetskew-ack.txt with the reason."
+}
+
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
 decisions_apply() {
   [ "$DRY" != 1 ] || return 0
@@ -1718,7 +1740,7 @@ step_update() {
     xo "$WORK/widgetskew.out" python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetskew-ack.txt" ]; then
       nj_meta info; nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
-      nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
+      widgetskew_stop
       nj_park
     fi
     # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
