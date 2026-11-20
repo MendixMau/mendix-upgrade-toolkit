@@ -12,6 +12,7 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   localedits.json                                                   RED / logic / Java and theme file edits (item 5)
   release-impact.md                                                 rows whose "handled" cell is empty need a person (item 10)
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
+  absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
   actions.json                                                      action_inventory.py summary (action count)
   journey-scope.json                                                journey_scope.py: reachable / out of scope split of the actions
@@ -287,6 +288,33 @@ class Facts:
                     # the row is [#, module, UNKNOWN, why, handled] under a header whose 3rd cell reads "why" for the older rows
                     self.release_unread.setdefault(mod, (r[3] if len(r) > 4 else col(head, r, "why")).strip())
 
+    def absent(self):
+        """GM-12: a planned update whose package calls a module that is neither in the app nor in the plan is a decision
+        ("needs module X") before the update, not 31 CE1613 at the build. absentmods.json is optional (a run from before the
+        check has none); an update whose package could not be read is listed as not measured, never as clean."""
+        t = read(self.p("absentmods.json"))
+        if t is None:
+            return
+        try:
+            d = json.loads(t)
+            needs, unchecked = d.get("needs") or {}, d.get("unchecked") or []
+        except (ValueError, AttributeError):
+            self.not_measured.append(("absentmods.json", "not valid JSON; calls into modules the app lacks were not checked"))
+            return
+        self.measured.append("absentmods.json")
+        for x, by in sorted(needs.items()):
+            who = "; ".join(f"{p} {v.get('installed') or '?'} -> {v.get('plan')} calls it ({v.get('refs')} refs, e.g. "
+                            + ", ".join(f"{doc} -> {tgt}" for doc, tgt in (v.get("examples") or [])[:2]) + ")" for p, v in sorted(by.items()))
+            callers = ", ".join(sorted(by))
+            self.add3("module", f"needs module {x}",
+                      f"the target package of {callers} refers to {x}, which is not in the app and not on the plan: {who}",
+                      f"install {x} from the Marketplace before the update (mxcli marketplace search {x}), add it to the plan | "
+                      f"hold {callers} at its installed version | hand to a named person",
+                      f"install {x} from the Marketplace before the update and add it to the plan",
+                      "S", f"every reference to {x} is CE1613 at the build, and the update step cannot add a module")
+        for u in unchecked:
+            self.not_measured.append((f"absentmods.py {u.get('module')} {u.get('version')}", u.get("reason") or "package not read"))
+
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
         for m in re.finditer(r"^\| (\d+) \|([^\n]*)$", t, re.M):
@@ -433,7 +461,7 @@ class Facts:
 
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.absent(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"
