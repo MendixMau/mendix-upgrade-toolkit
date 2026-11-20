@@ -960,7 +960,7 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
     0) ;;
     1) note "keptvendor MISSING (exit 1): a kept themesource uses a mixin, variable or file a planned package removed; fix the kept SCSS or hold the package, see $WORK/keptvendor.out"
        if [ "$mode" = triage ]; then
-         nj_meta info; nj_file 13 "A kept module's styling uses something a planned package removes (GM-15: the theme compile would fail)" "$WORK/keptvendor.out" 20 '^MISSING'
+         nj_meta info; nj_file 13 "A kept module's styling uses something a planned package removes (GM-15: the theme compile would fail; fix the kept SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
        fi ;;
     3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
     *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;

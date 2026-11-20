@@ -4555,7 +4555,7 @@ gk() { local d=$GK/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $GK/b/k
 gkrun() { local d=$GK/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=0 MODE=$2 bash $GK/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "planfile: $(tr '\n' ' ' < "$d/w/keptvendor-plan.txt" 2> /dev/null)"; }
 gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
 ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
-ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: A kept module.s styling uses something a planned package removes .*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
+ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: A kept module.s styling uses something a planned package removes .*fix the kept SCSS or hold the package.*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
 ctl gm15-wire-missing-update-note-only-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing update"
 ctl gm15-wire-not-checked-not-clean-catch 0 '^NOTE: keptvendor NOT CHECKED \(exit 3\).*NOT measured \(never read as clean\)' '!NJ:' '!MISSING \(exit' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun notchecked triage"
 ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept themesources NOT measured' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun bad update"
@@ -7347,6 +7347,24 @@ bash $PR/prop.sh $PR/gm12 > /dev/null; bash $PR/prop.sh $PR/gm12-unchecked > /de
 ctl gm12-proposal-section3-item-catch 0 '^- \[P-[0-9]+\] module: needs module MxTokenModule' 'NotifProd 3\.1\.0 -> 4\.1\.0 calls it \(3 refs' 'install MxTokenModule' -- bash $PR/sec.sh $PR/gm12 3
 ctl gm12-proposal-unchecked-not-measured-catch 0 '!needs module' 'absentmods\.py NotifProd 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gm12-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm12-unchecked/PROPOSAL.md"
 ctl gm12-proposal-no-file-no-item-pass 0 '!needs module' '!absentmods' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
+# GM-15: keptvendor.json (bin/keptvendor.py --json, real output over the keptvendor fixture) makes one section-3 item per planned
+# package with MISSING uses (options: fix the kept SCSS, or hold the package); a package it could not read is listed under "not
+# measured"; no file, no item. The items are left out of the plan hash (the file appears after the update step, like kept.txt):
+# a signed proposal stays signed when it shows up.
+mkw gm15-missing; mkw gm15-unchecked; mkw gm15-signed
+python3 $B/keptvendor.py $KV/app --kept KeptMixin,KeptImport --plan-file $KV/plan.txt --cache $KVC/new --json $PR/gm15-missing/keptvendor.json > /dev/null || true
+python3 $B/keptvendor.py $KV/app --kept KeptMixin --plan-file $KV/plan.txt --cache $KVC/none --json $PR/gm15-unchecked/keptvendor.json > /dev/null || true
+bash $PR/prop.sh $PR/gm15-missing > /dev/null; bash $PR/prop.sh $PR/gm15-unchecked > /dev/null
+ctl gm15-proposal-missing-item-catch 0 '^- \[P-[0-9]+\] theme: kept styling uses what PlatformDesignSystem 45\.0\.0 removes$' '2 use\(s\) in a kept themesource' 'mixin dark-theme used in themesource/KeptMixin/web/main\.scss:4 \(module KeptMixin\)' 'import \.\./\.\./PlatformDesignSystem/web/gone used in themesource/KeptImport/web/main\.scss:1' -- bash $PR/sec.sh $PR/gm15-missing 3
+ctl gm15-proposal-hold-option-catch 0 'options: fix the kept SCSS .* \| hold PlatformDesignSystem: the package stays at its installed version' -- bash $PR/sec.sh $PR/gm15-missing 3
+ctl gm15-proposal-missing-not-in-not-measured-pass 0 '!keptvendor\.py' -- sh -c "sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm15-missing/PROPOSAL.md"
+ctl gm15-proposal-not-measured-catch 0 '!kept styling uses' 'keptvendor\.py PlatformDesignSystem: package not cached \(9001-45\.0\.0\.mpk.*2 kept use\(s\) it defines are unverified' -- sh -c "bash $PR/sec.sh $PR/gm15-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm15-unchecked/PROPOSAL.md"
+ctl gm15-proposal-no-file-no-item-pass 0 '!kept styling' '!keptvendor' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
+rm -rf $PR/gm15-signed-run; cp -R $PR/plain $PR/gm15-signed-run; rm -f $PR/gm15-signed-run/PROPOSAL.md; bash $PR/prop.sh $PR/gm15-signed-run > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gm15-signed-run/PROPOSAL.md; rm -f $PR/gm15-signed-run/PROPOSAL.md.sedi
+cp $PR/gm15-missing/keptvendor.json $PR/gm15-signed-run/keptvendor.json
+ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gm15-signed-run
+ctl gm15-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept styling uses what PlatformDesignSystem 45\.0\.0 removes \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!kept styling.*CONFIRMED' -- cat $PR/gm15-signed-run/DECISIONS.md
+ctl gm15-proposal-late-step-assumed-not-approved-catch 0 '^late-step-state:assumed$' '^other-steps-approved:[1-9][0-9]*$' -- python3 -c "import json,sys; ev=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; ap=[e for e in ev if e.get('field')=='approval']; late={e['id'] for e in ap if e['value'].get('source')=='after-signoff'}; st={}; [st.update({e['id']: e['value']['state']}) for e in ap]; print('late-step-state:' + ','.join(sorted({st[i] for i in late}))); print('other-steps-approved:%d' % sum(1 for i,v in st.items() if i not in late and v=='approved'))" $PR/gm15-signed-run/steps.jsonl
 # GM-21: a plan that only SHRANK against the signed one (hold-back) asks for a shrink confirmation of the removed items only; an added
 # or changed item, or a signed file from before the item set was stored (or with a junk item set), asks the whole proposal again. The action
 # is the same as before (sign section 6 again); only the reading is lighter. Nothing is signed for the person. Only the shrink controls
