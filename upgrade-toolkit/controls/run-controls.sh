@@ -898,6 +898,25 @@ mkdir -p $T/cache-lay
 (cd $M/layout-edit-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-lay/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
 ctl localedits-layout-content-catch 0 'ui +CHANGED +layout +Administration\.Layout_Main +content differs from the package; local: .*RegionTopbar; package only: .*FeedbackCall' 'force-ui: Administration' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-edit-app/App.mpr --module Administration
 ctl localedits-layout-content-pass 0 'UI edits \(pages, layouts\): 0' 'force-ui: none' -- env UPG_CACHE=$T/cache-lay python3 $B/localedits.py $M/layout-same-app/App.mpr --module Administration
+# GM-11: constant defaults and jar dependencies compared offline (conf rows, exit 1); element contents never reported as unchanged
+# without mxcli. cache = the package without jars (constant PasswordMinLength 8), cache-jar = the package with lib-a 1.0.0.
+model gm11-const-edit > /dev/null; model gm11-const-pkg > /dev/null; model gm11-secret-edit > /dev/null; model gm11-jar-edit > /dev/null; model gm11-jar-pkg > /dev/null; model gm11-jar-same > /dev/null
+mkdir -p $T/cache-jar
+(cd $M/gm11-jar-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-jar/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+model gm11-const-pkg > /dev/null; mkdir -p $T/cache-const
+(cd $M/gm11-const-pkg && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-const/23513-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+ctl gm11-const-default-catch 1 "conf +CHANGED +constant +Administration\.PageSize +default '8' -> '12'" 'CONFIG edits 1' 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 1' -- env UPG_CACHE=$T/cache-const python3 $B/localedits.py $M/gm11-const-edit/App.mpr --module Administration
+ctl gm11-const-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' -- env UPG_CACHE=$T/cache-const python3 $B/localedits.py $M/gm11-const-pkg/App.mpr --module Administration
+# a constant named like a secret never prints its values
+ctl gm11-const-secret-name-hidden-catch 1 'conf +CHANGED +constant +Administration\.PasswordMinLength +default \(not shown\)' '!'"'12'" -- python3 $B/localedits.py $M/gm11-secret-edit/App.mpr --module Administration
+ctl gm11-jar-version-catch 1 'conf +CHANGED +jar +org\.example:lib-a +version 1\.0\.0 -> 2\.0\.0' 'CONFIG edits 1' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
+ctl gm11-jar-added-catch 1 'conf +ADDED +jar +org\.example:lib-a' -- python3 $B/localedits.py $M/gm11-jar-edit/App.mpr --module Administration
+ctl gm11-config-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' '!CONFIG edits [1-9]' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-jar-match-pass 0 'CONFIG edits \(constant defaults, jar dependencies; exit 1\): 0' '!conf ' -- env UPG_CACHE=$T/cache-jar python3 $B/localedits.py $M/gm11-jar-same/App.mpr --module Administration
+ctl gm11-no-mxcli-not-compared-catch 0 'domain model unchanged \| element contents NOT compared \(no mxcli\)' '^CONTENTS NOT COMPARED \(no mxcli\)' '!: domain model unchanged$' -- env UPG_MXCLI=/nonexistent/mxcli python3 $B/localedits.py $M/base/App.mpr --module Administration
+ctl gm11-no-flag-not-compared-catch 0 'element contents NOT compared \(--mxcli-diff not given\)' '^CONTENTS NOT COMPARED \(--mxcli-diff not given\)' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
+# the triage call passes --mxcli-diff when an mxcli runs and the model is Mendix 10+
+ctl gm11-triage-passes-mxcli-diff-catch 0 'UPG_TRIAGE_MXCLI_DIFF:-1.*le\+=\(--mxcli-diff\)' -- grep -n 'UPG_TRIAGE_MXCLI_DIFF' $B/cloud/upgrade-pipeline.sh
 # cold rfq: Encryption snippets flagged "local: SnippetParameter PasswordData". The package (before conversion) has Entity,
 # the converted app a Forms$SnippetParameter for the same entity: no local edit. A real snippet widget still counts.
 SNIPSIG="import sys; sys.path.insert(0,'$B'); import localedits as L

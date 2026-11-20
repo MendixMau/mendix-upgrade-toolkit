@@ -39,6 +39,8 @@ Spec (all keys optional except modules):
    "widget_packages": {"Markdown.mpk": ["com.mendix.widget.web.markdown.Markdown"],
                        "Broken.mpk": {"ids": ["x.Y"], "defect": "crc" | "descriptor"},
                        "Old.mpk": {"ids": ["Old.widget.Old"], "dojo": true, "version": "1.2.0"}},
+   (modules also take "jars": [{"group", "artifact", "version"}] = a Projects$ModuleSettings unit, GM-11; the shape is ASSUMED
+    from the Mendix model SDK, no real capture was available)
    "files": {"javasource/x/actions/A.java": "...", "userlib/a-1.0.jar": ""}}
 GUIDs default to uuid5(name), so two specs that share an element share its GUID unless one overrides "guid".
 
@@ -275,6 +277,12 @@ def build(spec, out):
             units.append((msid, mid, {"$ID": msid, "$Type": "Security$ModuleSecurity",
                                       "ModuleRoles": lst([{"$ID": gid(f"mr:{mn}.{r}"), "$Type": "Security$ModuleRole", "Name": r}
                                                           for r in m["module_roles"]])}))
+        if m.get("jars"):   # GM-11: "jars": [{"group": G, "artifact": A, "version": V}] = Projects$ModuleSettings JarDependencies
+            jsid = gid(f"modsettings:{mn}")
+            units.append((jsid, mid, {"$ID": jsid, "$Type": "Projects$ModuleSettings",
+                                      "JarDependencies": lst([{"$ID": gid(f"jd:{mn}.{j['group']}:{j['artifact']}"), "$Type": "Projects$JarDependency",
+                                                               "GroupId": j["group"], "ArtifactId": j["artifact"], "Version": j["version"],
+                                                               "IsIncluded": True} for j in m["jars"]])}))
         ents, eid = [], {}
         for e in m.get("entities", []):
             qn = f"{mn}.{e['name']}"
