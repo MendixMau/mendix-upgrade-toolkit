@@ -575,13 +575,13 @@ timing_close() { # timing_close EXITCODE
 # localedits_args FILE: the words of FILE, one per output line. A line is split into words, so `--cid Administration=23513`
 # (the form steps/triage.md and the stop text show) reaches localedits.py as two arguments; `--cid=Administration=23513`
 # (the form rung2_cids writes) stays one. Before: the whole line was one argv word and localedits.py exited 2 ("unrecognized
-# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank and # lines are skipped.
+# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank lines and lines starting with # (after indent) are skipped.
 localedits_args() {
   local l w
   [ -f "$1" ] || return 0
   while IFS= read -r l || [ -n "$l" ]; do
-    case "$l" in ''|\#*) continue ;; esac
-    read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
+    case "${l#"${l%%[![:space:]]*}"}" in ''|\#*) continue ;; esac
+    IFS=$' \t\n' read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
   done < "$1"
 }
 rung2_cids() { # rung2_cids PLAN ARGSFILE
