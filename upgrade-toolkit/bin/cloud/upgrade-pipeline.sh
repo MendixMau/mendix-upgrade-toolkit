@@ -572,6 +572,18 @@ timing_close() { # timing_close EXITCODE
 # rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
 # --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
 # ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+# localedits_args FILE: the words of FILE, one per output line. A line is split into words, so `--cid Administration=23513`
+# (the form steps/triage.md and the stop text show) reaches localedits.py as two arguments; `--cid=Administration=23513`
+# (the form rung2_cids writes) stays one. Before: the whole line was one argv word and localedits.py exited 2 ("unrecognized
+# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank lines and lines starting with # (after indent) are skipped.
+localedits_args() {
+  local l w
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "${l#"${l%%[![:space:]]*}"}" in ''|\#*) continue ;; esac
+    IFS=$' \t\n' read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
+  done < "$1"
+}
 rung2_cids() { # rung2_cids PLAN ARGSFILE
   [ -f "$1" ] || return 0
   local cid ver mod
@@ -937,7 +949,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   # mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh (GA1: 16 of 16 UNKNOWN)
   [ "$DRY" = 1 ] || bash "$B/mxbuild_link.sh" "$UPG_TOOLS" "$SOURCE" ${TARGET:+"$TARGET"} ${TARGET2:+"$TARGET2"} ${VIA:+"$VIA"} 2>&1 | while IFS= read -r l; do note "$l"; done
   local le=() a
-  if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
+  while IFS= read -r a; do le+=("$a"); done < <(localedits_args "$WORK/localedits.args")
   # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
   # mxcli runs here and the model is Mendix 10+ (mx below 10 has no module-import); otherwise localedits.py prints
   # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).
@@ -1011,7 +1023,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
     nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
 The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
-\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
+\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (\`--cid Module=ID\` or \`--proxy Module=VER\` arguments; each line is split into words, so \`--cid Module=ID\` on one line works), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
     nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
     nj_flush
