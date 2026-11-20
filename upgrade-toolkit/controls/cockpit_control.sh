@@ -765,5 +765,11 @@ PY
             printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
             python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
             python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
+  plan-wait-bar) # exit 14: the plan waits for sign-off. A normal wait for answers: amber and "paused", never the red "stopped" of a failure
+            printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null
+            echo "bar: $(grep -o '<div class="stopbar[a-z ]*"' "$T/out.html" | head -1)"
+            echo "text: $(grep -o '<div class="stopbar[^>]*><b>[^<]*' "$T/out.html" | head -1 | sed 's/.*<b>//')"
+            echo "red stopped: $(cnt 'The run stopped' "$T/out.html")" ;;
   *) echo "unknown case $case_"; exit 2 ;;
 esac
