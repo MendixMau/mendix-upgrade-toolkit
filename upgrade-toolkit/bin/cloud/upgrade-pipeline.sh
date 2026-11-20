@@ -101,6 +101,12 @@ if [ "$COCKPIT" = 1 ]; then   # step-free: regenerate the cockpit page and stop
   exec python3 "$TK/bin/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html"
 fi
 [ -n "$SOURCE" ] || usage_die "--source is required"
+# FR-3: Mendix 10 converts no 9.x project below 9.24 ("the version '9.12.1.42381' of the mpr file is not supported"), and the ladder plans no
+# 9.24 rung: before this check a 9.12 source ran triage, baseline and basewalk (about 15 minutes) before the convert refused it. It sits
+# before the --to ladder so a 9.12 source is refused, not first told to fetch a 10.24 toolset it could not use.
+if [[ "$SOURCE" =~ ^9\.([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -lt 24 ] && [[ "${TO:-$TARGET}" =~ ^([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -ge 10 ]; then
+  usage_die "$SOURCE is below 9.24: Mendix 10 cannot convert it (playbooks/9-to-10.md: 9.x must be on 9.24 first). Open it in Studio Pro 9.24 (or convert it with a 9.24 mxbuild) and give the 9.24 version as --source; this run is refused now so nothing is built first"
+fi
 # --to: the version ladder. The pipeline picks the route from the start version: 9.x and 10.x below 10.24 go through 10.24
 # (--via, else the newest mxbuild-10.24.* toolset in UPG_TOOLS) before 11; anything else is one rung.
 if [ -n "$TO" ]; then

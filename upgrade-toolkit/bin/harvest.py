@@ -53,13 +53,15 @@ SHA = re.compile(r"\s*\(`[0-9a-f]{7,40}`\)")
 SCRIPT_EXT = {".py", ".sh", ".js", ".mdl"}
 # folders the pipeline writes itself, never the agent: the patched journey engine copy (<work>/e2e-*/engine, run_journeys.py),
 # editroute's replay MDL and localedits' saved edits. Their files differ from any toolkit file by design (cold CMM: 37 of
-# them were listed as scripts the agent wrote).
+# them were listed as scripts the agent wrote), and the top-level run/ folder, the unpacked runtime of each walked app.
 TOOLKIT_WRITTEN = {"replay", "saved-edits"}
 
 
 def toolkit_written(rel):
     parts = Path(rel).parts
-    return any(p in TOOLKIT_WRITTEN for p in parts[:-1]) or any(
+    # NL1: <work>/run/<old|new|oldwalk|...>/ is the unpacked deployment (minified web JS, login page strings, an absolute app path):
+    # 40 of its files were listed as "scripts the agent wrote" and copied toward contrib/inbox/
+    return parts[0] == "run" or any(p in TOOLKIT_WRITTEN for p in parts[:-1]) or any(
         p == "engine" and i > 0 and parts[i - 1].startswith("e2e-") for i, p in enumerate(parts[:-1]))
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "e2e", "playwright-report", "test-results", "vendor"}
 TEXT_EXT = {".log", ".md", ".txt", ".out", ".tsv"}
