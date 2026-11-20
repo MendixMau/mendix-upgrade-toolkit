@@ -543,13 +543,22 @@ def java_rev(project_dir):
     return r.stdout.strip() or None if r.returncode == 0 else None
 
 
-def build_verdict(path):
+def build_verdict(path, final_dir=None):
     """GM-38: (True|False|None, text) from the run's recorded build result, read as gate.sh rung `build` reads it:
-    green = "BUILD SUCCEEDED" and 0 lines starting "ERROR at". None = the file is missing or unreadable."""
+    green = "BUILD SUCCEEDED" and 0 lines starting "ERROR at". None = the file is missing or unreadable.
+    With final_dir the log must be newer than the newest .java under final_dir/javasource and than the .mpr there:
+    an older log is not the build of that tree (False, never green)."""
     try:
         t = Path(path).read_text(errors="replace")
+        mt = Path(path).stat().st_mtime
     except OSError as e:
         return None, f"build result {path} cannot be read ({e.strerror or e})"
+    if final_dir:
+        fd = Path(final_dir)
+        newer = [f for f in list((fd / "javasource").rglob("*.java")) + list(fd.glob("*.mpr")) if f.stat().st_mtime > mt]
+        if newer:
+            return False, (f"build log older than final javasource/mpr: {path} predates {newer[0]}"
+                           f"{' (and %d more)' % (len(newer) - 1) if len(newer) > 1 else ''}")
     errs = sum(1 for ln in t.splitlines() if ln.startswith("ERROR at"))
     if "BUILD SUCCEEDED" not in t:
         return False, f"build not green: no BUILD SUCCEEDED in {path}"
@@ -904,12 +913,13 @@ def auto_rule(section, cols, facts, lo, hi):
         # javasource, after the repairs, without the symbol prove it gone: both hold or the row stays open.
         if area == "java-actions" and typ == "removal" and "final_dir" in facts and "build_log" in facts:
             syms = java_symbols(affected)
-            ok, why = build_verdict(facts["build_log"][0])
+            ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
             if syms and ok:
                 ix = JavaIndex.of(facts["final_dir"][0])
                 if ix.ok and ix.java and not any(final_java_hits(facts["final_dir"][0], k) for _, k in syms):
                     return (f"handled (auto): java-removal-proved-by-build: {', '.join(k for _, k in syms)}: {why}; "
-                            f"0 hits in {ix.root}/javasource ({len(ix.java)} .java, proxies excluded) after the repairs; "
+                            f"0 hits in {ix.root}/javasource ({len(ix.java)} .java, proxies excluded) after the repairs "
+                            f"(compiled, not linked); "
                             f"{fact_str(facts, 'build_log')}, {fact_str(facts, 'final_dir')}")
         v = vt(version)
         if v and hi[0] > lo[0] and len(lo) >= 2 and v[:2] == lo[:2]:
@@ -1297,7 +1307,7 @@ def generate(a):
             elif "build_log" not in facts:
                 lost.append("java-removal-proved-by-build: no build_log (the run's build result): Java removal rows stay open")
             else:
-                ok, why = build_verdict(facts["build_log"][0])
+                ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
                 if not ok:
                     lost.append(f"java-removal-proved-by-build: {why}: Java removal rows stay open")
         for l in dict.fromkeys(lost):

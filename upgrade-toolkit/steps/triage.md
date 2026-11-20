@@ -191,7 +191,11 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    java-removal-proved-by-build` when `--final-dir <repaired project>` and `--build-log <the gate's BUILD_LOG>` are given
    and both hold: the build log shows `BUILD SUCCEEDED` with 0 `ERROR at` lines, and no symbol occurs in the final
    `javasource` (proxies excluded). The row cites the build file and the scope grepped. A red, unreadable or missing
-   build, or a symbol still present, leaves the row open and `auto cannot use: java-removal-proved-by-build: ...` says why. Without `project_dir` (a hand facts
+   build, or a symbol still present, leaves the row open and `auto cannot use: java-removal-proved-by-build: ...` says why. The log must also be newer than the
+   newest `.java` under the final `javasource` and than the final `.mpr` (an older log is refused: `build log older than final
+   javasource/mpr`). The build proves the code compiled, not that it linked or ran. Assumption: the log and the final dir come
+   from the same run. Not wired yet: `bin/cloud/upgrade-pipeline.sh` and the gate-time triage do not pass `--final-dir` and
+   `--build-log`, so the caller must supply them and the rule closes nothing in a run until it is wired. Without `project_dir` (a hand facts
    file) both stay open: run `--facts-from-mpr` on the real project, or add `"project_dir": "app"` by hand.
    Only real decisions reach a person (cold test: 190 open rows drowned the owner): the pipeline adds `--auto --evidence`
    with the app's mpr. A row the rules leave open stays open only when the app's own modules use what it names
