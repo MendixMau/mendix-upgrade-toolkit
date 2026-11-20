@@ -263,7 +263,7 @@ async function select(page, a, want) {
   let sel = box.locator('select').first();
   if (!(await sel.count().catch(() => 0))) {
     const tag = await box.evaluate(e => e.tagName).catch(() => '');
-    if (String(tag).toUpperCase() !== 'SELECT') throw new Error(`${a.widget}: no <select> inside .mx-name-${a.widget} (a combobox widget needs "combobox")`);
+    if (String(tag).toUpperCase() !== 'SELECT') throw new Error(`${a.widget}: no <select> inside .mx-name-${a.widget} (a Combo box widget needs "combo")`);
     sel = box;
   }
   const texts = await sel.evaluate(s => [...s.options].map(o => o.textContent.trim()));

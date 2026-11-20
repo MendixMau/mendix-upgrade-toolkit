@@ -462,8 +462,13 @@ def create_journey(spec, data_rung=False):
     acts += [{"do": "click", "widget": spec["newButton"], "label": "New"}]
     # a field with "do": "select" picks from a reference selector ({"match": caption} or {"first": true}); the rest fill
     # (cold test WM1: an Office needs its Time zone, a reference selector, before Save is accepted)
-    acts += [{"do": "select", "widget": f["widget"], **({"match": f["match"]} if f.get("match") else {"first": True})}
-             if f.get("do") == "select" else {"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
+    # "do": "combo" is the Combo box pluggable widget (journey-verbs.js combo); a field with no "do" fills and needs a value
+    for f in spec.get("fields", []):
+        if f.get("do") not in (None, "fill", "select", "combo") or (f.get("do") in (None, "fill") and "value" not in f):
+            raise SystemExit(f"create spec: field {f.get('widget')!r} needs \"do\": select (drop-down or reference selector), "
+                             f"combo (Combo box widget) or a \"value\" to fill; got do={f.get('do')!r}")
+    acts += [{"do": f["do"], "widget": f["widget"], **({"match": f["match"]} if f.get("match") else {"first": True})}
+             if f.get("do") in ("select", "combo") else {"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
     acts += [{"do": "click", "widget": spec["saveButton"], "label": "Save"}]
     ui = {"ready": spec.get("ready") or ".mx-page"}
     for k in ("textPresent", "textAbsent"):

@@ -9479,6 +9479,14 @@ ctl startcheck-captured-new-same-pass 0 '^startcheck: CLEAN ' -- python3 $B/star
 ctl startcheck-captured-lazy-error-after-window-pass 0 '^startcheck: CLEAN ' '!SAML' -- python3 $B/startcheck.py $FX/logs/old-lazy-error.log
 # text-order guard, not an execution test: the pipeline reads the log BEFORE the freeze (the call must come first in the file, and its failure must die)
 ctl startcheck-pipeline-before-freeze-catch 0 'ok' -- awk '/startcheck\.py/ && !c {c=NR} /copy_db "\$X" "\$X_FROZEN"; frozen_stamp/ {f=NR} /startcheck exit/ {d=NR} END {print (c && f && c<f && d && d<f) ? "ok" : "bad " c " " f " " d}' $TK/bin/cloud/upgrade-pipeline.sh
+# GA1: a create spec could not drive a Combo box (only "select"), and a bad "do" was a KeyError traceback
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combo'}); json.dump(d, open('$T/create-spec-combo.json','w'))"
+python3 -c "import json; d=json.load(open('$FX/journeys/create-spec.json')); d['fields'].append({'widget':'comboBox1','do':'combobox'}); json.dump(d, open('$T/create-spec-badDo.json','w'))"
+ctl gen-create-combo-catch 0 '"do": "combo"' '"widget": "comboBox1"' '"first": true' -- sh -c "$GJ --out-dir $T/gen-create-combo --create $T/create-spec-combo.json > /dev/null 2>&1; cat $T/gen-create-combo/journeys/Admin/create-save.journey.json"
+ctl gen-create-bad-do-catch 1 'create spec: field .comboBox1. needs' '!Traceback' -- sh -c "$GJ --out-dir $T/gen-create-bad --create $T/create-spec-badDo.json 2>&1"
+ctl gen-create-bad-do-pass 0 '"do": "fill"' -- sh -c "$GJ --out-dir $T/gen-create4 --create $FX/journeys/create-spec.json > /dev/null 2>&1; cat $T/gen-create4/journeys/Admin/create-save.journey.json"
+ctl verbs-select-hint-catch 0 'needs "combo"' '!needs "combobox"' -- grep -n "no <select> inside" $B/journey-verbs.js
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
