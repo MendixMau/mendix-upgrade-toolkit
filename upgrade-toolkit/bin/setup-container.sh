@@ -294,6 +294,11 @@ want env && {
     echo "export UPG_EXTRA=\"--network host -e HTTPS_PROXY=\${HTTPS_PROXY:-} -e SSL_CERT_FILE=/etc/upg-ca.crt -v $ca:/etc/upg-ca.crt:ro\""
   fi
   echo "export UPG_SESSION_TIMEOUT=30000"
+  # FR-2: the pipeline stops at triage with "brain: none found" on a fresh box; the release-note brain ships in this repo
+  b=$(python3 "$TK/bin/brainpath.py" 2>/dev/null || true)
+  [ -z "$b" ] && [ -d "$REPO/company-brain-test/brain/baseline/versions" ] && b=$REPO/company-brain-test/brain
+  [ -n "$b" ] && echo "export UPG_BRAIN=$b"
+  true
 } > "$R/upg-env.sh"
 
 # 11 check, AFTER step 7 (B4T2-1: it ran before the pip step and printed REFUSED for modules installed a step later;

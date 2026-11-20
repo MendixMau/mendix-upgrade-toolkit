@@ -772,8 +772,17 @@ step_fetch() {
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
   elif [ "$DRY" != 1 ]; then
+    local gi_before; gi_before=$(git_app status --porcelain -- .gitignore)   # FR-1: the person's own .gitignore change, if any, is seen BEFORE we touch it
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before the commit_app calls below (git add -A)
+    # FR-1: an app that already has its own git and a tracked .gitignore got the tool folders appended above, and the clean-tree
+    # check below then refused the run at the very first step ("has uncommitted changes") over a file the toolkit itself had
+    # just edited. Commit that one path (never `add -A`: the person's own changes are not ours to commit).
+    # Only when .gitignore was clean before: a .gitignore the person had already changed stays uncommitted and the check below reports it.
+    if [ -z "$gi_before" ] && [ -n "$(git_app status --porcelain -- .gitignore)" ]; then
+      git_app add -- .gitignore > /dev/null
+      git_app commit -q -m "toolkit: ignore tool folders" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config gitignore-tool-folders')" -- .gitignore >> "$LOG" 2>&1 || true
+    fi
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
   else say "+ git init + commit original (when $APP has no .git)"; fi
