@@ -1004,16 +1004,24 @@ step_baseline() {
       app_down old
     fi
     # GM-A5: the baseline is frozen only from a CLEAN start: read the old app's start log first (bin/startcheck.py).
-    # UNCLEAN (after-startup ERROR, unfinished after-startup) and INVALID (log missing or unreadable) both stop: a log
-    # nobody read proves nothing. Accept a known benign line with $WORK/startup-allow.txt (fnmatch, "# reason").
-    local sc_rc=0 sc_out sc_allow=()
+    # UNCLEAN (after-startup unfinished or failed, never started) and INVALID (log missing or unreadable) stop as a judgment item:
+    # a log nobody read proves nothing. A plain ERROR outside after-startup is CLEAN-WITH-ERRORS: noted, listed in
+    # $WORK/start-errors-old.txt, not a stop. Accept a known benign line with $WORK/startup-allow.txt (fnmatch, "# reason").
+    local sc_rc=0 sc_allow=()
     [ ! -s "$WORK/startup-allow.txt" ] || sc_allow=(--allow "$WORK/startup-allow.txt")
     if [ "$DRY" != 1 ]; then
-      sc_out=$(python3 "$B/startcheck.py" "$WORK/logs/runtime-old.log" ${sc_allow[@]+"${sc_allow[@]}"} 2>&1) || sc_rc=$?
+      python3 "$B/startcheck.py" "$WORK/logs/runtime-old.log" --list "$WORK/start-errors-old.txt" ${sc_allow[@]+"${sc_allow[@]}"} > "$WORK/startcheck-old.txt" 2>&1 || sc_rc=$?
       if [ "$sc_rc" != 0 ]; then
-        note "baseline NOT frozen: $(printf '%s' "$sc_out" | head -1)"
-        die4 "the old app did not start cleanly, so $X_FROZEN was not frozen (startcheck exit $sc_rc). Fix the cause or, for a benign line, add a pattern to $WORK/startup-allow.txt and re-run:
-$sc_out"
+        note "baseline NOT frozen: $(head -1 "$WORK/startcheck-old.txt")"
+        nj_meta agent "The old app did not start cleanly (startcheck exit $sc_rc), so $X_FROZEN is not frozen. Fix the cause, or accept a known benign line?" "fix the cause; or add a pattern to $WORK/startup-allow.txt (ERROR Node: message*  # reason), then rerun"
+        nj_file 10 "Old app did not start cleanly" "$WORK/startcheck-old.txt"
+        nj_flush
+      fi
+      if grep -q '^ERROR line' "$WORK/start-errors-old.txt" 2> /dev/null; then
+        note "old app start log has $(grep -c '^ERROR line' "$WORK/start-errors-old.txt") ERROR line(s) outside after-startup (baseline frozen anyway, listed in $WORK/start-errors-old.txt)"
+      fi
+      if grep -q '^line .*accepted:' "$WORK/start-errors-old.txt" 2> /dev/null; then
+        note "old app start log: $(grep -c '^line .*accepted:' "$WORK/start-errors-old.txt") ERROR line(s) accepted by startup-allow.txt (listed in $WORK/start-errors-old.txt)"
       fi
     fi
     copy_db "$X" "$X_FROZEN"; frozen_stamp
