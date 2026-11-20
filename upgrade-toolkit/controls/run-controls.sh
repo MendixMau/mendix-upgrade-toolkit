@@ -7733,6 +7733,22 @@ printf '[{"name":"PlatformDesignSystem","cid":1,"version":"44.5.0"},{"name":"Atl
 cp $AC/plan.txt $AC/plan-o.txt
 ctl gm14-write-lowers-version-catch 1 'plan rewritten' -- python3 $B/atlascap.py $AC/le-old.json $AC/plan-o.txt --write
 ctl gm14-write-lowers-version-pass 0 '^117187 3\.19\.0 Atlas_Core$' '!3\.22\.0 Atlas_Core$' -- cat $AC/plan-o.txt
+# GM-14 review round 1: WorkflowCommons 4.3+ needs Atlas 4 (CONFLICT, plan untouched); an internal PDS (themesource folder) is found
+# with --app; the all-clear line says internal modules were not checked without it; an existing .orig is never overwritten.
+printf '# plan\n117187 3.22.0 Atlas_Core\n117066 4.3.0 WorkflowCommons\n' > $AC/plan-wc.txt
+cp $AC/plan-wc.txt $AC/plan-wc-w.txt
+ctl gm14-conflict-workflowcommons-catch 1 '^CONFLICT Atlas_Core cap 3\.19\.0 \(PlatformDesignSystem\) vs WorkflowCommons 4\.3\.0: .*owner must decide' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc.txt
+ctl gm14-conflict-write-leaves-plan-catch 1 '^CONFLICT' '!plan rewritten' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc-w.txt --write
+ctl gm14-conflict-write-plan-unchanged-pass 0 '^117187 3\.22\.0 Atlas_Core$' '!held by atlascap' -- cat $AC/plan-wc-w.txt
+printf '# plan\n117187 3.22.0 Atlas_Core\n117066 4.2.0 WorkflowCommons\n' > $AC/plan-wc2.txt
+ctl gm14-workflowcommons-below-4-3-no-conflict-pass 1 '^CAP Atlas_Core' '!^CONFLICT' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-wc2.txt
+mkdir -p $AC/app-int/themesource/platformdesignsystem/web $AC/app-plain/themesource/atlas_core
+ctl gm14-internal-pds-found-catch 1 '^CAP Atlas_Core at 3\.19\.0' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt --app $AC/app-int
+ctl gm14-internal-pds-absent-pass 0 '^no cap applies' '!internal modules not checked' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt --app $AC/app-plain
+ctl gm14-allclear-says-internal-unchecked-pass 0 'internal modules not checked' -- python3 $B/atlascap.py $AC/le-nopds.json $AC/plan.txt
+cp $AC/plan.txt $AC/plan-k.txt; echo KEEPME > $AC/plan-k.txt.orig
+ctl gm14-write-keeps-existing-orig-catch 1 'plan rewritten' -- python3 $B/atlascap.py $AC/le-pds.json $AC/plan-k.txt --write
+ctl gm14-write-existing-orig-kept-pass 0 '^KEEPME$' -- cat $AC/plan-k.txt.orig
 BT6B=$T/bt6b; mkdir -p $BT6B/state; python3 -c "import json; json.dump([m for m in json.load(open('$LR')) if m['name']=='DataWidgets'], open('$BT6B/localedits.json','w'))"; printf '116540 3.11.7 DataWidgets\n' > $BT6B/plan.txt; printf 'DataWidgets 3.11.4 -> 3.11.7\n' > $BT6B/module-jumps.txt
 python3 $B/proposal.py --work $BT6B --source 10.24.26.1 --target 11.15.0.1 > /dev/null 2>&1
 ctl bt6-proposal-new-name-updates-pass 0 'module update DataWidgets 3\.11\.4 -> 3\.11\.7' '!renamed module' -- grep -E 'module update|renamed module' $BT6B/PROPOSAL.md
