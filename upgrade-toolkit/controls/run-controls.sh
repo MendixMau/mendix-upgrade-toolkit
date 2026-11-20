@@ -3270,7 +3270,10 @@ if command -v node > /dev/null; then
   # behaviour: no password input means "login page did not render") fails the control; pass = the real engine.
   sed 's/g\.guest && g\.pages > 0/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noguest.js
   ctl anonymous-visit-guest-home-catch 1 '^FAIL +guest home, no sign-in form, mx session is guest -> ok' -- node $here/anonymous_visit_control.js $T/journey-runner-noguest.js
-  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
+  # Catch for the error / not-found exclusion: a mutant with the `g.bad` guard cut out (sed) passes an error page as a guest home
+  sed 's/g\.guest && g\.pages > 0 && g\.bad/false/' $B/../vendor/e2e/journey-runner.js > $T/journey-runner-noerrcheck.js
+  ctl anonymous-visit-error-page-catch 1 '^FAIL +guest session on a not-found page -> not ok' '^FAIL +guest session with an error dialog -> not ok' '^FAIL +guest session with a red error box -> not ok' '^ok +real probe, guest home page renders' '^ok +a validation message is not an error page' -- node $here/anonymous_visit_control.js $T/journey-runner-noerrcheck.js
+  ctl anonymous-visit-guest-home-pass 0 '^ok +sign-in form is the anonymous home' '^ok +guest home, no sign-in form, mx session is guest -> ok' '^ok +page renders but the session is not a guest -> not ok' '^ok +guest session but no page -> not ok, says so' '^ok +client probe throws -> not ok' '^ok +real probe, guest home page renders -> ok, distinct detail' '^ok +guest session on a not-found page -> not ok' '^ok +guest session with an error dialog -> not ok' '^ok +guest session with a red error box -> not ok' '^ok +a validation message is not an error page -> ok' '!^FAIL' -- node $here/anonymous_visit_control.js $B/../vendor/e2e/journey-runner.js
   ctl smokewalk-settle-pass 0 '^ok +pageSettled when loaders hidden' '^ok +pageSettled while progress bar shown' '!^FAIL' -- node $here/smokewalk_predicates.js
 else skip settle-wait-catch "no node"; skip settle-lazy-catch "no node"; skip settle-lazy-pass "no node"; skip settle-lazy-drift-pass "no node"; skip smokewalk-settle-pass "no node"; fi
 # filecheck.js --compare: equal sides SAME, a different checksum or a side that did not finish DIFFERENT
@@ -3291,6 +3294,12 @@ pinset() { for f in "$@"; do python3 -c "import json,sys; d=json.load(open(sys.a
 pinset $J/old/before/summary.json $J/new/after/summary.json $J2/old/before/summary.json $J2/new/after/summary.json
 NOACT=(--no-actions 'control: synthetic set, no model behind it')
 ctl journeys-compare-screens-line-pass 0 '^screens: 2 PASS, 0 PASS\*, 0 REVIEW, 0 INVALID$' '^coverage: 1 PASS\* \(no denominator: control' '!coverage INVALID' -- python3 $B/run_journeys.py x --label after --work $J2/new --compare $J2/old --rejudge "${NOACT[@]}"
+# the anonymous visitor's home changing between runs (guest home vs sign-in form) flips no verdict: a NOTE names it; unchanged says nothing
+JL=$T/rjl; cp -R $J2 $JL
+for pair in "old/before:anonymous" "new/after:anonymous (guest home, no sign-in form)"; do python3 -c "import json,sys; f=sys.argv[1]+'/summary.json'; d=json.load(open(f)); d['roles']={'anonymous-Guest': {'login': 'PASS', 'login_detail': sys.argv[2]}}; json.dump(d, open(f, 'w'))" "$JL/${pair%%:*}" "${pair#*:}"; done
+ctl journeys-anonymous-home-changed-note-pass 0 '^  NOTE anonymous role anonymous-Guest: the visitor.s home changed, before "anonymous", now "anonymous \(guest home, no sign-in form\)"' -- python3 $B/run_journeys.py x --label after --work $JL/new --compare $JL/old --rejudge "${NOACT[@]}"
+python3 -c "import json,sys; f=sys.argv[1]; d=json.load(open(f)); d['roles']['anonymous-Guest']['login_detail']='anonymous'; json.dump(d, open(f, 'w'))" $JL/new/after/summary.json
+ctl journeys-anonymous-home-same-no-note-pass 0 '!NOTE anonymous role' -- python3 $B/run_journeys.py x --label after --work $JL/new --compare $JL/old --rejudge "${NOACT[@]}"
 # an open pair that no journey owns still keeps the run red (it used to vanish from the verdict)
 J3=$T/rj3; mkdir -p $J3/old/before $J3/new/after
 cp -R $SH/old/shots-Administrator $J3/old/before/; cp -R $SH/empty/shots-Administrator $J3/new/after/

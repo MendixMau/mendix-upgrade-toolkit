@@ -1,6 +1,8 @@
 // Control for the anonymous visitor of the journey engine (vendor/e2e/journey-runner.js anonymousVisit): an app with Guest
 // access on has no sign-in form on its anonymous home, so "no password input" must not mean "did not render".
 // Fake Playwright page (plain node); the function text is cut out of the engine file, so the control runs the real code.
+// The error / not-found cases run the engine's own in-page probe against a tiny fake DOM (no jsdom): `dom` is a list of
+// {sel, text, cls} elements and `body` the page text.
 // Usage: node anonymous_visit_control.js <journey-runner.js>. Exit 0 = pass.
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[2], 'utf8');
@@ -9,11 +11,19 @@ let fail = 0;
 const check = (name, ok, detail) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}: ${detail}`); };
 if (!m) { check('engine has anonymousVisit', false, 'function not found in ' + process.argv[2]); process.exit(1); }
 const anonymousVisit = new Function(`${m[0]}; return anonymousVisit;`)();
-const fake = ({ form, ev }) => ({
+const fakeDom = ({ els = [], body = '', guest = true, pages = 1 }) => fn => {
+  const mk = e => ({ offsetParent: {}, className: e.cls || '', textContent: e.text || '', getClientRects: () => [{}] });
+  const q = sel => els.filter(e => sel.split(',').map(x => x.trim()).includes(e.sel)).map(mk);
+  const saved = [global.document, global.window];
+  global.document = { querySelectorAll: sel => sel === '.mx-page' ? new Array(pages).fill({}) : q(sel), body: { innerText: body } };
+  global.window = { mx: { session: { isGuest: () => guest } } }; global.mx = global.window.mx;
+  try { return fn(); } finally { [global.document, global.window] = saved; delete global.mx; }
+};
+const fake = ({ form, ev, dom }) => ({
   context: () => ({ clearCookies: async () => {} }),
   goto: async () => {},
   locator: () => ({ first: () => ({ waitFor: async () => { if (!form) throw new Error('timeout'); } }) }),
-  evaluate: async () => { if (ev instanceof Error) throw ev; return ev; },
+  evaluate: async fn => { if (dom) return dom(fn); if (ev instanceof Error) throw ev; return ev; },
 });
 (async () => {
   let r = await anonymousVisit(fake({ form: true, ev: { guest: false, pages: 0 } }), 'http://x');
@@ -26,5 +36,15 @@ const fake = ({ form, ev }) => ({
   check('guest session but no page -> not ok, says so', r.ok === false && /no page rendered/.test(r.reason), JSON.stringify(r));
   r = await anonymousVisit(fake({ form: false, ev: new Error('boom') }), 'http://x');
   check('client probe throws -> not ok', r.ok === false && /did not render/.test(r.reason), JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'Welcome' }) }), 'http://x');
+  check('real probe, guest home page renders -> ok, distinct detail', r.ok === true && r.user === 'anonymous (guest home, no sign-in form)', JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ body: 'The page you requested could not be found.' }) }), 'http://x');
+  check('guest session on a not-found page -> not ok', r.ok === false && /error or not-found page/.test(r.reason), JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.mx-dialog-error', text: 'An error occurred. Contact your administrator' }] }) }), 'http://x');
+  check('guest session with an error dialog -> not ok', r.ok === false && /error or not-found page \(error dialog\)/.test(r.reason), JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.alert-danger', text: 'x', cls: 'alert alert-danger' }] }) }), 'http://x');
+  check('guest session with a red error box -> not ok', r.ok === false && /error box/.test(r.reason), JSON.stringify(r));
+  r = await anonymousVisit(fake({ form: false, dom: fakeDom({ els: [{ sel: '.alert-danger', text: 'x', cls: 'alert-danger mx-validation-message' }] }) }), 'http://x');
+  check('a validation message is not an error page -> ok', r.ok === true, JSON.stringify(r));
   process.exit(fail ? 1 : 0);
 })();

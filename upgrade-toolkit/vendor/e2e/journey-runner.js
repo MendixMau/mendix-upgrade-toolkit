@@ -854,10 +854,22 @@ async function anonymousVisit(page, baseUrl) {
   const form = await page.locator('input[type=password]').first()
     .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
   if (form) return { ok: true, user: 'anonymous', usedFallback: false };
-  const g = await page.evaluate(() => ({
-    guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),
-    pages: document.querySelectorAll('.mx-page').length,
-  })).catch(() => ({ guest: false, pages: 0 }));
+  const g = await page.evaluate(() => {
+    const shown = e => !!e && (e.offsetParent !== null || (e.getClientRects && e.getClientRects().length > 0));
+    const all = sel => [...document.querySelectorAll(sel)];
+    // the markers smokewalk.js landedOk uses for an error the client shows (error dialog "An error occurred", a red
+    // .alert-danger that is not a validation message), plus the client's own not-found text
+    const dlg = all('.mx-dialog, .modal-dialog, .mx-dialog-error').filter(shown).find(e => /An error occurred/i.test(e.textContent || ''));
+    const danger = all('.alert-danger').filter(shown).find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || ''));
+    const nf = /(page|resource)[^.]{0,40}(not found|could not be found|does not exist)|^\s*404\b/i.test((document.body && document.body.innerText || '').slice(0, 2000));
+    const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
+    return {
+      guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),
+      pages: document.querySelectorAll('.mx-page').length,
+      bad,
+    };
+  }).catch(() => ({ guest: false, pages: 0, bad: '' }));
+  if (g.guest && g.pages > 0 && g.bad) return { ok: false, reason: `anonymous guest session shows an error or not-found page (${g.bad}), not a home page` };
   if (g.guest && g.pages > 0) return { ok: true, user: 'anonymous (guest home, no sign-in form)', usedFallback: false };
   return { ok: false, reason: g.guest ? 'anonymous guest session but no page rendered' : 'anonymous login page did not render' };
 }
