@@ -75,11 +75,19 @@ async function lastVisible(loc) {
 }
 
 function pageWidget(els) { // runs in the page: index of the shown element nested in the most placeholders, else 0
+  // SITS (an SSO starter app): the layout footer's links share the page's widget names (actionButton5 = "New Account" on the
+  // page and "Terms of Use" in the footer) and sit deeper in placeholders, so the footer won and create-save FAILed on the
+  // new app only. A shown match inside a footer / [role=contentinfo] is demoted whenever a shown match outside one exists;
+  // a sole shown match is kept wherever it is.
+  const shown = [];
+  els.forEach((e, i) => { if (e.getClientRects().length) shown.push(i); });
+  const inFooter = (e) => !!e.closest('footer, [role="contentinfo"], .region-footer');
+  const outside = shown.filter((i) => !inFooter(els[i]));
+  const pool = outside.length ? outside : shown;
   let best = 0, depth = -1;
-  els.forEach((e, i) => {
-    if (!e.getClientRects().length) return;
+  pool.forEach((i) => {
     let d = 0;
-    for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
+    for (let a = els[i].parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
     if (d > depth) { best = i; depth = d; }
   });
   return best;
