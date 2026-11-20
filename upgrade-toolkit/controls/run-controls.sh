@@ -4274,6 +4274,9 @@ cp $FX/journeys/impact-guard5.json $T/impact-guard5.json
 G5=$T/gen-guard5; for r in Flow Caption Deep Addon,None Both; do (cd / && python3 $B/gen_journeys.py $T/impact-guard5.json --out-dir $G5/$r --roles-with-users $r > $G5-$r.out 2>&1); done
 SO5() { python3 -c "import json; j=json.load(open('$G5/$1/journeys/$1/sign-out.journey.json')); [print(a['do'], a.get('widget') or a.get('group'), a.get('item') or a.get('label')) for a in j['steps'][0]['actions']]; print('by', j.get('_sign_out_by')); print('ready', j['steps'][0]['ui']['ready'])"; }
 ctl gen-journeys-signout-flow-catch 0 '^click menuBar2-0 None$' '^click menuBar2-0-1 Sign out$' '^by inferred from the flow: MicroflowAction reaches Shop.ACT_Logout' '^ready .mx-name-loginButton$' -- SO5 Flow
+sed 's/"button": "loginButton"/"button": null/' $T/impact-guard5.json > $T/impact-guard5-nobtn.json
+(cd / && python3 $B/gen_journeys.py $T/impact-guard5-nobtn.json --out-dir $G5/nobtn --roles-with-users Caption > $G5-nobtn.out 2>&1)
+ctl gen-journeys-signout-folded-login-ready-catch 0 '^ready #loginButton,.mx-name-loginButton,input\[type=password\],a\.alt-login$' -- sh -c "python3 -c \"import json; print('ready', json.load(open('$G5/nobtn/journeys/Caption/sign-out.journey.json'))['steps'][0]['ui']['ready'])\""
 ctl gen-journeys-signout-caption-catch 0 "^nav None Log out$" "^by inferred from the caption: caption 'Log out'" -- SO5 Caption
 ctl gen-journeys-signout-deep-catch 0 '^nav Account Leave$' '^by inferred from the flow: MicroflowAction reaches Shop.JS_SignOut' -- SO5 Deep
 ctl gen-journeys-signout-action-wins-pass 0 '^by None$' '^nav None Sign out$' '!Log out' -- SO5 Both
