@@ -1664,6 +1664,7 @@ def brief(work, model, rows, g, tl):
         prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
     ov = cp.parse_gate(gs)["overall"]
     sinfo = model.get("stopped") or {}
+    failed = model.get("failed")   # the last attempt failed with no stop file (cockpitpage.failed_step)
     rep_n = sinfo.get("repeats") or 0
     stuck = f"Stopped here {rep_n} times in a row, each time for the same reason." if rep_n >= 2 else ""   # the run is stuck (lane B, PMNT)
     if stopped and nask:
@@ -1674,6 +1675,8 @@ def brief(work, model, rows, g, tl):
         now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
     elif running:
         now = f"The agent is working: {running['text'][:1].lower() + running['text'][1:]}."
+    elif failed:
+        now = f"Step {failed['step']} failed (exit {failed['code']}). Nothing is running."
     elif nask:
         now = f"Waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
     elif ov == "PASS":
@@ -1774,6 +1777,9 @@ def brief(work, model, rows, g, tl):
             why, needs = sinfo["handoff"]
             act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
                    "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
+    elif failed and not running:
+        act = {"kind": "agent", "text": "Nothing you can answer here. " + (f"Read {failed['log']}, fix the cause, then rerun this command." if failed.get("cmd") else f"Read {failed['log']}, fix the cause, then rerun with --from {failed['step']}."), "rec": "", "q": "", "cmd": failed.get("cmd") or "",
+               "time": "The run goes on from that step once it passes."}
     elif parked_count(work):   # after the stop branch: a stop that needs an agent or a person takes precedence over the parked count
         act = parked_act(parked_count(work), running)
     elif running:
@@ -1830,6 +1836,8 @@ def h_brief(b, qlist):
                 if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
         chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
                   f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
+    if a.get("cmd"):   # the exact rerun command (rung 2 differs from the ladder command): shown whole, never cut to fit
+        tm += f'<p class="atime"><code>{E(a["cmd"])}</code></p>'
     more = f'<details class="allq"><summary>All {b["n"]} questions waiting for you</summary>{qlist}</details>' if b["n"] > 1 and qlist else ""
     return ('<section class="brief" aria-label="Where the upgrade stands">\n'
             f'<p class="status">{E(b["status"])}</p>\n'
