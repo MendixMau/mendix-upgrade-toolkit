@@ -2567,6 +2567,8 @@ ctl pipeline-dry-forceui-replay-pass 0 'stepupdate\.sh .* --unattended --force-u
 # the version ladder: --to picks the route from the start version (9.x through the newest 10.24 toolset; 10.24 straight on)
 mkdir -p $V/ltools/mxbuild-10.24.9.1 $V/ltools/mxbuild-10.24.27.1
 ctl pipeline-ladder-9-goes-through-10-24-pass 0 'version ladder 9\.24\.2\.1 -> 10\.24\.27\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.2.1 --to 11.12.7 --work $V/lw --dry-run
+ctl fr3-source-below-9-24-refused-catch 2 'is below 9\.24: Mendix 10 cannot convert it' '!unexpected failure' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.12.1.42381 --to 11.12.8 --work $V/lw --dry-run
+ctl fr3-source-9-24-still-runs-pass 0 'version ladder 9\.24\.0\.1 -> 10\.24\.27\.1 -> 11\.12\.7' '!below 9\.24' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 9.24.0.1 --to 11.12.7 --work $V/lw --dry-run
 ctl pipeline-ladder-10-24-goes-straight-pass 0 'version ladder 10\.24\.3\.1 -> 11\.12\.7$' -- env UPG_TOOLS=$V/ltools bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.3.1 --to 11.12.7 --work $V/lw --dry-run
 # cold CMM 2026-11-17: 13 of 23 walk steps were microflows, SKIPPED without a word (the notice fired only on an INVALID walk)
 ctl pipeline-smoke-mf-plan-microflow-catch 0 '^--microflows$' -- bash -c "WORK=\$(mktemp -d); echo '{\"kind\": \"microflow\"}' > \$WORK/plan.json; eval \"\$(awk '/^smoke_mf\(\)/{f=1} f{print} f&&/^}|; }\$/{exit}' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; smoke_mf"
@@ -7746,7 +7748,7 @@ ctl pipeline-history-default-target-pass 0 '^\| .* \| 20260101000000 \| unnamed 
   -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/RUN-APP-NAME SOURCE=a TARGET=b record_grade > /dev/null 2>&1; grep -E '^\| 20' $PW/work/history-row.md; echo toolkit-runs=\$(ls $PW/tk/runs | wc -l | tr -d ' ')"
 ctl pipeline-history-override-pass 0 'UPG_HISTORY=ok' -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/r SOURCE=a TARGET=b UPG_HISTORY=$PW/other.md UPG_APP_NAME=generic record_grade > /dev/null 2>&1; grep -q ' generic ' $PW/other.md && echo UPG_HISTORY=ok"
 # the committed runs/HISTORY.md: every row has 12 cells and a run id once
-ctl history-committed-shape-pass 0 'rows=15 bad=0 dup=0' -- python3 -I -c "
+ctl history-committed-shape-pass 0 'rows=16 bad=0 dup=0' -- python3 -I -c "
 import re,sys,collections
 ls=[l for l in open('$TK/runs/HISTORY.md').read().split('\n') if l.startswith('| ') and not l.startswith('| date |')]
 bad=sum(1 for l in ls if len(l.strip().strip('|').split(' | '))!=12)
@@ -9208,6 +9210,9 @@ printf '#!/usr/bin/env python3\n# Rewrite the frob widgets on every page of the 
 mkdir -p $HV/run/e2e-base/engine $HV/run/replay $HV/run/saved-edits/Mod; printf '// patched engine copy\n' > $HV/run/e2e-base/engine/helpers.js
 printf '/* replay of Mod */\n' > $HV/run/replay/Mod.mdl; printf -- '-- CONSTANT Key, as it stands\n' > $HV/run/saved-edits/Mod/constant-Key.mdl
 printf '| 1 | WARNING: trail: 2 gap(s) in 2 steps |\n' > $HV/run/gate-summary.md
+# NL1 (field run): <work>/run/<app>/web/... is the unpacked deployment; the path names are from a real run folder, the content is a stub
+mkdir -p $HV/run/run/oldwalk/web/js $HV/run/run/oldwalk/tmp; printf 'define(["react"],(function(e){return e}));\n' > $HV/run/run/oldwalk/web/js/login.js
+printf 'export const A = async () => 1;\n' > $HV/run/run/oldwalk/tmp/jsactions.js
 printf -- '---\ntitle: mx.logger is gone in 11\nconfidentiality: internal\n---\nmx.logger calls crash on 11, CE9987 too.\n' > $HV/brain/internal/upgrade/mx-logger.md
 hv_changes $HV/run-deny/CHANGES.md ' for the Acmecorp portal'
 hv() { python3 -I $B/harvest.py --code HV1 --brain $HV/brain --date 2026-01-02 "$@"; }
@@ -9216,6 +9221,7 @@ ctl harvest-run-pass 0 '^harvest: 3 agent fixes \(2 known to the toolkit, 1 new\
 ctl harvest-new-fix-catch 0 'decision-frob.*Widget_Fake\.FrobAction\(\)' '!decision-mxlogger.*\[CHANGES' -- sed -n '/^## Fixes the agent made/,/^## Known/p' $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-known-fix-pass 0 'repair-row-13.*\[known: steps/repair\.md row 13\]' 'decision-mxlogger.*\[known: BACKLOG\.md #102' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-code-script-item-pass 0 '^- CE9987 ' 'frob_fix\.py \(3 lines\): Rewrite the frob widgets' 'trail: 2 gap' '!CE1613' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+ctl harvest-deployed-run-folder-not-a-script-catch 0 'frob_fix\.py' '!login\.js' '!jsactions\.js' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-toolkit-written-pass 0 'frob_fix\.py' '!e2e-base/engine' '!replay/Mod' '!saved-edits/' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md
