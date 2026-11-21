@@ -397,7 +397,7 @@ stepcheck_stop() {
 # recommended, and `update` could not succeed: the kept module had been kept for a data finding only approved.txt clears).
 # The recommendation follows why the module was kept: a data finding (idcheck, approved.txt) = accept (update needs the data
 # approval first); local file edits (steps/repair.md row 32: often OS junk) or a network failure = update; a package no
-# Studio Pro here can import = restore; an owner's --skip or anything else = accept.
+# Studio Pro here can import = accept; an owner's --skip or anything else = accept.
 # Reads $WORK/widgetskew.out (the module the styles belong to) and $APP/.stepupdate/kept.txt ("<module> <why it was kept>").
 widgetskew_stop() {
   local mods mod reason what="" cls="" c rec upd body q ack="$WORK/widgetskew-ack.txt"
@@ -437,11 +437,11 @@ widgetskew_stop() {
       upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update the module with --force-ui <module> (stepupdate saves the edits it overwrites), or through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
       body="Recommended: update the kept module. ${what}Such edits are often only OS junk, and a field app was left with 23 unstyled grid pages by accepting the skew. $upd To accept the skew instead, create $ack with the reason." ;;
     javasrc) rec=accept
-      upd="The local Java code edits are real logic and the update would overwrite them: update with --port-java <module> (it keeps the old Java and prints a PORT-JAVA line per file), then port the listed Java files by hand."
+      upd="The local Java code edits are real logic and the update would overwrite them: update with --port-java <module> (it saves the old Java under .stepupdate/saved/<module> and prints a PORT-JAVA line per file), then port the listed Java files by hand."
       body="Recommended: accept the skew. ${what}Updating it means running the update with --port-java <module> and then porting the listed Java files by hand, which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     model) rec=accept
-      upd="The local model edits are real changes and the update would refuse them: port them to the new version by hand, then update. If stepupdate reports the edits are UI only (pages, layouts, snippets), --force-ui <module> is its remedy: it saves the edits and replays them after the update."
-      body="Recommended: accept the skew. ${what}Updating it means porting those edits to the new version by hand first (or, if they are UI only, using --force-ui <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+      upd="The local model edits are real changes and the update refuses them: update only after deciding to keep the module as it is, or run the update and port the edits by hand AFTER it. If stepupdate reports the edits are UI only (pages, layouts, snippets), --force-ui <module> is its remedy: it saves the edits and replays them after the update."
+      body="Recommended: accept the skew. ${what}Updating it means running the update and then porting those edits to the new version by hand (or, if they are UI only, using --force-ui <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     net) rec=update
       upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
       body="Recommended: update the kept module. ${what}Rerunning the update is the fix. To accept the skew instead, create $ack with the reason." ;;

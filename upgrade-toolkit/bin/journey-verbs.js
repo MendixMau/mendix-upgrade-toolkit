@@ -142,7 +142,7 @@ async function topmost(page, widget, near, unassigned) {
     if (i >= 0) return all.nth(i);
   }
   // a page that threw while picking (navigated away, detached node) used to give index 0 silently, the layout widget; it is
-  // still index 0, but said on the console and left on page.__pickFallback for the step that reads it
+  // still index 0, but said on the console and left on page.__pickFallback (a mark for whoever debugs the run; no step reads it)
   const pick = await all.evaluateAll(pageWidget).catch((e) => {
     page.__pickFallback = `${widget}: ${String((e && e.message) || e).split('\n')[0].slice(0, 120)}`;
     console.log(`    pick: "${widget}" fell back to the first match (${page.__pickFallback})`);

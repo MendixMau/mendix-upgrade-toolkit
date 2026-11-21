@@ -141,7 +141,9 @@ const run = async (name, f, want) => {
   // a pick that throws is index 0 as before, now said on page.__pickFallback (it was a silent `.catch(() => 0)`)
   const boom = { id: 'first', dom: node(['mx-name-container2'], root) }, boom2 = { id: 'second', dom: node(['mx-name-container2'], ph) };
   const PB = page({ '.mx-name-container2': Object.assign(loc([boom, boom2]), { evaluateAll: async () => { throw new Error('Execution context was destroyed\nat x'); } }) });
-  await run('topmost pick that throws falls back to the first, said', async () => { const e = await V.topmost(PB, 'container2'); return e.id + ' | ' + PB.__pickFallback; }, 'first | container2: Execution context was destroyed');
+  const logged = [], log0 = console.log;
+  await run('topmost pick that throws falls back to the first, said', async () => { console.log = (...a) => { logged.push(a.join(' ')); }; try { const e = await V.topmost(PB, 'container2'); return e.id + ' | ' + PB.__pickFallback; } finally { console.log = log0; } }, 'first | container2: Execution context was destroyed');
+  check('topmost pick that throws logs the pick: line', logged.some(l => /^\s+pick: "container2" fell back to the first match \(container2: Execution context was destroyed\)$/.test(l)), JSON.stringify(logged.filter(l => /pick:/.test(l))));
   await run('topmost pick that works leaves no fallback mark', async () => { await V.topmost(PL1, 'container2'); return String(PL1.__pickFallback); }, 'undefined');
   // PR-F27: a generated date is typed in the picker's placeholder pattern (11.12.5: "dd mmm yyyy"); else unchanged
   await run('dateAs follows the placeholder', async () => V.dateAs('dd mmm yyyy', '1/15/2027').value, '15 Jan 2027');
