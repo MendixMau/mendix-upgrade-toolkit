@@ -440,7 +440,7 @@ widgetskew_stop() {
       upd="The local Java code edits are real logic and the update would overwrite them: update with --port-java <module> (it saves the old Java under .stepupdate/saved/<module> and prints a PORT-JAVA line per file), then port the listed Java files by hand."
       body="Recommended: accept the skew. ${what}Updating it means running the update with --port-java <module> and then porting the listed Java files by hand, which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     model) rec=accept
-      upd="The local model edits are real changes and the update refuses them: update only after deciding to keep the module as it is, or run the update and port the edits by hand AFTER it. If stepupdate reports the edits are UI only (pages, layouts, snippets), --force-ui <module> is its remedy: it saves the edits and replays them after the update."
+      upd="The local model edits are real changes and the update refuses them: keep the module at the installed version, or run the update and port the edits by hand AFTER it. If stepupdate reports the edits are UI only (pages, layouts, snippets), --force-ui <module> is its remedy: it saves the edits and replays them after the update."
       body="Recommended: accept the skew. ${what}Updating it means running the update and then porting those edits to the new version by hand (or, if they are UI only, using --force-ui <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
     net) rec=update
       upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
