@@ -125,7 +125,11 @@ const run = async (name, f, want) => {
   await run('topmost without popup picks the page button', async () => (await V.topmost(P4, 'actionButton1')).id, 'page');
   // R38: the layout around the page can share a widget name with the page (Atlas top bar container2 vs the home
   // page's card container2); the page's own is the shown one nested in the most .mx-placeholder elements
-  const node = (cls, parent, shown = true) => ({ classList: { contains: c => cls.includes(c) }, parentElement: parent, getClientRects: () => (shown ? [1] : []) });
+  const node = (cls, parent, shown = true) => ({
+    classList: { contains: c => cls.includes(c) }, parentElement: parent, getClientRects: () => (shown ? [1] : []),
+    // Element.closest for the class selectors pageWidget uses: the node itself, then its ancestors (a tag or [role] selector matches none here)
+    closest(s) { const cs = s.split(',').map(x => x.trim()).filter(x => x[0] === '.').map(x => x.slice(1)); for (let a = this; a; a = a.parentElement) if (cs.some(c => a.classList.contains(c))) return a; return null; },
+  });
   const root = node([], null), ph = node(['mx-placeholder'], root);
   const bar = { id: 'layout', dom: node(['mx-name-container2'], node(['region-topbar'], root)) };
   const card = { id: 'card', dom: node(['mx-name-container2'], node(['row'], ph)) };
@@ -134,6 +138,13 @@ const run = async (name, f, want) => {
   const hid = { id: 'card', dom: node(['mx-name-container2'], ph, false) };
   const PL2 = page({ '.mx-name-container2': loc([bar, hid]) });
   await run('topmost skips a hidden page widget', async () => (await V.topmost(PL2, 'container2')).id, 'layout');
+  // a pick that throws is index 0 as before, now said on page.__pickFallback (it was a silent `.catch(() => 0)`)
+  const boom = { id: 'first', dom: node(['mx-name-container2'], root) }, boom2 = { id: 'second', dom: node(['mx-name-container2'], ph) };
+  const PB = page({ '.mx-name-container2': Object.assign(loc([boom, boom2]), { evaluateAll: async () => { throw new Error('Execution context was destroyed\nat x'); } }) });
+  const logged = [], log0 = console.log;
+  await run('topmost pick that throws falls back to the first, said', async () => { console.log = (...a) => { logged.push(a.join(' ')); }; try { const e = await V.topmost(PB, 'container2'); return e.id + ' | ' + PB.__pickFallback; } finally { console.log = log0; } }, 'first | container2: Execution context was destroyed');
+  check('topmost pick that throws logs the pick: line', logged.some(l => /^\s+pick: "container2" fell back to the first match \(container2: Execution context was destroyed\)$/.test(l)), JSON.stringify(logged.filter(l => /pick:/.test(l))));
+  await run('topmost pick that works leaves no fallback mark', async () => { await V.topmost(PL1, 'container2'); return String(PL1.__pickFallback); }, 'undefined');
   // PR-F27: a generated date is typed in the picker's placeholder pattern (11.12.5: "dd mmm yyyy"); else unchanged
   await run('dateAs follows the placeholder', async () => V.dateAs('dd mmm yyyy', '1/15/2027').value, '15 Jan 2027');
   await run('dateAs time after hours is minutes', async () => V.dateAs('dd-mm-yyyy hh:mm', '1/15/2027 12:00 PM').value, '15-01-2027 12:00');

@@ -452,13 +452,27 @@ ctl pipeline-widgetskew-stop-network-recommends-update-catch 0 '^recommended: up
 mkdir -p $WS/apps/.stepupdate; printf '%s\n' 'DataWidgets skipped by --skip' > $WS/apps/.stepupdate/kept.txt
 ctl pipeline-widgetskew-stop-skip-says-nothing-refused-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|Nothing refused it' 'left out on request' '!refused earlier' '!not a quick fix' '!the only cost' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/apps WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/appo/.stepupdate; printf '%s\n' 'DataWidgets 4.0.0 target package made before 9.18' > $WS/appo/.stepupdate/kept.txt
-ctl pipeline-widgetskew-stop-old-package-9-18-recommends-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|Not possible: the target package cannot be imported' 'putting the old widget back can leave pages that no longer build' '!^recommended: restore' '!plan-pre' '!not a quick fix' '!the only cost' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appo WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
+ctl pipeline-widgetskew-stop-old-package-9-18-recommends-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|Not possible: the target package cannot be imported' 'putting the old widget back can leave pages that no longer build' 'or take a later version of the module' '!^recommended: restore' '!plan-pre' '!not a quick fix' '!the only cost' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appo WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/appp/.stepupdate; printf '%s\n' 'DataWidgets 4.0.0 target package made before 10.21 (pre-convert plan)' > $WS/appp/.stepupdate/kept.txt
 ctl pipeline-widgetskew-stop-old-package-10-21-says-plan-pre-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|.*plan-pre\.txt, before the convert' '!^recommended: restore' '!No update is possible' '!not a quick fix' '!the only cost' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appp WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/appj/.stepupdate; printf '%s\n' 'DataWidgets local Java user code edits (FILES-EDITED javasource)' > $WS/appj/.stepupdate/kept.txt
-ctl pipeline-widgetskew-stop-javasource-edits-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|.*--port-java <module>' 'local Java code edits \(real logic\)' '!^recommended: update' '!not a quick fix' '!the only cost' '!DS_Store' '!Needs a data approval' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appj WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
+ctl pipeline-widgetskew-stop-javasource-edits-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|.*update with --port-java <module> .*then port the listed Java files by hand' '!then update\.$' 'local Java code edits \(real logic\)' '!^recommended: update' '!not a quick fix' '!the only cost' '!DS_Store' '!Needs a data approval' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appj WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/appm/.stepupdate; printf '%s\n' 'DataWidgets local edits refuse the update' > $WS/appm/.stepupdate/kept.txt
-ctl pipeline-widgetskew-stop-model-edits-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|.*port them to the new version by hand' 'local model edits \(real changes\)' '!^recommended: update' '!force-ui' '!not a quick fix' '!the only cost' '!DS_Store' '!Needs a data approval' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appm WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
+ctl pipeline-widgetskew-stop-model-edits-accept-catch 0 '^recommended: accept$' '^option: update\|Update the kept module\|.*port the edits by hand AFTER it' 'local model edits \(real changes\)' '^option: update\|.*UI only .*--force-ui <module> is its remedy' '^option: update\|.*AFTER it' '!then update\.' '!by hand first' '!^recommended: update' '!not a quick fix' '!the only cost' '!DS_Store' '!Needs a data approval' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appm WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
+# a stop with two kept modules: one refused (any refusal class), one only network/files: the refusal wins, the whole stop does not recommend update
+sed 's/ships with DataWidgets /ships with Atlas_Core /' $WS/wd/widgetskew.out | grep '^WIDGET-SKEW' > $WS/wd2.part; mkdir -p $WS/wd2; { cat $WS/wd/widgetskew.out; cat $WS/wd2.part; } > $WS/wd2/widgetskew.out
+for pair in "mixj:DataWidgets local Java user code edits (FILES-EDITED javasource)" "mixm:DataWidgets local edits refuse the update" "mixd:DataWidgets idcheck finding, see .stepupdate/step1-DataWidgets.idcheck" "mixo:DataWidgets 4.0.0 target package made before 9.18" "mixp:DataWidgets 4.0.0 target package made before 10.21 (pre-convert plan)"; do
+  mkdir -p $WS/${pair%%:*}/.stepupdate; printf '%s\n' "${pair#*:}" 'Atlas_Core local theme/javascript file edits refuse the update (FILES-EDITED)' > $WS/${pair%%:*}/.stepupdate/kept.txt
+done
+for pair in "mixs:DataWidgets skipped by --skip" "mixu:DataWidgets update failed, exit 4"; do
+  mkdir -p $WS/${pair%%:*}/.stepupdate; printf '%s\n' "${pair#*:}" 'Atlas_Core local theme/javascript file edits refuse the update (FILES-EDITED)' > $WS/${pair%%:*}/.stepupdate/kept.txt
+done
+mkdir -p $WS/mixf/.stepupdate; printf '%s\n' 'DataWidgets NETWORK: timeout after 3 retries (rerun --from DataWidgets)' 'Atlas_Core local theme/javascript file edits refuse the update (FILES-EDITED)' > $WS/mixf/.stepupdate/kept.txt
+for pair in mixj mixm mixd mixo mixp mixs mixu; do
+  case $pair in mixo|mixp|mixs|mixu) kind=catch;; *) kind=pass;; esac   # the old order already ranked java/model/data above files; pre/old ranked below it
+  ctl pipeline-widgetskew-stop-two-modules-$pair-refusal-wins-$kind 0 '^recommended: accept$' '!^recommended: update' '!^Recommended: update' 'Atlas_Core was kept because it has local theme/javascript file edits' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/$pair WORK=$WS/wd2; widgetskew_stop; cat \$NJ_TMP"
+done
+ctl pipeline-widgetskew-stop-two-modules-net-and-files-update-pass 0 '^recommended: update$' '^Recommended: update the kept module\. ' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/mixf WORK=$WS/wd2; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/appx/.stepupdate; printf '%s\n' 'DataWidgets update failed, exit 4' > $WS/appx/.stepupdate/kept.txt
 ctl pipeline-widgetskew-stop-other-reason-accept-pass 0 '^recommended: accept$' '^option: update\|Update the kept module\|The update repeats the step that was refused' 'DataWidgets was kept \(update failed, exit 4\)' '!Needs a data approval' '!not a quick fix' '!the only cost' -- bash -c ". $WS/stop-stub.sh; . $WS/stop-fns.sh; : > \$NJ_TMP; APP=$WS/appx WORK=$WS/wd; widgetskew_stop; cat \$NJ_TMP"
 mkdir -p $WS/solo/.stepupdate; printf '%s\n' 'DataWidgets' > $WS/solo/.stepupdate/kept.txt
@@ -2415,7 +2429,7 @@ ctl stepupdate-stepcheck-stop-file 0 '^Q.*breaks the model' '^R.*keep$' '^W.*kee
 S5f=$T/step-chk-forceui; mkdir -p $S5f/app $S5f/edits; cp $M/base/App.mpr $S5f/app/App.mpr; cp $S5/plan.txt $S5f/
 (cd $S5f/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
 printf '#!/bin/sh\ncp "$1" "$2"\n' > $S5f/upd.sh
-ctl stepupdate-forceui-wired-recommends-accept-catch 4 'STOP: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" UPG_UPDATE_CMD="sh $S5f/upd.sh $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S5f/app $S5f/plan.txt --force-ui step1-adds --saved-edits $S5f/edits
+ctl stepupdate-forceui-wired-stops-at-4-catch 4 'STOP: step1-adds' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" UPG_UPDATE_CMD="sh $S5f/upd.sh $S5/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $S5f/app $S5f/plan.txt --force-ui step1-adds --saved-edits $S5f/edits
 ctl stepupdate-forceui-wired-stop-file 0 '^R.*accept$' '!^R.*keep$' -- cat $S5f/app/.stepupdate/stepcheck-stop.txt
 echo 'step1-adds CE6085  # accepted' > $S5/acc.txt
 ctl stepupdate-stepcheck-accepted-pass 0 'committed' '!STOP' -- env UPG_STEPCHECK_CMD="sh $S5/chk.sh {mpr} {log}" bash $B/stepupdate.sh $S5/app $S5/plan.txt --check-accepted $S5/acc.txt
@@ -3590,6 +3604,8 @@ if command -v node > /dev/null; then
   # PR-F27: the 11.12.5 date picker placeholder is "dd mmm yyyy"; "1/15/2027" typed there is "Invalid date"
   ctl journeys-verbs-date-pass 0 '^ok +dateAs follows the placeholder: returned "15 Jan 2027"' '^ok +dateAs time after hours is minutes: returned "15-01-2027 12:00"' '!^FAIL' -- node $here/journey_verbs_control.js
   ctl journeys-verbs-date-catch 0 '^ok +dateAs leaves a text placeholder catch: returned "1/15/2027"' '^ok +dateAs leaves a non-date value catch: returned "U-1-2"' '!^FAIL' -- node $here/journey_verbs_control.js
+  # the pick that throws is index 0 and says so on page.__pickFallback; a pick that works leaves no mark
+  ctl journeys-verbs-pick-fallback-said-catch 0 '^ok +topmost pick that throws falls back to the first, said' '^ok +topmost pick that throws logs the pick: line' '^ok +topmost pick that works leaves no fallback mark' '!^FAIL' -- node $here/journey_verbs_control.js
   # B4T2-16 in a real browser: Data grid 2 markup (display: contents rows, role gridcell / cell, late rows, empty placeholder)
   VBNP=${PLAYWRIGHT_NODE_PATH:-$HOME/mendix-playwright/node_modules}
   NODE_PATH=$VBNP node -e "require('playwright')" 2> /dev/null || VBNP=$(npm root -g 2> /dev/null)

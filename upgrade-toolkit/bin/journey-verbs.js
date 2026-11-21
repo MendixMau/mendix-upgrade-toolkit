@@ -141,7 +141,14 @@ async function topmost(page, widget, near, unassigned) {
     const i = await all.evaluateAll(inTab, t).catch(() => -1);
     if (i >= 0) return all.nth(i);
   }
-  return all.nth(await all.evaluateAll(pageWidget).catch(() => 0));
+  // a page that threw while picking (navigated away, detached node) used to give index 0 silently, the layout widget; it is
+  // still index 0, but said on the console and left on page.__pickFallback (a mark for whoever debugs the run; no step reads it)
+  const pick = await all.evaluateAll(pageWidget).catch((e) => {
+    page.__pickFallback = `${widget}: ${String((e && e.message) || e).split('\n')[0].slice(0, 120)}`;
+    console.log(`    pick: "${widget}" fell back to the first match (${page.__pickFallback})`);
+    return 0;
+  });
+  return all.nth(pick);
 }
 
 const UNASSIGNED_STATE = /(^|[^A-Za-z])(not assigned( yet)?|unassigned|no assignee|nobody|no one)($|[^A-Za-z])/i;
