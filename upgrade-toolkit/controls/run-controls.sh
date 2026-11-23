@@ -1531,6 +1531,7 @@ ctl modplan-app-orders-target-first-catch 0 '^2888 7\.0\.6 MFAmodule' '^23513 4\
 ctl modplan-app-unreadable-invalid 2 'modplan: --app' -- python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $MP/no-such.mpr
 printf '[{"name":"Vend","cid":23513,"version":"1.0.0"}]' > $MP/le-vend.json
 ctl modplan-jumps-read-by-diff-pass 0 'PASS\* \| db\.attr\.Vend\.Thing\.Field \| values changed .*the Vend update 1\.0\.0 -> 4\.5\.0 23513' 'FAIL 0 \| REVIEW 0' -- bash -c "python3 -I $B/modplan.py $MP/le-vend.json --target 11.12.2 --versions-dir $MF --no-fetch --jumps $MP/vend-jumps.txt > /dev/null && python3 $B/diff.py $T/jump-b.json $T/jump-a.json --allow $FX/allow/narrow.txt --module-jumps $MP/vend-jumps.txt"
+MPW=$MP/pw  # kept under its own name: MP is rebound further down
 mkdir -p $MP/pw; printf 'app: 10.24.26.1\n' > $MP/pw/versions.txt
 python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/pw/plan.txt --jumps $MP/pw/module-jumps.txt > /dev/null
 ctl modplan-jumps-read-by-proposal-pass 0 'module update Administration 4\.4\.0 -> 4\.5\.0' 'module update DatabaseConnector 7\.0\.2 -> 7\.0\.6' '!-> 4\.5\.0 .*\?' '!module update [A-Za-z]* \? ->' -- bash -c "PROPOSAL_TODAY=2026-10-15 python3 $B/proposal.py --work $MP/pw --source 10.24.26.1 --target 11.15.0.1 > /dev/null; sed -n '/^## 2\./,/^## 3\./p' $MP/pw/PROPOSAL.md"
@@ -7730,15 +7731,19 @@ ctl gf27-untouched-template-no-complaint-pass 14 '^proposal awaits sign-off' '!f
 ctl gf27-section6-says-status-open-may-stay-catch 0 'Status: open. may stay or go' 'backticks and spaces around the line do no harm' '^Status: open$' -- sed -n '/^## 6\./,$p' $PR/plain/PROPOSAL.md
 # GF-32: signed plan, then kept.txt appears (left out of the hash): the new section-3 item was never seen by the signer
 rm -rf $PR/gf-late; cp -R $PR/plain $PR/gf-late; rm -f $PR/gf-late/PROPOSAL.md; bash $PR/prop.sh $PR/gf-late > /dev/null; sign21 $PR/gf-late
-printf 'DataWidgets pre-convert update refused\n' > $PR/gf-late/kept.txt
+printf 'DataWidgets pre-convert update refused\nLatecomer update refused\n' > $PR/gf-late/kept.txt
 ctl gf32-late-kept-item-signed-run-pass 0 '^proposal: signed by Tester on 2026-10-15' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf-late
-ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!Tester \| CONFIRMED.*DataWidgets|DataWidgets.*Tester \| CONFIRMED' -- cat $PR/gf-late/DECISIONS.md
+ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| Latecomer \| module \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!Tester \| CONFIRMED.*Latecomer|Latecomer.*Tester \| CONFIRMED' -- cat $PR/gf-late/DECISIONS.md
+# a kept module the signed PROPOSAL.md rendered (DataWidgets, section 2 of the plain plan) was seen: CONFIRMED in the signer's name
+ctl gf32-late-kept-seen-module-confirmed-pass 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| accepted with the sign-off of Tester .*\| CONFIRMED \|' '!DataWidgets.*ASSUMED' -- cat $PR/gf-late/DECISIONS.md
 # GF-23 / GF-24: a held module the plan does not carry, and one whose installed version is already the newest
 rm -rf $PR/gf-rec; cp -R $PR/plain $PR/gf-rec; rm -f $PR/gf-rec/PROPOSAL.md
-printf 'Queue update refused\nOrphan update refused\nDataWidgets update refused\n' > $PR/gf-rec/kept.txt
-printf 'Queue 2.2.4 -> 2.2.4\n' >> $PR/gf-rec/module-jumps.txt
+printf 'Fresh update refused\nOrphan update refused\nDataWidgets update refused\n' > $PR/gf-rec/kept.txt
+# Fresh is installed at the newest version that fits: the line comes from a real modplan.py run (modplan-* setup above), never typed by hand
+grep '^# CURRENT Fresh ' $MPW/module-jumps.txt >> $PR/gf-rec/module-jumps.txt
 bash $PR/prop.sh $PR/gf-rec > /dev/null
-ctl gf23-newest-installed-keep-or-replace-catch 0 '^- \[P-[0-9]+\] module: Queue$' 'recommendation: keep old version for now \(the installed version is already the newest' 'replace with the Marketplace equivalent' '!recommendation: update to the latest' -- sh -c "sed -n '/\\] module: Queue\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+ctl gf23-modplan-records-current-module-catch 0 '^# CURRENT Fresh 4\.5\.0 23513: installed version is the newest' '!^Fresh ' -- cat $MPW/module-jumps.txt
+ctl gf23-newest-installed-keep-or-replace-catch 0 '^- \[P-[0-9]+\] module: Fresh$' '!not on the plan' 'recommendation: keep old version for now \(the installed version is already the newest' 'replace with the Marketplace equivalent' '!recommendation: update to the latest' -- sh -c "sed -n '/\\] module: Fresh\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
 ctl gf24-not-on-plan-says-so-catch 0 'recommendation: update to the latest version.*; not on the plan: the recommendation needs a plan line' -- sh -c "sed -n '/\\] module: Orphan\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
 ctl gf24-on-plan-no-note-pass 0 '^- \[P-[0-9]+\] module: DataWidgets$' 'recommendation: update to the latest version' '!not on the plan' -- sh -c "sed -n '/\\] module: DataWidgets\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
 # GF-25: below Mendix 12 the Dojo-to-React lines are advice; on 12 they are work of the run
@@ -7789,7 +7794,7 @@ mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/signed/PROPOSAL.md
 ctl proposal-signed-continues-pass 0 'signed by Jan Jansen on 2026-10-15' '[0-9] unanswered section-3 item' -- bash $PR/prop.sh $PR/signed
-ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[3-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '^P-2 \| DataWidgets .*appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!^P-2 .*CONFIRMED' -- cat $PR/signed/DECISIONS.md
+ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[2-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '^P-2 \| DataWidgets .*accepted with the sign-off of Jan Jansen' '!appeared after sign-off' '!ASSUMED' -- cat $PR/signed/DECISIONS.md
 ctl proposal-signed-status-pass 0 '^signed$' -- python3 $B/proposal.py --status --work $PR/signed
 # PAUSED -> 15
 mkw paused kept; bash $PR/prop.sh $PR/paused > /dev/null; sedi 's/^Status: open$/Status: PAUSED waiting for the vendor of PDFReader/' $PR/paused/PROPOSAL.md
@@ -7815,10 +7820,11 @@ ctl proposal-changed-status-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
 ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bash $PR/prop.sh $PR/changed
 # the update step keeps a module after the sign-off (kept.txt): that is the run's own result, not a new plan (cold test WM1: 7 kept
-# modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation: update, a real logic edit held
+# modules cleared the sign-off at the end of rung 1). A module the signed PROPOSAL.md rendered (here Newmod, in section 2) is seen:
+# it takes its recommendation, CONFIRMED in the signer's name. A kept module the signed file never showed is ASSUMED (GF-32).
 printf 'Newmod local edits refuse the update\n' > $PR/changed/kept.txt
-ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 item\(s\) appeared after sign-off \(ASSUMED' '!unanswered section-3' -- bash $PR/prop.sh $PR/changed
-ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*appeared after sign-off; signer did not see it \| - \| ASSUMED' '!Newmod.*CONFIRMED' -- cat $PR/changed/DECISIONS.md
+ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item\(s\) took their recommendation' '!appeared after sign-off' -- bash $PR/prop.sh $PR/changed
+ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*accepted with the sign-off of Jan Jansen .*\| CONFIRMED' '!Newmod.*ASSUMED' -- cat $PR/changed/DECISIONS.md
 # an edited module is updated, never recommended to stay behind (cold test WM1: seven "keep old version" cards)
 ctl proposal-edited-module-recommends-update-pass 0 'recommendation: update to the latest version and carry the edits over' '!recommendation: keep old version' -- cat $PR/changed/PROPOSAL.md
 # --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
@@ -7859,7 +7865,7 @@ for r in json.load(sys.stdin):
     [print(\"evidence\", r[\"topic\"] + \":\", e) for e in r[\"found\"].get(\"evidence\") or [] if r[\"topic\"] in (\"modules\", \"module-edits\")]'"
 # signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
 ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
-  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '^S-[0-9]+ module:DataWidgets alias=P-2 approval=assumed by=agent source=after-signoff ' -- bash $PR/ssum.sh $PR/signed
+  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '^S-[0-9]+ module:DataWidgets alias=P-2 approval=approved by=Jan Jansen source=decisions ' -- bash $PR/ssum.sh $PR/signed
 # a person's own answer survives the sign-off: reject one step, sign again, it stays rejected
 ctl proposal-steps-own-answer-survives-signoff-pass 0 'approval=rejected by=Ana ' '!approval=approved by=Jan Jansen source=signoff .*widget:Stuck' -- sh -c "
   cp -R $PR/signed $PR/own; python3 $B/steps.py approve --work $PR/own --id \$(python3 $B/steps.py show --work $PR/own --json | python3 -c 'import json,sys; print([r[\"id\"] for r in json.load(sys.stdin) if r[\"topic\"].startswith(\"widget:Stuck.mpk\")][0])') --state rejected --by Ana > /dev/null

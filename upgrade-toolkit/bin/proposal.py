@@ -141,6 +141,7 @@ class Facts:
         self.items2 = []        # toolkit items
         self.advisory = []      # advice that is not work of this run (GF-25)
         self.jumps = {}         # module -> (installed, target) from module-jumps.txt
+        self.current = {}       # module -> installed version, already the newest that fits (GF-23, "# CURRENT" lines of module-jumps.txt)
         self.items4 = []        # person items
         self.repair_rows = {}
         self.sizes = {}
@@ -190,6 +191,8 @@ class Facts:
         else:
             self.not_measured.append(("module-jumps.txt", "the installed version of each module is unknown; the plan lists the target only"))
         self.jumps = jumps
+        # GF-23: modplan.py writes "# CURRENT <Module> <installed> <cid>" for a module whose installed version is already the newest that fits
+        self.current = {m.group(1): m.group(2) for m in (re.match(r"^\s*#\s*CURRENT\s+(\S+)\s+(\S+)", ln) for ln in (j or [])) if m}
         # BT-11: the second pass starts from what the first pass left, not from the installed version (Atlas_Core 3.19.0 -> 3.21.1
         # before the convert, then 3.21.1 -> 4.5.1 after it, never 3.19.0 -> 4.5.1 beside the first line)
         left = {}
@@ -622,11 +625,13 @@ class Facts:
             if kind == "module" and not stranded:
                 jm = getattr(self, "jumps", {}).get(m)
                 on_plan = any(x[0] == m for x in self.plan)
-                if (jm and jm[0] == jm[1]) or any(x[0] == m and x[1] == x[2] for x in self.plan):
+                newest = False
+                if m in self.current or (jm and jm[0] == jm[1]) or any(x[0] == m and x[1] == x[2] for x in self.plan):
                     # GF-23: the installed version is the newest one; "update to the latest version" has nothing to update to
+                    newest = True
                     rec = ("keep old version for now (the installed version is already the newest, so there is nothing to update to; "
                            "it may be deprecated: check its Marketplace listing) or replace with the Marketplace equivalent")
-                if not on_plan and any(n in self.measured for n in ("plan-pre.txt", "plan.txt")):
+                if not on_plan and not newest and any(n in self.measured for n in ("plan-pre.txt", "plan.txt")):
                     # GF-24: a module on neither plan file is left out of the update on purpose or by mistake; the recommendation cannot run
                     rec += "; not on the plan: the recommendation needs a plan line"
             # GF-30: a Java file of the package deleted locally holds the update (the update step refuses to carry edits over it);
@@ -1117,8 +1122,9 @@ def main():
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
-    # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
-    # routed what it could, so what is still kept is exactly that held edit.
+    # signed path below accepts a kept module the signed PROPOSAL.md rendered (section 2 or 3) at its recommendation, CONFIRMED in the signer's
+    # name (they read that module; update, a real logic edit held for <Module>_Ext). A kept module or file the signed PROPOSAL.md never
+    # showed is ASSUMED ("signer did not see it"; see unseen() below).
     H = F
     if F.kept or F.kv_seen or F.ks_seen:
         H = Facts(a)
@@ -1134,17 +1140,26 @@ def main():
     so = parse_signoff(old)
     today = os.environ.get("PROPOSAL_TODAY") or datetime.date.today().isoformat()
 
+    signed_text = old or ""
+
     def unseen(it):
-        """GF-32: an item the signature does not cover (keptvendor.json, keptstyle.json, kept.txt: written after the sign-off, so left out
-        of the hash) was never seen by the signer."""
-        return bool(it.get("own")) or f"3|{it['kind']}|{it['name']}|{it['evidence']}" not in set(ident)
+        """GF-32: an item the signature does not cover was never seen by the signer. keptvendor.json and keptstyle.json items are
+        always new. A kept.txt module is seen when the signed PROPOSAL.md rendered it, as its section-3 item or as its section-2 update
+        line (the update step moved it to section 3 after the sign-off; the signer still read that module). A kept module the signed
+        file never showed appeared later."""
+        if it.get("own"):
+            return True
+        if f"3|{it['kind']}|{it['name']}|{it['evidence']}" in set(ident):
+            return False
+        n = re.escape(it["name"])
+        return not re.search(rf"^- \[P-\d+\] {re.escape(it['kind'])}: {n}$|module update {n} ", signed_text, re.M)
 
     def accept_answers(signer):
         ans = decisions(a.work)
         todo = [it for it in F.items3 if it["id"] not in ans]
         rows = [(it["id"], it["name"], it["kind"], it["rec"], f"accepted with the sign-off of {signer} (no separate answer)")
                 for it in todo if not unseen(it)]
-        # an item that appeared after the sign-off was never seen by the signer: ASSUMED, never CONFIRMED in their name
+        # an item the signed PROPOSAL.md never rendered was not seen by the signer: ASSUMED, never CONFIRMED in their name
         late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
                 for it in todo if unseen(it)]
         n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
