@@ -33,7 +33,7 @@ Routes, per refused module (the module is updated in all of them except HOLD):
   (Email_Connector, WM1: COSMETIC, then XASSOC for the 3 associations the app's Email module owns into it). The same reason
   twice is a HOLD.
 
-  editroute.py reset   --work W   first thing in the update step: an earlier routing's lines and files out of the way
+  editroute.py reset   --work W [--app A]   first thing in the update step: an earlier routing's lines and files out of the way
   editroute.py score   --work W --app A --plan W/plan.txt [--ledger F]   did each route work: editroute-score.tsv, exit 1 when a
                        kept module did not end on the plan's version (held, replay failed, or kept again)
   editroute.py plan    --work W --app A --original W/original.mpr --plan W/plan.txt   writes the route files, prints ROUTE lines
@@ -231,8 +231,14 @@ def cmd_plan(a):
         r, reason, extra = route_module(mod, why, S, led.get(mod), a.original, cache, mpr,
                                         [ln.split()[2] for ln in rd(a.plan).splitlines() if len(ln.split()) >= 3 and not ln.startswith("#")])
         p = prev.get(mod)
-        if p and p.get("kept_because") == why and r != "HOLD":
+        # GF-31: a module the last stepupdate pass never ran still carries the line the pass before left in kept.txt: that is
+        # not "kept again". ran.txt is that pass's list (absent = an older stepupdate: the old rule)
+        ran = rd(os.path.join(S, "ran.txt"))
+        did_run = not ran.strip() and not os.path.exists(os.path.join(S, "ran.txt")) or mod in ran.split()
+        if p and p.get("kept_because") == why and r != "HOLD" and did_run:
             r, reason, extra = "HOLD", f"the routed update kept it again for the same reason: {why}", {}
+        elif p and p.get("kept_because") == why and r != "HOLD":
+            reason = f"{reason} (its kept line is from an earlier pass: the last update pass did not reach {mod}, so it is routed again, not held)"
         e = led.get(mod) or {}
         if r in ("REPLAY", "UNREAD") and e.get("cid") and e.get("version"):
             extra["pkg"] = localedits.fetch_pkg(e["cid"], e["version"], cache)[0]
@@ -544,6 +550,13 @@ def cmd_collect(a):
                 if not mdl:
                     held.append(f"association {q}: not in the original model or the saved edits")
                     continue
+                # GF-35: DESCRIBE ends a statement with a lone "/" line and mxcli exec refuses it; and the part is dry-run
+                # like every other replay part, so a result mxcli check refuses is held, never executed
+                mdl = re.sub(r"(?m)^[ \t]*/[ \t]*\r?\n?", "", mdl)
+                ok, why = checked(mdl, x["app_mpr"], tmp, q) if x.get("app_mpr") else (True, "")
+                if not ok:
+                    held.append(f"association {q}: mxcli check refuses the result: {why}")
+                    continue
                 parts.append((f"association {q}: from the original model, original id restored after", mdl))
                 m = re.search(r"\bfrom\s+([\w.]+)\s+to\s+([\w.]+)", mdl)
                 if m:
@@ -590,10 +603,23 @@ def cmd_reset(a):
     and never merged back: every page on the vendor layouts again."""
     W = os.path.abspath(a.work)
     n = 0
+    # GF-36: an approval whose module's step commit exists in the app was acted on: removing it reopens the finding on the
+    # next idcheck of the finished tree (a field run's reset dropped 12 and the findings came back). Only approvals of
+    # steps not yet committed go; force-ui / accept-unsaved lines are routing and always go.
+    done = set()
+    if getattr(a, "app", None):
+        r = subprocess.run(["git", "-C", a.app, "log", "--format=%s"], capture_output=True, text=True)
+        done = {m.group(1) for m in (re.match(r"step: (\S+) ", ln) for ln in r.stdout.splitlines()) if m}
+
+    def acted(ln, f):
+        if f not in ("approved.txt", "approved-step.txt"):
+            return False
+        m = re.search(r"# editroute (?:VENDOR: the new (\S+) drops it|XASSOC: removed by the (\S+) update)", ln)
+        return bool(m and (m.group(1) or m.group(2)) in done)
     for f in ("force-ui.txt", "accept-unsaved.txt", "approved.txt", "approved-step.txt"):
         p = os.path.join(W, f)
         lines = rd(p).splitlines(True)
-        keep = [ln for ln in lines if "# editroute " not in ln]
+        keep = [ln for ln in lines if "# editroute " not in ln or acted(ln, f)]
         if len(keep) != len(lines):
             n += len(lines) - len(keep)
             with open(p, "w") as fh:
@@ -670,7 +696,7 @@ def main():
     s.add_argument("--work", required=True); s.add_argument("--app", required=True); s.add_argument("--plan")
     s.add_argument("--ledger", help="append the rows here too (cross-run: UPG_ROUTE_LEDGER)"); s.add_argument("--label")
     r = sp.add_parser("reset")
-    r.add_argument("--work", required=True)
+    r.add_argument("--work", required=True); r.add_argument("--app", help="keeps the approvals of modules whose step commit exists here (GF-36)")
     a = ap.parse_args()
     return {"plan": cmd_plan, "collect": cmd_collect, "score": cmd_score, "reset": cmd_reset}[a.cmd](a)
 
