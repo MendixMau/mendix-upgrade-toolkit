@@ -864,12 +864,29 @@ def approve_steps(work, ids, state, signer, source, answers=None):
             continue
         by, src = signer, source
         d = (answers or {}).get(key[2:]) if key.startswith("3:") else None
-        if state == "approved" and d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
+        if state == "approved" and by_hand(d):
             by, src = d[4], "decisions"
         extra = {"needs": "a person signs the proposal or answers this item"} if state == "assumed" else {}
         steps.set_approval(work, sid, state, by, src, **extra)
         n += 1
     return n
+
+
+def by_hand(d):
+    """A DECISIONS.md line a real person answered: a status that is neither empty nor ASSUMED (any case) and a signer that is a name,
+    not empty, `-`, `agent` or `toolkit` (the toolkit's own lines and an unattended run's ASSUMED line never approve in a name)."""
+    return bool(d) and len(d) > 5 and d[5].strip() != "" and not d[5].strip().upper().startswith("ASSUMED") \
+        and d[4].strip().lower() not in ("", "-", "agent", "toolkit")
+
+
+def decisions_all(work):
+    """P-n -> every line's fields in file order (decisions() keeps only the last)."""
+    out = {}
+    for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
+        m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
+        if m:
+            out.setdefault(m.group(1), []).append([x.strip() for x in m.group(2).split("|")])
+    return out
 
 
 def decisions(work):
@@ -1192,12 +1209,17 @@ def main():
             return True
         if f"3|{it['kind']}|{it['name']}|{it['evidence']}" in set(ident):
             return False
-        # a rerun re-renders PROPOSAL.md with the late item in it: the line DECISIONS.md already holds for it is what stays true
-        d = decisions(a.work).get(it["id"])
-        if d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
-            return False  # a person answered it by hand: approve_steps takes the name on that line
-        if d and len(d) > 3 and d[3].startswith("appeared after sign-off"):
-            return True
+        # a rerun re-renders PROPOSAL.md with the late item in it, so the regex below would read it as seen: the lines DECISIONS.md
+        # holds for it are what stay true. Any line saying "appeared after sign-off" keeps it late until a LATER line is a hand answer.
+        lines = decisions_all(a.work).get(it["id"], [])
+        late = None
+        for d in lines:
+            if len(d) > 3 and d[3].startswith("appeared after sign-off"):
+                late = True
+            elif by_hand(d):
+                late = False
+        if late is not None:
+            return late
         n = re.escape(it["name"])
         return not re.search(rf"^- \[P-\d+\] {re.escape(it['kind'])}: {n}$|module update {n} ", signed_text, re.M)
 
