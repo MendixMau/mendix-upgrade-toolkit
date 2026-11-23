@@ -103,8 +103,11 @@ def rungs_cell(g, names, labels=None):
 def build_failure(model):
     """GF-46: the lines that say the build ran and failed, or None. A stop at step build (NEEDS-JUDGMENT.md titles, e.g. "mxbuild failed
     (exit 3, 32 ERROR at lines)") or a last attempt of step build that failed with no stop file (state/timing.tsv). Without this the page
-    kept saying "The build has not run yet" over a build that had failed."""
+    kept saying "The build has not run yet" over a build that had failed. A stop at the build that asks a person (owner: person) is a
+    judgment stop, not a failure: None, so it keeps the "waiting for you" call to action."""
     s, f = model.get("stopped") or {}, model.get("failed") or {}
+    if s.get("step") == "build" and "person" in (s.get("owners") or []):
+        return None   # a judgment stop at the build (a question for a person), not a failed build: the page says "waiting for you"
     if s.get("step") == "build":
         return [t for t in s.get("titles", [])[:3] if t] or [f"The run stopped at the build (exit {s.get('code')})."]
     if f.get("step") == "build":

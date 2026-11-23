@@ -2838,38 +2838,66 @@ newapp o11b '1 1.0 Old11Base\n'
 ctl stepupdate-pre1021-baseline-pass 0 'installed Old11Base cannot serve as the local-edit baseline \(range from 10.21.0 to 10.24.99\)' 'committed' '!SKIP' -- bash $B/stepupdate.sh $S/o11b $S/o11b.plan --unattended
 # --- GF small pipeline fixes (field run GF): GF-12, 15, 29, 40, 41, 43, 46, 52 ---
 # GF-12: the triage stop and idcheck --xmod say where the targets go when an owner is on the plan too (planorder.py refuses "last" then)
-ctl pipeline-xmod-owner-title-catch 0 'unless an owner is on the plan too: then before the owner' -- grep -o 'last, unless an owner is on the plan too: then before the owner' $B/cloud/upgrade-pipeline.sh
-ctl idcheck-xmod-owner-line-catch 0 'but before an owner of these associations that is on the plan too \(planorder\.py --write\)' -- grep -o 'but before an owner of these associations that is on the plan too (planorder.py --write)' $B/idcheck.py
+# behaviour: the triage stop's own nj_file line is cut out of the pipeline (PIPE=<file> runs it against another copy) and run with a stub that prints the title it is given
+ctl pipeline-xmod-owner-title-catch 0 '^TITLE: cross-module association targets \(last, unless an owner is on the plan too: then before the owner' -- bash -c "grep -m1 '^    nj_meta info; nj_file 13 \"cross-module association targets' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $T/xt.sh; test -s $T/xt.sh && bash -c 'nj_meta() { :; }; nj_file() { echo \"TITLE: \$2\"; }; WORK=/w; . $T/xt.sh'"
+ctl idcheck-xmod-owner-line-catch 0 'but before an owner of these associations that is on the plan too \(planorder\.py --write\)' 'Account_Device' -- python3 $B/idcheck.py $M/xmod/App.mpr --xmod
 # GF-15: a triage rerun clears the "triage: " lines of the earlier attempt out of state/notes.txt before it notes again
-ctl pipeline-triage-notes-cleared-catch 0 "grep -v '\^triage: '" -- grep -o "grep -v '^triage: ' \"\$WORK/state/notes.txt\"" $B/cloud/upgrade-pipeline.sh
+# behaviour: the GF-15 block is cut out of step_triage and run on a notes.txt that holds a stale triage line and another step's line
+TN=$T/tn; rm -rf $TN; mkdir -p $TN/w/state; printf 'triage: no module-jumps.txt\nbuild: kept note\ntriage: second stale\n' > $TN/w/state/notes.txt
+sed -n '/^  # GF-15: a rerun appended/,/^  fi$/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $TN/block.sh
+ctl pipeline-triage-notes-cleared-catch 0 '^build: kept note$' '!triage:' '^lines: 1$' -- bash -c "DRY=0 WORK=$TN/w; . $TN/block.sh; cat \$WORK/state/notes.txt; echo lines: \$(wc -l < \$WORK/state/notes.txt | tr -d ' ')"
+ctl pipeline-triage-notes-dry-untouched-pass 0 '^triage: x$' -- bash -c "mkdir -p $TN/d/state; printf 'triage: x\n' > $TN/d/state/notes.txt; DRY=1 WORK=$TN/d; . $TN/block.sh; cat \$WORK/state/notes.txt"
 # GF-29: the --no-baseline retry's own output decides what was refused: the installed package, not the target
 newapp nfb '1 1.0 Old11NfBase\n'
 ctl stepupdate-nobaseline-retry-not-target-catch 1 'NOTE: the INSTALLED Old11NfBase package was refused as the local-edit baseline' '!package itself was made before' '!target package made before 10\.21' -- bash $B/stepupdate.sh $S/nfb $S/nfb.plan --unattended
 # GF-40: one commit subject that is not a module name is skipped with a warning; the other modules are still checked
 rm -rf $T/kdg2; mkdir -p $T/kdg2; cp -R $T/kdg/. $T/kdg2/; (cd $T/kdg2 && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Some Marketplace Package Name 1.0.0 (idcheck PASS)')
 ctl keptdeps-wrong-subject-skipped-catch 1 '^WARNING: skipped Some: ' '^FAIL UpdConn 4\.0\.0 needs kept AuthMod' '!nothing judged' -- python3 $B/keptdeps.py $T/kdg2 --kept-file $T/kdg-kept.txt --updated-from-git
-# GF-41 / GF-43: a downgrade puts the package's own widgets back; a changed widget package drops its cached def
+# GF-41 / GF-43: a downgrade puts the module's own widgets back (only those its earlier step brought); a changed widget package moves its cached def aside
 GW=$T/gfw; rm -rf $GW; mkdir -p $GW/app/widgets $GW/app/.mxcli/widgets $GW/pkg
 cat > $GW/mk.py <<'PY'
 import sys, zipfile
-def wmpk(path, ver, wid="com.x.Dock"):
+def wmpk(path, ver, name="Dock", wid="com.x.Dock"):
     with zipfile.ZipFile(path, "w") as z:
-        z.writestr("package.xml", '<package xmlns="http://www.mendix.com/package/1.0/"><clientModule name="Dock" version="%s" xmlns="http://www.mendix.com/clientModule/1.0/"><widgetFiles><widgetFile path="Dock.xml"/></widgetFiles></clientModule></package>' % ver)
-        z.writestr("Dock.xml", '<widget id="%s" xmlns="http://www.mendix.com/widget/1.0/"/>' % wid)
+        z.writestr("package.xml", '<package xmlns="http://www.mendix.com/package/1.0/"><clientModule name="%s" version="%s" xmlns="http://www.mendix.com/clientModule/1.0/"><widgetFiles><widgetFile path="W.xml"/></widgetFiles></clientModule></package>' % (name, ver))
+        z.writestr("W.xml", '<widget id="%s" xmlns="http://www.mendix.com/widget/1.0/"/>' % wid)
 app, pkg = sys.argv[1], sys.argv[2]
-wmpk(app + "/widgets/Dock.mpk", "12.0.0")
-with zipfile.ZipFile(pkg + "/mod.mpk", "w") as z:
-    own = pkg + "/own.mpk"; wmpk(own, "10.0.0"); z.write(own, "widgets/Dock.mpk")
+wmpk(app + "/widgets/Dock.mpk", "12.0.0")                       # brought by the module step
+wmpk(app + "/widgets/Grid.mpk", "2.30.6", "Grid", "com.x.Grid")  # a shared widget the app upgraded itself
+with zipfile.ZipFile(pkg + "/mod.mpk", "w") as z:                 # the 10.0.0 package: its own Dock, and an OLDER Grid
+    wmpk(pkg + "/own.mpk", "10.0.0"); z.write(pkg + "/own.mpk", "widgets/Dock.mpk")
+    wmpk(pkg + "/own2.mpk", "2.28.3", "Grid", "com.x.Grid"); z.write(pkg + "/own2.mpk", "widgets/Grid.mpk")
 PY
-python3 $GW/mk.py $GW/app $GW/pkg; echo '{"widgetId": "com.x.Dock"}' > $GW/app/.mxcli/widgets/Dock.def.json
-(cd $GW/app && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
+python3 $GW/mk.py $GW/app $GW/pkg
+echo '{"widgetId": "com.x.Dock", "templateFile": "Dock.tpl.json"}' > $GW/app/.mxcli/widgets/Dock.def.json; echo '{"tpl": 1}' > $GW/app/.mxcli/widgets/Dock.tpl.json
+echo '{"widgetId": "com.x.Grid"}' > $GW/app/.mxcli/widgets/Grid.def.json
+(cd $GW/app && git init -q && echo base > readme.txt && git add readme.txt && git -c user.email=c@c -c user.name=ctl commit -qm base)
+(cd $GW/app && git add widgets/Grid.mpk && git -c user.email=c@c -c user.name=ctl commit -qm 'app: upgrade grid widget by hand')
+(cd $GW/app && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm 'step: Dock 12.0.0 (idcheck PASS)')
+# no 'step: Dock 11.0.0' commit: nothing shows the module brought the widget, so it stays and is said (runs before the restore control, which changes the file)
+ctl widgetpkgfix-no-step-commit-not-restored-catch 0 'WIDGET-NOT-RESTORED widgets/Dock\.mpk' '!WIDGET-RESTORED' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 9.0.0 --old-version 11.0.0 --package $GW/pkg/mod.mpk
 ctl widgetpkgfix-downgrade-catch 0 'WIDGET-RESTORED widgets/Dock\.mpk Dock 12\.0\.0 -> 10\.0\.0' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 10.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+# the shared widget the app upgraded itself stays at its newer version, said, never overwritten
+ctl widgetpkgfix-shared-widget-kept-catch 0 'WIDGET-NOT-RESTORED widgets/Grid\.mpk Grid 2\.30\.6 stays' '!WIDGET-RESTORED widgets/Grid' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 10.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-shared-widget-bytes-pass 0 '^2\.30\.6$' -- python3 -c "import sys; sys.path.insert(0, '$B'); from widgetdiff import meta; print(meta(open('$GW/app/widgets/Grid.mpk','rb').read())[1])"
 ctl widgetpkgfix-upgrade-untouched-pass 0 '!WIDGET-RESTORED' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 13.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
-ctl widgetpkgfix-def-dropped-catch 0 'WIDGET-DEF-DROPPED \.mxcli/widgets/Dock\.def\.json \(widget id com\.x\.Dock' -- python3 $B/widgetpkgfix.py defs $GW/app
-ctl widgetpkgfix-def-gone-pass 0 '^0$' -- bash -c "ls $GW/app/.mxcli/widgets | wc -l | tr -d ' '"
-ctl stepupdate-widgets-restore-wired-catch 0 '^2$' -- bash -c "grep -c 'widgetpkgfix.py\" \(restore\|defs\)' $B/stepupdate.sh"
+ctl widgetpkgfix-def-dropped-catch 0 'WIDGET-DEF-DROPPED \.mxcli/widgets/Dock\.def\.json \(widget id com\.x\.Dock.*moved with 1 template file\(s\) to \.stepupdate/saved/mxcli-widgets/' '!Grid' -- python3 $B/widgetpkgfix.py defs $GW/app
+# nothing is deleted: the def and its template are under .stepupdate/saved, the other widget's def stays
+ctl widgetpkgfix-def-moved-not-deleted-pass 0 '^saved: Dock\.def\.json Dock\.tpl\.json$' '^left: Grid\.def\.json$' -- bash -c "echo saved: \$(ls $GW/app/.stepupdate/saved/mxcli-widgets | tr '\n' ' ' | sed 's/ \$//'); echo left: \$(ls $GW/app/.mxcli/widgets | tr '\n' ' ' | sed 's/ \$//')"
+# the derivation of --old-version (the last step commit's module version) and --package (cache path from the content id) in stepupdate.sh,
+# cut out and run against a git log and a stub widgetpkgfix.py that prints its argv
+SW=$T/sw; rm -rf $SW; mkdir -p $SW/bin $SW/app; printf 'import sys\nprint("ARGV " + " ".join(sys.argv[1:]))\n' > $SW/bin/widgetpkgfix.py; printf 'import sys\n' > $SW/bin/widgetdiff.py
+(cd $SW/app && git init -q && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Dock 12.0.0 (idcheck PASS)' && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Other 3.0.0 (idcheck PASS)')
+sed -n '/^  mpkc="\${UPG_CACHE/,/^  wrest=/p' $B/stepupdate.sh | sed 's/^  //' > $SW/derive.sh
+swr() { bash -c "bin=$SW/bin app=$SW/app prevmpr=prev.mpr UPG_CACHE=$SW/cache mod=\$1 ver=10.0.0 cid=\$2; . $SW/derive.sh; echo \"\$wrest\"" _ "$@"; }
+ctl stepupdate-widgets-restore-wired-catch 0 '^ARGV restore '"$SW"'/app --module Dock --new-version 10\.0\.0 --package '"$SW"'/cache/77-10\.0\.0\.mpk --old-version 12\.0\.0 --prev prev\.mpr$' -- swr Dock 77
+ctl stepupdate-widgets-restore-no-cid-no-package-catch 0 '--package  --old-version 12\.0\.0' -- swr Dock abc
+ctl stepupdate-widgets-restore-no-step-commit-no-oldversion-pass 0 '!--old-version' -- swr Nothing 77
+ctl stepupdate-widgets-restore-wired-count-catch 0 '^2$' -- bash -c "grep -c 'widgetpkgfix.py\" \(restore\|defs\)' $B/stepupdate.sh"
 # GF-46: a failed build reads "The build failed", never "The build has not run yet"
 ctl cockpit-build-failed-not-unrun-catch 0 '^failed headline: [1-9]' '^stale words: 0$' -- bash $here/cockpit_control.sh chk-build-failed
+# a judgment stop at the build (owner: person) keeps "waiting for you"; only a real build failure says "The build failed"
+ctl cockpit-build-judgment-stop-waits-for-you-catch 0 '^failed headline: 0$' '^waiting headline: [1-9]' -- bash $here/cockpit_control.sh chk-build-judgment-stop
 # GF-52: a rerun of one step selects the gate's own release and journeys rungs (their rows then say what is missing, not "not selected")
 ctl pipeline-dry-diff-own-rungs-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release.?,journeys --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 newapp o11 '1 1.0 Old11Pkg\n'

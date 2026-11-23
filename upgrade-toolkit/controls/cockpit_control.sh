@@ -312,6 +312,9 @@ PY
   chk-build-failed) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; rm -f "$W/NEEDS-JUDGMENT.md"   # GF-46: the build ran and failed (last timing row exit 1, no stop file)
             printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t1\n' >> "$W/state/timing.tsv"; ck >/dev/null
             echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "stale words: $(cnt 'The build has not run yet' "$T/out.html")" ;;
+  chk-build-judgment-stop) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## The disk is full, so the step cannot go on (exit 10)\n\nowner: person\nquestion: The disk is full, so the step cannot go on. What should we do?\nwhy: Only you know what else lives on this disk.\noption: free|Free space, then rerun|Delete old runs.\n\nbody\n' > "$W/NEEDS-JUDGMENT.md"
+            printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t10\n' >> "$W/state/timing.tsv"; ck >/dev/null
+            echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "waiting headline: $(cnt 'Stopped at build, waiting for you' "$T/out.html")" ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
             python3 - "$T/out.html" <<'PY'
 import html, re, sys

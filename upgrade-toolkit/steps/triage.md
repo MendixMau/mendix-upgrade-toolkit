@@ -355,5 +355,5 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    surfaced only at the gate. A rung that blocks stays INVALID however well the upgrade goes; do not start step 2
    promising PASS. Baseline item 9 runs it again on what the baseline measured.
 
-Output: `$W/versions.txt`, `$W/plan.txt` (stepupdate format: `<content id> <version> <Module>` per line, targets last),
+Output: `$W/versions.txt`, `$W/plan.txt` (stepupdate format: `<content id> <version> <Module>` per line, a cross-module association target before its owner: last, unless an owner is on the plan too, then before the owner, planorder.py --write),
 `$W/localedits.md`, `$W/release-impact.md` (required), `$W/replacements.md`, `$W/dojo-react.md`, `$W/stranded.md`, `$W/jarclash-before.md`, `$W/readiness.md`, scanner result plus scancover verdict, the playbook to follow.
