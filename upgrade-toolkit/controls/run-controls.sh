@@ -2438,6 +2438,12 @@ ctl pipeline-commit-storage-collapse-catch 0 '^NOTE commit .repair: x.: STORAGE 
 rm -rf $F42/v2cv; cp -R $F42/v2 $F42/v2cv
 F42C="$F42F; $F42E; eval \"\$(sed -n '/^die4() {/p; /^step_convert() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; APP=$F42/v2cv; MPR=\$APP/App.mpr; SOURCE=9.24.32; TARGET=11.6.3; RUN=$F42/w; project_version() { echo 9.24.32; }; major() { echo \${1%%.*}; }; disk_gate() { :; }; nj_meta() { :; }; nj_add() { :; }; nj_flush() { :; }; run_stepupdate() { :; }; replay_edits() { :; }; xo() { shift; case \"\$*\" in *convertcheck*) return 0;; *'mx convert'*) sh $F42/collapse.sh \$MPR; return 0;; *) return 0;; esac; }"
 ctl pipeline-convert-storage-collapse-catch 4 'convert 11\.6\.3 changed the MPR storage format' 'still the unconverted model' '^units=[1-9][0-9]* commits=1$' '!^after-convert-ran' -- bash -c "$F42C; trap 'echo units=\$(find $F42/v2cv/mprcontents -name \"*.mxunit\" | wc -l | tr -d \" \") commits=\$(git -C $F42/v2cv rev-list --count HEAD)' EXIT; step_convert 2>&1; echo after-convert-ran"
+# a real git failure inside commit_app (a pre-commit hook that exits 1 stands in for a full disk, index.lock, signing failure) is not a storage
+# refusal: callers run commit_app under `||`, so it must die 4 by itself with its own message, never return 1 as "refused (storage format)"
+rm -rf $F42/v2hk; cp -R $F42/v2 $F42/v2hk; printf '#!/bin/sh\necho hook-says-no >&2\nexit 1\n' > $F42/v2hk/.git/hooks/pre-commit; chmod +x $F42/v2hk/.git/hooks/pre-commit
+F42H="$F42C; APP=$F42/v2hk; MPR=\$APP/App.mpr; xo() { shift; case \"\$*\" in *'mx convert'*) echo edit >> \$APP/note.txt;; esac; return 0; }"
+ctl pipeline-convert-gitfail-not-storage-catch 4 "git commit 'convert 11\\.6\\.3' failed \\(not a storage refusal\\)" '!changed the MPR storage format' '!^after-convert-ran' -- bash -c "$F42H; step_convert 2>&1; echo after-convert-ran"
+ctl pipeline-commit-app-gitfail-not-refusal-catch 4 "git commit 'repair: x' failed \\(not a storage refusal\\)" '!^rc=' -- bash -c "$F42H; echo e >> \$APP/note.txt; rc=0; commit_app 'repair: x' repair row || rc=\$?; echo rc=\$rc"
 ctl pipeline-convert-storage-kept-pass 0 '^after-convert-ran$' '^commits=2$' -- bash -c "$F42C; xo() { shift; case \"\$*\" in *'mx convert'*) echo edit >> \$APP/note.txt;; esac; return 0; }; step_convert; echo after-convert-ran; echo commits=\$(git -C $F42/v2cv rev-list --count HEAD)"
 # mprstorage format test and its size fallback (F42-size): a v1 file left beside units is caught by FORMAT (small file, no size growth),
 # and an .mpr that cannot be read as SQLite (an LFS pointer, 6 MB of non-SQLite bytes here) falls back to the 10x/5 MB heuristic.
@@ -2475,6 +2481,11 @@ rm -rf $F42/su2; mkdir -p $F42/su2; cp -R $S2/base/. $F42/su2/
 (cd $F42/su2 && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base && mkdir -p .stepupdate && printf 'Q\told model-check question\nO\told option\n' > .stepupdate/stepcheck-stop.txt)
 ctl stepupdate-storage-collapse-clears-stale-stop-catch 4 'STORAGE FORMAT CHANGED' '!old model-check question' -- sh -c "UPG_UPDATE_CMD=\"cp $M/step1-adds/App.mpr {mpr} && rm -rf $F42/su2/mprcontents\" bash $B/stepupdate.sh $F42/su2 $F42/su.plan; rc=\$?; cat $F42/su2/.stepupdate/stepcheck-stop.txt 2>/dev/null; exit \$rc"
 ctl stepupdate-storage-collapse-tree-pass 0 '^units=[1-9][0-9]*$' '^last=stepupdate: ignore' -- sh -c "echo units=\$(find $F42/su/mprcontents -name '*.mxunit' | wc -l | tr -d ' '); echo last=\$(git -C $F42/su log -1 --format=%s)"
+
+# the guard exits 2 (cannot tell) is not a collapse: the step is committed, nothing undone (mutating the test to `!= 0` makes this red)
+rm -rf $F42/su3 $F42/bin2; mkdir -p $F42/su3 $F42/bin2; cp -R $S2/base/. $F42/su3/; (cd $F42/su3 && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
+for f in $B/*; do ln -s $f $F42/bin2/$(basename $f); done; rm $F42/bin2/mprstorage.sh; printf '#!/bin/sh\necho "mprstorage: no .mpr" >&2\nexit 2\n' > $F42/bin2/mprstorage.sh
+ctl stepupdate-storage-guard-unsure-not-undone-pass 0 'committed [0-9a-f]{7}' '!STORAGE FORMAT' '!Step undone' -- env UPG_UPDATE_CMD="cp $M/step1-adds/App.mpr {mpr}" bash $F42/bin2/stepupdate.sh $F42/su3 $F42/su.plan
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
 # model and the before log for anything else, so step 1 adds errors: the step is undone, nothing is committed, exit 4, and the stop file

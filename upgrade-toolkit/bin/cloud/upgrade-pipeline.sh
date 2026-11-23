@@ -765,8 +765,10 @@ commit_app() { # commit_app "subject" KIND RULE: commit all changes in the app r
   # Upgrade-Step: S-n when the step records know a step for that kind (steps.py trailer; UPG_STEPS_WORK is the work folder, exported below)
   [ "$DRY" = 1 ] && { say "+ git -C $APP commit -am '$1' (Upgrade-Change: $2 $3)"; return 0; }
   storage_ok "commit '$1'" || return 1   # GF-42: never commit a storage-format change (undone; the caller decides, convert stops)
-  git_app add -A > /dev/null
-  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1
+  # callers run commit_app under `||`, which switches errexit and the ERR trap off in here: a real git failure must die by hand,
+  # so that `return 1` above means a storage refusal and nothing else
+  git_app add -A > /dev/null || die4 "git add failed for '$1' (not a storage refusal), see $LOG"
+  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1 || die4 "git commit '$1' failed (not a storage refusal), see $LOG"
 }
 resolve_app() {
   if [ -f "$WORK/state/app-dir" ]; then APP=$(cat "$WORK/state/app-dir")
