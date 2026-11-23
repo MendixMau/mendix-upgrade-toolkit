@@ -784,8 +784,11 @@ commit_app() { # commit_app "subject" KIND RULE: commit all changes in the app r
   # carries the trailers Changed-By: toolkit and Upgrade-Change: KIND RULE (trust.md section 3; bin/changelog.py reads them), and
   # Upgrade-Step: S-n when the step records know a step for that kind (steps.py trailer; UPG_STEPS_WORK is the work folder, exported below)
   [ "$DRY" = 1 ] && { say "+ git -C $APP commit -am '$1' (Upgrade-Change: $2 $3)"; return 0; }
-  git_app add -A > /dev/null
-  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1
+  storage_ok "commit '$1'" || return 1   # GF-42: never commit a storage-format change (undone; the caller decides, convert stops)
+  # callers run commit_app under `||`, which switches errexit and the ERR trap off in here: a real git failure must die by hand,
+  # so that `return 1` above means a storage refusal and nothing else
+  git_app add -A > /dev/null || die4 "git add failed for '$1' (not a storage refusal), see $LOG"
+  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1 || die4 "git commit '$1' failed (not a storage refusal), see $LOG"
 }
 resolve_app() {
   if [ -f "$WORK/state/app-dir" ]; then APP=$(cat "$WORK/state/app-dir")
@@ -948,7 +951,7 @@ step_fetch() {
       git_app add -- .gitignore > /dev/null
       git_app commit -q -m "toolkit: ignore tool folders" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config gitignore-tool-folders')" -- .gitignore >> "$LOG" 2>&1 || true
     fi
-    if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
+    if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start || die4 "the rung-start commit was refused (storage format changed); undone, see $LOG"; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
     # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
     # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark). The hash goes to
@@ -1279,7 +1282,7 @@ step_baseline() {
     # LDMS: a publisher SCSS import with the wrong letter case (components/ for Components/) fails the theme compile of the OLD app on
     # Linux too, and repair row 11 only ran for the new one: fix it before the old build, one commit
     x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
-    commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
+    commit_app "linux: SCSS import case fix (old app)" repair repair-row-11 || note "SCSS case fix refused and undone (storage format)"
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
     if [ "$rc" != 0 ] && modcase_fix "$LOG"; then   # LDMS: add-on cache folder case on Linux (repair row 34): link, build once more
       rc=0; x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
@@ -1289,7 +1292,7 @@ step_baseline() {
       nj_meta agent; nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
       nj_flush
     fi
-    commit_app "build: regenerated stubs" config build-stubs
+    commit_app "build: regenerated stubs" config build-stubs || note "stub commit refused and undone (storage format)"
   fi
   if db_exists "$X_FROZEN"; then
     frozen_owner
@@ -1603,7 +1606,7 @@ step_convert() {
   rc=0; xo "$WORK/convertcheck.out" python3 "$B/convertcheck.py" "$WORK/convert-$TARGET.log" "$APP" --target "$TARGET" || rc=$?
   [ "$DRY" = 1 ] || cat "$WORK/convertcheck.out" >> "$LOG"
   [ "$rc" = 0 ] || die4 "NOT CONVERTED to $TARGET (convertcheck exit $rc): see $WORK/convertcheck.out and $WORK/convert-$TARGET.log. A 10.x below 10.24 must take the 10.24 rung first"
-  commit_app "convert $TARGET" convert mx-convert
+  commit_app "convert $TARGET" convert mx-convert || die4 "convert $TARGET changed the MPR storage format (MPR v2 became a single-file v1 .mpr): the change was undone, so $APP is still the unconverted model and nothing was committed. See $LOG; run the convert on a copy by hand and tell the toolkit owner"
   rc=0; xo "$WORK/localedits-post-convert.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits-post-convert.md" --json "$WORK/localedits-post-convert.json" || rc=$?
 }
 
@@ -1753,7 +1756,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
       continue
     fi
     [ ! -f "$WORK/replay-held.txt" ] || { grep -v "^$mod exit " "$WORK/replay-held.txt" > "$WORK/replay-held.txt.n" || true; mv "$WORK/replay-held.txt.n" "$WORK/replay-held.txt"; }
-    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod"
+    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod" || { note "replay of $mod refused and undone (storage format): the local edits of $mod are NOT in the model"; continue; }
     note "replayed the local edits of $mod from $f"
   done
 }
@@ -1942,14 +1945,34 @@ mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   fi
 }
 has_code() { grep -q "\[$1\]" "$CHECK_LOG" 2> /dev/null; }
+# GF-42: MPR v2 (Git, mprcontents/*.mxunit) must stay v2. bin/mprstorage.sh compares the work tree with HEAD; a collapse is undone
+mpr_v2() { [ -n "$(find "$APP/mprcontents" -name '*.mxunit' -print -quit 2> /dev/null)" ]; }
+storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes the work tree and returns 1
+  local msg
+  msg=$(bash "$B/mprstorage.sh" guard "$APP" 2> /dev/null) && return 0
+  [ -n "$msg" ] || return 0
+  note "$1: $msg"; say "        REFUSED $1: $msg"
+  git_app checkout -q -- . ; git_app clean -fdq; return 1
+}
+mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
+update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
+  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR"
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+}
+try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
+  if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP
+  else try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+}
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
   local subj=$1 rule=$2 codes=$3 prev rc=0; shift 3
   prev=$CHECK_LOG
   x "$@" || { note "fixer '$subj' failed (exit $?): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  # GF-42: a repair tool that rewrote MPR v2 as v1 lowers the error count too; the format is checked before the errors are
+  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then CHECK_LOG=$prev; return 0; fi
   mxcheck
   [ "$DRY" = 1 ] && return 0
   python3 "$B/checkdiff.py" "$prev" "$CHECK_LOG" --fixed "$codes" >> "$LOG" 2>&1 || rc=$?
-  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule"; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
+  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { CHECK_LOG=$prev; return 0; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
   else note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
 }
 # row 37 (cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents): every
@@ -1966,7 +1989,7 @@ widgetroute_pass() { # widgetroute_pass replace|wrap|remove
     --done "$WORK/widgetroute-done.new" --mdl "$WORK/widgetroute.mdl" || rc=$?
   [ "$rc" -le 1 ] || return "$rc"
   if [ "$1" = remove ]; then [ ! -s "$WORK/widgetroute.mdl" ] || mxcli_run exec "$WORK/widgetroute.mdl" -p "$MPR"
-  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  else update_widgets; fi
 }
 widgetroute_undo() { # the person picked B on the one-OK list: revert what the test build did for it, once
   local ok="$WORK/widget-routes-approved.txt" done="$WORK/widgetroute-done.txt" h subj pat
@@ -1978,7 +2001,7 @@ widgetroute_undo() { # the person picked B on the one-OK list: revert what the t
     for h in $(git_app log --format='%H %s' | awk -v s="repair: $subj" 'index($0, " " s) && / \(widgetroute\)$/ {print $1}'); do
       git_app revert --no-commit "$h" > /dev/null 2>&1 || { note "widgetroute: could not revert $h, see git -C $APP status"; git_app revert --abort > /dev/null 2>&1; return 0; }
     done
-    commit_app "repair: undone on the person's B ($subj, widgetroute)" repair repair-widgetroute
+    commit_app "repair: undone on the person's B ($subj, widgetroute)" repair repair-widgetroute || { note "widgetroute: the undo of $subj was refused (storage format)"; return 0; }
     if [ "$subj" = "deprecated widgets" ]; then sed -i.bak -E '/^(REPLACED|APPROXIMATED) /d' "$done"; else sed -i.bak '/^REMOVED-MODULE /d' "$done"; fi
     rm -f "$done.bak"; note "widgetroute: B picked, '$subj' undone"
   done
@@ -2070,7 +2093,7 @@ $pjl"
   # stay (WM1: pdfbox 2.0.24 next to vendorlib 3.0.7, javac failed in CommunityCommons Misc.java:643)
   rc=0; x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git || rc=$?
   x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git --apply || true
-  commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3
+  commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3 || note "jardedupe commit refused and undone (storage format)"
   # module roles an update ADDED, mapped by name (WM1: Atlas_Core 4's language selector needs Atlas_Core.User; unmapped,
   # every page on an Atlas layout failed "for security reasons" while mx check stayed clean). Guest role: never granted.
   if [ -f "$WORK/original.mpr" ]; then
@@ -2079,7 +2102,7 @@ $pjl"
     if [ "$DRY" != 1 ] && [ -s "$WORK/modroles.mdl" ]; then
       rc=0; xo "$WORK/modroles-exec.out" mxcli_run exec "$WORK/modroles.mdl" -p "$MPR" || rc=$?
       [ "$rc" = 0 ] || note "modroles: exec failed (exit $rc), see $WORK/modroles-exec.out"
-      commit_app "repair: map module roles the updates added" repair repair-modroles
+      commit_app "repair: map module roles the updates added" repair repair-modroles || note "modroles commit refused and undone (storage format)"
     fi
     [ "$DRY" = 1 ] || note "$(tail -1 "$WORK/modroles.txt") (see $WORK/modroles.txt)"
   fi
@@ -2107,16 +2130,16 @@ $pjl"
   fi
   [ "$DRY" != 1 ] || widget_routes
   # row 5, row 6
-  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 update_widgets; fi
   if [ "$DRY" = 1 ] || has_code CE6087; then
-    try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
+    try_dprops "design properties"
   fi
   # row 36: an app theme rule written for the Data Widgets 2 markup (display: block !important on .widget-datagrid .table)
   # overrides the Data Widgets 3 grid: every cell its own row, while mx check, build and smoke pass (cold 9.24 -> 10.24).
   # Theme only, so no mx check round: its own commit, the SAY line to the person, and a screen cause for the screens rung
   rc=0; xo "$WORK/gridlayout.out" python3 "$B/repair/gridlayout.py" "$APP" --causes "$WORK/screen-causes.txt" || rc=$?
   if [ "$DRY" != 1 ] && grep -q '^FIXED' "$WORK/gridlayout.out" 2> /dev/null; then
-    commit_app "repair: data grid 2 layout (old theme rule commented out)" repair repair-row-36
+    commit_app "repair: data grid 2 layout (old theme rule commented out)" repair repair-row-36 || note "grid layout commit refused and undone (storage format)"
     say "        repair: $(sed -n 's/^SAY //p' "$WORK/gridlayout.out")"
   elif [ "$rc" != 0 ]; then note "gridlayout exit $rc (see $WORK/gridlayout.out): not repaired"; fi
   # all fixed rows done: where do we stand
@@ -2127,8 +2150,8 @@ $pjl"
     local brnd=0 bprev
     while [ "$brnd" -lt "${UPG_BUILD_ROUNDS:-2}" ] && [ "$n" != 0 ]; do
       brnd=$((brnd + 1)); bprev=$n
-      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
-      if has_code CE6087; then try_fix "design properties (round $((brnd + 1)))" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 update_widgets; fi
+      if has_code CE6087; then try_dprops "design properties (round $((brnd + 1)))"; fi
       mxcheck; n=$(open_errors "$CHECK_LOG")
       if [ "$n" -ge "$bprev" ]; then note "build loop round $((brnd + 1)): $bprev -> $n errors, no progress: stop"; break; fi
       note "build loop round $((brnd + 1)): $bprev -> $n errors"
@@ -2154,7 +2177,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
   # the stubs come from the model, built or not: committed before a stop too. Cold rfq rung 2: a javac stop left 18 stub files
   # uncommitted, and the rerun from update died in stepupdate ("uncommitted changes; commit or stash first", exit 4)
-  commit_app "build: regenerated stubs" config build-stubs
+  commit_app "build: regenerated stubs" config build-stubs || note "stub commit refused and undone (storage format)"
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
     nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
