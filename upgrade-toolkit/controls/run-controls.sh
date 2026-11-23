@@ -3089,6 +3089,11 @@ rm -rf $S/own; cp -R $TH/own $S/own
 ctl themefiles-authored-edited-catch 1 '^FILES-EDITED themesource/administration/web/_part3\.scss \(newest change is the app.s own commit [0-9a-f]{7}, not a step\)' '!_part4' -- python3 $B/themefiles.py authored $TH/own Administration
 thapp ownstep $TH/vars-same.scss
 (cd $TH/ownstep && echo '$a: 2;' >> themesource/administration/web/_variables.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)")
+# review of GF-55: a toolkit commit is not the app's own work, whatever its subject: replay:/repair:/rung start carry "Changed-By: toolkit"
+thapp owntk $TH/vars-same.scss
+(cd $TH/owntk && echo '$a: 2;' >> themesource/administration/web/_variables.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)" -m "Changed-By: toolkit" \
+  && echo 'export const a = 3;' >> javascriptsource/administration/actions/util.js && git -c user.email=c@c -c user.name=ctl commit -qam "repair: restore the module's script" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair x')")
+ctl themefiles-authored-toolkit-trailer-pass 0 '^no file of Administration has an own commit as its newest' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/owntk Administration
 ctl themefiles-authored-step-only-pass 0 '^no file of Administration has an own commit as its newest' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/ownstep Administration
 ctl stepupdate-files-authored-edited-catch 2 'FILES-EDITED themesource/administration/web/_part3\.scss \(newest change is the app.s own commit' 'own theme/JavaScript files|app.s own commits changed' 'STOP: update of Administration refused: its files are the app.s own' '!--force-ui' '!committed [0-9a-f]{7}' -- env UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/own $S/own.plan"
 rm -rf $S/own2; cp -R $TH/own $S/own2; cp $TH/own.plan $S/own2.plan
@@ -3097,7 +3102,16 @@ thapp skel $TH/vars-same.scss; cp $TH/skel.plan $S/skel.plan
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/skel/themesource/administration/web/_part$i.scss; done
 (cd $TH/skel && git add -A . && git -c user.email=c@c -c user.name=ctl commit -q --amend --no-edit)
 rm -rf $S/skel; cp -R $TH/skel $S/skel
-ctl stepupdate-files-drop-not-accepted-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'STOP: Administration went from [0-9]+ to [0-9] files' '--accept-unsaved does not cover this' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skel $S/skel.plan --accept-unsaved Administration"
+# review of GF-55: with every file tracked and none of them the app's own (git proved it: authored exit 0) a big drop is a package
+# restructure, not a dead end: no FILES-DROP stop. Only when git could not say (files untracked, authored exit 2) does the backstop
+# stop, and --accept-drop <Module> overrides it
+ctl stepupdate-files-drop-git-clean-restructure-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skel $S/skel.plan --accept-unsaved Administration"
+thapp sku $TH/vars-same.scss; cp $TH/sku.plan $S/sku.plan
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/sku/themesource/administration/web/_part$i.scss; done
+(cd $TH/sku && git rm -rq --cached themesource javascriptsource && git -c user.email=c@c -c user.name=ctl commit -qm "untrack the module files")
+rm -rf $S/sku $S/sku2; cp -R $TH/sku $S/sku; cp -R $TH/sku $S/sku2
+ctl stepupdate-files-drop-not-accepted-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'STOP: Administration went from [0-9]+ to [0-9] files' '--accept-unsaved does not cover this' 'git could not show whether these files are the app.s own' 'rerun with --accept-drop Administration' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku $S/sku.plan --accept-unsaved Administration"
+ctl stepupdate-files-drop-accept-drop-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku2 $S/sku.plan --accept-unsaved Administration --accept-drop Administration"
 # GF-37: a module whose only Java "edit" is a package file the app deleted holds no user code: a FILES edit the update may restore
 thapp jdel $TH/vars-same.scss; cp $TH/jdel.plan $S/jdel.plan
 (cd $TH/jdel && git rm -q javasource/administration/actions/Act.java && mkdir -p javasource/administration/proxies && echo 'class P {}' > javasource/administration/proxies/P.java && git add -A . && git -c user.email=c@c -c user.name=ctl commit -qm "delete the java action")
@@ -8779,11 +8793,17 @@ ctl stepupdate-target-mpk-reverted-pass 0 '^clean$' -- sh -c "cd $S/as8 && test 
 # GF-48: a --force-ui step whose log said "will be replaced: 3" but saved nothing (constants, a JAR dependency) committed with
 # the values reset. It stops before the commit (derived logs: CAPTURE.txt); --accept-unsaved commits it and lists it
 newapp fa1 '111349 10.6.2 MendixSSO\n'
-ctl stepupdate-forced-nothing-saved-stop-catch 2 'UNSAVED-FORCED: the forced update of MendixSSO replaced 3 locally changed element' 'STOP: MendixSSO would lose 3 element\(s\) unsaved' 'Nothing committed' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa1 $S/fa1.plan --force-ui MendixSSO
+ctl stepupdate-forced-nothing-saved-stop-catch 2 'UNSAVED-FORCED: the forced update of MendixSSO replaced 2 locally changed element' 'STOP: MendixSSO would lose 2 element\(s\) unsaved' '!JAR' 'Nothing committed' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa1 $S/fa1.plan --force-ui MendixSSO
 newapp fa2 '111349 10.6.2 MendixSSO\n'
 ctl stepupdate-forced-nothing-saved-unattended-catch 1 'KEPT: MendixSSO .*FORCED-UNSAVED' 'kept: MendixSSO FORCED-UNSAVED' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash -c "bash $B/stepupdate.sh $S/fa2 $S/fa2.plan --force-ui MendixSSO --unattended; rc=\$?; cat $S/fa2/.stepupdate/kept.txt | sed 's/^/kept: /'; exit \$rc"
 newapp fa3 '111349 10.6.2 MendixSSO\n'
 ctl stepupdate-forced-nothing-saved-accept-pass 0 'accepted \(--accept-unsaved MendixSSO\)' 'committed [0-9a-f]{7}' 'UNSAVED \(replay by hand\): MendixSSO' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa3 $S/fa3.plan --force-ui MendixSSO --accept-unsaved MendixSSO
+# review of GF-48: one element saved is no reason to ignore the ones that were not (a page saved, two constants lost), and a JAR_DEPENDENCY
+# row ("not evidence of an edit" in the log itself) is no loss at all
+newapp fa4 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-partial-save-stop-catch 2 'UNSAVED-FORCED: the forced update of MendixSSO replaced 2 locally changed element' 'STOP: MendixSSO would lose 2 element\(s\) unsaved' 'Nothing committed' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-partial.log FAKE_FORCE=$L28/update-force-partial.log FAKE_SAVED=$FAKE_SAVED_ASSOC FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa4 $S/fa4.plan --force-ui MendixSSO
+newapp fa5 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-jar-only-no-stop-pass 0 'committed [0-9a-f]{7}' '!UNSAVED-FORCED' '!STOP' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-jaronly.log FAKE_FORCE=$L28/update-force-jaronly.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa5 $S/fa5.plan --force-ui MendixSSO
 # the pipeline notes a saved association that no replay script creates
 AU=$T/assoc-unreplayed; mkdir -p $AU/saved-edits/MendixSSO $AU/replay
 cp $L28/saved-edits/MendixSSO/association-PurchaseApprovals_Request_MendixSSOUser_Requester.mdl $AU/saved-edits/MendixSSO/

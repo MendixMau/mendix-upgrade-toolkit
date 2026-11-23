@@ -7,7 +7,7 @@
 #
 #   stepupdate.sh <app dir> <plan.txt> [--approved approved.txt] [--baseline original.mpr] [--dry-run]
 #                 [--force-ui Mod,Mod] [--port-java Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--skip-reason Mod=why] [--unattended] [--no-fallback]
-#                 [--accept-unsaved Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
+#                 [--accept-unsaved Mod,Mod] [--accept-drop Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
 #
 # plan.txt: one update per line, "<content id> <version> <ModuleName>", # comments allowed. Order matters: put the
 # TARGET modules of cross-module associations last (idcheck.py <app> --xmod lists them); but a target goes BEFORE the
@@ -132,7 +132,7 @@ bin=$(cd "$(dirname "$0")" && pwd)
 # kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
 steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
-approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; skipr=""; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""; chkacc=""; apptotal=""
+approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; skipr=""; unattended=0; fallback=1; acceptun=","; acceptdrop=","; convmade=1; ledits=""; chkacc=""; apptotal=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --approved) approved=$2; shift 2;;
@@ -147,6 +147,7 @@ while [ $# -gt 0 ]; do
     --unattended) unattended=1; shift;;
     --no-fallback) fallback=0; shift;;
     --accept-unsaved) acceptun=",$2,"; shift 2;;
+    --accept-drop) acceptdrop=",$2,"; shift 2;;
     --no-convert-made) convmade=0; shift;;
     --localedits) ledits=$2; shift 2;;
     --check-accepted) chkacc=$2; shift 2;;
@@ -307,7 +308,7 @@ while read -r cid ver mod rest; do
   prevp=("$mpr"); [ -n "$(git -C "$app" ls-tree HEAD -- "$mcdir" 2> /dev/null)" ] && prevp+=("$mcdir")
   git -C "$app" archive HEAD -- "${prevp[@]}" | tar -x -C "$st/prevtree" || exit 2
   prevmpr="$st/prevtree/$mpr"
-  fstate=none; authored=0
+  fstate=none; authored=0; arc=9
   stepcheck_before
   if hasfiles "$mod"; then
     # T5-17: files outside the model, compared with the installed package BEFORE the update, and kept as a snapshot
@@ -551,22 +552,27 @@ PY
       echo "   saved edits for replay: $saved/$mod ($nsaved files); replay them before the gate"
     fi
     # GF-48: --force replaces every locally changed element the log lists, saved or not. When the log names elements the
-    # save step could not keep (constants, JAR dependencies), they are gone: STOP before the commit, never commit "saved 0"
+    # save step could not keep (constants), they are gone: STOP before the commit, whatever else was saved. JAR_DEPENDENCY rows
+    # never count: the log itself says they are "not evidence of an edit" (ASSUMED: only the other element kinds are lost work)
     nlost=$(python3 - "$log" <<'PY'
 import re, sys
 t = open(sys.argv[1], errors="replace").read()
-m = re.search(r"Proceeding under --force; (\d+) locally changed element\(s\) will be replaced", t)
+m = re.search(r"Proceeding under --force; (\d+) locally changed element\(s\) will be replaced:\n((?:[ \t]+\S.*\n?)*)", t)
 s = re.search(r"Saved (\d+) locally changed element", t)
-print((int(m.group(1)) if m else 0) - (int(s.group(1)) if s else 0))
+if not m:
+    print(0); sys.exit()
+rows = [r.split() for r in m.group(2).splitlines() if r.strip()]
+jar = sum(1 for r in rows if r and r[0] == "JAR_DEPENDENCY")
+print(max(0, int(m.group(1)) - jar - (int(s.group(1)) if s else 0)))
 PY
 )
-    if [ "${nlost:-0}" -gt 0 ] && [ "$nsaved" = 0 ] && [ $nobase = 0 ]; then
-      echo "   UNSAVED-FORCED: the forced update of $mod replaced $nlost locally changed element(s) that were saved nowhere (constants, a JAR dependency)."
+    if [ "${nlost:-0}" -gt 0 ] && [ $nobase = 0 ]; then
+      echo "   UNSAVED-FORCED: the forced update of $mod replaced $nlost locally changed element(s) that were saved nowhere (constants), whatever else it saved."
       echo "   Their values were reset by the update."
       case "$acceptun" in
-        *",$mod,"*) rec unsaved.txt "$mod" "$mod $ver --force replaced $nlost element(s), none saved (--accept-unsaved): set them again by hand"
+        *",$mod,"*) rec unsaved.txt "$mod" "$mod $ver --force replaced $nlost element(s) it did not save (--accept-unsaved): set them again by hand"
                     echo "   accepted (--accept-unsaved $mod): committing; listed in .stepupdate/unsaved.txt";;
-        *) keep "$mod" "FORCED-UNSAVED: --force replaced $nlost element(s) and saved none of them" && continue
+        *) keep "$mod" "FORCED-UNSAVED: --force replaced $nlost element(s) and did not save them" && continue
            echo "STOP: $mod would lose $nlost element(s) unsaved ($log). Keep the module (git checkout -- . && git clean -fd), or note the values"
            echo "      from the log, rerun with --accept-unsaved $mod and set them again by hand. Nothing committed."; exit 2;;
       esac
@@ -605,11 +611,15 @@ PY
           # --accept-unsaved does not cover it (a field run accepted it and got a 4-file skeleton for 35 own SCSS files)
           nbefore=$(find "$st/saved/$mod" -type f 2>/dev/null | wc -l | tr -d ' ')
           nafter=$(python3 "$bin/themefiles.py" count "$app" "$mod" 2> /dev/null || echo "$nbefore")
-          if [ "$nbefore" -ge 8 ] && [ $((nafter * 2)) -le "$nbefore" ]; then
+          # git has no own commit to lose (authored said unedited, arc 0): a real package restructure, not a dead end. The backstop
+          # applies only when git could not say (arc 2) and --accept-drop <Module> has not been given (ASSUMED: half and 8 files)
+          if [ "$nbefore" -ge 8 ] && [ $((nafter * 2)) -le "$nbefore" ] && [ "$arc" != 0 ] && [ -z "$(echo "$acceptdrop" | grep ",$mod,")" ]; then
             echo "   FILES-DROP: $mod had $nbefore theme/JavaScript file(s) before the update and has $nafter after it: that is own work lost, not a package refresh"
             keep "$mod" "FILES-DROP: the update cut $mod's files from $nbefore to $nafter (unproven, treated as edited)" && continue
             echo "STOP: $mod went from $nbefore to $nafter files ($log); --accept-unsaved does not cover this. Keep the module at the installed version"
-            echo "      (git checkout -- . && git clean -fd) or merge the saved copies in $st/saved/$mod by hand. Nothing committed."; exit 2
+            echo "      (git checkout -- . && git clean -fd) or merge the saved copies in $st/saved/$mod by hand."
+            echo "      (git could not show whether these files are the app's own, so the backstop applies.) If the drop is a real package"
+            echo "      restructure, rerun with --accept-drop $mod. Nothing committed."; exit 2
           fi
           case "$acceptun" in
             *",$mod,"*) rec overwritten.txt "$mod" "$mod $ver $nov file(s) replaced, UNPROVEN (--accept-unsaved), saved under $st/saved/$mod"; files_run="$files_run $mod "

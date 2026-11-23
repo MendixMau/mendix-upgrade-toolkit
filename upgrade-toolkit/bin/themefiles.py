@@ -380,7 +380,7 @@ def history(app, mod, mpr, installed=None, limit=300):
 # ---------------------------------------------------------------------------------------------- authored (GF-55)
 # Producer: stepupdate.sh runs it after `history` said FILES-UNKNOWN. A package that cannot be compared proves nothing
 # either way, but git still knows who touched each file: a theme/JavaScript file whose newest commit is neither a toolkit
-# "step:" commit nor the first commit of the repository was changed by the app's own team, so it counts as EDITED.
+# commit ("step:" subject or a "Changed-By: toolkit" trailer) nor the first commit of the repository was changed by the app's own team, so it counts as EDITED.
 # A field run (GF) took 35 own SCSS files as "unknown", accepted the update and got a 4-file skeleton back.
 STEPSUBJ = re.compile(r"^step:")
 
@@ -397,13 +397,16 @@ def authored(app, mod):
         if not files:
             raise Unknown("no tracked file under the module's folders")
         first = set(git(app, "rev-list", "--max-parents=0", "HEAD").split())
+        # every toolkit commit (replay:, repair:, rung start, toolkit:, build:, step:) carries the trailer "Changed-By: toolkit":
+        # it is not the app's own work, whatever its subject says (review of the GF-55 fix)
+        toolkit = set(git(app, "log", "--format=%H", "--grep=^Changed-By: toolkit$", "HEAD").split())
         last, cur = {}, None
         for ln in git(app, "log", "--format=\x01%H\x02%s", "--name-only", "--", *dirs).splitlines():
             if ln.startswith("\x01"):
                 cur = ln[1:].split("\x02", 1)
             elif cur and ln in files and ln not in last:
                 last[ln] = cur
-        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and not STEPSUBJ.match(subj))
+        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and sha not in toolkit and not STEPSUBJ.match(subj))
         if own:
             return "edited", [f"FILES-EDITED {f} (newest change is the app's own commit {last[f][0][:7]}, not a step)" for f in own]
         return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files)"]
