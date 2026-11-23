@@ -2649,7 +2649,7 @@ record_runlog() {
       { printf '\nRun log: no row added to FIELD-RUNS.md (runlog.py exit %s). %s\n' "$rc" "$why"; } >> "$WORK/gate-summary.md" 2> /dev/null || true
       [ -f "$WORK/NEEDS-JUDGMENT.md" ] || printf '# NEEDS JUDGMENT: information only, the run result is unchanged\n\nwork: %s\n' "$WORK" >> "$WORK/NEEDS-JUDGMENT.md" 2> /dev/null || true
       {
-        printf '\n## Run log not added (information; the exit code and the verdict are unchanged)\n\nFIELD-RUNS.md has no row for this run: %s\nFix the cause and run: python3 -I %s/runlog.py --work %s --app <CODE> --type <TEXT>\nThen commit FIELD-RUNS.md through a toolkit PR.\n' "$why" "$B" "$WORK"
+        printf '\n## Run log not added (information; the exit code and the verdict are unchanged)\n\nFIELD-RUNS.md has no row for this run: %s\nFix the cause and run: python3 -I %s/runlog.py --work %s --log "%s" --app <CODE> --type <TEXT>\nThen commit FIELD-RUNS.md through a toolkit PR.\n' "$why" "$B" "$WORK" "$log"
       } >> "$WORK/NEEDS-JUDGMENT.md" 2> /dev/null || true
     fi
   fi

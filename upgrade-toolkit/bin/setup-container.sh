@@ -201,15 +201,21 @@ mxcli_checkout() {  # $1 = source dir: MXCLI_REF (tag, branch or commit) at dept
   git -C "$1" remote get-url origin >/dev/null 2>&1 || git -C "$1" remote add origin https://github.com/mendixlabs/mxcli
   GIT_LFS_SKIP_SMUDGE=1 git -C "$1" fetch -q --depth 1 origin "$MXCLI_REF" && git -C "$1" checkout -q -f --detach FETCH_HEAD
 }
-# GF-3: the jar can be placed and still unreadable by the java on PATH (a wrapper that runs Java in a dev container cannot see ~/.m2)
+# GF-3: the jar can be placed and still unreadable by the java the build runs (a wrapper that runs Java in a dev container cannot see
+# ~/.m2). antlr4-tools starts the java found on PATH and ignores JAVA_HOME, so a working $JAVA_HOME/bin goes first on PATH here, for this
+# smoke test and for the grammar/build steps after it; the test then runs the very java `command -v java` finds.
+java_home_first() {
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] && "$JAVA_HOME/bin/java" -version >/dev/null 2>&1; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+  fi
+}
 antlr_smoke() {
-  local j=java out
-  [ -z "${JAVA_HOME:-}" ] || j=$JAVA_HOME/bin/java
-  command -v "$j" >/dev/null 2>&1 || return 0   # no java: antlr4-tools fetches its own
+  local j out; j=$(command -v java 2>/dev/null) || return 0   # no java: antlr4-tools fetches its own
   out=$("$j" -cp "$ANTLR_JAR" org.antlr.v4.Tool 2>&1) && return 0
-  echo "setup: the java on PATH ($(command -v "$j")) cannot read $ANTLR_JAR (java -cp ... org.antlr.v4.Tool failed: $(echo "$out" | grep -v "^Picked up" | head -1 | cut -c1-120)). Set JAVA_HOME to a host JDK (a JDK 17 or newer, not a wrapper that runs Java elsewhere) and rerun" >&2
+  echo "setup: the java the build will use ($j) cannot read $ANTLR_JAR (java -cp ... org.antlr.v4.Tool failed: $(echo "$out" | grep -v "^Picked up" | head -1 | cut -c1-120)). Put a host JDK's bin folder (a JDK 17 or newer, not a wrapper that runs Java elsewhere) first on PATH, or set JAVA_HOME to that JDK (setup puts \$JAVA_HOME/bin first), and rerun" >&2
   exit 2
 }
+if want antlr || want mxcli; then java_home_first; fi
 if want antlr && [ ! -x "$R/tools/mxcli-linux" ]; then antlr_jar; antlr_smoke; fi
 if want mxcli; then
   # our own earlier build of another ref is rebuilt; a binary somebody put at tools/mxcli-linux is theirs: warned, not replaced
@@ -328,7 +334,8 @@ if want env; then
     [ -n "$b" ] && echo "export UPG_BRAIN=$b"
     echo "$END"
   } > "$R/env.block.$$"
-  { [ ! -f "$R/env.sh" ] || awk -v b="$BEG" -v e="$END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$R/env.sh"; cat "$R/env.block.$$"; } > "$R/env.sh.$$" &&
+  # the block goes FIRST: env.sh is sourced top to bottom, so bin/cloud/setup.sh's lines (its UPG_EXTRA carries https_proxy and NO_PROXY) win over ours
+  { cat "$R/env.block.$$"; [ ! -f "$R/env.sh" ] || awk -v b="$BEG" -v e="$END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$R/env.sh"; } > "$R/env.sh.$$" &&
     mv "$R/env.sh.$$" "$R/env.sh"
   rm -f "$R/env.block.$$"
   printf '# GF-5: the one env file is env.sh\n. "%s/env.sh"\n' "$R" > "$R/upg-env.sh"

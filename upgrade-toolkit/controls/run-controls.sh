@@ -4046,7 +4046,7 @@ printf '#!/bin/sh\necho "E: Unable to locate package rsync" >&2; exit 100\n' > $
 printf '#!/bin/sh\ncase "$*" in *"import sys"*) echo /fake/python3;; *"-m pip install"*) for a; do p=$a; done; touch %s/pip-$p;; *"import bson"*) [ -f %s/pip-pymongo ];; *"import bcrypt"*) [ -f %s/pip-bcrypt ];; *) exit 0;; esac\n' $SC $SC $SC > $SC/py-state
 chmod +x $SC/bin/* $SC/bin2/* $SC/bin3/* $SC/py-state
 JAR=4.13.2/antlr4-4.13.2-complete.jar; JD=$SC/home/.m2/repository/org/antlr/antlr4
-setup() { local h=$1; shift; env HOME=$SC/$h "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
+setup() { local h=$1; shift; env -u JAVA_HOME HOME=$SC/$h "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
 ctl setup-antlr-mirror-catch 0 'antlr jar: https://repo1\.maven\.org/maven2 failed' 'antlr jar placed from https://maven-central\.storage-download\.googleapis\.com/maven2' -- setup home PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
 ctl setup-antlr-jar-pass 0 '^PK' '!\.part' -- sh -c "head -c 2 $JD/$JAR; echo; ls $JD/4.13.2"
 ctl setup-antlr-present-pass 0 'antlr jar present' '!placed from|failed' -- setup home PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
@@ -4187,8 +4187,14 @@ ctl setup-gf1-build-toolkit-path-untouched-pass 0 '^none$' -- sh -c "ls -A $SC/g
 ctl setup-gf1-link-other-checkout-catch 0 'WARNING: .*mendix-upgrade-toolkit is not this repo' 'left alone' -- setup gf1b UPG_SETUP_STEPS=link
 ctl setup-gf1-link-other-checkout-kept-pass 0 '^dir$' -- sh -c "[ -d $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && [ ! -L $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && echo dir"
 # GF-3: the jar is smoke-tested with the java on PATH; a java that cannot read it stops setup and says what to set
-ctl setup-gf3-antlr-java-cannot-read-catch 2 'cannot read .*antlr4-4\.13\.2-complete\.jar' 'Set JAVA_HOME to a host JDK' '!antlr jar present' -- setup gf3a PATH=$SC/bin:$NR FAKE_JAVA=fail UPG_SETUP_STEPS=antlr
+ctl setup-gf3-antlr-java-cannot-read-catch 2 'the java the build will use \(.*/bin/java\) cannot read .*antlr4-4\.13\.2-complete\.jar' 'first on PATH, or set JAVA_HOME' '!antlr jar present' -- setup gf3a PATH=$SC/bin:$NR FAKE_JAVA=fail UPG_SETUP_STEPS=antlr
 ctl setup-gf3-antlr-java-reads-pass 0 'antlr jar placed|antlr jar present' '!JAVA_HOME' -- setup gf3b PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
+# the java on PATH is the broken wrapper, JAVA_HOME has a working one: setup puts JAVA_HOME first and smoke-tests that one
+mkdir -p $SC/jh/bin; cp $SC/bin/java $SC/jh/bin/java; printf '#!/bin/sh\necho "wrapper java: $*" >> %s/wrapper.log; echo "Error: Could not find or load main class org.antlr.v4.Tool" >&2; exit 1\n' $SC > $SC/wbin-java; mkdir -p $SC/wbin; cp $SC/wbin-java $SC/wbin/java; chmod +x $SC/jh/bin/java $SC/wbin/java
+ctl setup-gf3-java-home-first-pass 0 'antlr jar placed|antlr jar present' '!cannot read' -- setup gf3c JAVA_HOME=$SC/jh PATH=$SC/wbin:$SC/bin:$NR UPG_SETUP_STEPS=antlr
+ctl setup-gf3-java-home-first-wrapper-unused-pass 1 -- test -e $SC/wrapper.log
+# JAVA_HOME that does not run is ignored: the PATH java is the one tested and named
+ctl setup-gf3-java-home-broken-ignored-catch 2 "the java the build will use \\($SC/wbin/java\\) cannot read" -- setup gf3d JAVA_HOME=$SC/nonexistent-jdk PATH=$SC/wbin:$SC/bin:$NR UPG_SETUP_STEPS=antlr
 # GF-4: the make prerequisites (a `go run` generator) run natively; only the final build carries GOOS/GOARCH
 ctl setup-gf4-prereqs-native-catch 0 '^GOOS= GOARCH= grammar sync-all completions$' -- cat $SC/mac-own/make.log
 ctl setup-gf4-build-cross-only-catch 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=' -- cat $SC/mac-own/make.log
@@ -4202,15 +4208,30 @@ ctl setup-gf5-rerun-no-double-pass 0 '^1$' -- sh -c "$(declare -f gf5); SC=$SC B
 ctl setup-gf5-upg-env-sources-pass 0 "^\\. \"$SC/run-gf5/env\\.sh\"\$" -- cat $SC/run-gf5/upg-env.sh
 mkdir -p $SC/run-gf5c; printf '# >>> setup-container.sh (x) >>>\nexport KEEP_BLOCK=1\n# <<< setup-container.sh <<<\n' > $SC/run-gf5c/env.sh
 ctl cloudsetup-gf5-envsh-keeps-block-catch 0 '^export KEEP_BLOCK=1$' '^export TK=' -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $SC/run-gf5c --source 9.24.10.18073 --target 10.24.28.129343 --only envsh > /dev/null; cat $SC/run-gf5c/env.sh"
+# when both wrote env.sh, the cloud lines come last (sourced last = win): its UPG_EXTRA carries https_proxy and NO_PROXY, the block's does not
+mkdir -p $SC/run-gf5d; printf '# >>> setup-container.sh (x) >>>\nexport UPG_EXTRA="from-block"\n# <<< setup-container.sh <<<\n' > $SC/run-gf5d/env.sh
+ctl cloudsetup-gf5-envsh-cloud-extra-wins-catch 0 '^extra=--network host .*https_proxy=.*NO_PROXY=localhost' '!from-block' -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $SC/run-gf5d --source 9.24.10.18073 --target 10.24.28.129343 --only envsh > /dev/null; sh -c '. $SC/run-gf5d/env.sh; echo extra=\$UPG_EXTRA'"
+mkdir -p $SC/run-gf5e; printf 'export UPG_EXTRA="from-cloud"\n' > $SC/run-gf5e/env.sh
+ctl setup-gf5-block-before-cloud-lines-catch 0 '^block-first$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-gf5e 11.6.3 > /dev/null; awk '/^# >>> setup-container.sh/{b=NR} /from-cloud/{c=NR} END{print (b && c && b<c) ? \"block-first\" : \"wrong-order\"}' $SC/run-gf5e/env.sh"
 # GF-6, GF-7: dockerhost.sh on Apple Silicon (stub uname and docker): Docker Desktop passes when an amd64 container shows Rosetta;
 # otherwise it stops with both ways out, the VM size, and the command that puts the docker context back; setup stops there too
 DHB=$T/dhb; mkdir -p $DHB
 printf '#!/bin/sh\ncase "$1" in -sm) echo Darwin arm64;; -m) echo arm64;; *) echo Darwin;; esac\n' > $DHB/uname
-printf '#!/bin/sh\ncase "$1 $2" in "image inspect") exit ${FAKE_IMG:-0};; "context inspect") echo unix:///nonexistent/docker.sock;; "context show") echo desktop-linux;; run*) exit ${FAKE_RUN:-1};; esac\nexit 0\n' > $DHB/docker
+printf '#!/bin/sh\ncase "$1 $2" in "image inspect") exit ${FAKE_IMG:-0};; "context inspect") echo unix:///nonexistent/docker.sock;; "context show") echo desktop-linux;; pull*) echo "$*" >> "$HOME/pull.log"; exit ${FAKE_PULL:-0};; run*) echo "$*" >> "$HOME/run.log"; [ "${FAKE_RUN:-1}" != hang ] || exec sleep 30; exit ${FAKE_RUN:-1};; esac\nexit 0\n' > $DHB/docker
 chmod +x $DHB/*
 ctl dockerhost-gf6-desktop-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=0 bash $B/dockerhost.sh
 ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' 'Use Rosetta for x86_64/amd64 emulation' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
-ctl dockerhost-gf6-no-image-no-probe-pass 1 'no running container VM with Rosetta' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
+# fresh Mac (setup calls dockerhost at step 3, before step 4 pulls anything): no image present, Rosetta on = passes, via a small amd64 probe image it pulls itself
+rm -rf $SC/dhfresh; mkdir -p $SC/dhfresh
+ctl dockerhost-gf6-fresh-mac-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhfresh FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
+ctl dockerhost-gf6-fresh-mac-pulled-amd64-probe-pass 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dhfresh/pull.log
+ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
+rm -rf $SC/dhq; mkdir -p $SC/dhq
+ctl dockerhost-gf6-fresh-mac-qemu-catch 1 'no running container VM with Rosetta' '!could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhq FAKE_IMG=1 FAKE_RUN=1 bash $B/dockerhost.sh
+# no image and the pull fails: no probe is guessed, the refusal says why
+ctl dockerhost-gf6-no-image-pull-fails-no-probe-catch 1 'no running container VM with Rosetta' 'alpine:3 could not be pulled .*Rosetta could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_IMG=1 FAKE_PULL=1 FAKE_RUN=0 bash $B/dockerhost.sh
+# a probe container that hangs (amd64 under qemu) is refused within the bound, not waited for
+ctl dockerhost-gf6-probe-hang-bounded-catch 1 'no running container VM with Rosetta' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh
 ctl dockerhost-gf7-context-back-catch 1 'colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60' 'docker context use desktop-linux' 'export DOCKER_HOST=unix://' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
 ctl dockerhost-not-arm-mac-quiet-pass 0 '^$' -- env -u DOCKER_HOST PATH=$NR HOME=$SC/dhhome bash $B/dockerhost.sh
 ctl setup-gf6-docker-step-stops-catch 2 'NOT READY: dockerhost: no running container VM with Rosetta' -- env HOME=$SC/gf6a PATH=$DHB:$NR FAKE_RUN=1 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6a 11.6.3
@@ -4999,8 +5020,8 @@ ctl reln-ev-cockpit-later-lane-pass 0 '^At deploy \| Go-live environment checkli
 ctl reln-ev-pipeline-pass 0 'riauto=\(--auto --evidence --facts-from-mpr' -- grep -n 'riauto=(' $B/cloud/upgrade-pipeline.sh
 # no brain at all: --evidence says so exactly as a run without it does (exit 2, no file written), never closing a row on nothing
 mkdir -p $RI/nohome
-ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
-ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
+ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
+ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
 BRV=${UPG_BRAIN:-$HOME/Mendix/<company>-brain}
 if [ -f $BRV/baseline/versions/studio-pro-upgrade-10.md ] && [ -f $BRV/baseline/versions/modules/task-queue-helpers.md ]; then
   # the real brain, read only. The 3.1.0 jump has no ShowSystemQueuesInCharts row in the brain (a gap, FEEDBACK V31-RI),
@@ -8290,7 +8311,7 @@ ctl pipeline-autorunlog-state-file-row-pass 0 '^\| 20261022075034 \| PR \|' -- g
 # refusals: duplicate (exit 3), customer name (exit 4), no app code name (exit 2): reason shown, gate exit code unchanged
 AR_LOG=$FX/runlog/old-12col-log.md ctl pipeline-autorunlog-duplicate-refused-catch 0 'gate-rc=0' '!gate-rc=3' '^WARN +runlog: no row added \(runlog\.py exit 3\): the run id is already in the log' -- arcase dup 0 UPG_APP_CODE=PR
 ctl pipeline-autorunlog-duplicate-reported-catch 0 'summary-run-log=1' 'nj=1' 'rows=2' -- arshow dup
-ctl pipeline-autorunlog-duplicate-needs-judgment-text-catch 0 'information only, the run result is unchanged' 'already in the log' 'toolkit PR' -- cat $AR/dup/work/NEEDS-JUDGMENT.md
+ctl pipeline-autorunlog-duplicate-needs-judgment-text-catch 0 'information only, the run result is unchanged' 'already in the log' 'toolkit PR' "runlog\\.py --work $AR/dup/work --log \"$AR/dup/FIELD-RUNS\\.md\" --app <CODE>" -- cat $AR/dup/work/NEEDS-JUDGMENT.md
 CNAME="the Acmecorp app"
 ctl pipeline-autorunlog-customer-name-refused-catch 0 'gate-rc=12' '!gate-rc=4' '^WARN +runlog: no row added \(runlog\.py exit 4\): the row holds a customer name' -- arcase cname 12 "UPG_APP_CODE=$CNAME"
 ctl pipeline-autorunlog-customer-name-reported-catch 0 'summary-run-log=1' 'nj=1' 'rows=0' -- arshow cname

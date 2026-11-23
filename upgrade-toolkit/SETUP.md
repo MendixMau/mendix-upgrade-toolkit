@@ -6,7 +6,7 @@ Who can use it: anyone with this repo and a Mendix account. Nothing else private
 
 | need | why | where it comes from |
 |---|---|---|
-| this repo, cloned anywhere | every path in SKILL.md starts at `TK`, the folder that holds SKILL.md | `git clone`; no fixed location (setup-container.sh still makes an old-style link `~/Mendix/mendix-upgrade-toolkit` for run folders from before, and warns when that path is another checkout; it never touches `~/Mendix/mxcli-project-toolkit`, where the separate build toolkit lives; `setup-container.sh --plan` lists it) |
+| this repo, cloned anywhere | every path in SKILL.md starts at `TK`, the folder that holds SKILL.md | `git clone`; no fixed location (setup-container.sh still makes an old-style link `~/Mendix/mendix-upgrade-toolkit` for run folders from before, and warns when that path is another checkout; it never touches the folder of the separate build toolkit's own clone under `~/Mendix`; `setup-container.sh --plan` lists it) |
 | `MENDIX_PAT` (a Mendix personal access token, Marketplace scope) | module updates and template downloads | Mendix Portal, user settings. Keep it in the environment, never in a file or a command line in a log |
 | Docker | mxbuild, mx check, app start, Postgres run in containers (Apple Silicon: amd64 must run through Rosetta, see below) | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below) |
 | mxcli | Marketplace updates, model reads, diffs | public repo `mendixlabs/mxcli`, built from source at `MXCLI_REF` (default the commit `78bdfa5`; see "The mxcli version" below), or a release binary at `tools/mxcli-linux` |
@@ -32,14 +32,14 @@ and `source <run>/env.sh`.
 
 **Apple Silicon.** The Linux mxcli and mxbuild are amd64. Under qemu the Go mxcli crashes at random (all 10 module updates exit 2 in the
 cold test that found it), so `bin/dockerhost.sh` refuses any Docker whose amd64 containers do not run through Rosetta, and setup runs it in
-step 3 and stops there, before it pulls images. Two Dockers pass: Docker Desktop with "Use Rosetta for x86_64/amd64 emulation on Apple
+step 3 and stops there, before it pulls the build images (on a fresh Mac it pulls one small amd64 probe image, `alpine:3`, for the Rosetta test; every docker call of the probe is time-bounded). Two Dockers pass: Docker Desktop with "Use Rosetta for x86_64/amd64 emulation on Apple
 Silicon" ticked (Settings, General; an amd64 container then shows `/proc/sys/fs/binfmt_misc/rosetta` or a "VirtualApple" cpu; this probe is
 ASSUMED from that documented behaviour, not yet run on a Mac by this toolkit), or a colima VM with Rosetta:
 `colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60` (mxbuild and the runtime of two Mendix versions plus
 Postgres). `colima start` switches the machine's docker context to `colima-upgrade`; run `docker context use <the previous one>` right
 after, and give the pipeline the VM through `export DOCKER_HOST=unix://$HOME/.colima/upgrade/docker.sock` so other Docker users on the
 laptop are not moved. The java for the ANTLR step must be a host JDK: setup smoke-tests the jar with `java -cp <jar> org.antlr.v4.Tool`
-and, when the java on PATH is a wrapper that runs Java elsewhere, stops and says to set `JAVA_HOME`.
+and, when that java is a wrapper that runs Java elsewhere, stops and says to put a host JDK's bin folder first on PATH or set `JAVA_HOME`. antlr4-tools starts the java found on PATH and ignores `JAVA_HOME`, so setup puts a working `$JAVA_HOME/bin` first on PATH itself and tests that java.
 
 Re-runnable. Versions are full CDN names (`10.24.26.123458`; Mendix 11 may be three-part, `11.15.0`). It handles the
 cloud-container traps (dockerd not running, Docker Hub 429, GitHub release downloads blocked, the agent proxy CA). Then
