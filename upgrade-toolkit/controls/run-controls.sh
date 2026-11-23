@@ -1877,7 +1877,7 @@ else skip seed-snapshot-postgres "no postgres binaries or the throwaway cluster 
 if command -v node > /dev/null; then ctl smokewalk-predicates 0 '^ok +loggedIn while session throws' '!^FAIL' -- node $here/smokewalk_predicates.js
 # R1: the React client has no mx.session.getUserName / mx.ui.getContentForm; an anonymous session is not logged in, a content page maps to its Dojo path
 ctl smokewalk-react-catch 0 '^ok +react loggedIn when anonymous' '^ok +react contentPath without page' '^ok +react landedWhere on a popup state' -- node $here/smokewalk_predicates.js
-ctl smokewalk-login-home-error-quoted-pass 0 '^ok +homeErrorFromLog last error line' '^ok +loginFailure quotes the log error' '^ok +runtimeLogText since the mark has no earlier role error' '^ok +runtimeLogText from the log command takes stderr' '!^FAIL' -- node $here/smokewalk_predicates.js
+ctl smokewalk-login-home-error-quoted-pass 0 '^ok +homeErrorFromLog last error line' '^ok +loginFailure quotes the log error' '^ok +runtimeLogText since the mark has no earlier role error' '^ok +runtimeLogText from the log command takes stderr' '^ok +runtimeLogText keeps the first line after the mark' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-react-pass 0 '^ok +react loggedIn when ready' '^ok +react homeReady when ready' '^ok +react contentPath maps to the page path' '^ok +react landedWhere on the wanted page' '^ok +react landedWhere on another page' -- node $here/smokewalk_predicates.js
 # cold CMM 2026-11-17: Atlas styles .mx-window position:fixed (offsetParent null): every "Switch user" popup menu item FAILed
 ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +landedWhere hidden popup window' -- node $here/smokewalk_predicates.js
@@ -1990,7 +1990,7 @@ ctl smoke-entity-file-catch 0 '^--entity Points.Member$' -- $G17 entity $B/cloud
 ctl smoke-entity-none-pass 0 '^end$' '!--entity' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17-none
 ctl smoke-entity-every-call-catch 0 '^0$' '!^[1-9]' -- bash -c "grep -F 'smoke_users.py\" \"\$db\"' $B/cloud/upgrade-pipeline.sh | grep -vc smoke_entity_args || true"
 # GF-21: one role list for the smoke users and for the journeys: plan roles and impact-map roles, minus the guest
-ctl smoke-roles-union-catch 0 '^Administrator,User,PartnerManager,WSUser$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $FX/seed/gf17-impact.json
+ctl smoke-roles-union-catch 0 '^Administrator,User,Approver,ApiUser$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $FX/seed/gf17-impact.json
 ctl smoke-roles-union-no-impact-pass 0 '^Administrator,User$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $T/gf17-no-such.json
 ctl smoke-roles-union-wired-pass 0 'roles=\$\(roles_all "\$WORK/plan.json" "\$WORK/impact-base.json"\)' 'roles=\$\(roles_all "\$WORK/plan-new.json" "\$WORK/impact.json"\)' '!roles_of_plan "\$WORK/plan' -- grep -n 'roles=.*roles_\(all\|of_plan\)' $B/cloud/upgrade-pipeline.sh
 # a refused sign-in is explained from the runtime log, not by the 2026-08-18 licence cause
@@ -1999,6 +1999,9 @@ ctl login-cause-session-cap-pass 0 'trial-licence concurrent-session cap' -- $G1
 # an earlier role's lines (a session-limit line, an error line) are never this role's cause: only lines after the sign-in's mark count
 ctl login-cause-earlier-role-catch 0 'neither a session-limit line nor an error' '!Nav_Open' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 2
 ctl login-cause-earlier-role-whole-log-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 0
+# a log command whose earlier ERROR sits on stderr and whose new line is on stdout: one ordered stream, so the mark still separates them
+rm -f $T/gf17-cmd.flag
+ctl login-cause-log-cmd-stderr-order-catch 0 'neither a session-limit line nor an error' '!earlier role' '!trial-licence' -- $G17 cmdcause $B $T/gf17-cmd.flag
 ctl login-cause-no-log-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B none
 ctl app-up-runtime-log-cmd-pass 0 'export UPG_RUNTIME_LOG_CMD="docker logs' -- grep -n 'UPG_RUNTIME_LOG_CMD' $B/cloud/upgrade-pipeline.sh
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to

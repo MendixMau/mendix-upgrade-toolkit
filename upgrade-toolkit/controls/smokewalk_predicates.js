@@ -151,6 +151,11 @@ function pwLoad() {
     check('runtimeLogText whole log still has it', homeErrorFromLog(runtimeLogText(f, 0)), 'ERROR - MicroflowEngine: error in microflow M.Home for role one');
     fs.appendFileSync(f, 'ERROR - MicroflowEngine: error in microflow M.Home for role two\n');
     check('runtimeLogText since the mark quotes this role', homeErrorFromLog(runtimeLogText(f, mark)), 'ERROR - MicroflowEngine: error in microflow M.Home for role two');
+    // a log that ends in a newline: the first line after the mark is the new one, never dropped
+    fs.writeFileSync(f, 'INFO a\nINFO b\n');
+    const mark2 = runtimeLogMark(f);
+    fs.appendFileSync(f, 'ERROR - MicroflowEngine: error in microflow M.Home for first line\n');
+    check('runtimeLogText keeps the first line after the mark', homeErrorFromLog(runtimeLogText(f, mark2)), 'ERROR - MicroflowEngine: error in microflow M.Home for first line');
     fs.unlinkSync(f);
     // the log command's stderr counts too (docker logs writes the app's stderr to stderr)
     process.env.UPG_RUNTIME_LOG_CMD = "sh -c 'echo INFO ok; echo \"ERROR - microflow M.X: null\" >&2'";

@@ -200,7 +200,7 @@ function runtimeLogAll(file) {
   } catch (e) { /* no log: the plain message */ }
   return '';
 }
-function runtimeLogMark(file) { return runtimeLogAll(file).split('\n').length; }
+function runtimeLogMark(file) { return (runtimeLogAll(file).match(/\n/g) || []).length; }   // complete lines, as runtimeLogText slices them
 function runtimeLogText(file, mark) { return runtimeLogAll(file).split('\n').slice(mark || 0).join('\n').slice(-300000); }
 function loginFailure({ status, url, user, error, logError }) {
   if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';

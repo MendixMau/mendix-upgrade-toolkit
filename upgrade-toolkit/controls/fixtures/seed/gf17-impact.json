@@ -1,1 +1,1 @@
-{"roles": {"Administrator": {}, "User": {}, "PartnerManager": {}, "WSUser": {}, "Anon": {}}, "user_roles": {"guest": "Anon"}}
+{"roles": {"Administrator": {}, "User": {}, "Approver": {}, "ApiUser": {}, "Anon": {}}, "user_roles": {"guest": "Anon"}}

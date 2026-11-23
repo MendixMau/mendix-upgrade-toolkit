@@ -1206,8 +1206,8 @@ def runtime_log_lines(a):
             return open(a.runtime_log, errors="replace").read().splitlines()
         cmd = os.environ.get("UPG_RUNTIME_LOG_CMD")
         if cmd:
-            p = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=30)
-            return (p.stdout + p.stderr).splitlines()
+            p = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)   # one stream, in written order: a line-count mark is only valid on that
+            return p.stdout.splitlines()
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
     return []
