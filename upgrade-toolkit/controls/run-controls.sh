@@ -9945,10 +9945,15 @@ ctl gf50-checkpoint-catch 0 '^summary 4 journeys, 4 PASS, 0 deferred, partial Tr
 ctl gf50-cap-catch 0 '^cap: running 4 of 7 journeys \(impact-picked 2, always-on 2, rest 0\); 3 deferred, NOT run' '^deferred: 3 journeys NOT run' '^summary 7 journeys, 4 PASS, 3 deferred' '^ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC cap
 ctl gf50-budget-catch 0 '^cap: running 1 of 7 journeys' '^deferred: 6 journeys NOT run' '^summary 7 journeys, 1 PASS, 6 deferred' -- bash $here/journeys_cap_control.sh $B $GC budget
 ctl gf50-nocap-pass 0 '^rc 0$' '^summary 7 journeys, 7 PASS, 0 deferred, partial False$' '!^cap:' '!^deferred:' -- bash $here/journeys_cap_control.sh $B $GC nocap
-ctl gf50-estimate-default-catch 0 '^  - estimate: 12 journeys \(one per action, scope not measured\) x 80 s each \(default 80 s each, no earlier run measured\) = about 16 min per app; cap it with run_journeys\.py --max N or --budget-min M' -- cat $TP/w/PROPOSAL.md
+ctl gf50-estimate-default-catch 0 '^  - estimate: 12 actions \(journeys are not generated yet, scope not measured; one journey per action is the plan\) x 80 s each \(default 80 s each, no earlier run measured\) = about 16 min per app; cap it with run_journeys\.py --max N or --budget-min M' -- cat $TP/w/PROPOSAL.md
 mkdir -p $TP/w2/state; cp $TP/w/actions.json $TP/w/apimock-inventory.json $TP/w2/; printf 'old\t10\t300\n' > $TP/w2/state/journeys-pace.tsv
 python3 $B/proposal.py --work $TP/w2 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
-ctl gf50-estimate-measured-pass 0 'estimate: 12 journeys .* x 30 s each \(measured on an earlier run\) = about 6 min per app' -- cat $TP/w2/PROPOSAL.md
+ctl gf50-estimate-measured-pass 0 'estimate: 12 actions .* x 30 s each \(measured on an earlier run\) = about 6 min per app' -- cat $TP/w2/PROPOSAL.md
+mkdir -p $TP/w3/journeys/journeys/Admin $TP/w3/state; cp $TP/w/actions.json $TP/w/apimock-inventory.json $TP/w3/
+for i in 1 2 3; do echo '{"id":"j'$i'"}' > $TP/w3/journeys/journeys/Admin/j$i.journey.json; done
+python3 $B/proposal.py --work $TP/w3 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
+ctl gf50-estimate-generated-journeys-catch 0 'estimate: 3 generated journeys x 80 s each' '!estimate: 12' -- cat $TP/w3/PROPOSAL.md
+ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
 ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
 
 # --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
@@ -9956,7 +9961,22 @@ ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/u
 # does not show stays FAIL; no restart.json says "not measured"
 ctl gf51-start-noise-marked-catch 0 '^start noise: [1-9][0-9]* row\(s\) also differ in the restart control' 'START-NOISE \| db\.attr\.Administration\.Account\.Email \| values changed' 'FAIL 0 \| REVIEW 0' '!FAIL \| db\.attr\.Administration\.Account\.Email' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sa.json
 ctl gf51-start-noise-real-change-catch 1 'START-NOISE \| log\.new_error \| 1x ERROR Cache: NoiseError: cache warmup' 'FAIL \| log\.new_error \| 1x ERROR ACT_Save: NullPointerException' '!START-NOISE \| log\.new_error \| 1x ERROR ACT_Save' -- python3 $B/diff.py $T/sb.json $T/sa-npe.json --restart $T/sr-noise.json
-ctl gf51-start-noise-other-value-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-noise.json
+ctl gf51-start-noise-no-control-row-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-noise.json
+# the false green: the restart ALSO rewrote Email (same non-null count, other values: md5 b3); the upgrade changed it too (md5 b2). Same
+# check, same count detail, different values: must stay FAIL, never START-NOISE
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['attributes']['Administration.Account.Email']['md5']='b3'; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sr-other.json
+ctl gf51-start-noise-other-values-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed \(non-null 3 -> 3\) \(also changes between two old starts; values differ from the control\)' 'FAIL 1' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-other.json
+# no md5 in the control's snapshot: the control diff cannot be read, nothing proves the values are the same, so FAIL
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); del d['db']['attributes']['Administration.Account.Email']['md5']; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sr-nomd5.json
+ctl gf51-start-noise-restart-without-md5-pass 1 '^start noise not measured' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-nomd5.json
+# a restart.json older than before.json is a control of an earlier baseline: nothing is filtered (it would be START-NOISE if fresh)
+cp $T/sa.json $T/sr-stale.json; touch -d '2000-01-01 00:00:00' $T/sr-stale.json
+ctl gf51-start-noise-stale-control-catch 1 '^start noise not measured: restart\.json is older than before\.json' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-stale.json
+# a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
+GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
+ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }
+  eval "$(sed -n "/^baseline_twin() {/,/^}/p" $2)"; baseline_twin; echo "left: $(ls $WORK | tr "\n" " " | sed "s/ *$//")"' _ $GFW $B/cloud/upgrade-pipeline.sh
+ctl gf51-twin-start-failure-drops-copy-pass 0 '^ok$' -- awk '/^heal_twin\(\)/ {f=1} f && /app_up oldtwin .*heal_drop "\$db"; die4/ {print "ok"; exit} /^fixture_users_db/ {exit}' $B/cloud/upgrade-pipeline.sh
 ctl gf51-start-noise-unmeasured-catch 1 '^start noise not measured: no restart control' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/no-such-restart.json
 ctl gf51-no-flag-unchanged-pass 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE [|]' '!start noise' -- python3 $B/diff.py $T/sb.json $T/sa.json
 ctl gf51-gate-passes-restart-pass 0 'CMD\+=\(--restart "\$V_WORK/restart\.json"\)' -- grep -o 'CMD+=(--restart "$V_WORK/restart.json")' $B/gate.sh

@@ -1342,6 +1342,8 @@ baseline_twin() {
   ( heal_twin ) || rc=$?
   if [ "$rc" != 0 ]; then
     app_down oldtwin
+    # a failed twin can leave a restart.json of an earlier run: it would be read as THIS baseline's control, so it goes
+    rm -f "$WORK/restart.json" "$WORK/twin-old.md"
     note "restart control did not complete (exit $rc, log: $LOG): the gate will say start noise not measured"
   fi
 }
@@ -2246,7 +2248,8 @@ step_journeys() {
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
   must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
-  # GF-50: a cap on the journeys, both apps alike (the same journeys are picked on each side): UPG_JOURNEYS_MAX=N and/or UPG_JOURNEYS_BUDGET_MIN=M
+  # GF-50: a cap on the journeys: UPG_JOURNEYS_MAX=N and/or UPG_JOURNEYS_BUDGET_MIN=M. The new app is compared to the old run (--compare), and run_journeys.py defers there
+  # every journey the old app deferred (parity), so the same journeys are walked on each side
   local cap=()
   [ -z "${UPG_JOURNEYS_MAX:-}" ] || cap+=(--max "$UPG_JOURNEYS_MAX")
   [ -z "${UPG_JOURNEYS_BUDGET_MIN:-}" ] || cap+=(--budget-min "$UPG_JOURNEYS_BUDGET_MIN")
@@ -2312,7 +2315,7 @@ heal_twin() { # the restart control (steps/baseline.md item 4, PV-7): a second s
   if [ -f "$WORK/twin-old.md" ] && [ "$WORK/twin-old.md" -nt "$WORK/before.json" ]; then return 0; fi
   local db rc=0 ep_args=()
   db=$(fresh_name "${X}_restart"); copy_db "$X_FROZEN" "$db"
-  app_up oldtwin "$(mda_old)" "$SOURCE" "$db" || die4 "old app did not start for the restart control (log: $LOG)"
+  app_up oldtwin "$(mda_old)" "$SOURCE" "$db" || { app_down oldtwin; heal_drop "$db"; die4 "old app did not start for the restart control (log: $LOG)"; }   # the copy is dropped on this exit too
   [ ! -s "$WORK/endpoints.txt" ] || ep_args=(--endpoints "$WORK/endpoints.txt")
   x python3 "$B/snapshot.py" --label restart --ledger "$WORK/db-ledger.txt" --psql "$(psql_str "$db")" \
     --app-url "http://localhost:$APP_PORT" ${ep_args[@]+"${ep_args[@]}"} --log-cmd "docker logs ${UPG_NAME:-mig}-oldtwin" \

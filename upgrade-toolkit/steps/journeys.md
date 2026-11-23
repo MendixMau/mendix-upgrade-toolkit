@@ -550,7 +550,10 @@ parallel roles on the same account (use `--pause`, and no parallel gate runs).
   else 80 s) before anything runs. `--max N` and/or `--budget-min M` (pipeline: `UPG_JOURNEYS_MAX`, `UPG_JOURNEYS_BUDGET_MIN`) cap
   it: impact-picked journeys first, then always-on, then the rest. The others are INVALID with `deferred: true` in `summary.json`
   and the run prints `cap: running S of T journeys ...; D deferred, NOT run`. Deferred is INVALID (not measured), never a PASS and
-  never a FAIL. `--resume` with no cap runs them.
+  never a FAIL. `--resume` with no cap runs them. The new app is capped to the old app's run set: a journey the old app deferred is
+  deferred on the new one too (`parity:` line), so both sides compare the same journeys.
+- A pipeline rerun of `--from journeys` starts the journeys fresh (it walks everything again). To keep the journeys already walked,
+  run `run_journeys.py --resume` on the same `--work` and `--label` instead.
 - A journey app left running by a stopped run: the pipeline's EXIT trap stops every app it started, and `runapp.py start` removes
   a container of its own name first, so the next run does not meet it. A kill -9 of the pipeline itself skips the trap: `docker rm -f <UPG_NAME>-oldjp`.
 

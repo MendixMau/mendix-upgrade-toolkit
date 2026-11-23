@@ -1638,7 +1638,21 @@ def main():
                                         "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
-        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        # GF-50: cap parity. A journey the old app deferred (a cap) is deferred here too, whatever this run's own cap: the two sides
+        # must hold the same set, or a verdict is compared against a journey the old app never walked.
+        parity = {}
+        if cmp_summary and not prev and not only and not a.positive_control:
+            old_j = json.load(open(cmp_summary)).get("journeys", {})
+            for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
+                jid = read_journey(f)["id"]
+                if old_j.get(jid, {}).get("deferred") and jid not in skip:
+                    parity[jid] = f.parent.name
+                    summary["journeys"][jid] = {"role": f.parent.name, "verdict": "INVALID", "deferred": True,
+                                                "why": "not run: the old app did not run it either (deferred by its cap), so the same journeys are compared; "
+                                                       "run both sides without a cap, or --resume the old app first"}
+        if parity:
+            print(f"parity: {len(parity)} journeys deferred on the old app are deferred here too (the same set on each side)", file=sys.stderr)
+        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, {**skip, **parity})
         total_j = sum(len(w[3]) for w in waves)
         sec = None
         if a.budget_min is not None or total_j:
@@ -1665,6 +1679,7 @@ def main():
                               "run_by_tier": dict(zip(["impact-picked", "always-on", "rest"], tiers)), "seconds_each": round(sec)}
             print(f"cap: running {total_j - deferred_n} of {total_j} journeys (impact-picked {tiers[0]}, always-on {tiers[1]}, rest {tiers[2]}); "
                   f"{deferred_n} deferred, NOT run (INVALID \"deferred\" in summary.json)", file=sys.stderr)
+        deferred_n += len(parity)
         if not a.positive_control and not harness:
             waves = chunk_waves(waves, max(1, a.chunk))
         started_keys, chunk_no = set(), {}

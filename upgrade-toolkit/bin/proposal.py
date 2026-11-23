@@ -859,11 +859,15 @@ def journeys_estimate(F):
     """GF-50: the run time of the journeys, said before anyone starts them: count x seconds per journey. The seconds are the
     measured pace of an earlier run in this work folder (state/journeys-pace.tsv) when there is one, else 80 (the field run's)."""
     n, what = None, ""
-    if F.scope and isinstance(F.scope.get("counts"), dict):
+    import glob
+    gen = glob.glob(os.path.join(F.W, "journeys", "journeys", "*", "*.journey.json"))   # run_journeys.py's set (gen_dir = <work>/journeys)
+    if gen:
+        n, what = len(gen), "generated journeys"
+    elif F.scope and isinstance(F.scope.get("counts"), dict):
         n = sum(v for k, v in F.scope["counts"].items() if k in ("reachable-with-path", "reachable-no-path-yet"))
-        what = "journeys in scope"
+        what = "reachable actions (journeys are not generated yet; one journey per action is the plan)"
     elif F.actions is not None:
-        n, what = F.actions, "journeys (one per action, scope not measured)"
+        n, what = F.actions, "actions (journeys are not generated yet, scope not measured; one journey per action is the plan)"
     if n is None:
         return "estimate: not measured (no actions.json): the journey count and so the run time are unknown"
     sec, how = 80, "default 80 s each, no earlier run measured"

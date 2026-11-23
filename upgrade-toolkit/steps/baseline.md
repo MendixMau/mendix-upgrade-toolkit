@@ -79,9 +79,12 @@ copy's converted model.
    "start noise ...") and name it in ASSUMPTIONS.md. Rows it does not show are what the upgrade alone may change.
    GF-51: the pipeline runs this control at the end of the baseline (`baseline_twin`, the same `heal_twin` heal uses), so
    `restart.json` exists whether or not heal or the journeys run, and the gate's data rung passes it to diff.py
-   (`--restart`): a FAIL or REVIEW row with the SAME check and SAME detail in the control is listed START-NOISE (a NOTE, not
-   blocking, never hidden); a row the control lacks or shows with other values stays FAIL. Without `restart.json` the rung says
-   "start noise not measured" and every row stands. The
+   (`--restart`). A FAIL or REVIEW row with the SAME check and SAME detail in the control is a candidate. A db.attr or db.assoc
+   candidate (its detail holds counts alone) is listed START-NOISE (a NOTE, not blocking, never hidden) only when the md5 of that
+   column or association in the after snapshot EQUALS the one in `restart.json`; otherwise it stays FAIL, with "(also changes
+   between two old starts; values differ from the control)". Log rows are noise on check and detail. A row the control lacks stays
+   FAIL. Without `restart.json`, or when it is older than `before.json` (a control of an earlier baseline; a failed twin removes
+   the file), the rung says "start noise not measured" and every row stands. The
    mutant control must FAIL: copy X_frozen
    (`createdb -T X_frozen X_mutant`; `-T X_base` fails while the app holds X_base), change one value of a
    data-bearing attribute (`update <table> set <col> = 'mutant' where id = (select min(id) from <table>)`), take a

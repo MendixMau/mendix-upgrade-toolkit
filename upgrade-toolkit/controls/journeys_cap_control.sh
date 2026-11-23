@@ -2,7 +2,7 @@
 # GF-50 control: run_journeys.py against a FAKE runner (a `node` stand-in on PATH that writes the findings file the real runner
 # writes, one PASS walk per journey) and a throwaway local HTTP server for the "is the app alive" probe. No browser, no Mendix app.
 #   journeys_cap_control.sh BIN_DIR TMP_DIR SCENARIO
-# SCENARIO: checkpoint (the runner process is killed in its 3rd batch: summary.json must hold the 2 batches before it, and --resume
+# SCENARIO: parity (new app compared to a capped old run runs only what the old app ran), checkpoint (the runner process is killed in its 3rd batch: summary.json must hold the 2 batches before it, and --resume
 #           must run the rest), cap (--max 4 of 7: tier order, the dropped count printed, listed deferred), nocap (no flag: all run).
 set -u
 B=$1; T=$2; SC=$3
@@ -57,6 +57,10 @@ case $SC in
     echo "ran: $(sed 's/^batch [0-9]*: //' "$FAKE_LOG" | tr '\n' ' ')";;
   budget)
     run --budget-min 0.01 --chunk 2 2>&1 | grep -E '^cap:|^deferred:'; count;;
+  parity)   # the old app ran 4 of 7 under a cap; the new app has NO cap but is compared to it: it must run the same 4, not 7
+    run --max 4 --chunk 2 >/dev/null 2>&1; echo "old:"; count "$W/t"
+    rm -f "$FAKE_LOG"; run --label t2 --compare "$W/t" --chunk 2 2>&1 | grep -E '^parity:|^cap:|^deferred:'; echo "new:"; count "$W/t2"
+    echo "new ran: $(sed 's/^batch [0-9]*: //' "$FAKE_LOG" | tr '\n' ' ')";;
   nocap)
     run --chunk 3 2>&1 | grep -E '^cap:|^deferred:'; echo "rc ${PIPESTATUS[0]}"; count;;
 esac
