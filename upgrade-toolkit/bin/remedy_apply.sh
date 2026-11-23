@@ -157,6 +157,8 @@ run_retry() { # run_retry OUTFILE CMD: bash -c CMD, retried on rc 139 (RETRIES t
 gitc() { git -C "$V_APP" "$@"; }
 commit_all() { # commit_all MESSAGE: commit whatever is changed, quietly; prints the new short hash or nothing
   [ -z "$(gitc status --porcelain)" ] && return 0
+  # GF-42: never commit a storage-format change (MPR v2 rewritten as v1 by mx update-widgets): undone, said, nothing committed
+  local smsg; smsg=$(bash "$B/mprstorage.sh" guard "$V_APP" 2> /dev/null) || { echo "remedy_apply: $1: $smsg" >&2; gitc checkout -q -- .; gitc clean -fdq; return 0; }
   gitc add -A && gitc commit -q -m "$1" >/dev/null && gitc rev-parse --short HEAD
 }
 abandon() { # back to BASE, the branch dropped when it holds nothing worth keeping ($1 = drop)

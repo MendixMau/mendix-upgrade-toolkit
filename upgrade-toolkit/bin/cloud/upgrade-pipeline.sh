@@ -764,6 +764,7 @@ commit_app() { # commit_app "subject" KIND RULE: commit all changes in the app r
   # carries the trailers Changed-By: toolkit and Upgrade-Change: KIND RULE (trust.md section 3; bin/changelog.py reads them), and
   # Upgrade-Step: S-n when the step records know a step for that kind (steps.py trailer; UPG_STEPS_WORK is the work folder, exported below)
   [ "$DRY" = 1 ] && { say "+ git -C $APP commit -am '$1' (Upgrade-Change: $2 $3)"; return 0; }
+  storage_ok "commit '$1'" || return 0   # GF-42: never commit a storage-format change
   git_app add -A > /dev/null
   git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1
 }
@@ -1863,10 +1864,30 @@ mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   fi
 }
 has_code() { grep -q "\[$1\]" "$CHECK_LOG" 2> /dev/null; }
+# GF-42: MPR v2 (Git, mprcontents/*.mxunit) must stay v2. bin/mprstorage.sh compares the work tree with HEAD; a collapse is undone
+mpr_v2() { [ -n "$(find "$APP/mprcontents" -name '*.mxunit' -print -quit 2> /dev/null)" ]; }
+storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes the work tree and returns 1
+  local msg
+  msg=$(bash "$B/mprstorage.sh" guard "$APP" 2> /dev/null) && return 0
+  [ -n "$msg" ] || return 0
+  note "$1: $msg"; say "        REFUSED $1: $msg"
+  git_app checkout -q -- . ; git_app clean -fdq; return 1
+}
+mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
+update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
+  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR"
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+}
+try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
+  if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP
+  else try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+}
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
   local subj=$1 rule=$2 codes=$3 prev rc=0; shift 3
   prev=$CHECK_LOG
   x "$@" || { note "fixer '$subj' failed (exit $?): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  # GF-42: a repair tool that rewrote MPR v2 as v1 lowers the error count too; the format is checked before the errors are
+  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then CHECK_LOG=$prev; return 0; fi
   mxcheck
   [ "$DRY" = 1 ] && return 0
   python3 "$B/checkdiff.py" "$prev" "$CHECK_LOG" --fixed "$codes" >> "$LOG" 2>&1 || rc=$?
@@ -1887,7 +1908,7 @@ widgetroute_pass() { # widgetroute_pass replace|wrap|remove
     --done "$WORK/widgetroute-done.new" --mdl "$WORK/widgetroute.mdl" || rc=$?
   [ "$rc" -le 1 ] || return "$rc"
   if [ "$1" = remove ]; then [ ! -s "$WORK/widgetroute.mdl" ] || mxcli_run exec "$WORK/widgetroute.mdl" -p "$MPR"
-  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  else update_widgets; fi
 }
 widgetroute_undo() { # the person picked B on the one-OK list: revert what the test build did for it, once
   local ok="$WORK/widget-routes-approved.txt" done="$WORK/widgetroute-done.txt" h subj pat
@@ -2028,9 +2049,9 @@ $pjl"
   fi
   [ "$DRY" != 1 ] || widget_routes
   # row 5, row 6
-  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 update_widgets; fi
   if [ "$DRY" = 1 ] || has_code CE6087; then
-    try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
+    try_dprops "design properties"
   fi
   # row 36: an app theme rule written for the Data Widgets 2 markup (display: block !important on .widget-datagrid .table)
   # overrides the Data Widgets 3 grid: every cell its own row, while mx check, build and smoke pass (cold 9.24 -> 10.24).
@@ -2048,8 +2069,8 @@ $pjl"
     local brnd=0 bprev
     while [ "$brnd" -lt "${UPG_BUILD_ROUNDS:-2}" ] && [ "$n" != 0 ]; do
       brnd=$((brnd + 1)); bprev=$n
-      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
-      if has_code CE6087; then try_fix "design properties (round $((brnd + 1)))" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 update_widgets; fi
+      if has_code CE6087; then try_dprops "design properties (round $((brnd + 1)))"; fi
       mxcheck; n=$(open_errors "$CHECK_LOG")
       if [ "$n" -ge "$bprev" ]; then note "build loop round $((brnd + 1)): $bprev -> $n errors, no progress: stop"; break; fi
       note "build loop round $((brnd + 1)): $bprev -> $n errors"

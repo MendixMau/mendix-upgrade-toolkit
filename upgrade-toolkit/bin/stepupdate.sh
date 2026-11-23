@@ -632,6 +632,10 @@ PY
          nchknot=$((nchknot + 1)); chknotrun="${chknotrun:+$chknotrun,}$mod"; rm -f "$st/check-prev.log.next";;
     esac
   fi
+  # GF-42: a step never changes the storage format (MPR v2 -> v1 is what a rewriting tool does); refused and undone, not committed
+  if ! smsg=$(bash "$bin/mprstorage.sh" guard "$app" 2> /dev/null); then
+    revert; echo "STOP: $mod $ver: $smsg Step undone, nothing committed."; exit 4
+  fi
   git -C "$app" add -A . || { echo "STOP: git add failed"; exit 2; }
   if git -C "$app" diff --cached --quiet; then
     echo "   no change to commit"

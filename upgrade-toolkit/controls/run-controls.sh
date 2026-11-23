@@ -2413,6 +2413,42 @@ ctl pipeline-original-rerun-clears-stale-pass 0 '^stale gone$' '^mprcontents uni
 ctl pipeline-original-v1-pass 0 '^mprcontents beside original: no$' '^original read: yes$' -- bash -c "$G8F; APP=$G8/v1app MPR=$G8/v1app/App.mpr WORK=$G8/w1; write_original HEAD || exit 9; [ -e $G8/w1/mprcontents ] && echo 'mprcontents beside original: yes' || echo 'mprcontents beside original: no'; cmp -s $G8/w1/original.mpr $M/base/App.mpr && python3 $B/mprmodel.py $G8/w1/original.mpr > /dev/null && echo 'original read: yes'"
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
 
+# GF-42: a repair tool (mx update-widgets, mx rename-design-properties) rewrites an MPR v2 project as a single-file v1 .mpr and
+# checkdiff, which compares error counts only, accepted it (4 098 units -> 0, 549 KB -> 158 MB, committed). bin/mprstorage.sh is the
+# format guard; try_fix / commit_app / stepupdate / remedy_apply call it. Fixtures: the v2 app of NR2-7 and a fixer that collapses it.
+F42=$T/gf42; mkdir -p $F42/v2 $F42/v1 $F42/w
+cp -R $S2/base/. $F42/v2/; cp $M/base/App.mpr $F42/v1/App.mpr
+for a in v2 v1; do (cd $F42/$a && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original); done
+printf '#!/bin/sh\ncp %s/App.mpr "$1" && rm -rf "$(dirname "$1")/mprcontents"\n' $M/base > $F42/collapse.sh
+cp -R $F42/v2 $F42/v2c; (cd $F42/v2c && sh $F42/collapse.sh $F42/v2c/App.mpr)
+ctl mprstorage-collapse-catch 1 '^STORAGE FORMAT CHANGED: App\.mpr was an MPR v2 project \([1-9][0-9]* mprcontents units\) and is now a single-file MPR v1' 'mxcli fix widgets' -- bash $B/mprstorage.sh guard $F42/v2c
+ctl mprstorage-v2-unchanged-pass 0 '!STORAGE' -- bash $B/mprstorage.sh guard $F42/v2
+ctl mprstorage-v1-unchanged-pass 0 '!STORAGE' -- bash $B/mprstorage.sh guard $F42/v1
+# the pipeline's own try_fix and commit_app: the fixer collapses the model, the check log says 123 -> 2 errors (what was committed in the field)
+F42F="eval \"\$(sed -n '/^mpr_v2() {/p; /^storage_ok() {/,/^}/p; /^try_fix() {/,/^}/p; /^commit_app() {/,/^}/p; /^git_app() {/p; /^mxcli_bin() {/p; /^update_widgets() {/,/^}/p; /^try_dprops() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; x() { \"\$@\"; }; note() { echo \"NOTE \$*\"; }; say() { echo \"\$*\"; }; open_errors() { sed -n 's/.*contains: \\([0-9]*\\) errors.*/\\1/p' \$1; }; steps_t=1"
+printf '[error] [CE0463] x\nThe app contains: 123 errors.\n' > $F42/before.log; printf 'The app contains: 2 errors.\n' > $F42/after.log
+F42E="B=$B DRY=0 WORK=$F42/w LOG=$F42/w/log.txt APP=$F42/v2t; mxcheck() { CHECK_LOG=$F42/after.log; }"
+rm -rf $F42/v2t; cp -R $F42/v2 $F42/v2t
+ctl pipeline-tryfix-storage-collapse-catch 0 '^NOTE fix .collapser.: STORAGE FORMAT CHANGED' 'REFUSED fix' '^units=[1-9][0-9]* commits=1$' '!^        repair: collapser' -- bash -c "$F42F; $F42E; mkdir -p $F42/w; CHECK_LOG=$F42/before.log; try_fix collapser repair-row-5 CE0463 sh $F42/collapse.sh $F42/v2t/App.mpr; echo units=\$(find $F42/v2t/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/v2t rev-list --count HEAD)"
+# the same collapsing fixer is refused at the commit too (a tool that ran outside try_fix, e.g. a hand-run row)
+rm -rf $F42/v2u; cp -R $F42/v2 $F42/v2u; (cd $F42/v2u && sh $F42/collapse.sh $F42/v2u/App.mpr)
+ctl pipeline-commit-storage-collapse-catch 0 '^NOTE commit .repair: x.: STORAGE FORMAT CHANGED' '^units=[1-9][0-9]* commits=1$' -- bash -c "$F42F; $F42E; APP=$F42/v2u; commit_app 'repair: x' repair row; echo units=\$(find $F42/v2u/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/v2u rev-list --count HEAD)"
+# a fixer that keeps the format is kept: v1 and v2 both commit as before
+rm -rf $F42/v2k; cp -R $F42/v2 $F42/v2k; printf '#!/bin/sh\necho edit >> "$(dirname "$1")/note.txt"\n' > $F42/keep.sh
+ctl pipeline-tryfix-storage-kept-pass 0 '^ +repair: keeper' '^commits=2$' '!STORAGE' -- bash -c "$F42F; $F42E; APP=$F42/v2k; CHECK_LOG=$F42/before.log; try_fix keeper repair-row-5 CE0463 sh $F42/keep.sh $F42/v2k/App.mpr; echo commits=\$(git -C $F42/v2k rev-list --count HEAD)"
+# routing: on MPR v2 row 5 runs mxcli fix widgets (not mx update-widgets) and row 6 the mxcli fix design-properties fixer; on v1 the mx tools as before
+printf '#!/bin/sh\necho "FAKE-MXCLI $*"\n' > $F42/fake-mxcli.sh; chmod +x $F42/fake-mxcli.sh
+F42R="$F42F; $F42E; heavy() { echo \"HEAVY \$*\"; }; mxw() { echo MXW; }; try_fix() { echo \"TRYFIX \$*\"; }; MXCLI=$F42/fake-mxcli.sh TARGET=11.6.3 UPG_LOCK=$F42/lock"
+ctl pipeline-v2-widgets-mxcli-catch 0 '^FAKE-MXCLI fix widgets -p .*App\.mpr$' '!HEAVY' -- bash -c "$F42R; APP=$F42/v2 MPR=$F42/v2/App.mpr; update_widgets"
+ctl pipeline-v1-widgets-mx-pass 0 '^HEAVY update-widgets 11\.6\.3 mx update-widgets .*App\.mpr$' '!FAKE-MXCLI' -- bash -c "$F42R; APP=$F42/v1 MPR=$F42/v1/App.mpr; update_widgets"
+ctl pipeline-v2-dprops-mxcli-catch 0 '^TRYFIX dp repair-row-6 CE6087 .*design_props_guard\.sh .* -- .*fake-mxcli\.sh fix design-properties -p APP$' '!rename-design-properties' -- bash -c "$F42R; APP=$F42/v2; try_dprops dp"
+ctl pipeline-v1-dprops-mx-pass 0 '^TRYFIX dp repair-row-6 CE6087 .*design_props_guard\.sh .* -- MXW 11\.6\.3 mx rename-design-properties APP$' '!fix design-properties' -- bash -c "$F42R; APP=$F42/v1; try_dprops dp"
+# stepupdate: the update command collapses the app; the step is undone and not committed (exit 4)
+rm -rf $F42/su; mkdir -p $F42/su; cp -R $S2/base/. $F42/su/; cp $S2/plan.txt $F42/su.plan
+(cd $F42/su && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl stepupdate-storage-collapse-catch 4 'STOP: step1-adds .*STORAGE FORMAT CHANGED' 'Step undone, nothing committed' '!committed [0-9a-f]' -- env UPG_UPDATE_CMD="cp $M/step1-adds/App.mpr {mpr} && rm -rf $F42/su/mprcontents" bash $B/stepupdate.sh $F42/su $F42/su.plan
+ctl stepupdate-storage-collapse-tree-pass 0 '^units=[1-9][0-9]*$' '^last=stepupdate: ignore' -- sh -c "echo units=\$(find $F42/su/mprcontents -name '*.mxunit' | wc -l | tr -d ' '); echo last=\$(git -C $F42/su log -1 --format=%s)"
+
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
 # model and the before log for anything else, so step 1 adds errors: the step is undone, nothing is committed, exit 4, and the stop file
 # holds the question in the shape widgetfix prints. The pass control (same plan, a check that finds nothing new) commits.
@@ -7482,7 +7518,7 @@ ctl stepupdate-trailers-jar-run-pass 0 'jar cleanup \(jardedupe --apply\)' -- en
 ctl stepupdate-trailers-jar-commit-catch 0 '^jar: jardedupe --apply after module updates$' '^Changed-By: toolkit$' '^Upgrade-Change: repair repair-row-3$' -- git -C $S/jt log --grep='^jar:' -1 --format=%B
 # the pipeline's commit_app (extracted from the script, run on a throwaway repo): subject unchanged, trailers from its arguments
 PL=$T/plapp; rm -rf $PL; mkdir -p $PL; git -C $PL init -q; echo a > $PL/a.txt; git -C $PL add a.txt; git -C $PL commit -qm base
-pl_commit() { ( APP=$PL; DRY=0; LOG=$T/pl.log; say() { :; }; eval "$(sed -n '/^git_app()/p;/^commit_app()/,/^}/p' $B/cloud/upgrade-pipeline.sh)"; echo b > $PL/b.txt; commit_app "convert 11.12.6" convert mx-convert; git -C $PL log -1 --format=%B ); }
+pl_commit() { ( APP=$PL; DRY=0; LOG=$T/pl.log; say() { :; }; note() { :; }; eval "$(sed -n '/^git_app()/p;/^storage_ok()/,/^}/p;/^commit_app()/,/^}/p' $B/cloud/upgrade-pipeline.sh)"; echo b > $PL/b.txt; commit_app "convert 11.12.6" convert mx-convert; git -C $PL log -1 --format=%B ); }
 ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: toolkit$' '^Upgrade-Change: convert mx-convert$' -- pl_commit
 # --- proposal (trust spec section 2, TR-1): the upgrade proposal a person signs before anything changes -----------------
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
