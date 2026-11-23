@@ -7489,7 +7489,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
 # dojo_report.py, release_impact.py), so the parsers in bin/proposal.py read real output; plan.txt, kept.txt and stranded.md
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
-if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x gf-proposal-x | grep -Eq "$only"; then
+if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x gf-proposal-x gf23-x gf24-x gf25-x gf27-x gf30-x gf32-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
 for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
@@ -7734,6 +7734,10 @@ rm -rf $PR/gf-late; cp -R $PR/plain $PR/gf-late; rm -f $PR/gf-late/PROPOSAL.md; 
 printf 'DataWidgets pre-convert update refused\nLatecomer update refused\n' > $PR/gf-late/kept.txt
 ctl gf32-late-kept-item-signed-run-pass 0 '^proposal: signed by Tester on 2026-10-15' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf-late
 ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| Latecomer \| module \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!Tester \| CONFIRMED.*Latecomer|Latecomer.*Tester \| CONFIRMED' -- cat $PR/gf-late/DECISIONS.md
+# GF-32 rerun: the second and third run re-render PROPOSAL.md with the late item in it; its step must stay assumed by the agent, never approved in the signer's name
+bash $PR/prop.sh $PR/gf-late > /dev/null; bash $PR/prop.sh $PR/gf-late > /dev/null
+ctl gf32-late-kept-rerun-step-stays-assumed-catch 0 '^module:Latecomer approval=assumed by=agent$' '!approved' -- python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s' % (x['topic'], x['approval']['state'], x['approval']['by']) for x in r))" $B $PR/gf-late
+ctl gf32-late-kept-rerun-decisions-stay-assumed-pass 0 '^P-[0-9]+ \| Latecomer \| module \| .*\| ASSUMED \|' -- cat $PR/gf-late/DECISIONS.md
 # a kept module the signed PROPOSAL.md rendered (DataWidgets, section 2 of the plain plan) was seen: CONFIRMED in the signer's name
 ctl gf32-late-kept-seen-module-confirmed-pass 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| accepted with the sign-off of Tester .*\| CONFIRMED \|' '!DataWidgets.*ASSUMED' -- cat $PR/gf-late/DECISIONS.md
 # GF-23 / GF-24: a held module the plan does not carry, and one whose installed version is already the newest

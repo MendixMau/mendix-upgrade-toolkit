@@ -823,6 +823,8 @@ def approve_steps(work, ids, state, signer, source, answers=None):
             continue
         if state == "approved" and have in ("approved", "rejected"):
             continue
+        if state == "approved" and have == "assumed" and cur.get("source") == "after-signoff":
+            continue  # GF-32: an item the signer never saw is not approved in their name by a later run
         by, src = signer, source
         d = (answers or {}).get(key[2:]) if key.startswith("3:") else None
         if state == "approved" and d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
@@ -1151,6 +1153,10 @@ def main():
             return True
         if f"3|{it['kind']}|{it['name']}|{it['evidence']}" in set(ident):
             return False
+        # a rerun re-renders PROPOSAL.md with the late item in it: the line DECISIONS.md already holds for it is what stays true
+        d = decisions(a.work).get(it["id"])
+        if d and len(d) > 3 and d[3].startswith("appeared after sign-off"):
+            return True
         n = re.escape(it["name"])
         return not re.search(rf"^- \[P-\d+\] {re.escape(it['kind'])}: {n}$|module update {n} ", signed_text, re.M)
 
