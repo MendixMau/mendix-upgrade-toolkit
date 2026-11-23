@@ -51,6 +51,15 @@
 # Hidden options for rung 2 (set by this script): --db NAME --old-mda PATH --seed-from DB
 set -Eeuo pipefail
 
+# GF-8 (a field run): macOS ships bash 3.2, where `"${arr[@]}"` of an empty array under `set -u` is an unbound-variable error and
+# the run died mid-triage. Refuse before anything runs. UPG_ASSUME_BASH=M.N stands in for the running version (controls only).
+_bv=${UPG_ASSUME_BASH:-${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}}
+if [ "${_bv%%.*}" -lt 4 ] || { [ "${_bv%%.*}" = 4 ] && [ "${_bv#*.}" -lt 4 ]; }; then
+  echo "upgrade-pipeline.sh: bash $_bv is too old (macOS ships 3.2; the pipeline needs bash 4.4 or newer). Install it with: brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\" (add that line to ~/.zshrc), open a new terminal and check that 'bash --version' says 5.x" >&2
+  exit 3
+fi
+unset _bv
+
 ARGS_ORIG=("$@")
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 TK="$(cd "$(dirname "$SELF")/../.." && pwd)"
@@ -704,6 +713,8 @@ cleanup() {
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
   feedback_finish "$rc" "$st" || true
+  # no `return "$rc"` here: under set -E a non-zero return from the EXIT trap fires the ERR trap and turns every stop into exit 4.
+  # bash 4.4+ (refused below that, GF-8) keeps the run's exit status itself.
 }
 trap cleanup EXIT
 
@@ -741,6 +752,15 @@ write_original() { # write_original REV
   [ ! -d "$tmp/mprcontents" ] || mv "$tmp/mprcontents" "$WORK/mprcontents"
   mv -f "$tmp/$base" "$WORK/original.mpr"; rm -rf "$tmp"
 }
+# GF-9: .git is a FILE in a git worktree, so `[ -d .git ]` was false there and the pipeline ran git init. The app has its own git when
+# its repo's top level is the app folder itself (a plain subfolder of a bigger repo still gets its own, as before).
+app_has_own_git() {
+  local top; top=$(git -C "$APP" rev-parse --show-toplevel 2> /dev/null) || return 1
+  [ "$(cd "$top" && pwd -P)" = "$(cd "$APP" && pwd -P)" ]
+}
+# GF-28 / GF-33: "original" is the newest commit the pipeline itself made with subject `original` or `original: ...`, never the repo's
+# first commit (an app with history: that is years old). Prints nothing when there is none.
+original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} !f && ($0 == "original" || $0 ~ /^original: /) {f=1; r=h} END {if (f) print r}'; }   # reads the whole log: an early exit would SIGPIPE git under pipefail
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -850,7 +870,14 @@ preflight() {
   [ "$ONLY" != propose ] || toolfree=1
   for t in docker zsh git python3 node; do [ "$toolfree" = 1 ] && [ "$t" = docker ] && continue; need_tool "$t"; done
   [ -z "$APP_ZIP" ] || need_tool unzip
-  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then docker info > /dev/null 2>&1 || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }; fi
+  # GF-34: a hung `docker info` (a Docker CLI plugin that never answers) stalled a run 22 minutes with an empty log. Say what is waited on,
+  # bound the probe (UPG_DOCKER_PROBE_SECS, default 30), and name the likely cause when it times out.
+  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then
+    say "waiting on: docker info (at most ${UPG_DOCKER_PROBE_SECS:-30} s)"
+    local drc=0; bash "$B/bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info > /dev/null 2>&1 || drc=$?
+    [ "$drc" != 124 ] || { echo "upgrade-pipeline.sh: 'docker info' did not answer in ${UPG_DOCKER_PROBE_SECS:-30} s: the docker CLI hangs. A Docker CLI plugin is the usual cause: try DOCKER_CONFIG=<a folder without cli-plugins> (mkdir -p ~/.docker-bare && DOCKER_CONFIG=~/.docker-bare), or restart Docker Desktop, then rerun" >&2; exit 3; }
+    [ "$drc" = 0 ] || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }
+  fi
   [ "$toolfree" = 0 ] || return 0
   need_path "$UPG_TOOLS/mxbuild-$SOURCE" "source mxbuild toolset"
   need_path "$UPG_TOOLS/mxbuild-$TARGET" "target mxbuild toolset"
@@ -902,12 +929,13 @@ step_fetch() {
   fi
   [ "$DRY" = 1 ] || printf '%s\n' "$APP" > "$WORK/state/app-dir"
   resolve_app
-  if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
+  if [ "$DRY" != 1 ] && ! app_has_own_git; then
     must git -C "$APP" init -q
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
+    mkdir -p "$WORK/state"; git_app rev-parse HEAD > "$WORK/state/original-rev" 2> /dev/null || rm -f "$WORK/state/original-rev"   # a fresh repo: an older run's hash must not survive
   elif [ "$DRY" != 1 ]; then
     local gi_before; gi_before=$(git_app status --porcelain -- .gitignore)   # FR-1: the person's own .gitignore change, if any, is seen BEFORE we touch it
     ensure_gitignore
@@ -922,10 +950,22 @@ step_fetch() {
     fi
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
+    # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
+    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark). The hash goes to
+    # $WORK/state/original-rev: a rerun of this run reuses it, a fresh run makes its own marker and never an older pushed one.
+    if [ -z "$OLD_MDA" ]; then
+      mkdir -p "$WORK/state"
+      orig_rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true)
+      if [ -z "$orig_rev" ] || ! git_app cat-file -e "$orig_rev^{commit}" 2> /dev/null; then
+        git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+        orig_rev=$(git_app rev-parse HEAD 2> /dev/null || true)
+        [ -z "$orig_rev" ] || { printf '%s\n' "$orig_rev" > "$WORK/state/original-rev"; note "ASSUMED: added an empty 'original' commit to the app's branch to mark the run start (original.mpr is read from it); drop it with git rebase/reset when the branch is not meant to carry it"; }
+      fi
+    fi
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(git_app rev-list --max-parents=0 HEAD | tail -n 1); fi
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); { [ -n "$rev" ] && git_app cat-file -e "$rev^{commit}" 2> /dev/null; } || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
     write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
@@ -1109,22 +1149,23 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
   # kept_vendor_check triage|update. keptvendor.py exit: 0 judged and none missing, 1 MISSING, 3 NOT CHECKED (package not cached or
   # unreadable: never clean), 2 input error. The kept list is .stepupdate/kept.txt, written by the update step: a first triage has none,
   # so it says "not measured" (never "clean") and the update step runs this again once the list exists. Only a triage MISSING stops (nj
-  # item, code 13); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
+  # item, code 13; GF-56: own styling items are also in the proposal hash, see proposal.py main); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
   local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" pf="$WORK/keptvendor-plan.txt"
-  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
-  if [ ! -s "$kf" ]; then
-    [ "$mode" != triage ] || note "keptvendor NOT MEASURED: no $kf yet (the update step writes the kept list); mixins, variables and files of kept themesources are checked against the planned packages after it"
-    return 0
-  fi
-  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the kept themesources against"; return 0; }
-  # awk 1 adds the missing final newline of plan.txt: with cat, its last line and the first of plan-pre.txt became one line
-  awk 1 "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
-  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --own --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
+  # GF-56: the app's own styling is read too (--own), so a first triage with no kept.txt still measures it before the sign-off
+  local kopt=(--kept-file "$kf")
+  [ -s "$kf" ] || kopt=(--kept '')
+  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the app's own and kept themesources against"; return 0; }
+  # awk 1 adds the missing final newline of the first file: with cat, its last line and the first of the next became one line.
+  # plan-pre.txt comes FIRST: keptvendor.py keeps the LAST version of a module, and plan.txt (the final target) must win over the
+  # older pre-convert version of the same module (GF-56 review: Atlas_Core 10 to 11 was judged against the pre-convert package)
+  awk 1 "$WORK/plan-pre.txt" "$WORK/plan.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
+  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" "${kopt[@]}" --own --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
   case "$rc" in
     0) ;;
-    1) note "keptvendor MISSING (exit 1): a kept themesource uses a mixin, variable or file a planned package removed; fix the kept SCSS or hold the package, see $WORK/keptvendor.out"
+    1) note "keptvendor MISSING (exit 1): a kept or own themesource (theme/ included) uses a mixin, variable or file a planned package removed; fix that SCSS or hold the package, see $WORK/keptvendor.out"
        if [ "$mode" = triage ]; then
-         nj_meta info; nj_file 13 "A kept module's styling uses something a planned package removes (GM-15: the theme compile would fail; fix the kept SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
+         nj_meta info; nj_file 13 "A kept or own module's styling uses something a planned package removes (GM-15, GF-56: the theme compile would fail; fix that SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
        fi ;;
     3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
     *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;
@@ -1214,9 +1255,18 @@ modcase_fix() { # modcase_fix BUILD_LOG
 
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.
 # Scripts: heavy-lock.sh + mx9/mx10.sh mxbuild, runapp.py, seed_pg.py, snapshot.py, diff.py
+ports_gate() { # ports_gate NAME: GF-14: both host ports (8080+PORT_OFF app, 8090+PORT_OFF admin) free before a build or a start that needs them
+  [ "$DRY" != 1 ] || return 0
+  local rc=0
+  runenv
+  x env "${RUNENV[@]}" python3 "$B/runapp.py" ports "$1" || rc=$?
+  infra_rc "$rc" "$1"
+}
 step_baseline() {
   local old rc=0 base probe keep line p code
   old=$(mda_old)
+  # GF-14: a taken port used to show only after the 190 s build of the old app; check it first (the run's own old app is not a holder)
+  if [ -z "$OLD_MDA" ] && ! db_exists "$X_FROZEN"; then ports_gate old; fi
   # DV-6: idempotent again here, because a run resumed (--from/--only baseline) on an app whose run start predates the exclude never passed it
   x python3 "$B/buildout.py" exclude "$APP" || note "buildout.py exclude failed: .classpath, .project, *.launch may show as dirty (DV-6)"
   if [ -z "$OLD_MDA" ] && [ ! -f "$old" ]; then
@@ -1458,9 +1508,28 @@ absent_modules_report() {
   esac
 }
 
+# GF-39: own documents that call something a planned package no longer has (CE1613 after the update) are a section-3 item BEFORE the
+# sign-off. The update step ran this too late (a field run met 21 CE1613 for a dropped admin-option microflow). Fresh each time.
+own_gone_report() {
+  local pf=()
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+  pf+=(--plan-file "$WORK/plan.txt")
+  [ "$DRY" != 1 ] || { say "+ crosscalls.py $WORK/original.mpr --kept '' --own ${pf[*]} > $WORK/owngone.out"; return 0; }
+  [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
+  local rc=0
+  rm -f "$WORK/owngone.out"
+  xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${pf[@]}" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "crosscalls --own: own modules use $(grep -c '^  GONE' "$WORK/owngone.out" 2> /dev/null || true) target(s) the plan versions drop (section 3 of the proposal), see $WORK/owngone.out" ;;
+    *) note "crosscalls --own exit $rc: own modules NOT checked against the plan versions, see $WORK/owngone.out" ;;
+  esac
+}
+
 step_propose() {
   local rc=0
   absent_modules_report
+  own_gone_report
   # a run whose triage predates the report
   [ -s "$WORK/dojo-react.md" ] || dojo_report
   [ -s "$WORK/replacements.md" ] || replacement_report
@@ -1769,15 +1838,20 @@ step_update() {
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
   # Administration 4.5.0 has no UserRole_Select or RetrieveTimeZones, two own employee pages used them)
   if [ "$DRY" != 1 ]; then
-    local orc=0
-    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt" || orc=$?
+    local orc=0 opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}" || orc=$?
     if grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
       note "own modules use $(grep -c '^  GONE' "$WORK/owngone.out") target(s) the plan versions drop: CE1613 after the update, see $WORK/owngone.out (steps/repair.md row 28)"
     elif [ "$orc" = 2 ]; then
       note "crosscalls --own exit 2: own modules not checked against the plan versions, see $WORK/owngone.out"
     fi
   else
-    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt"
+    local opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}"
   fi
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept

@@ -140,13 +140,15 @@ step_pkgs() {
   chk_pkgs
 }
 
-chk_docker() { docker info >/dev/null 2>&1; }
+# GF-34: every docker probe is bounded (a hung CLI plugin made `docker info` wait 22 minutes); 124 = timed out
+dprobe() { bash "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info "$@"; }
+chk_docker() { dprobe >/dev/null 2>&1; }
 step_docker() {  # installed in the image but not running; works with overlayfs
   log "starting dockerd"
   # T3: nohup + subshell so it survives the calling shell
   (nohup dockerd > "$RUN/dockerd.log" 2>&1 &)
-  for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
-  docker info --format 'docker {{.ServerVersion}} {{.Driver}}'
+  for _ in $(seq 1 30); do dprobe >/dev/null 2>&1 && break; [ $? != 124 ] || break; sleep 1; done   # 124: the CLI hangs, waiting more will not help
+  dprobe --format 'docker {{.ServerVersion}} {{.Driver}}' || { echo "setup: docker info failed or did not answer in ${UPG_DOCKER_PROBE_SECS:-30} s: if the docker CLI hangs, a CLI plugin is the usual cause; try DOCKER_CONFIG=<a folder without cli-plugins>" >&2; return 1; }
 }
 
 pull_one() {  # $1 image; Docker Hub answers 429 from the shared egress IP (T1): mirrors, then retag
@@ -158,7 +160,7 @@ pull_one() {  # $1 image; Docker Hub answers 429 from the shared egress IP (T1):
 }
 chk_images() {
   local img
-  docker info >/dev/null 2>&1 || return 1
+  dprobe >/dev/null 2>&1 || return 1
   for img in $(base_images); do docker image inspect "$img" >/dev/null 2>&1 || return 1; done
 }
 step_images() {
@@ -169,7 +171,7 @@ step_images() {
 }
 
 chk_build() {
-  docker info >/dev/null 2>&1 || return 1
+  dprobe >/dev/null 2>&1 || return 1
   docker image inspect mig-mx10 >/dev/null 2>&1 || return 1
   if need_mx9; then docker image inspect e5-mx9 >/dev/null 2>&1 || return 1; fi
   if need_j11; then docker image inspect mig-mx10-j11 >/dev/null 2>&1 || return 1; fi
