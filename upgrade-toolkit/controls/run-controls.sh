@@ -9883,7 +9883,7 @@ ctl apimock-default-port-clear-of-admin-catch 0 '^clear$' -- env -u UPG_APIMOCK_
 ctl apimock-default-port-pass 0 '^9290$' -- env -u UPG_APIMOCK_PORT -u PORT_OFF python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
 ctl apimock-default-port-env-pass 0 '^9555$' -- env UPG_APIMOCK_PORT=9555 PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
 # --- GF-8, GF-13, GF-14, GF-34 (a field run on macOS): host robustness. bash older than 4.4 is refused (UPG_ASSUME_BASH stands in for
-# the running version), an aborted run keeps its exit status, every docker probe is bounded, both host ports are named and checked early ---
+# the running version) (bash 4.4+ already keeps an aborted run's exit status), every docker probe is bounded, both host ports are named and checked early ---
 GFP=$B/cloud/upgrade-pipeline.sh
 ctl gf8-pipeline-bash32-refused-catch 3 'bash 3\.2 is too old' 'brew install bash' 'put it first on PATH' -- env UPG_ASSUME_BASH=3.2 bash $GFP --dry-run
 ctl gf8-pipeline-bash43-refused-catch 3 'bash 4\.3 is too old' -- env UPG_ASSUME_BASH=4.3 bash $GFP --dry-run
