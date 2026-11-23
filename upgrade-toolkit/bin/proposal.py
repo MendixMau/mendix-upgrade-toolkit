@@ -855,6 +855,31 @@ def mark_stale(path, pid):
     os.replace(path + ".tmp", path)
 
 
+def journeys_estimate(F):
+    """GF-50: the run time of the journeys, said before anyone starts them: count x seconds per journey. The seconds are the
+    measured pace of an earlier run in this work folder (state/journeys-pace.tsv) when there is one, else 80 (the field run's)."""
+    n, what = None, ""
+    if F.scope and isinstance(F.scope.get("counts"), dict):
+        n = sum(v for k, v in F.scope["counts"].items() if k in ("reachable-with-path", "reachable-no-path-yet"))
+        what = "journeys in scope"
+    elif F.actions is not None:
+        n, what = F.actions, "journeys (one per action, scope not measured)"
+    if n is None:
+        return "estimate: not measured (no actions.json): the journey count and so the run time are unknown"
+    sec, how = 80, "default 80 s each, no earlier run measured"
+    try:
+        import journeys_progress
+        m = journeys_progress.pace_of(os.path.join(F.W, "state", "journeys-pace.tsv"))
+        if m:
+            sec, how = m, "measured on an earlier run"
+    except Exception:
+        pass
+    mins = n * sec / 60
+    t = f"{mins / 60:.1f} h" if mins >= 120 else f"{mins:.0f} min"
+    return (f"estimate: {n} {what} x {sec:.0f} s each ({how}) = about {t} per app; "
+            f"cap it with run_journeys.py --max N or --budget-min M (impact-picked first, then always-on, then the rest; the rest is listed deferred)")
+
+
 def testing_plan(F):
     """The testing plan: what is tested and how, what cannot be tested in the sandbox, how each gap is closed. From the
     apimock inventory, the action inventory and the app shape only; a missing input is said, never guessed."""
@@ -870,6 +895,7 @@ def testing_plan(F):
     if F.scope:   # journey_scope.py: only what is used and reachable counts; the rest is listed, never INVALID
         L.append("  - " + F.scope["line"])
         L.append("  - " + F.scope["testability_line"] + "; each of these stays INVALID in the gate until it has a path")
+    L.append("  - " + journeys_estimate(F))
     if F.nendpoints is not None:
         unk = len(F.api_unknown)
         L.append(f"- external calls on a stand-in: {F.nendpoints} endpoints and constants found, {F.api_mocked} can be answered by the stand-in (apimock.py), {unk} are UNKNOWN"

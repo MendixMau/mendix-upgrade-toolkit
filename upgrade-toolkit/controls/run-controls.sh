@@ -9938,6 +9938,30 @@ print(r.returncode, r.stdout + r.stderr, P)"
 ctl gf14-toolcheck-host-port-warning-catch 0 '^0 ' 'WARNING, port [0-9]+ is in use on this machine' 'host OK' -- python3 -c "$GFT"
 ctl gf14-toolcheck-host-ports-free-pass 0 '!is in use on this machine' 'host OK' -- env PORT_OFF=30000 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 
+# --- GF-50 (field run: 573 journeys, ~80 s each, summary.json written only at the end, 93 journeys lost) -----------------------
+# journeys_cap_control.sh drives the real run_journeys.py against a stand-in runner (a `node` on PATH) and a local HTTP probe target
+GC=$T/gf50cap; mkdir -p $GC
+ctl gf50-checkpoint-catch 0 '^summary 4 journeys, 4 PASS, 0 deferred, partial True$' '^resume: 3 journeys not run last time' '^summary 7 journeys, 7 PASS, 0 deferred, partial False$' -- bash $here/journeys_cap_control.sh $B $GC checkpoint
+ctl gf50-cap-catch 0 '^cap: running 4 of 7 journeys \(impact-picked 2, always-on 2, rest 0\); 3 deferred, NOT run' '^deferred: 3 journeys NOT run' '^summary 7 journeys, 4 PASS, 3 deferred' '^ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC cap
+ctl gf50-budget-catch 0 '^cap: running 1 of 7 journeys' '^deferred: 6 journeys NOT run' '^summary 7 journeys, 1 PASS, 6 deferred' -- bash $here/journeys_cap_control.sh $B $GC budget
+ctl gf50-nocap-pass 0 '^rc 0$' '^summary 7 journeys, 7 PASS, 0 deferred, partial False$' '!^cap:' '!^deferred:' -- bash $here/journeys_cap_control.sh $B $GC nocap
+ctl gf50-estimate-default-catch 0 '^  - estimate: 12 journeys \(one per action, scope not measured\) x 80 s each \(default 80 s each, no earlier run measured\) = about 16 min per app; cap it with run_journeys\.py --max N or --budget-min M' -- cat $TP/w/PROPOSAL.md
+mkdir -p $TP/w2/state; cp $TP/w/actions.json $TP/w/apimock-inventory.json $TP/w2/; printf 'old\t10\t300\n' > $TP/w2/state/journeys-pace.tsv
+python3 $B/proposal.py --work $TP/w2 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
+ctl gf50-estimate-measured-pass 0 'estimate: 12 journeys .* x 30 s each \(measured on an earlier run\) = about 6 min per app' -- cat $TP/w2/PROPOSAL.md
+ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
+
+# --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
+# restart.json = a second start of the old app: here sa.json (the Email row differs), so that row is START-NOISE; a row the control
+# does not show stays FAIL; no restart.json says "not measured"
+ctl gf51-start-noise-marked-catch 0 '^start noise: [1-9][0-9]* row\(s\) also differ in the restart control' 'START-NOISE \| db\.attr\.Administration\.Account\.Email \| values changed' 'FAIL 0 \| REVIEW 0' '!FAIL \| db\.attr\.Administration\.Account\.Email' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sa.json
+ctl gf51-start-noise-real-change-catch 1 'START-NOISE \| log\.new_error \| 1x ERROR Cache: NoiseError: cache warmup' 'FAIL \| log\.new_error \| 1x ERROR ACT_Save: NullPointerException' '!START-NOISE \| log\.new_error \| 1x ERROR ACT_Save' -- python3 $B/diff.py $T/sb.json $T/sa-npe.json --restart $T/sr-noise.json
+ctl gf51-start-noise-other-value-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-noise.json
+ctl gf51-start-noise-unmeasured-catch 1 '^start noise not measured: no restart control' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/no-such-restart.json
+ctl gf51-no-flag-unchanged-pass 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE [|]' '!start noise' -- python3 $B/diff.py $T/sb.json $T/sa.json
+ctl gf51-gate-passes-restart-pass 0 'CMD\+=\(--restart "\$V_WORK/restart\.json"\)' -- grep -o 'CMD+=(--restart "$V_WORK/restart.json")' $B/gate.sh
+ctl gf51-baseline-runs-twin-pass 0 '^ok$' -- awk '/^step_baseline\(\)/ {f=1} f && /^  baseline_twin$/ {print "ok"; exit} /^baseline_twin\(\)/ {exit}' $B/cloud/upgrade-pipeline.sh
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

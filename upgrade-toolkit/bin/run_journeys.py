@@ -1335,6 +1335,56 @@ def data_waves(jdir, gen_dir, only=None, skip=()):
     return first + later + last + destr
 
 
+CHUNK_DEFAULT = 25     # journeys per runner process: summary.json is written after each one (GF-50)
+DEFAULT_SECONDS = 80   # seconds per journey when no earlier run measured one (GF-50 field run: 573 journeys, about 80 s each)
+
+
+def write_summary(out, summary):
+    """summary.json written whole or not at all: a stop between two writes leaves the last complete file (GF-50: 93 journeys
+    walked and lost because the file was only written at the end)."""
+    tmp = Path(out) / "summary.json.tmp"
+    tmp.write_text(json.dumps(summary, indent=2) + "\n")
+    os.replace(tmp, Path(out) / "summary.json")
+
+
+def chunk_waves(waves, n):
+    """Each wave cut into runs of at most n journeys, same key and order, so the shots folder and the order are unchanged."""
+    out = []
+    for key, role, role_dir, files in waves:
+        for i in range(0, len(files), n):
+            out.append((key, role, role_dir, files[i:i + n]))
+    return out
+
+
+def journey_tier(d, impacted):
+    """0 impact-picked (a menu journey of a changed page, or the journey of an impacted action), 1 always-on, 2 the rest."""
+    req = [r for r in (d.get("requirement") or []) if isinstance(r, str)]
+    if any(r.startswith("impact:") for r in req):
+        return 0
+    if impacted and any(r.startswith("action:") and r.split(":", 1)[1] in impacted for r in req):
+        return 0
+    if ALWAYS_ON.match(d.get("id", "")) or any(r.startswith("always-on") for r in req) or str(d.get("_why", "")).startswith("always-on"):
+        return 1
+    return 2
+
+
+def cap_waves(waves, cap, impacted):
+    """Keep the first `cap` journeys by (tier, set order), drop the rest from their waves. Returns (waves, kept, dropped) where
+    dropped is [(id, role, tier)]; the wave order of what is kept does not change."""
+    items = []
+    for wi, (key, role, rd, files) in enumerate(waves):
+        for f in files:
+            items.append((journey_tier(read_journey(f), impacted), len(items), wi, f, role))
+    keep = {x[3] for x in sorted(items)[:max(cap, 0)]}
+    dropped = [(read_journey(x[3])["id"], x[4], x[0]) for x in items if x[3] not in keep]
+    kept = [(key, role, rd, [f for f in files if f in keep]) for key, role, rd, files in waves]
+    tiers = [0, 0, 0]
+    for x in items:
+        if x[3] in keep:
+            tiers[x[0]] += 1
+    return [w for w in kept if w[3]], tiers, dropped
+
+
 ASSIGN_CTE = """t AS (SELECT t.id, min(tu."system$userid") AS uid FROM "system$workflowusertask" t
   JOIN "system$workflowusertask_targetusers" tu ON tu."system$workflowusertaskid" = t.id
   WHERE t.state = 'InProgress' AND NOT EXISTS (SELECT 1 FROM "system$workflowusertask_assignees" x
@@ -1456,6 +1506,15 @@ def main():
     ap.add_argument("--resume", action="store_true",
                     help="AD-1: run again only the journeys the last run of this label could not run because the app went "
                          "down (summary.json app_down), and merge them into that summary.json (exit 75 = still some left)")
+    ap.add_argument("--max", type=int, dest="max_n", metavar="N",
+                    help="GF-50: run at most N journeys: impact-picked first, then always-on, then the rest; the others are "
+                         "listed INVALID \"deferred\" in summary.json and a printed line names how many (nothing is dropped silently); "
+                         "--resume without --max runs the deferred ones")
+    ap.add_argument("--budget-min", type=float, dest="budget_min", metavar="M",
+                    help="GF-50: a time budget: the cap is M minutes at the measured (else %ds) seconds per journey, and no new "
+                         "batch starts after M minutes; what was not run is deferred as with --max" % DEFAULT_SECONDS)
+    ap.add_argument("--chunk", type=int, default=CHUNK_DEFAULT, metavar="N",
+                    help="journeys per runner process; summary.json is written after each (default %d)" % CHUNK_DEFAULT)
     ap.add_argument("--impact", help="impact.json (triage): the coverage line counts the impacted actions apart "
                                      "(default: impact.json next to the journeys folder)")
     ap.add_argument("--compare", help="the same journey set on the old app: work folder, label folder or summary.json (gate)")
@@ -1520,6 +1579,7 @@ def main():
             print(f"run_journeys: journey file {e}: INVALID, nothing was run (fix or remove the file, then run again; "
                   "a removed journey changes the set: before-picked again)", file=sys.stderr)
             sys.exit(2)
+    deferred_n = 0
     if a.rejudge:  # judge an existing run again (new --compare / --shot-accept); runs nothing, writes nothing
         out = Path(a.work).expanduser().resolve() / a.label
         summary = json.load(open(out / "summary.json"))
@@ -1544,9 +1604,13 @@ def main():
             if not (out / "summary.json").exists():
                 ap.error(f"--resume: no {out / 'summary.json'} to continue")
             prev = json.load(open(out / "summary.json"))
-            left = {j for j, s in prev["journeys"].items() if s.get("app_down")}
+            capped = a.max_n is not None or a.budget_min is not None   # the pipeline's own --resume keeps its cap: it must not undo it
+            left = {j for j, s in prev["journeys"].items() if s.get("app_down") or (s.get("deferred") and not capped)}
+            # GF-50: a run stopped before it finished (killed, reboot) wrote summary.json after each batch; the journeys it never
+            # reached are not in it at all, and they are what --resume runs
+            left |= {read_journey(f)["id"] for w in data_waves(Path(a.gen_dir) / "journeys", a.gen_dir) for f in w[3]} - set(prev["journeys"])
             only = (only & left) if only else left
-            print(f"resume: {len(only)} journeys the app could not run last time", file=sys.stderr)
+            print(f"resume: {len(only)} journeys not run last time (app went down, deferred by a cap, or never reached)", file=sys.stderr)
 
         backend, pgenv = data_backend(a.psql, eng)
         summary = {"label": a.label, "port": a.port, "login_path": a.login_path, "engine_patches": patches,
@@ -1575,6 +1639,35 @@ def main():
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
         waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        total_j = sum(len(w[3]) for w in waves)
+        sec = None
+        if a.budget_min is not None or total_j:
+            try:
+                import journeys_progress as _jp
+                sec = _jp.pace_of(os.environ.get("UPG_PACE_FILE") or "")
+            except Exception:
+                sec = None
+        sec = sec or DEFAULT_SECONDS
+        cap = a.max_n
+        if a.budget_min is not None:
+            bcap = max(1, int(a.budget_min * 60 / sec))
+            cap = bcap if cap is None else min(cap, bcap)
+        deadline = time.time() + a.budget_min * 60 if a.budget_min is not None else None
+        if cap is not None and total_j > cap and not a.positive_control and waves:
+            imp_set = impacted_actions(a.impact or str(Path(a.gen_dir).parent / "impact.json"), acts) if acts else None
+            waves, tiers, dropped = cap_waves(waves, cap, imp_set)
+            for jid, rl, t in dropped:
+                summary["journeys"][jid] = {"role": rl, "verdict": "INVALID", "deferred": True,
+                                            "why": f"not run: the cap of {cap} journeys (--max / --budget-min) left it out (tier {t}: "
+                                                   f"{['impact-picked', 'always-on', 'rest'][t]}); run --resume without --max, or with a larger --max on a fresh run"}
+            deferred_n = len(dropped)
+            summary["cap"] = {"max": cap, "of": total_j, "run": total_j - deferred_n, "deferred": deferred_n,
+                              "run_by_tier": dict(zip(["impact-picked", "always-on", "rest"], tiers)), "seconds_each": round(sec)}
+            print(f"cap: running {total_j - deferred_n} of {total_j} journeys (impact-picked {tiers[0]}, always-on {tiers[1]}, rest {tiers[2]}); "
+                  f"{deferred_n} deferred, NOT run (INVALID \"deferred\" in summary.json)", file=sys.stderr)
+        if not a.positive_control and not harness:
+            waves = chunk_waves(waves, max(1, a.chunk))
+        started_keys, chunk_no = set(), {}
         # issue 26 (SNOW, 435 user paths): a progress line while the runner walks them, and the expected duration before the first; said only, no verdict
         prog = None
         if not a.positive_control and waves:
@@ -1583,10 +1676,21 @@ def main():
                                               os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
             prog.start()
         for key, role, role_dir, files in waves:
+            first_chunk = key not in chunk_no
+            chunk_no[key] = chunk_no.get(key, 0) + 1
+            if not a.positive_control and not a.rejudge:   # GF-50: what is walked so far is on disk before the next batch starts
+                summary["partial"] = True
+                write_summary(out, summary)
+            if deadline and time.time() > deadline:
+                for f in files:
+                    summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "deferred": True,
+                        "why": f"not run: the time budget of {a.budget_min:g} min (--budget-min) ran out; run --resume without --budget-min"}
+                deferred_n += len(files)
+                continue
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
-            if data_wave(key) and not harness and not a.positive_control and park_specs(a.gen_dir):
+            if first_chunk and data_wave(key) and not harness and not a.positive_control and park_specs(a.gen_dir):
                 if parked is None:   # PR-F33: once, before the first second-pass role: tasks wait at each stage
                     parked = park(a, jdir, users, eng, pgenv, out, run_id)
                     summary["park"] = parked
@@ -1612,6 +1716,7 @@ def main():
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "no test user for role"}
                 continue
+            csfx = f".c{chunk_no[key]}" if chunk_no[key] > 1 else ""
             run = out / f"run-{key}"
             if run.exists():
                 shutil.rmtree(run)
@@ -1641,7 +1746,7 @@ def main():
                     p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
                 else:
                     p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
-                (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
+                (out / f"{key}{sfx}{csfx}.log" if not tries else out / f"{key}{sfx}{csfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
                 tries += 1
@@ -1659,9 +1764,9 @@ def main():
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "runner did not run"}
                 continue
-            shutil.copy2(fj, out / f"{key}{sfx}-{name}")
+            shutil.copy2(fj, out / f"{key}{sfx}{csfx}-{name}")
             shots = out / f"shots-{key}"
-            if shots.exists() and not prev:   # a resume adds to the shots of the journeys that did run
+            if shots.exists() and not prev and first_chunk:   # a resume adds to the shots of the journeys that did run; a later batch of the same wave adds too
                 shutil.rmtree(shots)
             shutil.copytree(art, shots, ignore=shutil.ignore_patterns("*.json"), dirs_exist_ok=True)
             F = json.load(open(fj))
@@ -1881,7 +1986,13 @@ def main():
     downs = sorted(j for j, s in summary["journeys"].items() if s.get("app_down"))
     summary["app_down"] = len(downs)
     if not a.rejudge:
-        (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        summary.pop("partial", None)
+        if deferred_n and not summary.get("cap"):   # the time budget ran out mid-run
+            summary["cap"] = {"budget_min": a.budget_min, "deferred": deferred_n}
+        write_summary(out, summary)
+    if deferred_n:
+        print(f"deferred: {deferred_n} journeys NOT run (cap or time budget): INVALID \"deferred\" in summary.json; "
+              f"--resume (no --max / --budget-min) runs them", file=sys.stderr)
     print(f"== {a.label} (:{a.port})" + (f" compared with {a.compare}" if a.compare else ""))
     if summary.get("data_backend"):
         print(f"  data {summary['data_backend'][:200]}")
