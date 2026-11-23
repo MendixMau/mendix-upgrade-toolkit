@@ -749,7 +749,7 @@ app_has_own_git() {
 }
 # GF-28 / GF-33: "original" is the newest commit the pipeline itself made with subject `original` or `original: ...`, never the repo's
 # first commit (an app with history: that is years old). Prints nothing when there is none.
-original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} $0 == "original" || $0 ~ /^original: / {print h; exit}'; }
+original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} !f && ($0 == "original" || $0 ~ /^original: /) {f=1; r=h} END {if (f) print r}'; }   # reads the whole log: an early exit would SIGPIPE git under pipefail
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -932,14 +932,21 @@ step_fetch() {
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
     # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
-    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark) or a rerun (one exists).
-    if [ -z "$OLD_MDA" ] && [ -z "$(original_rev)" ]; then
-      git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark). The hash goes to
+    # $WORK/state/original-rev: a rerun of this run reuses it, a fresh run makes its own marker and never an older pushed one.
+    if [ -z "$OLD_MDA" ]; then
+      mkdir -p "$WORK/state"
+      orig_rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true)
+      if [ -z "$orig_rev" ] || ! git_app cat-file -e "$orig_rev^{commit}" 2> /dev/null; then
+        git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+        orig_rev=$(git_app rev-parse HEAD 2> /dev/null || true)
+        [ -z "$orig_rev" ] || { printf '%s\n' "$orig_rev" > "$WORK/state/original-rev"; note "ASSUMED: added an empty 'original' commit to the app's branch to mark the run start (original.mpr is read from it); drop it with git rebase/reset when the branch is not meant to carry it"; }
+      fi
     fi
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); [ -n "$rev" ] || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
     write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
