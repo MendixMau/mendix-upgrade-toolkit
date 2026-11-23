@@ -2412,6 +2412,48 @@ ctl mprmodel-v2-empty-mprcontents-catch 1 'holds none of its units' '!"modules"'
 mkdir -p $G8/w3/mprcontents; printf stale > $G8/w3/mprcontents/stale-leftover.mxunit
 ctl pipeline-original-rerun-clears-stale-pass 0 '^stale gone$' '^mprcontents units: [1-9]' '"modules": 3,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w3; write_original HEAD || exit 9; [ -e $G8/w3/mprcontents/stale-leftover.mxunit ] || echo 'stale gone'; echo mprcontents units: \$(ls $G8/w3/mprcontents | wc -l); python3 $B/mprmodel.py $G8/w3/original.mpr"
 ctl pipeline-original-v1-pass 0 '^mprcontents beside original: no$' '^original read: yes$' -- bash -c "$G8F; APP=$G8/v1app MPR=$G8/v1app/App.mpr WORK=$G8/w1; write_original HEAD || exit 9; [ -e $G8/w1/mprcontents ] && echo 'mprcontents beside original: yes' || echo 'mprcontents beside original: no'; cmp -s $G8/w1/original.mpr $M/base/App.mpr && python3 $B/mprmodel.py $G8/w1/original.mpr > /dev/null && echo 'original read: yes'"
+# GF-28 / GF-33 / GF-9: "original" is the newest commit the pipeline made (subject `original` or `original: ...`), never the repo's
+# first commit; an MPR v2 original gets mprcontents/ beside it; a git worktree (.git is a file) does not get git init.
+GF=$T/gf28; mkdir -p $GF/w1 $GF/w2 $GF/w3
+GFF="eval \"\$(sed -n '/^write_original() {/,/^}/p; /^git_app() {/p; /^app_has_own_git() {/,/^}/p; /^original_rev() /p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; die4() { echo \"\$*\" >&2; exit 4; }"
+gfc() { git -C "$1" -c user.email=c@c -c user.name=ctl commit -q "${@:2}"; }
+# v1 app: an old first commit (the model years ago), team commits, then the pipeline's own "original" and later step commits
+mkdir -p $GF/v1app; cp $M/base/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app init -q; git -C $GF/v1app add -A; gfc $GF/v1app -m "svn import"
+cp $M/step1-adds/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app add -A; gfc $GF/v1app -m "team work"
+gfc $GF/v1app --allow-empty -m original -m "Changed-By: toolkit"
+cp $M/guard/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app add -A; gfc $GF/v1app -m "step: Mod 1.0.0"
+ctl pipeline-original-history-run-start-catch 0 '^original is the run start: yes$' '^subject: original$' '!^original is the first commit' -- bash -c "$GFF; APP=$GF/v1app MPR=$GF/v1app/App.mpr WORK=$GF/w1; rev=\$(original_rev); [ -n \"\$rev\" ] || exit 9; echo subject: \$(git -C $GF/v1app log -1 --format=%s \$rev); write_original \$rev || exit 9; cmp -s $GF/w1/original.mpr $M/step1-adds/App.mpr && echo 'original is the run start: yes'; cmp -s $GF/w1/original.mpr $M/base/App.mpr && echo 'original is the first commit'; true"
+# the newest wins, `original: ...` counts, `originally` / `original work` do not
+mkdir -p $GF/sub; git -C $GF/sub init -q; gfc $GF/sub --allow-empty -m original; gfc $GF/sub --allow-empty -m "original: rung start"; gfc $GF/sub --allow-empty -m "original work by the team"; gfc $GF/sub --allow-empty -m originally
+ctl pipeline-original-rev-newest-pass 0 '^subject: original: rung start$' -- bash -c "$GFF; APP=$GF/sub; echo subject: \$(git -C $GF/sub log -1 --format=%s \$(original_rev))"
+ctl pipeline-original-rev-none-pass 0 '^none$' -- bash -c "$GFF; APP=$GF/v1app; git -C $GF/v1app branch -q nomark \$(git -C $GF/v1app rev-list --max-parents=0 HEAD); APP=$GF/none; mkdir -p \$APP; git -C \$APP init -q; git -C \$APP -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m base; [ -z \"\$(original_rev)\" ] && echo none"
+# review of #185: a long history with a stale pushed marker near the head. original_rev must read the whole log (an early awk exit
+# SIGPIPEs git under pipefail and kills the step), and a fresh run makes its own marker, records it in state/original-rev, notes it
+# as ASSUMED; a rerun of the same run reuses it.
+LH=$GF/long; mkdir -p $LH/app $LH/w; git -C $LH/app init -q
+python3 - $LH/app > $LH/stream.txt <<'PY'
+import sys
+n = 4000
+for i in range(1, n + 1):
+    m = "original" if i == n - 3 else "team commit %d with a long enough subject to fill the pipe buffer" % i
+    print("commit refs/heads/master\ncommitter c <c@c> %d +0000\ndata %d\n%s\n" % (1700000000 + i, len(m), m))
+PY
+git -C $LH/app fast-import --quiet < $LH/stream.txt; git -C $LH/app reset -q --hard master
+LHF="set -Eeuo pipefail; eval \"\$(sed -n '/^git_app() {/p; /^original_rev() /p; /^note() {/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; APP=$LH/app; WORK=$LH/w; DRY=0; STEP=fetch; OLD_MDA=; LOG=$LH/log.txt; export GIT_AUTHOR_NAME=c GIT_AUTHOR_EMAIL=c@c GIT_COMMITTER_NAME=c GIT_COMMITTER_EMAIL=c@c"
+ctl pipeline-original-rev-long-history-pipefail-catch 0 '^stale: [0-9a-f]{40}$' '^found: yes$' -- bash -c "$LHF; mkdir -p \$WORK/state; rev=\$(original_rev); echo stale: \$rev; [ -n \"\$rev\" ] && echo found: yes"
+LHB="sed -n '/# GF-28: an app with its own history/,/^  else say \"+ git init/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | sed '\$d'"
+ctl pipeline-original-fresh-run-own-marker-catch 0 '^own marker: yes$' '^subject: original$' '^commits \+1: yes$' '^noted ASSUMED: yes$' '^rerun reuses: yes$' -- bash -c "$LHF; stale=\$(original_rev); n=\$(git -C $LH/app rev-list --count HEAD); eval \"\$($LHB)\"; r1=\$(cat \$WORK/state/original-rev); [ \"\$r1\" != \"\$stale\" ] && [ \"\$(original_rev)\" = \"\$r1\" ] && echo own marker: yes; echo subject: \$(git -C \$APP log -1 --format=%s \$r1); [ \$(git -C \$APP rev-list --count HEAD) = \$((n+1)) ] && echo commits +1: yes; grep -q 'ASSUMED' \$WORK/state/notes.txt && echo noted ASSUMED: yes; eval \"\$($LHB)\"; [ \"\$(cat \$WORK/state/original-rev)\" = \"\$r1\" ] && [ \$(git -C \$APP rev-list --count HEAD) = \$((n+1)) ] && echo rerun reuses: yes"
+# a stale state/original-rev from an older repo (app folder wiped and git-inited again) must not be used: the rev line falls back
+LHR="\$(grep -o 'if \[ -n \"\$OLD_MDA\" \]; then rev=HEAD; else rev=\$(cat \"\$WORK/state/original-rev\".*' \${PIPE:-$B/cloud/upgrade-pipeline.sh})"
+ctl pipeline-original-stale-state-rev-ignored-catch 0 '^usable: yes$' -- bash -c "$LHF; WORK=$LH/w2; mkdir -p \$WORK/state; echo 60bd42fb0000000000000000000000000000beef > \$WORK/state/original-rev; eval \"$LHR\"; git -C \$APP cat-file -e \"\$rev^{commit}\" && echo usable: yes"
+# v2 app with history: mprcontents/ of the original commit lands beside original.mpr
+mkdir -p $GF/v2app; cp -R $S2/base/. $GF/v2app/; git -C $GF/v2app init -q; git -C $GF/v2app add -A; gfc $GF/v2app -m "svn import"
+rm -rf $GF/v2app/mprcontents; cp -R $S2/step1-adds/. $GF/v2app/; git -C $GF/v2app add -A; gfc $GF/v2app -m "team work"
+gfc $GF/v2app --allow-empty -m original
+ctl pipeline-original-v2-history-mprcontents-catch 0 '^mprcontents beside original: yes$' '"modules": 3,' -- bash -c "$GFF; APP=$GF/v2app MPR=$GF/v2app/App.mpr WORK=$GF/w2; write_original \$(original_rev) || exit 9; [ -d $GF/w2/mprcontents ] && echo 'mprcontents beside original: yes'; python3 $B/mprmodel.py $GF/w2/original.mpr"
+# GF-9: a worktree has its own git (.git is a file); a plain folder, and a subfolder of a bigger repo, do not
+git -C $GF/v1app worktree add -q $GF/wt HEAD 2> /dev/null; mkdir -p $GF/plain $GF/v1app/sub
+ctl pipeline-worktree-has-git-catch 0 '^worktree: own git$' '^plain: none$' '^subfolder: none$' '^repo: own git$' -- bash -c "$GFF; chk() { APP=\$2; app_has_own_git && echo \$1: own git || echo \$1: none; }; [ -f $GF/wt/.git ] || exit 9; chk worktree $GF/wt; chk plain $GF/plain; chk subfolder $GF/v1app/sub; chk repo $GF/v1app"
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
@@ -8431,7 +8473,7 @@ ctl buildout-baseline-step-adds-exclude-catch 0 '^/\.classpath$' '^/\.project$' 
 frapp() { local d=$1; rm -rf $d; mkdir -p $d; (cd $d && git init -q && touch App.mpr && cp $FX/fr/mendix-gitignore.txt .gitignore && ${2:-:} && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original); }
 frrun() { env PATH=$BTR/bin:$PATH MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $1 --source 10.24.26.1 --target 11.15.0.1 --work $BTR/work-$2 --only fetch 2>&1; }
 FR1=$BTR/app-fr1; frapp $FR1
-ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -1 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
+ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -2 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
 FR2=$BTR/app-fr2; frapp $FR2; echo scratch > $FR2/notes-by-a-person.txt
 ctl fr1-other-dirt-still-refused-pass 4 'has uncommitted changes' '^\?\? notes-by-a-person.txt$' '!notes-by-a-person.txt.*toolkit' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR2 fr2 | grep uncommitted; git -C $FR2 status --porcelain; git -C $FR2 log -1 --format=%s; exit 4"
 FR3=$BTR/app-fr3; frapp $FR3; echo my-own-private-ignore >> $FR3/.gitignore
