@@ -10216,7 +10216,7 @@ for i in 1 2 3; do echo '{"id":"j'$i'"}' > $TP/w3/journeys/journeys/Admin/j$i.jo
 python3 $B/proposal.py --work $TP/w3 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
 ctl gf50-estimate-generated-journeys-catch 0 'estimate: 3 generated journeys x 80 s each' '!estimate: 12' -- cat $TP/w3/PROPOSAL.md
 ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new deferred: c1-act c2-act c3-act$' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
-ctl gf50-cap-parity-compare-catch 0 '^rc 3$' '^actions \? found . 7 journeys .* 4 pass on baseline \(0 defect, 3 not run: deferred by the cap\)' 'coverage INVALID: not measured: 3 journeys not run: deferred by the cap' '!fail on the baseline' '!without evidence' -- bash $here/journeys_cap_control.sh $B $GC parity-compare
+ctl gf50-cap-parity-compare-catch 0 '^rc 3$' '^actions \? found .* 7 journeys .* 4 pass on baseline \(0 defect, 3 not run: deferred by the cap\)' 'coverage INVALID: not measured: 3 journeys not run: deferred by the cap' '!fail on the baseline' '!without evidence' -- bash $here/journeys_cap_control.sh $B $GC parity-compare
 ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
 
 # --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
