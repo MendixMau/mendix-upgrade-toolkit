@@ -10243,6 +10243,23 @@ ctl gf51-start-noise-entity-marked-catch 0 'START-NOISE \| db\.entity\.Administr
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['entities']['Administration.Account']=2; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sa-ent-attr.json
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['attributes']['Administration.Account.Email']['md5']='b3'; json.dump(d, open(sys.argv[2],'w'))" $T/sa-ent-attr.json $T/sr-ent-attr.json
 ctl gf51-start-noise-entity-attr-fail-catch 1 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs between two old starts, but an attribute' 'FAIL \| db\.attr\.Administration\.Account\.Email' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/sb.json $T/sa-ent-attr.json --restart $T/sr-ent-attr.json
+# an association row that stays FAIL pins its entities only when its name splits EXACTLY as <Entity>_<Entity> of the module; a custom
+# name (CustomerOrders) or an underscore entity (Sales_Item_Order) is unattributable and keeps EVERY entity row of the module FAIL
+# (the restart control shows the entity loss but not the association change, so the assoc row stays FAIL)
+mkassoc() { python3 -c "
+import json,sys
+sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
+for d in (sb,sa):
+    for e in ('Shop.Customer','Shop.Order','Shop.Sales_Item','Shop.Product'): d['db']['entities'][e]=3
+    d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+for e in ('Shop.Order','Shop.Sales_Item','Shop.Product'): sa['db']['entities'][e]=2
+sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
+sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
+mkassoc as1 Shop.CustomerOrders; mkassoc as2 Shop.Sales_Item_Order; mkassoc as3 Shop.Customer_Order
+ctl gf51-start-noise-entity-custom-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.CustomerOrders' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/as1-b.json $T/as1-a.json --restart $T/as1-r.json
+ctl gf51-start-noise-entity-underscore-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.Sales_Item_Order' 'FAIL \| db\.entity\.Shop\.Sales_Item \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as2-b.json $T/as2-a.json --restart $T/as2-r.json
+ctl gf51-start-noise-entity-attributable-assoc-pass 1 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Sales_Item' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as3-b.json $T/as3-a.json --restart $T/as3-r.json
 # a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
 GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
 ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }
