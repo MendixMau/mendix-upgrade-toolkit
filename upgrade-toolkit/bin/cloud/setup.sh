@@ -145,7 +145,7 @@ step_docker() {  # installed in the image but not running; works with overlayfs
   log "starting dockerd"
   # T3: nohup + subshell so it survives the calling shell
   (nohup dockerd > "$RUN/dockerd.log" 2>&1 &)
-  for _ in $(seq 1 30); do dprobe >/dev/null 2>&1 && break; sleep 1; done
+  for _ in $(seq 1 30); do dprobe >/dev/null 2>&1 && break; [ $? != 124 ] || break; sleep 1; done   # 124: the CLI hangs, waiting more will not help
   dprobe --format 'docker {{.ServerVersion}} {{.Driver}}' || { echo "setup: docker info failed or did not answer in ${UPG_DOCKER_PROBE_SECS:-30} s: if the docker CLI hangs, a CLI plugin is the usual cause; try DOCKER_CONFIG=<a folder without cli-plugins>" >&2; return 1; }
 }
 

@@ -713,9 +713,8 @@ cleanup() {
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
   feedback_finish "$rc" "$st" || true
-  # GF-8: end with the status the run had. This function's last command was `|| true`, so its own status was 0, and an old bash (3.2) takes
-  # the EXIT trap's last status as the run's: a crash read as success. `return` (not `exit`: controls call cleanup directly).
-  return "$rc"
+  # no `return "$rc"` here: under set -E a non-zero return from the EXIT trap fires the ERR trap and turns every stop into exit 4.
+  # bash 4.4+ (refused below that, GF-8) keeps the run's exit status itself.
 }
 trap cleanup EXIT
 

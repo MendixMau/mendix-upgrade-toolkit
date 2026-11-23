@@ -9891,9 +9891,6 @@ ctl gf8-pipeline-bash44-pass 2 '!too old' 'unknown argument' -- env UPG_ASSUME_B
 ctl gf8-toolcheck-host-bash32-refused-catch 2 'REFUSED, bash 3\.2 is too old' 'brew install bash' 'first on PATH' -- env UPG_ASSUME_BASH=3.2 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 ctl gf8-toolcheck-host-bash44-pass 0 'host OK' '!too old' -- env UPG_ASSUME_BASH=4.4 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 ctl gf8-doctor-bash-threshold-is-44-pass 0 'ok' -- bash -c "grep -q 'BASH_VERSINFO\[1\]\}\" -ge 4' $B/doctor.sh && echo ok"
-# an aborted run exits with its own status: cleanup() ends on `|| true`, so without its own `return` an old bash took 0 as the run's
-ctl gf8-cleanup-keeps-exit-status-catch 0 '^status=4$' -- bash -c "$CLF; ( exit 4 ); cleanup > /dev/null 2>&1; echo status=\$?"
-ctl gf8-cleanup-clean-run-status-pass 0 '^status=0$' -- bash -c "$CLF; ( exit 0 ); cleanup > /dev/null 2>&1; echo status=\$?"
 # GF-34: bounded.sh kills a hung probe and says 124; every way of bounding it (timeout, perl, bash watchdog) is tried
 for bm in timeout perl watchdog; do
   bf=$bm; [ "$bm" != timeout ] || bf=""

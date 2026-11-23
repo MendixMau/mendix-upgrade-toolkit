@@ -29,7 +29,7 @@ if [ -z "${UPG_RESUME_NO_DOCKER:-}" ]; then
   if ! dprobe; then
     log "docker is down, starting dockerd"
     (nohup dockerd > "$first/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do dprobe && break; sleep 1; done
+    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do dprobe && break; [ $? != 124 ] || break; sleep 1; done   # 124: the CLI hangs, waiting more will not help
   fi
   dprobe || { echo "resume.sh: docker did not start (if the docker CLI hangs: a CLI plugin? try DOCKER_CONFIG=<a folder without cli-plugins>), see $first/dockerd.log" >&2; exit 3; }
   log "docker up"
