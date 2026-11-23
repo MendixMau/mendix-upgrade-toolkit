@@ -52,7 +52,8 @@ allow.txt ("log.start.CHANGED *MFA* # reason").
 REVIEW row of this diff with the SAME check and the SAME detail text is a candidate. A db.attr / db.assoc candidate is START-NOISE
 only when the after snapshot's md5 of that column (association) EQUALS the restart snapshot's md5: the detail holds counts alone,
 so the same count says nothing about which values changed. md5 missing on either side, or the md5s differ: the row stays FAIL,
-with "(also changes between two old starts; values differ from the control)". Other candidates (log, http) are START-NOISE on
+with "(also changes between two old starts; values differ from the control)". A db.entity candidate is START-NOISE only when no db.attr / db.assoc
+row of that entity stayed FAIL / REVIEW (no per-row fingerprint exists to compare); other candidates (log, http) are START-NOISE on
 check + detail. START-NOISE is a non-blocking NOTE (exit code ignores it), never hidden. A row the control lacks stays FAIL.
 restart.json absent, or older than before.json (a control of an earlier baseline): one INFO line "start noise not measured" and
 every row stands.
@@ -391,15 +392,29 @@ def main():
         else:
             R = json.load(open(a.restart))
             anon_both = bool(((B.get("db") or {}).get("anonymous")) and ((A.get("db") or {}).get("anonymous")))
-            hit = 0
+            hit, ent = 0, []
             for i, (v, c, d) in enumerate(rows):
                 if v not in ("FAIL", "REVIEW") or (c, d) not in ctl: continue
+                if c.startswith("db.entity."): ent.append(i); continue   # judged below, once the attr / assoc rows are
                 if c.startswith(("db.attr.", "db.assoc.")):
                     # the detail is counts alone: same count, other values would match the control. Noise only if the AFTER
                     # snapshot's fingerprint of this column / association equals the restart's.
                     fa, fr = fingerprint(A, c, anon_both), fingerprint(R, c, anon_both)
                     if fa is None or fr is None or fa != fr:
                         rows[i] = (v, c, f"{d} (also changes between two old starts; values differ from the control)"); continue
+                rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
+            # a db.entity row (rows 10 -> 8) is noise only if no attribute or association of that entity stayed FAIL / REVIEW. The
+            # snapshot has no per-row fingerprint of an entity (ids are model ids, not row ids), so this is all it can check:
+            # an entity whose lost rows carry no non-null attribute and no association can still read as start noise.
+            for i in ent:
+                v, c, d = rows[i]
+                en = c[len("db.entity."):]; loc = en.rsplit(".", 1)[-1]
+                def of_entity(c2):
+                    if c2.startswith("db.attr."): return c2.startswith(f"db.attr.{en}.")
+                    if c2.startswith("db.assoc."): return loc in c2[len("db.assoc."):].rsplit(".", 1)[-1].split("_")
+                    return False
+                if any(v2 in ("FAIL", "REVIEW") and of_entity(c2) for v2, c2, _ in rows):
+                    rows[i] = (v, c, f"{d} (also differs between two old starts, but an attribute or association of this entity still fails)"); continue
                 rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
             noise_note = f"start noise: {hit} row(s) also differ in the restart control (listed as START-NOISE, not blocking); control has {len(ctl)} differing row(s)"
             rows.append(("INFO", "start.noise", noise_note))

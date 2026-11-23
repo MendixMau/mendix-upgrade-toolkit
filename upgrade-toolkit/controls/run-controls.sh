@@ -10136,7 +10136,8 @@ mkdir -p $TP/w3/journeys/journeys/Admin $TP/w3/state; cp $TP/w/actions.json $TP/
 for i in 1 2 3; do echo '{"id":"j'$i'"}' > $TP/w3/journeys/journeys/Admin/j$i.journey.json; done
 python3 $B/proposal.py --work $TP/w3 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
 ctl gf50-estimate-generated-journeys-catch 0 'estimate: 3 generated journeys x 80 s each' '!estimate: 12' -- cat $TP/w3/PROPOSAL.md
-ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
+ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new deferred: c1-act c2-act c3-act$' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
+ctl gf50-cap-parity-compare-catch 0 '^rc 3$' '^actions \? found . 7 journeys .* 4 pass on baseline \(0 defect, 3 not run: deferred by the cap\)' 'coverage INVALID: not measured: 3 journeys not run: deferred by the cap' '!fail on the baseline' '!without evidence' -- bash $here/journeys_cap_control.sh $B $GC parity-compare
 ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
 
 # --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
@@ -10153,8 +10154,16 @@ ctl gf51-start-noise-other-values-catch 1 'FAIL \| db\.attr\.Administration\.Acc
 python3 -c "import json,sys; d=json.load(open(sys.argv[1])); del d['db']['attributes']['Administration.Account.Email']['md5']; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sr-nomd5.json
 ctl gf51-start-noise-restart-without-md5-pass 1 '^start noise not measured' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-nomd5.json
 # a restart.json older than before.json is a control of an earlier baseline: nothing is filtered (it would be START-NOISE if fresh)
-cp $T/sa.json $T/sr-stale.json; touch -d '2000-01-01 00:00:00' $T/sr-stale.json
+cp $T/sa.json $T/sr-stale.json; touch -t 200001010000 $T/sr-stale.json
 ctl gf51-start-noise-stale-control-catch 1 '^start noise not measured: restart\.json is older than before\.json' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-stale.json
+# db.entity rows ("rows 3 -> 2") carry no fingerprint: noise only when no attribute / association of that entity stayed FAIL.
+# entity lost a row on the upgrade AND in the restart control, attributes untouched: START-NOISE. Same, but Email also changed on the
+# upgrade (md5 b2, control b3, same counts): the attr row stays FAIL, so the entity row stays FAIL too.
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['entities']['Administration.Account']=2; d['db']['attributes']['Administration.Account.Email']['md5']='b1'; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sa-ent.json
+ctl gf51-start-noise-entity-marked-catch 0 'START-NOISE \| db\.entity\.Administration\.Account \| rows 3 -> 2' 'FAIL 0 \| REVIEW 0' '!FAIL \| db\.entity' -- python3 $B/diff.py $T/sb.json $T/sa-ent.json --restart $T/sa-ent.json
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['entities']['Administration.Account']=2; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sa-ent-attr.json
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['attributes']['Administration.Account.Email']['md5']='b3'; json.dump(d, open(sys.argv[2],'w'))" $T/sa-ent-attr.json $T/sr-ent-attr.json
+ctl gf51-start-noise-entity-attr-fail-catch 1 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs between two old starts, but an attribute' 'FAIL \| db\.attr\.Administration\.Account\.Email' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/sb.json $T/sa-ent-attr.json --restart $T/sr-ent-attr.json
 # a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
 GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
 ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }

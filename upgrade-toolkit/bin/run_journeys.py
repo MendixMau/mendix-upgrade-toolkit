@@ -1098,12 +1098,16 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     base = before if compare else js
     ok = lambda side, jids: all(side.get(j, {}).get("verdict") == "PASS" for j in jids)
     down = lambda side, jids: not ok(side, jids) and any(side.get(j, {}).get("app_down") for j in jids)
+    # GF-50: a journey the cap deferred never ran: not a defect and not a pass, counted on its own like app_down
+    dfr = lambda side, jids: not ok(side, jids) and not down(side, jids) and any(side.get(j, {}).get("deferred") for j in jids)
     G = len(units)
     B = sum(1 for u in units.values() if ok(base, u))
     X = sum(1 for u in units.values() if down(base, u))   # AD-1: not run, the app was down: no defect, no pass
-    D = G - B - X
+    Y = sum(1 for u in units.values() if dfr(base, u))   # deferred by the cap on the baseline: not run
+    D = G - B - X - Y
     N = sum(1 for u in units.values() if ok(js, u)) if compare else None
     XN = sum(1 for u in units.values() if down(js, u)) if compare else 0
+    YN = sum(1 for u in units.values() if dfr(js, u)) if compare else 0
     R = sum(1 for u in units.values() if any(js.get(j, {}).get("compare") == "REGRESSION" for j in u)) if compare else None
     nr = lambda x: "-" if x is None else x
     if acts is not None:
@@ -1122,8 +1126,9 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         Am = A - len(apart & set(acts)) - len(set(oos) - apart)   # PR-P4: the destructive actions are counted on their own line
         cov = f"{B}/{Am}" + (f" ({100 * B // Am}%)" if Am else "")
         line = (f"actions {A} found · {G} generated ({tt}) · {B} pass on baseline ({D} defect"
-                + (f", {X} not run: app went down" if X else "") + f") · {nr(N)} pass on new"
-                + (f" ({XN} not run: app went down)" if XN else "") + f" · {nr(R)} regression · coverage {cov}")
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + f") · {nr(N)} pass on new"
+                + (f" ({XN} not run: app went down)" if XN else "") + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage {cov}")
         if impacted is not None:   # AD-2: the triage-pointed actions, the deep end of the test
             iu = [u for i, u in units.items() if i in impacted]
             line += (f" · impacted {len(impacted)} ({len(iu)} walked, {sum(1 for u in iu if ok(base, u))} pass on baseline"
@@ -1139,15 +1144,20 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     else:
         A = T = None
         why = f"no denominator: {waive}" if waive else "no actions.json: coverage unknown"
-        line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect) · {nr(N)} pass on new · "
-                f"{nr(R)} regression · coverage ? ({why})")
-    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "defects": {}, "invalid": invalid,
+        line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect"
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + f") · {nr(N)} pass on new" + (f" ({XN} not run: app went down)" if XN else "")
+                + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage ? ({why})")
+    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "Y": Y, "YN": YN, "defects": {}, "invalid": invalid,
            "out_of_scope": len(oos) if acts is not None and oos else 0}
     if not compare:
         return out
     if X or XN:   # AD-1: a run the app did not finish is never a verdict
         invalid.append(f"not finished: the app went down ({X} actions not run on the baseline, {XN} on new); "
                        "restart it on the same database and run again with --resume")
+    if Y or YN:   # GF-50: never a PASS for a journey that did not run
+        invalid.append(f"not measured: {max(Y, YN)} journeys not run: deferred by the cap (INVALID \"deferred\" in summary.json); "
+                       "run again with --resume and no --max to walk them")
     if acts is None and not waive:
         invalid.append("coverage unknown: no --actions (actions.json, bin/action_inventory.py) and no --no-actions REASON")
     if not (base_set or {}).get("sha256"):
@@ -1160,16 +1170,16 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     if G == 0:
         invalid.append("instrument not measuring: no journey " + ("names an action of actions.json (generate with gen_journeys.py "
                        "--actions, or link a hand-written journey with \"covers\")" if acts is not None else "was walked"))
-    elif D / G > DEFECT_MAX:
-        invalid.append(f"instrument not measuring: {D} of {G} {'actions' if acts is not None else 'journeys'} fail on the "
-                       f"baseline ({100 * D // G}% > {int(DEFECT_MAX * 100)}%)")
+    elif G - Y and D / (G - Y) > DEFECT_MAX:
+        invalid.append(f"instrument not measuring: {D} of {G - Y} {'actions' if acts is not None else 'journeys'} fail on the "
+                       f"baseline ({100 * D // (G - Y)}% > {int(DEFECT_MAX * 100)}%)")
     import fnmatch
     # every walked journey, linked to an action or not. The destructive tier (PR-P4) is counted apart but is judged the
     # same way: a destructive journey that did not PASS on the old app needs the same checked evidence, else it kept the
     # tag "BASELINE DEFECT (before FAIL)" with no evidence and sat in FAIL although the old app failed it too.
     for j in sorted(set(links) | {d for d in dest if d in base}):
-        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down"):
-            continue   # AD-1: not run is not a defect; it is listed as not run
+        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down") or base.get(j, {}).get("deferred"):
+            continue   # AD-1 / GF-50: not run is not a defect; it is listed as not run
         hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
         if hit is None:
             out["defects"][j] = (None, "no evidence")

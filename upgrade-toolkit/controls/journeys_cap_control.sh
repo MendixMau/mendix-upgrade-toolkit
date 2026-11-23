@@ -46,7 +46,7 @@ sleep 1
 export FAKE_COUNT=$T/count FAKE_LOG=$T/fake.log
 rm -f "$FAKE_COUNT" "$FAKE_LOG"
 run() { PATH="$T/bin:$PATH" python3 "$B/run_journeys.py" "$G" --label t --work "$W" --port "$PORT" --admin-port 1 --admin-pass x --users "$T/users.json" --no-actions fixture "$@"; }
-count() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); j=d['journeys']; print('summary', len(j), 'journeys,', sum(1 for s in j.values() if s.get('verdict')=='PASS'), 'PASS,', sum(1 for s in j.values() if s.get('deferred')), 'deferred, partial', d.get('partial', False))" "$W/t/summary.json"; }
+count() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); j=d['journeys']; print('summary', len(j), 'journeys,', sum(1 for s in j.values() if s.get('verdict')=='PASS'), 'PASS,', sum(1 for s in j.values() if s.get('deferred')), 'deferred, partial', d.get('partial', False))" "${1:-$W/t}/summary.json"; }
 case $SC in
   checkpoint)
     FAKE_KILL_AT=3 run --chunk 2 >/dev/null 2>&1
@@ -60,7 +60,12 @@ case $SC in
   parity)   # the old app ran 4 of 7 under a cap; the new app has NO cap but is compared to it: it must run the same 4, not 7
     run --max 4 --chunk 2 >/dev/null 2>&1; echo "old:"; count "$W/t"
     rm -f "$FAKE_LOG"; run --label t2 --compare "$W/t" --chunk 2 2>&1 | grep -E '^parity:|^cap:|^deferred:'; echo "new:"; count "$W/t2"
+    python3 -c "import json,sys; print('new deferred:', ' '.join(sorted(k for k, s in json.load(open(sys.argv[1]))['journeys'].items() if s.get('deferred'))))" "$W/t2/summary.json"
     echo "new ran: $(sed 's/^batch [0-9]*: //' "$FAKE_LOG" | tr '\n' ' ')";;
+  parity-compare)   # GF-50: the compare after a capped old run: deferred journeys are NOT RUN, never baseline defects
+    run --max 4 --chunk 2 >/dev/null 2>&1
+    run --label t2 --compare "$W/t" --chunk 2 >"$T/cmp.out" 2>&1; echo "rc $?"
+    grep -E 'pass on baseline|not run|coverage|without evidence|fail on the baseline|INVALID' "$T/cmp.out";;
   nocap)
     run --chunk 3 2>&1 | grep -E '^cap:|^deferred:'; echo "rc ${PIPESTATUS[0]}"; count;;
 esac
