@@ -139,6 +139,8 @@ class Facts:
         self.stranded = {}      # module -> text
         self.items3 = []        # decision items
         self.items2 = []        # toolkit items
+        self.advisory = []      # advice that is not work of this run (GF-25)
+        self.jumps = {}         # module -> (installed, target) from module-jumps.txt
         self.items4 = []        # person items
         self.repair_rows = {}
         self.sizes = {}
@@ -187,6 +189,7 @@ class Facts:
                     jumps[m.group(1)] = (m.group(2), m.group(3))
         else:
             self.not_measured.append(("module-jumps.txt", "the installed version of each module is unknown; the plan lists the target only"))
+        self.jumps = jumps
         # BT-11: the second pass starts from what the first pass left, not from the installed version (Atlas_Core 3.19.0 -> 3.21.1
         # before the convert, then 3.21.1 -> 4.5.1 after it, never 3.19.0 -> 4.5.1 beside the first line)
         left = {}
@@ -432,11 +435,15 @@ class Facts:
         # the move to React is part of every upgrade (where a path exists): plan work, not advice. Only a widget without
         # a React path is a decision (below)
         last = getattr(self.a, "target2", None) or self.a.target or "the target"
+        # GF-25: below Mendix 12 the React client is optional (dojo_report.py says ADVISORY) and nothing in the pipeline swaps the widgets:
+        # those lines are advice, listed apart, never work of this run
+        mj = major(last)
+        into = self.advisory if (mj is not None and mj < 12) else self.items2
         for head, rows in tables(t):
             if head[:2] == ["widget", "count"]:
                 for r in rows:
                     if len(r) > 3 and r[1].isdigit():
-                        self.items2.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
+                        into.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
         for head, rows in tables(t):
             if head[:3] != ["status", "package", "version"]:
                 continue
@@ -450,7 +457,7 @@ class Facts:
                               "does not run on the React client; Mendix 12 removes the Dojo client")
                     self.items3[-1]["dojopkg"] = pkg
                 elif st in ("can move", "delete"):
-                    self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
+                    into.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
                         # the successor depends on what each snippet holds (HTML only, a little script, DOM work): a decision per snippet
                         self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"),
@@ -610,12 +617,32 @@ class Facts:
                           "install the new module" if self.renamed[m]["kind"] == "RENAMED" else "keep the installed module, test it at the gate; the owner decides on the new listing",
                           "M", "references and data of the old module are moved by hand" if self.renamed[m]["kind"] == "RENAMED" else "the installed version may not run on the target")
                 continue
-            self.add3(kind, m, why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")",
-                      f"{UPDATE_CARRY} | update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
-                      "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person"
-                      if kind == "module" else "keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person",
-                      "hand to a named person (no version fits; port, replace or remove)" if stranded else
-                      f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin",
+            rec = ("hand to a named person (no version fits; port, replace or remove)" if stranded else
+                   f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin")
+            if kind == "module" and not stranded:
+                jm = getattr(self, "jumps", {}).get(m)
+                on_plan = any(x[0] == m for x in self.plan)
+                if (jm and jm[0] == jm[1]) or any(x[0] == m and x[1] == x[2] for x in self.plan):
+                    # GF-23: the installed version is the newest one; "update to the latest version" has nothing to update to
+                    rec = ("keep old version for now (the installed version is already the newest, so there is nothing to update to; "
+                           "it may be deprecated: check its Marketplace listing) or replace with the Marketplace equivalent")
+                if not on_plan and any(n in self.measured for n in ("plan-pre.txt", "plan.txt")):
+                    # GF-24: a module on neither plan file is left out of the update on purpose or by mistake; the recommendation cannot run
+                    rec += "; not on the plan: the recommendation needs a plan line"
+            # GF-30: a Java file of the package deleted locally holds the update (the update step refuses to carry edits over it);
+            # the signed answer would otherwise turn into "kept" with no new question. Show the deletion and offer the way out.
+            gone = [x.get("path", "?") for x in self.files.get(m, []) if x.get("kind") == "java" and x.get("change") == "REMOVED"]
+            back = (f"accept the package's Java back ({len(gone)} deleted file(s) return on the update, then update and carry the other edits over)"
+                    if gone else "")
+            evid = why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")"
+            if gone:
+                evid += ("; Java deleted locally: " + ", ".join(os.path.basename(g) for g in gone[:4]) + (f" (+{len(gone) - 4})" if len(gone) > 4 else "")
+                         + "; an update that carries edits over cannot keep a deleted Java file, so the module is held unless the package's Java comes back")
+            self.add3(kind, m, evid,
+                      (f"{UPDATE_CARRY} | " + (back + " | " if back else "") + f"update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
+                       "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person")
+                      if kind == "module" else ("keep old jar, pin | " + (back + " | " if back else "") + "port to the new API | replace with a Marketplace module or a microflow | hand to a named person"),
+                      rec,
                       "L" if stranded else "M", "data loss if a RED edit is replaced" if m in self.red else "behaviour of local edits is lost on update")
         for m, rows in sorted(self.files.items()):
             if any(x.get("kind") == "theme" for x in rows):
@@ -638,6 +665,7 @@ class Facts:
                       f"read the release notes of {mod} for {vr}, or add a brain file for it", "S",
                       "a breaking change in the module is only found at the build or the test")
         self.items2.sort(key=lambda x: x["key"])
+        self.advisory.sort(key=lambda x: x["key"])
         self.items3.sort(key=lambda x: (x["kind"], x["name"]))
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
         ra = load_ra(getattr(self.a, "ra_file", None))
@@ -913,6 +941,9 @@ def render(F, hashval, changed_block, signoff_text):
           "Module updates and predicted repairs only. A kept module, a stranded module, a RED local edit and a widget with no "
           "successor are never here; they are in section 3.", ""]
     L += [f"- {it['text']}" for it in F.items2] or ["- none: no module update and no predicted repair in the inputs read"]
+    if F.advisory:
+        L += ["", "Advisory, not in this run (the target needs no React client; these are lines of advice and are not items to sign):", ""]
+        L += [f"  - {it['text']}" for it in F.advisory]
     L += ["", "## 3. Needs your decision before we start", "",
           "Answer each item in chat (steps/decide.md options); the toolkit records it in DECISIONS.md as the P-n line. "
           "Signing section 6 without an answer accepts the recommendation of that item.", ""]
@@ -962,23 +993,51 @@ def agent_notes(work):
 
 
 def signoff_default():
-    return ("A person writes exactly one of these two lines below (an agent never does):\n\n"
+    return ("A person writes exactly one of these two lines below (an agent never does). Copy the line, fill in the name and the date, "
+            "and leave out the angle brackets; backticks and spaces around the line do no harm. "
+            "The line `Status: open` may stay or go: the reader takes a real Signed-off line whether it is there or not.\n\n"
             "`Signed-off: <name> <yyyy-mm-dd>`   or   `Status: PAUSED <reason>`\n\n"
             "Status: open")
+
+
+def _plain(ln):
+    """A section-6 line as a person may have pasted it: backticks, quote marks, list marks and spaces around it dropped (GF-27)."""
+    return re.sub(r"^[\s`>*-]+|[\s`]+$", "", ln)
+
+
+def _section6(text):
+    i = (text or "").find("\n## 6.")
+    return (text[i:] if i >= 0 else "").splitlines()
 
 
 def parse_signoff(text):
     if not text:
         return None
-    i = text.find("\n## 6.")
-    for ln in (text[i:] if i >= 0 else "").splitlines():
-        m = PAUSED.match(ln)
-        if m:
+    sec = _section6(text)
+    for ln in sec:
+        m = PAUSED.match(_plain(ln))
+        if m and "<" not in m.group(1):
             return ("paused", m.group(1), "")
-    for ln in (text[i:] if i >= 0 else "").splitlines():
-        m = SIGNED.match(ln)
-        if m:
+    for ln in sec:
+        m = SIGNED.match(_plain(ln))
+        # the literal template (`Signed-off: <name> <yyyy-mm-dd>`) is never a signature (GF-27)
+        if m and "<" not in m.group(1):
             return ("signed", m.group(1), m.group(2))
+    return None
+
+
+def signoff_problem(text):
+    """Why a Signed-off or PAUSED line in section 6 is not a sign-off, or None when there is none to explain (GF-27: the rerun said
+    only "awaits sign-off")."""
+    for ln in _section6(text):
+        t = _plain(ln)
+        if not re.match(r"(?i)^(Signed-off|Status:\s*PAUSED)", t) or " or " in t:   # " or ": the default line offering both choices
+            continue
+        m = SIGNED.match(t) or PAUSED.match(t)
+        if "<" in t:
+            return f"found the template line '{t}': replace the angle-bracket text with your name and the date (or the reason)"
+        if not m:
+            return f"found a line that is not a sign-off: '{t}'. Write it as 'Signed-off: <your name> <yyyy-mm-dd>' (a real name, a date such as 2026-10-15)"
     return None
 
 
@@ -1075,14 +1134,19 @@ def main():
     so = parse_signoff(old)
     today = os.environ.get("PROPOSAL_TODAY") or datetime.date.today().isoformat()
 
+    def unseen(it):
+        """GF-32: an item the signature does not cover (keptvendor.json, keptstyle.json, kept.txt: written after the sign-off, so left out
+        of the hash) was never seen by the signer."""
+        return bool(it.get("own")) or f"3|{it['kind']}|{it['name']}|{it['evidence']}" not in set(ident)
+
     def accept_answers(signer):
         ans = decisions(a.work)
         todo = [it for it in F.items3 if it["id"] not in ans]
         rows = [(it["id"], it["name"], it["kind"], it["rec"], f"accepted with the sign-off of {signer} (no separate answer)")
-                for it in todo if not it.get("own")]
-        # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was never seen by the signer: ASSUMED, never CONFIRMED in their name
+                for it in todo if not unseen(it)]
+        # an item that appeared after the sign-off was never seen by the signer: ASSUMED, never CONFIRMED in their name
         late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
-                for it in todo if it.get("own")]
+                for it in todo if unseen(it)]
         n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
         return n, write_decisions(F, late, "-", "ASSUMED", "a person answers it or signs section 6 again (steps/decide.md)")
 
@@ -1100,7 +1164,7 @@ def main():
             os.replace(out_path + ".tmp", out_path)
         n, nl = accept_answers(so[1])
         # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was not seen by the signer: its step is assumed, not approved in their name
-        late_ids = {it["id"] for it in F.items3 if it.get("own")}
+        late_ids = {it["id"] for it in F.items3 if unseen(it)}
         late = {s: k for s, k in sids.items() if k.startswith("3:") and k[2:] in late_ids}
         approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff", decisions(a.work))
         approve_steps(a.work, late, "assumed", "agent", "after-signoff")
@@ -1153,6 +1217,9 @@ def main():
     if shrink_msg:
         print(f"{shrink_msg}: {out_path}")
         return 14
+    prob = signoff_problem(old)
+    if prob:
+        print(f"proposal: {prob}")
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")
     return 14
 

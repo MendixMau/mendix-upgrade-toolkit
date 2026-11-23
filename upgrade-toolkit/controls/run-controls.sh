@@ -7488,7 +7488,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
 # dojo_report.py, release_impact.py), so the parsers in bin/proposal.py read real output; plan.txt, kept.txt and stranded.md
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
-if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x | grep -Eq "$only"; then
+if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x gf-proposal-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
 for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
@@ -7702,6 +7702,59 @@ ctl gm21-same-plan-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-1
 ctl gm21-shrink-never-signs-without-confirm-pass 0 '^unsigned$' '^signed-lines=0$' '!^signed$' -- sh -c "python3 $B/proposal.py --status --work $PR/gm21-shrink; bash $PR/prop.sh $PR/gm21-shrink >/dev/null; python3 $B/proposal.py --status --work $PR/gm21-shrink; echo signed-lines=\$(grep -c '^Signed-off:' $PR/gm21-shrink/PROPOSAL.md)"
 sign21 $PR/gm21-shrink
 ctl gm21-shrink-confirmed-signs-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gm21-shrink
+# GF-27 / GF-32 / GF-23 / GF-24 / GF-25 / GF-30 (a field run): sign-off line pasted with backticks, late items never CONFIRMED in the
+# signer's name, recommendations that read the plan, Dojo-to-React advice apart from the work of the run, a deleted Java file under the item.
+# gf.sh NAME: a fresh copy of the plain work folder with its PROPOSAL.md written; signgf NAME TEXT: what a person does to section 6.
+gf() { rm -rf $PR/gf-$1; cp -R $PR/plain $PR/gf-$1; rm -f $PR/gf-$1/PROPOSAL.md $PR/gf-$1/DECISIONS.md; bash $PR/prop.sh $PR/gf-$1 > /dev/null; }
+signgf() { python3 - "$PR/gf-$1/PROPOSAL.md" "$2" <<'PY'
+import sys
+p, t = sys.argv[1], sys.argv[2]
+s = open(p).read()
+assert "\nStatus: open" in s
+open(p, "w").write(s.replace("\nStatus: open", "\n" + t, 1) if not t.startswith("+") else s.replace("\nStatus: open", "\nStatus: open\n" + t[1:], 1))
+PY
+}
+gf bt; signgf bt '`Signed-off: Tester 2026-10-15`'
+gf sp; signgf sp '  `Signed-off:   Tester   2026-10-15`  '
+gf both; signgf both '+Signed-off: Tester 2026-10-15'
+gf tpl; signgf tpl '`Signed-off: <name> <yyyy-mm-dd>`'
+gf near; signgf near 'Signed-off: Tester 15 October'
+gf ptpl; signgf ptpl '`Status: PAUSED <reason>`'
+ctl gf27-backticks-signed-catch 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-bt
+ctl gf27-backticks-spaces-signed-catch 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-sp
+ctl gf27-status-open-beside-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-both
+ctl gf27-template-refused-catch 14 '^proposal awaits sign-off' '^proposal: found the template line .Signed-off: <name> <yyyy-mm-dd>.: replace the angle-bracket text with your name' '!signed by' -- bash $PR/prop.sh $PR/gf-tpl
+ctl gf27-paused-template-refused-catch 14 'found the template line .Status: PAUSED <reason>.' '!PAUSED by the owner' -- bash $PR/prop.sh $PR/gf-ptpl
+ctl gf27-near-miss-explained-catch 14 '^proposal: found a line that is not a sign-off: .Signed-off: Tester 15 October.' 'a date such as 2026-10-15' -- bash $PR/prop.sh $PR/gf-near
+ctl gf27-untouched-template-no-complaint-pass 14 '^proposal awaits sign-off' '!found a line' '!found the template' -- bash $PR/prop.sh $PR/plain
+ctl gf27-section6-says-status-open-may-stay-catch 0 'Status: open. may stay or go' 'backticks and spaces around the line do no harm' '^Status: open$' -- sed -n '/^## 6\./,$p' $PR/plain/PROPOSAL.md
+# GF-32: signed plan, then kept.txt appears (left out of the hash): the new section-3 item was never seen by the signer
+rm -rf $PR/gf-late; cp -R $PR/plain $PR/gf-late; rm -f $PR/gf-late/PROPOSAL.md; bash $PR/prop.sh $PR/gf-late > /dev/null; sign21 $PR/gf-late
+printf 'DataWidgets pre-convert update refused\n' > $PR/gf-late/kept.txt
+ctl gf32-late-kept-item-signed-run-pass 0 '^proposal: signed by Tester on 2026-10-15' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf-late
+ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!Tester \| CONFIRMED.*DataWidgets|DataWidgets.*Tester \| CONFIRMED' -- cat $PR/gf-late/DECISIONS.md
+# GF-23 / GF-24: a held module the plan does not carry, and one whose installed version is already the newest
+rm -rf $PR/gf-rec; cp -R $PR/plain $PR/gf-rec; rm -f $PR/gf-rec/PROPOSAL.md
+printf 'Queue update refused\nOrphan update refused\nDataWidgets update refused\n' > $PR/gf-rec/kept.txt
+printf 'Queue 2.2.4 -> 2.2.4\n' >> $PR/gf-rec/module-jumps.txt
+bash $PR/prop.sh $PR/gf-rec > /dev/null
+ctl gf23-newest-installed-keep-or-replace-catch 0 '^- \[P-[0-9]+\] module: Queue$' 'recommendation: keep old version for now \(the installed version is already the newest' 'replace with the Marketplace equivalent' '!recommendation: update to the latest' -- sh -c "sed -n '/\\] module: Queue\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+ctl gf24-not-on-plan-says-so-catch 0 'recommendation: update to the latest version.*; not on the plan: the recommendation needs a plan line' -- sh -c "sed -n '/\\] module: Orphan\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+ctl gf24-on-plan-no-note-pass 0 '^- \[P-[0-9]+\] module: DataWidgets$' 'recommendation: update to the latest version' '!not on the plan' -- sh -c "sed -n '/\\] module: DataWidgets\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+# GF-25: below Mendix 12 the Dojo-to-React lines are advice; on 12 they are work of the run
+ctl gf25-dojo-below-12-advisory-catch 0 '^Advisory, not in this run' '^  - Dojo to React on the 11\.15\.0\.1 rung: ' '!^- Dojo to React' -- sed -n '/^## 2\./,/^## 3\./p' $PR/plain/PROPOSAL.md
+ctl gf25-advisory-not-an-item-pass 0 '^dojo lines in the signed set: \[\]$' -- sh -c "python3 -I -c \"
+import sys; sys.path.insert(0, '$B'); import proposal
+print('dojo lines in the signed set:', [l for l in proposal.item_lines(open('$PR/plain/PROPOSAL.md').read()) if 'Dojo to React' in l])\""
+rm -rf $PR/gf-12; cp -R $PR/plain $PR/gf-12; rm -f $PR/gf-12/PROPOSAL.md; bash $PR/prop.sh $PR/gf-12 --target 12.0.0 > /dev/null
+ctl gf25-dojo-12-is-work-pass 0 '^- Dojo to React on the 12\.0\.0 rung: ' '!^Advisory, not in this run' -- sed -n '/^## 2\./,/^## 3\./p' $PR/gf-12/PROPOSAL.md
+# GF-30: a package Java file deleted locally is shown under the item, with the way out (row shape: bin/themefiles.py diff)
+rm -rf $PR/gf-java; cp -R $PR/plain $PR/gf-java; rm -f $PR/gf-java/PROPOSAL.md
+printf 'Plainmod update refused: local Java\n' > $PR/gf-java/kept.txt
+printf '[{"name": "Plainmod", "domain": [], "ui": [], "logic": [], "files": [{"change": "REMOVED", "kind": "java", "path": "javasource/plainmod/actions/CreateLogObject.java", "detail": "package Java file deleted locally", "vars": []}]}]\n' > $PR/gf-java/localedits.json
+bash $PR/prop.sh $PR/gf-java > /dev/null
+ctl gf30-java-deletion-shown-with-way-out-catch 0 '^- \[P-[0-9]+\] module: Plainmod$' 'evidence: .*Java deleted locally: CreateLogObject\.java' 'options: .* \| accept the package.s Java back \(1 deleted file\(s\) return on the update' -- sh -c "sed -n '/\\] module: Plainmod\$/,/answer:/p' $PR/gf-java/PROPOSAL.md"
+ctl gf30-no-java-deletion-no-option-pass 0 '^- \[P-[0-9]+\] module: DataWidgets$' '!accept the package.s Java back' '!Java deleted locally' -- sh -c "sed -n '/\\] module: DataWidgets\$/,/answer:/p' $PR/kept/PROPOSAL.md"
 # GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
 mkdir -p $PR/unk/state; cp $PR/plain/versions.txt $PR/unk/
 printf '# plan\n66876 3.1.0 TaskQueueHelpers\n99 2.0.0 FakeModuleXyz\n' > $PR/unk/plan.txt
@@ -7736,7 +7789,7 @@ mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/signed/PROPOSAL.md
 ctl proposal-signed-continues-pass 0 'signed by Jan Jansen on 2026-10-15' '[0-9] unanswered section-3 item' -- bash $PR/prop.sh $PR/signed
-ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[2-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '!ASSUMED' -- cat $PR/signed/DECISIONS.md
+ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[3-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '^P-2 \| DataWidgets .*appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!^P-2 .*CONFIRMED' -- cat $PR/signed/DECISIONS.md
 ctl proposal-signed-status-pass 0 '^signed$' -- python3 $B/proposal.py --status --work $PR/signed
 # PAUSED -> 15
 mkw paused kept; bash $PR/prop.sh $PR/paused > /dev/null; sedi 's/^Status: open$/Status: PAUSED waiting for the vendor of PDFReader/' $PR/paused/PROPOSAL.md
@@ -7764,8 +7817,8 @@ ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bas
 # the update step keeps a module after the sign-off (kept.txt): that is the run's own result, not a new plan (cold test WM1: 7 kept
 # modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation: update, a real logic edit held
 printf 'Newmod local edits refuse the update\n' > $PR/changed/kept.txt
-ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item' -- bash $PR/prop.sh $PR/changed
-ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*accepted with the sign-off of Jan Jansen' -- cat $PR/changed/DECISIONS.md
+ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 item\(s\) appeared after sign-off \(ASSUMED' '!unanswered section-3' -- bash $PR/prop.sh $PR/changed
+ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*appeared after sign-off; signer did not see it \| - \| ASSUMED' '!Newmod.*CONFIRMED' -- cat $PR/changed/DECISIONS.md
 # an edited module is updated, never recommended to stay behind (cold test WM1: seven "keep old version" cards)
 ctl proposal-edited-module-recommends-update-pass 0 'recommendation: update to the latest version and carry the edits over' '!recommendation: keep old version' -- cat $PR/changed/PROPOSAL.md
 # --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
@@ -7806,7 +7859,7 @@ for r in json.load(sys.stdin):
     [print(\"evidence\", r[\"topic\"] + \":\", e) for e in r[\"found\"].get(\"evidence\") or [] if r[\"topic\"] in (\"modules\", \"module-edits\")]'"
 # signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
 ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
-  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '!approval=assumed' '!by=agent' -- bash $PR/ssum.sh $PR/signed
+  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '^S-[0-9]+ module:DataWidgets alias=P-2 approval=assumed by=agent source=after-signoff ' -- bash $PR/ssum.sh $PR/signed
 # a person's own answer survives the sign-off: reject one step, sign again, it stays rejected
 ctl proposal-steps-own-answer-survives-signoff-pass 0 'approval=rejected by=Ana ' '!approval=approved by=Jan Jansen source=signoff .*widget:Stuck' -- sh -c "
   cp -R $PR/signed $PR/own; python3 $B/steps.py approve --work $PR/own --id \$(python3 $B/steps.py show --work $PR/own --json | python3 -c 'import json,sys; print([r[\"id\"] for r in json.load(sys.stdin) if r[\"topic\"].startswith(\"widget:Stuck.mpk\")][0])') --state rejected --by Ana > /dev/null
