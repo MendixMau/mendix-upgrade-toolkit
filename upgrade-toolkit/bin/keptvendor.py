@@ -8,7 +8,11 @@ gone: PlatformDesignSystem 44.5.0 -> 45.0.0 removed the `dark-theme` mixin that 
 check and the Studio Pro-free build see it only at the theme compile. theme_clash.py judges the app's OWN styling against Atlas
 only; keptstyle.py lists widget selectors only. This reads every `@include`, `$variable` and `@use` / `@import` of a kept module.
 
-  keptvendor.py <app dir> (--kept A,B | --kept-file kept.txt) --plan-file plan.txt [--cache DIR] [--json out.json]
+  keptvendor.py <app dir> (--kept A,B | --kept-file kept.txt) --plan-file plan.txt [--own] [--cache DIR] [--json out.json]
+
+--own (GF-56, GF-45): also judge the app's OWN styling (theme/ and each themesource module that is not a Marketplace package),
+which no update refuses and so is never on kept.txt: PlatformDesignSystem 45.0.0 removed four mixins that the team's own styling
+module @includes, and the first sign was the mxbuild theme compile. Triage runs it before the sign-off, without a kept list.
 
 plan.txt lines are "<content id> <version> <Module>" (# comments allowed), as the other triage tools read them. The target
 package is the cached <content id>-<version>.mpk (--cache, default UPG_CACHE or ~/.cache/upgrade-toolkit/mpk, never downloaded
@@ -105,6 +109,7 @@ def main():
     ap.add_argument("--plan-file")
     ap.add_argument("--cache", default=os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk"))
     ap.add_argument("--json")
+    ap.add_argument("--own", action="store_true", help="also read the app's own styling (theme/ and every own themesource module) like a kept module (GF-56)")
     a = ap.parse_args()
     app = os.path.abspath(a.app)
     if not os.path.isdir(app):
@@ -116,11 +121,15 @@ def main():
     kept = [x for x in (a.kept or "").split(",") if x.strip()]
     if a.kept_file:
         kept += [w[0] for w in words(a.kept_file)]
-    kept = list(dict.fromkeys(kept))
     plan = {}
     for w in words(a.plan_file):
         if len(w) >= 3:
             plan[w[2]] = (w[0], w[1])
+    ownset = set()
+    if a.own:   # GF-56: the app's own styling is never refused by an update, so it is not on kept.txt, yet it @uses the same packages
+        ownset = {m for m in tc.classify(app, (), ())[1] if m not in plan} | ({"theme"} if os.path.isdir(os.path.join(app, "theme")) else set())  # a planned package is the target, never own
+        kept += sorted(ownset)
+    kept = list(dict.fromkeys(kept))
     ts = os.path.join(app, "themesource")
     mods = {d: os.path.join(ts, d) for d in sorted(os.listdir(ts)) if os.path.isdir(os.path.join(ts, d))} if os.path.isdir(ts) else {}
     planned = [m for m in mods if m in plan and m not in kept]
@@ -137,8 +146,8 @@ def main():
     base = {"variable": set(), "mixin": set()}
     oldp = {m: {"variable": {}, "mixin": {}} for m in planned}
     for m in list(mods) + (["theme"] if os.path.isdir(os.path.join(app, "theme")) else []):
-        if m in kept:
-            continue
+        # every module that is not a planned package defines names that stay (a kept or own module too: GF-56 puts theme/ and own
+        # themesource modules on `kept`, and their definitions must still serve the other modules that use them)
         for p, f in (x for r in roots(m) for x in analysed(r)):
             if m in planned:
                 for x, l in f["var_defs"]:
@@ -190,7 +199,7 @@ def main():
                     um = next((o for o in owners if o in notchecked_why), next(iter(notchecked_why)))
                     unchecked.setdefault(um, []).append(f"{kind} {shown} at {r}:{line}")
                     continue
-                missing.append(dict(kind=kind, name=shown, module=k, where=f"{r}:{line}", old=oldp[m][kind][n], pkg=m, version=plan[m][1]))
+                missing.append(dict(kind=kind, name=shown, module=k, own=k in ownset, where=f"{r}:{line}", old=oldp[m][kind][n], pkg=m, version=plan[m][1]))
             for target, line in import_targets(tc.read(p)):
                 base_dir = os.path.dirname(p)
                 full = os.path.normpath(os.path.join(base_dir, target))
@@ -206,7 +215,7 @@ def main():
                 judged += 1
                 if m in tgt:
                     if not any(c in tgt[m][1] for c in candidates(sub)):
-                        missing.append(dict(kind="import", name=target, module=k, where=f"{r}:{line}", old=f"themesource/{m}/{sub}", pkg=m, version=plan[m][1]))
+                        missing.append(dict(kind="import", name=target, module=k, own=k in ownset, where=f"{r}:{line}", old=f"themesource/{m}/{sub}", pkg=m, version=plan[m][1]))
                 else:
                     unchecked.setdefault(m, []).append(f"import {target} at {r}:{line}")
     for x in missing:
