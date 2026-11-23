@@ -4200,7 +4200,7 @@ MAC=$T/mac; mkdir -p $MAC
 printf '#!/bin/sh\ncase "$1" in -m) echo ${FAKE_ARCH:-arm64};; *) echo ${FAKE_UNAME:-Darwin};; esac\n' > $MAC/uname
 printf '#!/bin/sh\necho "$*" >> "$HOME/docker.log"\ncase "$1 $2" in "image inspect") exit 1;; esac\nexit 0\n' > $MAC/docker
 cp $SC/bin/java $MAC/java
-printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\n[ -n "$d" ] || exit 0\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
+printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\necho "java=$(command -v java)" >> "$HOME/make-java.log"\n[ -n "$d" ] || exit 0\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
 # MXCLI_REF: the source is fetched at the ref (never HEAD) by git, which is stubbed here; the stub make prints the VERSION it was given
 printf '#!/bin/sh\necho "git $*" >> "$HOME/git.log"\nexit 0\n' > $MAC/git
 printf '#!/bin/sh\nmkdir -p node_modules/playwright\n' > $MAC/npm
@@ -4254,6 +4254,10 @@ ctl setup-gf3-java-home-first-pass 0 'antlr jar placed|antlr jar present' '!cann
 ctl setup-gf3-java-home-first-wrapper-unused-pass 1 -- test -e $SC/wrapper.log
 # JAVA_HOME that does not run is ignored: the PATH java is the one tested and named
 ctl setup-gf3-java-home-broken-ignored-catch 2 "the java the build will use \\($SC/wbin/java\\) cannot read" -- setup gf3d JAVA_HOME=$SC/nonexistent-jdk PATH=$SC/wbin:$SC/bin:$NR UPG_SETUP_STEPS=antlr
+# the make steps (grammar generate, build) run the JAVA_HOME java too, not the PATH one: antlr4-tools inside make starts the java on PATH
+mkdir -p $SC/jhm/bin; cp $SC/bin/java $SC/jhm/bin/java; chmod +x $SC/jhm/bin/java
+ctl setup-gf3-make-steps-java-home-first-pass 0 -- macsetup mac-jh JAVA_HOME=$SC/jhm UPG_SETUP_STEPS=mxcli
+ctl setup-gf3-make-steps-see-java-home-catch 0 '^other=0$' '^lines=2$' -- sh -c "echo other=\$(grep -vc '^java=$SC/jhm/bin/java\$' $SC/mac-jh/make-java.log); echo lines=\$(wc -l < $SC/mac-jh/make-java.log | tr -d ' ')"
 # GF-4: the make prerequisites (a `go run` generator) run natively; only the final build carries GOOS/GOARCH
 ctl setup-gf4-prereqs-native-catch 0 '^GOOS= GOARCH= grammar sync-all completions$' -- cat $SC/mac-own/make.log
 ctl setup-gf4-build-cross-only-catch 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=' -- cat $SC/mac-own/make.log
@@ -4274,9 +4278,23 @@ mkdir -p $SC/run-gf5e; printf 'export UPG_EXTRA="from-cloud"\n' > $SC/run-gf5e/e
 ctl setup-gf5-block-before-cloud-lines-catch 0 '^block-first$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-gf5e 11.6.3 > /dev/null; awk '/^# >>> setup-container.sh/{b=NR} /from-cloud/{c=NR} END{print (b && c && b<c) ? \"block-first\" : \"wrong-order\"}' $SC/run-gf5e/env.sh"
 # GF-6, GF-7: dockerhost.sh on Apple Silicon (stub uname and docker): Docker Desktop passes when an amd64 container shows Rosetta;
 # otherwise it stops with both ways out, the VM size, and the command that puts the docker context back; setup stops there too
-DHB=$T/dhb; mkdir -p $DHB
+DHB=$T/dhb; mkdir -p $DHB $SC/dhhome
 printf '#!/bin/sh\ncase "$1" in -sm) echo Darwin arm64;; -m) echo arm64;; *) echo Darwin;; esac\n' > $DHB/uname
-printf '#!/bin/sh\ncase "$1 $2" in "image inspect") exit ${FAKE_IMG:-0};; "context inspect") echo unix:///nonexistent/docker.sock;; "context show") echo desktop-linux;; pull*) echo "$*" >> "$HOME/pull.log"; exit ${FAKE_PULL:-0};; run*) echo "$*" >> "$HOME/run.log"; [ "${FAKE_RUN:-1}" != hang ] || exec sleep 30; exit ${FAKE_RUN:-1};; esac\nexit 0\n' > $DHB/docker
+cat > $DHB/docker <<'DOCK'
+#!/bin/sh
+case "$1 $2" in
+  "image inspect") [ "${FAKE_IMG:-0}" = 0 ] || exit 1; echo "${FAKE_ARCH:-amd64}"; echo "$3 $4 $5" >> "$HOME/inspect.log"; exit 0;;
+  "context inspect") echo unix:///nonexistent/docker.sock;;
+  "context show") echo desktop-linux;;
+  pull*) echo "$*" >> "$HOME/pull.log"; exit ${FAKE_PULL:-0};;
+  "rm -f") echo "$*" >> "$HOME/rm.log"; exit 0;;
+  run*) echo "$*" >> "$HOME/run.log"
+        # the field container ignores TERM: an attached `docker run` is not stopped by it either (ignored signals survive exec)
+        [ "${FAKE_RUN:-1}" != hang ] || { trap '' TERM; exec sleep 30; }
+        exit ${FAKE_RUN:-1};;
+esac
+exit 0
+DOCK
 chmod +x $DHB/*
 ctl dockerhost-gf6-desktop-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=0 bash $B/dockerhost.sh
 ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' 'Use Rosetta for x86_64/amd64 emulation' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
@@ -4284,13 +4302,20 @@ ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' '
 rm -rf $SC/dhfresh; mkdir -p $SC/dhfresh
 ctl dockerhost-gf6-fresh-mac-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhfresh FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
 ctl dockerhost-gf6-fresh-mac-pulled-amd64-probe-pass 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dhfresh/pull.log
-ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
+ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
 rm -rf $SC/dhq; mkdir -p $SC/dhq
 ctl dockerhost-gf6-fresh-mac-qemu-catch 1 'no running container VM with Rosetta' '!could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhq FAKE_IMG=1 FAKE_RUN=1 bash $B/dockerhost.sh
 # no image and the pull fails: no probe is guessed, the refusal says why
 ctl dockerhost-gf6-no-image-pull-fails-no-probe-catch 1 'no running container VM with Rosetta' 'alpine:3 could not be pulled .*Rosetta could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_IMG=1 FAKE_PULL=1 FAKE_RUN=0 bash $B/dockerhost.sh
 # a probe container that hangs (amd64 under qemu) is refused within the bound, not waited for
-ctl dockerhost-gf6-probe-hang-bounded-catch 1 'no running container VM with Rosetta' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh
+# the hung probe (a container that ignores TERM, as the field one does) is stopped within the bound and its named container removed
+ctl dockerhost-gf6-probe-hang-bounded-catch 0 'no running container VM with Rosetta' '^done$' -- sh -c "rm -f $SC/dhhome/rm.log; env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo done"
+ctl dockerhost-gf6-probe-hang-removes-container-catch 0 '^rm -f upg-rosetta-probe-[0-9]+$' -- cat $SC/dhhome/rm.log
+ctl dockerhost-gf6-probe-named-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 ' -- head -1 $SC/dhhome/run.log
+# a local image is a probe only when it is amd64: an arm64 postgres:16 must not be chosen, alpine is pulled instead
+rm -rf $SC/dharm; mkdir -p $SC/dharm
+ctl dockerhost-gf6-arm64-local-image-not-probe-catch 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- sh -c "env PATH=$DHB:$NR HOME=$SC/dharm FAKE_ARCH=arm64 FAKE_RUN=0 bash $B/dockerhost.sh > /dev/null 2>&1; cat $SC/dharm/run.log"
+ctl dockerhost-gf6-arm64-local-image-pulls-amd64-catch 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dharm/pull.log
 ctl dockerhost-gf7-context-back-catch 1 'colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60' 'docker context use desktop-linux' 'export DOCKER_HOST=unix://' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
 ctl dockerhost-not-arm-mac-quiet-pass 0 '^$' -- env -u DOCKER_HOST PATH=$NR HOME=$SC/dhhome bash $B/dockerhost.sh
 ctl setup-gf6-docker-step-stops-catch 2 'NOT READY: dockerhost: no running container VM with Rosetta' -- env HOME=$SC/gf6a PATH=$DHB:$NR FAKE_RUN=1 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6a 11.6.3
@@ -8218,6 +8243,10 @@ export UPG_PRIVATE_NAMES=$T/cn-names.txt   # every later control: the made-up li
 RL=$T/runlog; mkdir -p $RL; RLF=$TK/controls/fixtures/runlog/b6checklist
 rl() { python3 -I $B/runlog.py "$@"; }
 cp -R $RLF $RL/w1
+# GF-53: by hand without --log the row goes into the run folder (as the pipeline does), the toolkit checkout's FIELD-RUNS.md is not written
+cp -R $RLF $RL/wdef; TKLOG=$B/../FIELD-RUNS.md; TKSUM=$([ -f $TKLOG ] && cksum < $TKLOG || echo none)
+ctl runlog-default-log-run-folder-catch 0 '^rows=1$' -- sh -c "python3 -I $B/runlog.py --work $RL/wdef --app CODE-A --type 'template app' > /dev/null 2>&1; echo rows=\$(grep -c '^| 2' $RL/wdef/FIELD-RUNS.md)"
+ctl runlog-default-log-toolkit-untouched-pass 0 '^same$' -- sh -c "[ \"\$([ -f $TKLOG ] && cksum < $TKLOG || echo none)\" = \"$TKSUM\" ] && echo same"
 ctl runlog-append-row-pass 0 '^\| 20261013041248 \| CODE-A \| template app \| 10\.24\.27\.128337 → 11\.12\.5 \| yes \| yes \| 7 of 10 \(70%\) · INVALID \(exit 2\) \| 0 \| old app 53 pass / 126 fail; 0 regression\(s\); coverage 53/295 \(17%\) \| .* \| smoke NOT RUN; journeys INVALID; owner sign-off pending \| 2026-10-13 \| not recorded \| not recorded \|$' 'rows=1' \
   -- sh -c "python3 -I $B/runlog.py --work $RL/w1 --log $RL/log1.md --app CODE-A --type 'template app' > /dev/null 2>&1; grep -E '^\| 2' $RL/log1.md; echo rows=\$(grep -c '^| 2' $RL/log1.md)"
 # no Progress line in the summary (an older run): the cell says so, it does not compute one

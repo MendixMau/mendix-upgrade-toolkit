@@ -531,13 +531,15 @@ def main():
     ap.add_argument("--run-id")
     ap.add_argument("--app")
     ap.add_argument("--type")
-    ap.add_argument("--log", default=os.path.join(HERE, "..", "FIELD-RUNS.md"))
+    ap.add_argument("--log", default=None, help="the log file: default $WORK/FIELD-RUNS.md with --work (GF-53, the toolkit checkout is not written), else the toolkit's FIELD-RUNS.md")
     ap.add_argument("--match", help="backfill: only run folders whose path contains this text")
     ap.add_argument("--write", action="store_true", help="backfill: append (default is a dry run)")
     ap.add_argument("--dry-run", action="store_true", help="--work: print the row, append nothing")
     a = ap.parse_args()
     if sum(map(bool, (a.work, a.backfill, a.explain, a.summary))) != 1:
         ap.error("give exactly one of --work DIR, --backfill ROOT, --explain ROOT or --summary")
+    if a.log is None:
+        a.log = os.path.join(a.work, "FIELD-RUNS.md") if a.work else os.path.join(HERE, "..", "FIELD-RUNS.md")
     a.log = os.path.abspath(a.log)
     if a.summary:
         if not summary(a.log):

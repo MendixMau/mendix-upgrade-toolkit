@@ -29,23 +29,25 @@ done
 # an image already there (setup's own, else any amd64 one that is); on a fresh Mac there is none (setup calls this at step 3, before
 # step 4 pulls), so a small amd64 image is pulled for it. Every docker call here is time-bounded: amd64 under qemu may hang, and a
 # probe that hangs is a refusal, not a stuck setup. The answer is the current Docker.
-bounded() {   # bounded SECS CMD...: CMD, killed after SECS (macOS has no timeout(1)); its exit status, 143 when killed
-  local s=$1 pid wd rc=0; shift
-  "$@" & pid=$!
-  ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM; sleep "$s" & wait; kill "$pid" 2>/dev/null ) > /dev/null 2>&1 & wd=$!
-  wait "$pid" 2> /dev/null || rc=$?
-  kill "$wd" 2> /dev/null; wait "$wd" 2> /dev/null || true
-  return $rc
-}
+BOUNDED=$(dirname "$0")/bounded.sh   # KILL after the bound (a TERM-only stop leaves an attached `docker run` of a container that ignores TERM running)
 probe_img=; probe_note=
-for i in eclipse-temurin:21-jdk postgres:16 eclipse-temurin:11-jdk; do docker image inspect "$i" > /dev/null 2>&1 && { probe_img=$i; break; }; done
+# only an image that reports amd64 is a Rosetta probe: an arm64 postgres:16 runs natively and proves nothing
+for i in eclipse-temurin:21-jdk postgres:16 eclipse-temurin:11-jdk; do
+  [ "$(docker image inspect -f '{{.Architecture}}' "$i" 2> /dev/null)" = amd64 ] && { probe_img=$i; break; }
+done
 if [ -z "$probe_img" ]; then
   for m in "" mirror.gcr.io/library/; do   # Docker Hub answers 429 from a shared egress IP: the mirror is the second try
-    bounded "${UPG_PROBE_PULL_TIMEOUT:-90}" docker pull --platform linux/amd64 -q "${m}alpine:3" > /dev/null 2>&1 && { probe_img=${m}alpine:3; break; }
+    bash "$BOUNDED" "${UPG_PROBE_PULL_TIMEOUT:-90}" docker pull --platform linux/amd64 -q "${m}alpine:3" > /dev/null 2>&1 && { probe_img=${m}alpine:3; break; }
   done
   [ -n "$probe_img" ] || probe_note="dockerhost: no amd64 image to probe with, and alpine:3 could not be pulled (network?): Rosetta could not be checked."
 fi
-if [ -n "$probe_img" ] && bounded "${UPG_PROBE_TIMEOUT:-60}" docker run --rm --platform linux/amd64 --entrypoint sh "$probe_img" -c 'test -e /proc/sys/fs/binfmt_misc/rosetta || grep -q VirtualApple /proc/cpuinfo' > /dev/null 2>&1; then
+probe_name=upg-rosetta-probe-$$; probe_ok=
+if [ -n "$probe_img" ]; then   # a named container, so a failed or timed-out probe (124, or 137 after the KILL) can remove it: killing the docker CLI does not stop the container
+  rc=0; bash "$BOUNDED" "${UPG_PROBE_TIMEOUT:-60}" docker run --rm --name "$probe_name" --platform linux/amd64 --entrypoint sh "$probe_img" -c 'test -e /proc/sys/fs/binfmt_misc/rosetta || grep -q VirtualApple /proc/cpuinfo' > /dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || probe_ok=1
+  [ "$rc" -eq 0 ] || docker rm -f "$probe_name" > /dev/null 2>&1 || true
+fi
+if [ -n "$probe_ok" ]; then
   echo "${DOCKER_HOST:-}"; exit 0
 fi
 prev=$(docker context show 2> /dev/null || echo default)

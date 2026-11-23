@@ -13,7 +13,7 @@ if [ -z "$mode" ]; then
   else mode=watchdog; fi
 fi
 case $mode in
-  timeout|gtimeout) exec "$mode" "$secs" "$@" ;;
+  timeout|gtimeout) exec "$mode" -k 2 "$secs" "$@" ;;   # -k: KILL 2 s after TERM, like the perl and watchdog modes
   perl)  # alarm kills the child with SIGALRM: shell status 142, mapped to 124
     perl -e '$s = shift; $p = fork(); if (!$p) { exec @ARGV or exit 127 } $SIG{ALRM} = sub { kill 9, $p; waitpid $p, 0; exit 124 }; alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
     exit $? ;;
