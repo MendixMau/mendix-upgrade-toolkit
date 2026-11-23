@@ -1,4 +1,4 @@
 2026-11-20 10:00:01 WARN - ConnectionBus: Maximum number of sessions reached for the trial licence
-2026-11-20 10:00:02 ERROR - MicroflowEngine: An error occurred in microflow Home.Nav_Open for the earlier role: Boolean member can not be set to null
+2026-11-20 10:00:02 ERROR - MicroflowEngine: An error occurred in microflow Home.OpenHome for the earlier role: Boolean member can not be set to null
 2026-11-20 10:01:00 INFO - ConnectionBus_Client: Sign-in of the later role
 2026-11-20 10:01:01 INFO - ActionManager: Retrieve started

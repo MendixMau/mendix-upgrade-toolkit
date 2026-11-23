@@ -85,7 +85,7 @@ BEGIN
       IF nmine = 1 THEN leaf := mine; END IF;   -- plain System.User rows (MxAdmin) do not vote; a mixed role stays generic
     END IF;
     IF leaf IS NULL AND tie_ents IS NOT NULL THEN
-      RAISE EXCEPTION 'SMOKE-ENTITY-UNRESOLVED: role % has no single user entity of its own (its users are spread over several System.User specializations in equal number: %): set UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)', r.name, tie_ents;
+      RAISE EXCEPTION 'SMOKE-ENTITY-UNRESOLVED: role % has no single user entity of its own (the app's users are spread over several System.User specializations in equal number: %): set UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)', r.name, tie_ents;
     END IF;
     IF leaf IS NULL THEN
       leaf := CASE WHEN has_acc THEN 'Administration.Account' ELSE {fb} END;

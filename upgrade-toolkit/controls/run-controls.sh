@@ -1982,7 +1982,7 @@ if python3 -c "import bcrypt" 2> /dev/null; then
     -- python3 $B/smoke_users.py fx_t --psql "$SU/user-empty-account.json"
   ctl smoke-users-entity-flag-no-account-pass 0 "given text := 'MendixSSO.MendixSSOUser'" '!AMBIGUOUS' \
     -- python3 $B/smoke_users.py fx_t --entity MendixSSO.MendixSSOUser --psql "$SU/user-no-account-tie.json"
-else skip smoke-users-no-account-leaf-catch "no python bcrypt"; fi
+else for c in smoke-users-no-account-leaf-catch smoke-users-no-account-tie-catch smoke-users-empty-account-leaf-catch smoke-users-entity-flag-no-account-pass; do skip $c "no python bcrypt"; done; fi
 # the knob: UPG_SMOKE_ENTITY, else $WORK/smoke-entity.txt; every pipeline call to smoke_users.py carries it
 mkdir -p $T/gf17w; printf 'Points.Member\n' > $T/gf17w/smoke-entity.txt
 ctl smoke-entity-env-catch 0 '^--entity Other.Acct$' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17w Other.Acct
@@ -1994,10 +1994,10 @@ ctl smoke-roles-union-catch 0 '^Administrator,User,Approver,ApiUser$' -- $G17 ro
 ctl smoke-roles-union-no-impact-pass 0 '^Administrator,User$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $T/gf17-no-such.json
 ctl smoke-roles-union-wired-pass 0 'roles=\$\(roles_all "\$WORK/plan.json" "\$WORK/impact-base.json"\)' 'roles=\$\(roles_all "\$WORK/plan-new.json" "\$WORK/impact.json"\)' '!roles_of_plan "\$WORK/plan' -- grep -n 'roles=.*roles_\(all\|of_plan\)' $B/cloud/upgrade-pipeline.sh
 # a refused sign-in is explained from the runtime log, not by the 2026-08-18 licence cause
-ctl login-cause-home-error-catch 0 'The runtime log says: ".*Home.Nav_Open: Boolean member can not be set to null"' 'not the licence session cap' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-home-error.txt
+ctl login-cause-home-error-catch 0 'The runtime log says: ".*Home.OpenHome: Boolean member can not be set to null"' 'not the licence session cap' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-home-error.txt
 ctl login-cause-session-cap-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B $FX/seed/gf17-log-cap.txt
 # an earlier role's lines (a session-limit line, an error line) are never this role's cause: only lines after the sign-in's mark count
-ctl login-cause-earlier-role-catch 0 'neither a session-limit line nor an error' '!Nav_Open' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 2
+ctl login-cause-earlier-role-catch 0 'neither a session-limit line nor an error' '!OpenHome' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 2
 ctl login-cause-earlier-role-whole-log-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 0
 # a log command whose earlier ERROR sits on stderr and whose new line is on stdout: one ordered stream, so the mark still separates them
 rm -f $T/gf17-cmd.flag
