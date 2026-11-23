@@ -2538,7 +2538,7 @@ step_diff() {
     [ ! -f "$WORK/effect-accept.txt" ] || kv+=("JOURNEY_EFFECT_ACCEPT=$WORK/effect-accept.txt")   # the journeys rung's effect REVIEWs had no written-accept path
     only="$only,journeys"
   fi
-  # GF-52: a rerun of one step (--only diff / --only gate) selects the rungs the gate itself lists, not just the ones whose stored
+  # GF-52: a rerun of the diff step alone (--only diff) selects the rungs the gate itself lists, not just the ones whose stored
   # inputs happen to be here: release and journeys read "not selected (--only ...)" otherwise, which says nothing about what is missing.
   # Selected, an unconfigured rung says "not configured (no RELEASE_IMPACT given)"; that row is named in the notes, not a stop (unsel).
   local unsel=""

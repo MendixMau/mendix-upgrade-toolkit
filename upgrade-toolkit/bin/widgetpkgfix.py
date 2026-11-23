@@ -155,7 +155,10 @@ def defs(a):
                 if os.path.isfile(t):
                     moved.append(t)
             for m in moved:
-                shutil.move(m, os.path.join(keep, os.path.basename(m)))
+                dst = os.path.join(keep, os.path.basename(m)); n = 1
+                while os.path.exists(dst):  # never overwrite: the first copy (maybe hand-written) stays; later ones get .2, .3
+                    n += 1; dst = os.path.join(keep, f"{os.path.basename(m)}.{n}")
+                shutil.move(m, dst)
             print(f"WIDGET-DEF-DROPPED .mxcli/widgets/{os.path.basename(f)} (widget id {wid}: a step changed its package; mxcli describes it afresh) "
                   f"moved with {len(moved) - 1} template file(s) to .stepupdate/saved/mxcli-widgets/")
 

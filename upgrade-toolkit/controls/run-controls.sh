@@ -2884,6 +2884,9 @@ ctl widgetpkgfix-upgrade-untouched-pass 0 '!WIDGET-RESTORED' -- python3 $B/widge
 ctl widgetpkgfix-def-dropped-catch 0 'WIDGET-DEF-DROPPED \.mxcli/widgets/Dock\.def\.json \(widget id com\.x\.Dock.*moved with 1 template file\(s\) to \.stepupdate/saved/mxcli-widgets/' '!Grid' -- python3 $B/widgetpkgfix.py defs $GW/app
 # nothing is deleted: the def and its template are under .stepupdate/saved, the other widget's def stays
 ctl widgetpkgfix-def-moved-not-deleted-pass 0 '^saved: Dock\.def\.json Dock\.tpl\.json$' '^left: Grid\.def\.json$' -- bash -c "echo saved: \$(ls $GW/app/.stepupdate/saved/mxcli-widgets | tr '\n' ' ' | sed 's/ \$//'); echo left: \$(ls $GW/app/.mxcli/widgets | tr '\n' ' ' | sed 's/ \$//')"
+# a second step changes the same widget package: the first saved def (maybe hand-written) survives, the new one is kept beside it as .2
+echo '{"widgetId": "com.x.Dock", "fresh": "second"}' > $GW/app/.mxcli/widgets/Dock.def.json
+ctl widgetpkgfix-def-second-move-keeps-first-catch 0 'WIDGET-DEF-DROPPED' '^first: .*templateFile' '^second: .*"fresh"' -- bash -c "python3 $B/widgetpkgfix.py defs $GW/app; S=$GW/app/.stepupdate/saved/mxcli-widgets; echo first: \$(cat \$S/Dock.def.json); echo second: \$(cat \$S/Dock.def.json.2)"
 # the derivation of --old-version (the last step commit's module version) and --package (cache path from the content id) in stepupdate.sh,
 # cut out and run against a git log and a stub widgetpkgfix.py that prints its argv
 SW=$T/sw; rm -rf $SW; mkdir -p $SW/bin $SW/app; printf 'import sys\nprint("ARGV " + " ".join(sys.argv[1:]))\n' > $SW/bin/widgetpkgfix.py; printf 'import sys\n' > $SW/bin/widgetdiff.py
