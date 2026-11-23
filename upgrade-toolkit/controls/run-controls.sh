@@ -2432,7 +2432,30 @@ rm -rf $F42/v2t; cp -R $F42/v2 $F42/v2t
 ctl pipeline-tryfix-storage-collapse-catch 0 '^NOTE fix .collapser.: STORAGE FORMAT CHANGED' 'REFUSED fix' '^units=[1-9][0-9]* commits=1$' '!^        repair: collapser' -- bash -c "$F42F; $F42E; mkdir -p $F42/w; CHECK_LOG=$F42/before.log; try_fix collapser repair-row-5 CE0463 sh $F42/collapse.sh $F42/v2t/App.mpr; echo units=\$(find $F42/v2t/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/v2t rev-list --count HEAD)"
 # the same collapsing fixer is refused at the commit too (a tool that ran outside try_fix, e.g. a hand-run row)
 rm -rf $F42/v2u; cp -R $F42/v2 $F42/v2u; (cd $F42/v2u && sh $F42/collapse.sh $F42/v2u/App.mpr)
-ctl pipeline-commit-storage-collapse-catch 0 '^NOTE commit .repair: x.: STORAGE FORMAT CHANGED' '^units=[1-9][0-9]* commits=1$' -- bash -c "$F42F; $F42E; APP=$F42/v2u; commit_app 'repair: x' repair row; echo units=\$(find $F42/v2u/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/v2u rev-list --count HEAD)"
+ctl pipeline-commit-storage-collapse-catch 0 '^NOTE commit .repair: x.: STORAGE FORMAT CHANGED' '^rc=1 units=[1-9][0-9]* commits=1$' -- bash -c "$F42F; $F42E; APP=$F42/v2u; rc=0; commit_app 'repair: x' repair row || rc=\$?; echo rc=\$rc units=\$(find $F42/v2u/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/v2u rev-list --count HEAD)"
+# the convert commit: a storage refusal there stops the run (exit 4) instead of carrying on with the undone, unconverted model.
+# step_convert from the script with its tools stubbed: the convert command collapses the v2 app, convertcheck says fine.
+rm -rf $F42/v2cv; cp -R $F42/v2 $F42/v2cv
+F42C="$F42F; $F42E; eval \"\$(sed -n '/^die4() {/p; /^step_convert() {/,/^}/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; APP=$F42/v2cv; MPR=\$APP/App.mpr; SOURCE=9.24.32; TARGET=11.6.3; RUN=$F42/w; project_version() { echo 9.24.32; }; major() { echo \${1%%.*}; }; disk_gate() { :; }; nj_meta() { :; }; nj_add() { :; }; nj_flush() { :; }; run_stepupdate() { :; }; replay_edits() { :; }; xo() { shift; case \"\$*\" in *convertcheck*) return 0;; *'mx convert'*) sh $F42/collapse.sh \$MPR; return 0;; *) return 0;; esac; }"
+ctl pipeline-convert-storage-collapse-catch 4 'convert 11\.6\.3 changed the MPR storage format' 'still the unconverted model' '^units=[1-9][0-9]* commits=1$' '!^after-convert-ran' -- bash -c "$F42C; trap 'echo units=\$(find $F42/v2cv/mprcontents -name \"*.mxunit\" | wc -l | tr -d \" \") commits=\$(git -C $F42/v2cv rev-list --count HEAD)' EXIT; step_convert 2>&1; echo after-convert-ran"
+ctl pipeline-convert-storage-kept-pass 0 '^after-convert-ran$' '^commits=2$' -- bash -c "$F42C; xo() { shift; case \"\$*\" in *'mx convert'*) echo edit >> \$APP/note.txt;; esac; return 0; }; step_convert; echo after-convert-ran; echo commits=\$(git -C $F42/v2cv rev-list --count HEAD)"
+# mprstorage format test and its size fallback (F42-size): a v1 file left beside units is caught by FORMAT (small file, no size growth),
+# and an .mpr that cannot be read as SQLite (an LFS pointer, 6 MB of non-SQLite bytes here) falls back to the 10x/5 MB heuristic.
+# ASSUMED: the format test reads the tree's .mpr; HEAD's format comes from its mprcontents units (HEAD is only listed, never copied).
+rm -rf $F42/v2f $F42/v2g; cp -R $F42/v2 $F42/v2f; cp -R $F42/v2 $F42/v2g
+cp $M/base/App.mpr $F42/v2f/App.mpr
+head -c 6000000 /dev/zero | tr '\0' 'x' > $F42/v2g/App.mpr
+ctl mprstorage-format-v1-beside-units-catch 1 '^STORAGE FORMAT CHANGED: App\.mpr holds its unit contents inside the file \(MPR v1, [0-9]+ bytes\) beside [1-9][0-9]* mprcontents units' -- bash $B/mprstorage.sh guard $F42/v2f
+ctl mprstorage-size-fallback-unreadable-catch 1 '^STORAGE FORMAT CHANGED: App\.mpr grew from [0-9]+ to 6000000 bytes beside [1-9][0-9]* mprcontents units' -- bash $B/mprstorage.sh guard $F42/v2g
+ctl mprstorage-no-mpr-cannot-tell-pass 2 'no \.mpr' -- bash $B/mprstorage.sh guard $F42/w
+# guard exit 2 (cannot tell) is never a collapse: remedy_apply commit_all still commits (a tree with no .mpr), and undoes nothing
+rm -rf $F42/nompr; mkdir -p $F42/nompr; (cd $F42/nompr && git init -q && echo a > a.txt && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base && echo b > b.txt)
+F42M="export GIT_AUTHOR_NAME=ctl GIT_AUTHOR_EMAIL=c@c GIT_COMMITTER_NAME=ctl GIT_COMMITTER_EMAIL=c@c; B=$B W=$F42/w; eval \"\$(sed -n '/^gitc() {/p; /^commit_all() {/,/^}/p' $B/remedy_apply.sh)\""
+ctl remedy-apply-commit-all-cannot-tell-commits-catch 0 '^[0-9a-f]{7,}$' '^commits=2$' '!STORAGE' -- bash -c "$F42M; V_APP=$F42/nompr; commit_all 'remedy: x'; echo commits=\$(git -C $F42/nompr rev-list --count HEAD)"
+# remedy_apply commit_all: a collapse is refused, undone and not committed; a format-keeping change commits
+rm -rf $F42/rc $F42/rk; cp -R $F42/v2c $F42/rc; cp -R $F42/v2 $F42/rk; echo edit >> $F42/rk/note.txt
+ctl remedy-apply-commit-all-collapse-catch 0 '^remedy_apply: remedy: x: STORAGE FORMAT CHANGED' '^units=[1-9][0-9]* commits=1$' '^hash=$' -- bash -c "$F42M; V_APP=$F42/rc; h=\$(commit_all 'remedy: x'); echo hash=\$h; echo units=\$(find $F42/rc/mprcontents -name '*.mxunit' | wc -l | tr -d ' ') commits=\$(git -C $F42/rc rev-list --count HEAD)" 2>&1
+ctl remedy-apply-commit-all-kept-pass 0 '^hash=[0-9a-f]{7,}$' '^commits=2$' '!STORAGE' -- bash -c "$F42M; V_APP=$F42/rk; h=\$(commit_all 'remedy: x'); echo hash=\$h; echo commits=\$(git -C $F42/rk rev-list --count HEAD)"
 # a fixer that keeps the format is kept: v1 and v2 both commit as before
 rm -rf $F42/v2k; cp -R $F42/v2 $F42/v2k; printf '#!/bin/sh\necho edit >> "$(dirname "$1")/note.txt"\n' > $F42/keep.sh
 ctl pipeline-tryfix-storage-kept-pass 0 '^ +repair: keeper' '^commits=2$' '!STORAGE' -- bash -c "$F42F; $F42E; APP=$F42/v2k; CHECK_LOG=$F42/before.log; try_fix keeper repair-row-5 CE0463 sh $F42/keep.sh $F42/v2k/App.mpr; echo commits=\$(git -C $F42/v2k rev-list --count HEAD)"
@@ -2447,6 +2470,10 @@ ctl pipeline-v1-dprops-mx-pass 0 '^TRYFIX dp repair-row-6 CE6087 .*design_props_
 rm -rf $F42/su; mkdir -p $F42/su; cp -R $S2/base/. $F42/su/; cp $S2/plan.txt $F42/su.plan
 (cd $F42/su && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
 ctl stepupdate-storage-collapse-catch 4 'STOP: step1-adds .*STORAGE FORMAT CHANGED' 'Step undone, nothing committed' '!committed [0-9a-f]' -- env UPG_UPDATE_CMD="cp $M/step1-adds/App.mpr {mpr} && rm -rf $F42/su/mprcontents" bash $B/stepupdate.sh $F42/su $F42/su.plan
+# a stale stepcheck-stop.txt from an earlier model-check stop must not be shown as this stop's question
+rm -rf $F42/su2; mkdir -p $F42/su2; cp -R $S2/base/. $F42/su2/
+(cd $F42/su2 && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base && mkdir -p .stepupdate && printf 'Q\told model-check question\nO\told option\n' > .stepupdate/stepcheck-stop.txt)
+ctl stepupdate-storage-collapse-clears-stale-stop-catch 4 'STORAGE FORMAT CHANGED' '!old model-check question' -- sh -c "UPG_UPDATE_CMD=\"cp $M/step1-adds/App.mpr {mpr} && rm -rf $F42/su2/mprcontents\" bash $B/stepupdate.sh $F42/su2 $F42/su.plan; rc=\$?; cat $F42/su2/.stepupdate/stepcheck-stop.txt 2>/dev/null; exit \$rc"
 ctl stepupdate-storage-collapse-tree-pass 0 '^units=[1-9][0-9]*$' '^last=stepupdate: ignore' -- sh -c "echo units=\$(find $F42/su/mprcontents -name '*.mxunit' | wc -l | tr -d ' '); echo last=\$(git -C $F42/su log -1 --format=%s)"
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds

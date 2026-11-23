@@ -110,7 +110,7 @@ CARD=${POS[0]}; OPT=${POS[1]}
 [ -n "$V_APP" ] && [ -d "$V_APP" ] || die "APP: no app folder (${V_APP:-unset})"
 git -C "$V_APP" rev-parse --git-dir >/dev/null 2>&1 || die "APP $V_APP is not a git work tree"
 [ -n "$V_WORK" ] && [ -d "$V_WORK" ] || die "WORK: no work folder (${V_WORK:-unset})"
-W=$(cd "$V_WORK" && pwd); V_APP=$(cd "$V_APP" && pwd); JSON=$W/remediation.json; TRIED=$W/remedy-tried.txt
+W=$(cd "$V_WORK" && pwd); V_APP=$(cd "$V_APP" && pwd); rm -f "$W/remedy-storage-refused"; JSON=$W/remediation.json; TRIED=$W/remedy-tried.txt
 [ -f "$JSON" ] || die "no $JSON: run remedy.py --work $W first"
 MPRS=("$V_APP"/*.mpr); [ ${#MPRS[@]} = 1 ] && [ -f "${MPRS[0]}" ] || die "APP $V_APP: want exactly one .mpr"
 MPR=${MPRS[0]}
@@ -158,7 +158,8 @@ gitc() { git -C "$V_APP" "$@"; }
 commit_all() { # commit_all MESSAGE: commit whatever is changed, quietly; prints the new short hash or nothing
   [ -z "$(gitc status --porcelain)" ] && return 0
   # GF-42: never commit a storage-format change (MPR v2 rewritten as v1 by mx update-widgets): undone, said, nothing committed
-  local smsg; smsg=$(bash "$B/mprstorage.sh" guard "$V_APP" 2> /dev/null) || { echo "remedy_apply: $1: $smsg" >&2; gitc checkout -q -- .; gitc clean -fdq; return 0; }
+  local smsg grc=0; smsg=$(bash "$B/mprstorage.sh" guard "$V_APP" 2> /dev/null) || grc=$?   # exit 2 = cannot tell: commit as before
+  if [ "$grc" = 1 ]; then echo "remedy_apply: $1: $smsg" >&2; : > "$W/remedy-storage-refused"; gitc checkout -q -- .; gitc clean -fdq; return 0; fi
   gitc add -A && gitc commit -q -m "$1" >/dev/null && gitc rev-parse --short HEAD
 }
 abandon() { # back to BASE, the branch dropped when it holds nothing worth keeping ($1 = drop)
@@ -255,7 +256,7 @@ if [ -z "$from" ]; then
     die "the recipe failed (rc $rc, see $LOG): not a verdict on the option; fix the recipe (a git revert of an MPR step commit conflicts: RT-1)"
   fi
   h=$(commit_all "remedy: $CARD $OPT")
-  if [ "$(gitc rev-list --count "$BASE..$BR")" = 0 ]; then abandon drop; die "the recipe changed nothing in $V_APP"; fi
+  if [ "$(gitc rev-list --count "$BASE..$BR")" = 0 ]; then abandon drop; die "$([ -f "$W/remedy-storage-refused" ] && echo "the recipe changed the MPR storage format of $V_APP (see above): refused and undone, nothing committed" || echo "the recipe changed nothing in $V_APP")"; fi
   now=$(cd "$V_APP" && for f in widgets/*.mpk; do [ -f "$f" ] && printf '%s %s\n' "$(cksum < "$f" | tr -s ' ' '-')" "$f"; done)
   moved=$("$PY" - "$snap" "$now" <<'EOF'
 import sys
