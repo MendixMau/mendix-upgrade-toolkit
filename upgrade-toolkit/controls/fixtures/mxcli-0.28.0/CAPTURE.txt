@@ -14,3 +14,7 @@ Files:
   saved-edits/MendixSSO/*.mdl       the 7 files that run saved (6 association-*.mdl, 1 entity-*.mdl)
   update-refused-old-78bdfa5.log    the first command with the old binary: the same module, no association wording, 3 elements
 Sanitised: the scratch folder path became <saved-edits>. The mxcli temp path /tmp/mxuNNN is verbatim.
+
+DERIVED, not captured (GF-48): update-refused-constants.log and update-force-constants-unsaved.log are update-refused-old-78bdfa5.log
+and update-force-saveedits.log with the rows replaced by CONSTANT rows and no "Saved N" line (the field run's log is not kept).
+Same layout, same headings; only the element rows are edited by hand.

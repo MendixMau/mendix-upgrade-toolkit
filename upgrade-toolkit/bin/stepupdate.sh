@@ -187,6 +187,9 @@ tmpl=${UPG_UPDATE_CMD:-"$(printf %q "$bin/mxcli-container.sh") marketplace updat
 saved=${saved:-$app/.stepupdate/saved-edits}
 mkdir -p "$saved"; saved=$(cd "$saved" && pwd)
 st="$app/.stepupdate"
+# GF-31: .stepupdate/ran.txt names the modules THIS invocation really ran an update for; editroute.py plan holds a module as
+# "kept again for the same reason" only when it ran (a module the pass never reached keeps its stale kept.txt line)
+[ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; }
 jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; roles_run=""; assoc_run=""
 # PV-2: a target of a cross-module association updated AFTER the module that owns it loses the association (the owner's
 # import would have restored it); planorder.py says so before anything runs. A warning, not a stop: the cheap fix after
@@ -304,7 +307,7 @@ while read -r cid ver mod rest; do
   prevp=("$mpr"); [ -n "$(git -C "$app" ls-tree HEAD -- "$mcdir" 2> /dev/null)" ] && prevp+=("$mcdir")
   git -C "$app" archive HEAD -- "${prevp[@]}" | tar -x -C "$st/prevtree" || exit 2
   prevmpr="$st/prevtree/$mpr"
-  fstate=none
+  fstate=none; authored=0
   stepcheck_before
   if hasfiles "$mod"; then
     # T5-17: files outside the model, compared with the installed package BEFORE the update, and kept as a snapshot
@@ -324,13 +327,27 @@ while read -r cid ver mod rest; do
         0) fstate=clean-history; echo "   FILES: the package could not be compared; git proves it instead:"; sed 's/^/   /' "$st/step$n-$mod.history";;
         1) fstate=edited; cp "$st/step$n-$mod.history.json" "$st/step$n-$mod.files.json"
            { echo "(by git history, the package could not be compared)"; cat "$st/step$n-$mod.history"; } > "$st/step$n-$mod.files";;
-        *) { echo; cat "$st/step$n-$mod.history"; } >> "$st/step$n-$mod.files";;
+        *) { echo; cat "$st/step$n-$mod.history"; } >> "$st/step$n-$mod.files"
+           # GF-55: neither package nor history could prove the files; git still shows WHO changed them last. A file whose
+           # newest commit is the app's own (not a "step:" commit, not the first commit) is an edit, not "unknown"
+           python3 "$bin/themefiles.py" authored "$app" "$mod" > "$st/step$n-$mod.authored" 2>&1; arc=$?
+           if [ $arc = 1 ]; then
+             fstate=edited; authored=1; echo "[]" > "$st/step$n-$mod.files.json"
+             { echo "(by git authorship, the package could not be compared)"; cat "$st/step$n-$mod.authored"; } > "$st/step$n-$mod.files"
+           fi;;
       esac
     fi
     python3 "$bin/themefiles.py" snapshot "$app" "$mod" "$st/saved/$mod" > /dev/null
     if [ $fstate = edited ]; then
       grep '^FILES-EDITED ' "$st/step$n-$mod.files" | sed 's/^/   /'
+      jlogic=1; jgone=0
       if grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files"; then
+        read -r jlogic jgone <<< "$(python3 "$bin/themefiles.py" javalogic "$st/step$n-$mod.files.json" 2> /dev/null || echo "1 0")"
+      fi
+      if grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files" && [ "${jlogic:-1}" = 0 ]; then
+        # GF-37: the only Java "edit" is a package file that is gone. A deleted file holds no user code: the update may restore it
+        echo "   $mod: $jgone package Java file(s) are deleted in the app; they hold no user code, so this is a FILES edit the update may restore (not Java logic)"
+      elif grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files"; then
         if [ -n "$(echo "$portjava" | grep ",$mod,")" ]; then
           # cold rfq: a kept module's Java no longer compiled on 11 and its newer version had to come in; its one Java edit
           # (a forced Accept header) is ported by hand onto the new code. The snapshot holds no javasource: copy the edited files.
@@ -346,6 +363,12 @@ while read -r cid ver mod rest; do
       fi
       if ! grep '^FILES-EDITED ' "$st/step$n-$mod.files" | grep -qv '^FILES-EDITED javasource/'; then
         :
+      elif [ -z "$(echo "$forceui" | grep ",$mod,")" ] && [ $authored = 1 ]; then
+        # GF-55: git says the team changed these files, but nothing says WHICH lines: forcing would replace them with the package's
+        echo "   $mod has theme/JavaScript files the app's own commits changed (the package could not be compared, so which lines is unknown)."
+        echo "   The update would replace them: keep $mod at the installed version, or take the update by hand from a copy ($st/saved/$mod)."
+        keep "$mod" "own theme/javascript files (git authorship); the update would replace them and the package cannot show what changed" && continue
+        echo "STOP: update of $mod refused: its files are the app's own and cannot be compared ($st/step$n-$mod.files); nothing changed"; exit 2
       elif [ -z "$(echo "$forceui" | grep ",$mod,")" ]; then
         echo "   $mod has local theme/JavaScript file edits (UI edits the update replaces silently): rerun with --force-ui $mod; the files"
         echo "   are saved under $st/saved/$mod, the changed SCSS variables go to theme/web/custom-variables.scss (if it exists)."
@@ -360,6 +383,7 @@ while read -r cid ver mod rest; do
     fi
   fi
   log="$st/step$n-$mod.log"; : > "$log"; nrun=$((nrun + 1))
+  [ "$dry" = 0 ] && echo "$mod" >> "$st/ran.txt"
   runupd update "$cmd"
   nobase=0; conv=0
   if [ $rc != 0 ] && [ $fallback = 1 ] && grep -Eq "$BASELINE_GONE" "$log"; then
@@ -526,6 +550,27 @@ PY
     elif [ $conv = 0 ]; then
       echo "   saved edits for replay: $saved/$mod ($nsaved files); replay them before the gate"
     fi
+    # GF-48: --force replaces every locally changed element the log lists, saved or not. When the log names elements the
+    # save step could not keep (constants, JAR dependencies), they are gone: STOP before the commit, never commit "saved 0"
+    nlost=$(python3 - "$log" <<'PY'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+m = re.search(r"Proceeding under --force; (\d+) locally changed element\(s\) will be replaced", t)
+s = re.search(r"Saved (\d+) locally changed element", t)
+print((int(m.group(1)) if m else 0) - (int(s.group(1)) if s else 0))
+PY
+)
+    if [ "${nlost:-0}" -gt 0 ] && [ "$nsaved" = 0 ] && [ $nobase = 0 ]; then
+      echo "   UNSAVED-FORCED: the forced update of $mod replaced $nlost locally changed element(s) that were saved nowhere (constants, a JAR dependency)."
+      echo "   Their values were reset by the update."
+      case "$acceptun" in
+        *",$mod,"*) rec unsaved.txt "$mod" "$mod $ver --force replaced $nlost element(s), none saved (--accept-unsaved): set them again by hand"
+                    echo "   accepted (--accept-unsaved $mod): committing; listed in .stepupdate/unsaved.txt";;
+        *) keep "$mod" "FORCED-UNSAVED: --force replaced $nlost element(s) and saved none of them" && continue
+           echo "STOP: $mod would lose $nlost element(s) unsaved ($log). Keep the module (git checkout -- . && git clean -fd), or note the values"
+           echo "      from the log, rerun with --accept-unsaved $mod and set them again by hand. Nothing committed."; exit 2;;
+      esac
+    fi
     # mxcli v0.28.0 (#1502): associations of other modules are saved beside the entity files, one per association
     nas=$(find "$saved/$mod" -maxdepth 1 -type f -name 'association-*.mdl' 2>/dev/null | wc -l | tr -d ' ')
     if [ "${nas:-0}" -gt 0 ]; then
@@ -556,6 +601,16 @@ PY
         if [ $orc = 1 ]; then
           echo "$ov" | sed 's/^/   /'
           echo "   FILES-UNKNOWN: the update replaced $nov file(s) of $mod and the installed package could not prove they were unedited"
+          # GF-55: a big drop in the file count (35 -> 4) is a lost folder, not a package refresh: it is an edit, and
+          # --accept-unsaved does not cover it (a field run accepted it and got a 4-file skeleton for 35 own SCSS files)
+          nbefore=$(find "$st/saved/$mod" -type f 2>/dev/null | wc -l | tr -d ' ')
+          nafter=$(python3 "$bin/themefiles.py" count "$app" "$mod" 2> /dev/null || echo "$nbefore")
+          if [ "$nbefore" -ge 8 ] && [ $((nafter * 2)) -le "$nbefore" ]; then
+            echo "   FILES-DROP: $mod had $nbefore theme/JavaScript file(s) before the update and has $nafter after it: that is own work lost, not a package refresh"
+            keep "$mod" "FILES-DROP: the update cut $mod's files from $nbefore to $nafter (unproven, treated as edited)" && continue
+            echo "STOP: $mod went from $nbefore to $nafter files ($log); --accept-unsaved does not cover this. Keep the module at the installed version"
+            echo "      (git checkout -- . && git clean -fd) or merge the saved copies in $st/saved/$mod by hand. Nothing committed."; exit 2
+          fi
           case "$acceptun" in
             *",$mod,"*) rec overwritten.txt "$mod" "$mod $ver $nov file(s) replaced, UNPROVEN (--accept-unsaved), saved under $st/saved/$mod"; files_run="$files_run $mod "
                         echo "   accepted (--accept-unsaved $mod): committing; the saved copies are in $st/saved/$mod";;

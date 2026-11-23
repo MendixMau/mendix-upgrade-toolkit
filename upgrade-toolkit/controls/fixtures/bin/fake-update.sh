@@ -63,6 +63,8 @@ case "$mod" in
       d=$(dirname "$mpr")
       if [ -d "$d/themesource/administration" ]; then
         cp "$UPG_NEWVARS" "$d/themesource/administration/web/_variables.scss"; echo "export const a = 3;" > "$d/javascriptsource/administration/actions/util.js"
+        # GF-55: FAKE_DROP = the update leaves a 2-file skeleton of the module's theme folder (35 own files became 4 in a field run)
+        [ -z "${FAKE_DROP:-}" ] || find "$d/themesource/administration" -type f ! -name _variables.scss | sort | tail -n +2 | xargs rm -f
       fi
       cp "$src/step1-adds/App.mpr" "$mpr"; exit 0
     fi

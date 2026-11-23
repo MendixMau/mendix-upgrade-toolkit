@@ -377,6 +377,55 @@ def history(app, mod, mpr, installed=None, limit=300):
         return "unknown", [f"FILES-UNKNOWN {mod}: {e}"], []
 
 
+# ---------------------------------------------------------------------------------------------- authored (GF-55)
+# Producer: stepupdate.sh runs it after `history` said FILES-UNKNOWN. A package that cannot be compared proves nothing
+# either way, but git still knows who touched each file: a theme/JavaScript file whose newest commit is neither a toolkit
+# "step:" commit nor the first commit of the repository was changed by the app's own team, so it counts as EDITED.
+# A field run (GF) took 35 own SCSS files as "unknown", accepted the update and got a 4-file skeleton back.
+STEPSUBJ = re.compile(r"^step:")
+
+
+def authored(app, mod):
+    """-> (status, lines): 'edited' (an own commit is the newest of some file) | 'unedited' | 'unknown' (git cannot say)."""
+    try:
+        if subprocess.run(["git", "-C", app, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode != 0:
+            raise Unknown("not a git work tree")
+        dirs = [d for d in module_dirs(app, mod) if not d.startswith("javasource/")]
+        if not dirs:
+            raise Unknown("no themesource/javascriptsource folder of the module in the work tree")
+        files = {f for f in git(app, "ls-files", "-z", "--", *dirs).split("\0") if f and not OSJUNK.search(f)}
+        if not files:
+            raise Unknown("no tracked file under the module's folders")
+        first = set(git(app, "rev-list", "--max-parents=0", "HEAD").split())
+        last, cur = {}, None
+        for ln in git(app, "log", "--format=\x01%H\x02%s", "--name-only", "--", *dirs).splitlines():
+            if ln.startswith("\x01"):
+                cur = ln[1:].split("\x02", 1)
+            elif cur and ln in files and ln not in last:
+                last[ln] = cur
+        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and not STEPSUBJ.match(subj))
+        if own:
+            return "edited", [f"FILES-EDITED {f} (newest change is the app's own commit {last[f][0][:7]}, not a step)" for f in own]
+        return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files)"]
+    except Unknown as e:
+        return "unknown", [f"FILES-UNKNOWN {mod}: {e}"]
+
+
+def javalogic(path):
+    """'<logic rows> <deleted package files>' over the java rows of a files.json (GF-37). A deleted package file holds
+    no user code: the update restores it and nothing is lost. Unreadable input counts as one logic row (safe side)."""
+    try:
+        data = json.load(open(path))
+        rows = []
+        for x in data if isinstance(data, list) else []:
+            rows += (x.get("files") or []) if isinstance(x, dict) and "files" in x else [x]
+        java = [r for r in rows if isinstance(r, dict) and (r.get("kind") == "java" or str(r.get("path", "")).startswith("javasource/"))]
+    except Exception:
+        return "1 0"
+    gone = [r for r in java if r.get("change") == "REMOVED"]
+    return f"{len(java) - len(gone)} {len(gone)}"
+
+
 def main():
     a = sys.argv[1:]
     if a and a[0] == "history":
@@ -390,6 +439,14 @@ def main():
         if o.json:
             json.dump(rows, open(o.json, "w"), indent=1)
         sys.exit({"unedited": 0, "edited": 1, "unknown": 2}[status])
+    if len(a) == 3 and a[0] == "authored":
+        status, lines = authored(a[1], a[2])
+        print("\n".join(lines))
+        sys.exit({"unedited": 0, "edited": 1, "unknown": 2}[status])
+    if len(a) == 2 and a[0] == "javalogic":
+        print(javalogic(a[1])); sys.exit(0)
+    if len(a) == 3 and a[0] == "count":
+        print(len(app_files(a[1], a[2]))); sys.exit(0)
     if len(a) < 4 or a[0] not in ("report", "snapshot", "replay"):
         print(__doc__); sys.exit(2)
     cmd, app, mod, x = a[:4]
