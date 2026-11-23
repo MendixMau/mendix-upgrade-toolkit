@@ -2789,7 +2789,7 @@ ctl pipeline-dry-journeys-psql-pass 0 'gen_journeys\.py .* --data-rung' 'run_jou
 ctl pipeline-dry-journeys-users-pass 0 'gen_journeys\.py .* --users .*/pw/users\.json --data-rung' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only journeys --dry-run
 ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.log' 'missing_deps.py .* --target 11\.15\.0\.1' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 ctl pipeline-dry-build-gridlayout-catch 0 'repair/gridlayout\.py .*/papp --causes .*/pw/screen-causes\.txt > .*/pw/gridlayout\.out' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
-ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
+ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens(.?,release)?(.?,journeys)? --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; git init -q $NJ/app; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
@@ -2836,6 +2836,42 @@ ctl pipeline-auto-hard-stop-still-stops-catch 0 'needs judgment \(exit 13\)' '!P
 ctl pipeline-auto-rerun-clears-pass 0 'PASS    gate' '!PARKED' '!parked item' -- bash -c "cp $NJ/ga/kept.txt $NJ/ga/kept-ack.txt; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > $NJ/ga/release-impact.md; MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/ga --only gate"
 newapp o11b '1 1.0 Old11Base\n'
 ctl stepupdate-pre1021-baseline-pass 0 'installed Old11Base cannot serve as the local-edit baseline \(range from 10.21.0 to 10.24.99\)' 'committed' '!SKIP' -- bash $B/stepupdate.sh $S/o11b $S/o11b.plan --unattended
+# --- GF small pipeline fixes (field run GF): GF-12, 15, 29, 40, 41, 43, 46, 52 ---
+# GF-12: the triage stop and idcheck --xmod say where the targets go when an owner is on the plan too (planorder.py refuses "last" then)
+ctl pipeline-xmod-owner-title-catch 0 'unless an owner is on the plan too: then before the owner' -- grep -o 'last, unless an owner is on the plan too: then before the owner' $B/cloud/upgrade-pipeline.sh
+ctl idcheck-xmod-owner-line-catch 0 'but before an owner of these associations that is on the plan too \(planorder\.py --write\)' -- grep -o 'but before an owner of these associations that is on the plan too (planorder.py --write)' $B/idcheck.py
+# GF-15: a triage rerun clears the "triage: " lines of the earlier attempt out of state/notes.txt before it notes again
+ctl pipeline-triage-notes-cleared-catch 0 "grep -v '\^triage: '" -- grep -o "grep -v '^triage: ' \"\$WORK/state/notes.txt\"" $B/cloud/upgrade-pipeline.sh
+# GF-29: the --no-baseline retry's own output decides what was refused: the installed package, not the target
+newapp nfb '1 1.0 Old11NfBase\n'
+ctl stepupdate-nobaseline-retry-not-target-catch 1 'NOTE: the INSTALLED Old11NfBase package was refused as the local-edit baseline' '!package itself was made before' '!target package made before 10\.21' -- bash $B/stepupdate.sh $S/nfb $S/nfb.plan --unattended
+# GF-40: one commit subject that is not a module name is skipped with a warning; the other modules are still checked
+rm -rf $T/kdg2; mkdir -p $T/kdg2; cp -R $T/kdg/. $T/kdg2/; (cd $T/kdg2 && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Some Marketplace Package Name 1.0.0 (idcheck PASS)')
+ctl keptdeps-wrong-subject-skipped-catch 1 '^WARNING: skipped Some: ' '^FAIL UpdConn 4\.0\.0 needs kept AuthMod' '!nothing judged' -- python3 $B/keptdeps.py $T/kdg2 --kept-file $T/kdg-kept.txt --updated-from-git
+# GF-41 / GF-43: a downgrade puts the package's own widgets back; a changed widget package drops its cached def
+GW=$T/gfw; rm -rf $GW; mkdir -p $GW/app/widgets $GW/app/.mxcli/widgets $GW/pkg
+cat > $GW/mk.py <<'PY'
+import sys, zipfile
+def wmpk(path, ver, wid="com.x.Dock"):
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("package.xml", '<package xmlns="http://www.mendix.com/package/1.0/"><clientModule name="Dock" version="%s" xmlns="http://www.mendix.com/clientModule/1.0/"><widgetFiles><widgetFile path="Dock.xml"/></widgetFiles></clientModule></package>' % ver)
+        z.writestr("Dock.xml", '<widget id="%s" xmlns="http://www.mendix.com/widget/1.0/"/>' % wid)
+app, pkg = sys.argv[1], sys.argv[2]
+wmpk(app + "/widgets/Dock.mpk", "12.0.0")
+with zipfile.ZipFile(pkg + "/mod.mpk", "w") as z:
+    own = pkg + "/own.mpk"; wmpk(own, "10.0.0"); z.write(own, "widgets/Dock.mpk")
+PY
+python3 $GW/mk.py $GW/app $GW/pkg; echo '{"widgetId": "com.x.Dock"}' > $GW/app/.mxcli/widgets/Dock.def.json
+(cd $GW/app && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
+ctl widgetpkgfix-downgrade-catch 0 'WIDGET-RESTORED widgets/Dock\.mpk Dock 12\.0\.0 -> 10\.0\.0' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 10.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-upgrade-untouched-pass 0 '!WIDGET-RESTORED' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 13.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-def-dropped-catch 0 'WIDGET-DEF-DROPPED \.mxcli/widgets/Dock\.def\.json \(widget id com\.x\.Dock' -- python3 $B/widgetpkgfix.py defs $GW/app
+ctl widgetpkgfix-def-gone-pass 0 '^0$' -- bash -c "ls $GW/app/.mxcli/widgets | wc -l | tr -d ' '"
+ctl stepupdate-widgets-restore-wired-catch 0 '^2$' -- bash -c "grep -c 'widgetpkgfix.py\" \(restore\|defs\)' $B/stepupdate.sh"
+# GF-46: a failed build reads "The build failed", never "The build has not run yet"
+ctl cockpit-build-failed-not-unrun-catch 0 '^failed headline: [1-9]' '^stale words: 0$' -- bash $here/cockpit_control.sh chk-build-failed
+# GF-52: a rerun of one step selects the gate's own release and journeys rungs (their rows then say what is missing, not "not selected")
+ctl pipeline-dry-diff-own-rungs-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release.?,journeys --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 newapp o11 '1 1.0 Old11Pkg\n'
 ctl stepupdate-pre1021-skip-catch 0 'SKIP: the Old11Pkg 1.0 package itself was made before Studio Pro 10.21' 'pre-convert plan \(plan-pre.txt' 'kept: Old11Pkg' ' 0 committed, 1 kept' -- bash -c "bash $B/stepupdate.sh $S/o11 $S/o11.plan --unattended; cat $S/o11/.stepupdate/kept.txt; test ! -e $S/o11/junk.txt && echo reverted"
 # v3.1 E7-1: a --force-ui module that only updates through --no-baseline saves nothing: UNSAVED, never "saved edits"
@@ -8272,7 +8308,7 @@ dgstop() { bash -c "set -Eeu; . $DG/fn.sh; nj_meta() { :; }; nj_park() { :; }; g
 ctl pipeline-diff-release-open-not-stopping-pass 0 '^RELEASE_IMPACT=' '^DIFF-RETURNED$' '!NJ-STOP' -- dgstop $DG/w4
 ctl pipeline-diff-release-open-other-row-stops-catch 0 '^NJ-STOP 12$' '^DIFF-RETURNED$' -- dgstop $DG/w5
 mkdir -p $V/pwr; cp $DG/w3/release-impact.md $V/pwr/release-impact.md
-ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
+ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release(.?,journeys)? --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
 # TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
 # Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
 for c in stale fresh; do mkdir -p "$DG/al-$c"; done
