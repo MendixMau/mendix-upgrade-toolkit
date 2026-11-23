@@ -633,6 +633,49 @@ ctl exprparam-source-dry-catch 0 "^FIX Shop\.Order_Done text1: expression 'forma
 ctl exprparam-source-apply-pass 0 '1 fix\(es\); written' '^again: exprparam_source: 0 fix\(es\); nothing to write$' '^text1: source=none$' '^text2: source=Order$' '^text3: source=none$' -- bash -c "python3 $B/repair/exprparam_source.py $PV/a --apply; echo again: \$(python3 $B/repair/exprparam_source.py $PV/a | tail -1); python3 $PV/show.py $PV/a/App.mpr"
 ctl exprparam-source-noproject-pass 2 'exprparam_source: .*expected exactly one \.mpr' -- python3 $B/repair/exprparam_source.py $PV
 ctl pipeline-build-exprparam-row35-catch 0 'has_code CE7005' 'try_fix "expression parameter source" repair-row-35 CE7005 python3 "\$B/repair/exprparam_source.py" "\$APP" --apply' -- grep -A2 'row 35' $B/cloud/upgrade-pipeline.sh
+# repoint_images.py (repair row 38, GF-38): an own page names `PDS.Images.Logo`, the Marketplace module PDS now holds Logo
+# only in PDS.Restricted_Images: the own reference is repointed; Both is in two collections (left, reason printed); the
+# module's own page and another Marketplace module's page are never edited (also when the moved module is an own one)
+RI=$T/ri; mkdir -p $RI/a
+cat > $RI/mk.py <<'EOF2'
+import bson, sqlite3, sys, uuid
+def I(): return uuid.uuid4().bytes
+def img(n): return {"$ID": I(), "$Type": "Images$Image", "Name": n}
+def coll(n, imgs): return {"$ID": I(), "$Type": "Images$ImageCollection", "Name": n, "Images": [3] + [img(i) for i in imgs]}
+def page(n, *refs): return {"$ID": I(), "$Type": "Forms$Page", "Name": n, "Widgets": [2] + [{"$ID": I(), "$Type": "Forms$StaticImageViewer", "Image": r} for r in refs]}
+def mod(n, store): return {"$ID": I(), "$Type": "Projects$ModuleImpl", "Name": n, "FromAppStore": store}
+con = sqlite3.connect(f"{sys.argv[1]}/App.mpr")
+con.execute("create table Unit (UnitID blob, ContainerID blob, ContainmentName text, TreeConflict long, ContentsHash text, ContentsConflicts text, Contents blob)")
+def put(d, cid=None):
+    u = uuid.uuid4().bytes_le
+    con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (u, cid, bson.encode(d)))
+    return u
+shop, pds, oth = put(mod("Shop", False)), put(mod("PDS", len(sys.argv) < 3)), put(mod("Other", True))
+put(coll("Images", []), pds); put(coll("Restricted_Images", ["Logo", "Both"]), pds); put(coll("Universal_Images", ["Both"]), pds)
+put(page("Home", "PDS.Images.Logo", "PDS.Images.Both", "PDS.Images.Gone", "PDS.Restricted_Images.Logo", "Shop.Images.Logo"), shop)
+put(page("Inner", "PDS.Images.Logo"), pds)
+put(page("Vendor", "PDS.Images.Logo"), oth)
+con.commit()
+EOF2
+cat > $RI/show.py <<'EOF2'
+import bson, sqlite3, sys
+for (b,) in sqlite3.connect(sys.argv[1]).execute("select Contents from Unit"):
+    d = bson.decode(b)
+    if d.get("$Type") == "Forms$Page":
+        print(d["Name"] + ": " + " ".join(w["Image"] for w in d["Widgets"][1:]))
+EOF2
+python3 $RI/mk.py $RI/a
+printf '%s\n' '[error] [CE1613] "The selected image no longer exists." at Page Shop.Home: PDS.Images.Logo' '[error] [CE1613] "x" at Page Shop.Home: PDS.Images.Both' '[error] [CE1613] "y" at Page Shop.Home: PDS.Images.Gone' '[error] [CE1613] "z" Shop.Home uses PDS.Gone_Page' '[error] [CE0117] "w" PDS.Images.Zed' > $RI/check.log
+RIP="python3 $B/repair/repoint_images.py $RI/a --log $RI/check.log"
+ctl repoint-images-dry-catch 0 '^REPOINT Shop\.Home: 1 x PDS\.Images\.Logo -> PDS\.Restricted_Images\.Logo$' '1 reference\(s\) in 1 unit\(s\); dry run' '!Gone_Page' -- bash -c "$RIP; python3 $RI/show.py $RI/a/App.mpr"
+ctl repoint-images-dry-unchanged-pass 0 '^Home: PDS\.Images\.Logo PDS\.Images\.Both PDS\.Images\.Gone ' -- python3 $RI/show.py $RI/a/App.mpr
+ctl repoint-images-ambiguous-pass 0 '^LEFT PDS\.Images\.Both: Both is in 2 collections of PDS \(Restricted_Images, Universal_Images\); pick one by hand$' '^LEFT PDS\.Images\.Gone: no collection of PDS holds an image called Gone$' '!Zed' -- $RIP
+cp -r $RI/a $RI/b
+ctl repoint-images-apply-catch 0 '1 reference\(s\) in 1 unit\(s\); written' '^again: repoint_images: 0 reference\(s\) in 0 unit\(s\); nothing to write$' '^Home: PDS\.Restricted_Images\.Logo PDS\.Images\.Both PDS\.Images\.Gone PDS\.Restricted_Images\.Logo Shop\.Images\.Logo$' '^Inner: PDS\.Images\.Logo$' '^Vendor: PDS\.Images\.Logo$' -- bash -c "python3 $B/repair/repoint_images.py $RI/b --log $RI/check.log --apply; echo again: \$(python3 $B/repair/repoint_images.py $RI/b --log $RI/check.log | tail -1); python3 $RI/show.py $RI/b/App.mpr"
+mkdir -p $RI/c; python3 $RI/mk.py $RI/c own
+ctl repoint-images-movedmodule-own-catch 0 '1 reference\(s\) in 1 unit\(s\); written' '^Home: PDS\.Restricted_Images\.Logo ' '^Inner: PDS\.Images\.Logo$' -- bash -c "python3 $B/repair/repoint_images.py $RI/c --log $RI/check.log --apply; python3 $RI/show.py $RI/c/App.mpr"
+ctl repoint-images-noproject-pass 2 'repoint_images: .*expected exactly one \.mpr' -- python3 $B/repair/repoint_images.py $RI --image PDS.Images.Logo
+ctl repoint-images-noinput-pass 2 'give --log' -- python3 $B/repair/repoint_images.py $RI/a
 # cold WM1: an update rerun kept an earlier replay's copy and menu pointer ("11 run, 0 committed", replay skipped as done);
 # step_update stops when this rung's convert is followed by replay commits, names the convert commit to rewind to
 RP=$T/rp; mkdir -p $RP
@@ -9712,7 +9755,7 @@ ctl target-text-names-no-patch-catch 0 '^no target patch in the text$' -- bash -
 DV1=$T/dv1; mkdir -p $DV1
 ctl docs-no-sibling-toolkit-path-catch 0 '^none$' -- sh -c "cd $TK && grep -nE 'Mendix/mxcli-project-toolkit|mxcli-project-toolkit/upgrade-toolkit' SKILL.md SETUP.md SETUP-PROMPT.md steps/*.md playbooks/*.md READING-THE-VERDICT.md || echo none"
 # GM-A2: SKILL.md carries the permission-check rule; every bin/ file that writes the model (bson.encode, UPDATE/INSERT on Unit, binary unit write) is named there by path, and each listed tool exists.
-ctl skill-permission-rule-catch 0 'permission rules' 'covers any wrapper' 'never route around' '!MISSING' -- sh -c 'cd "$1" || exit 2; grep -o -e "permission rules" -e "covers any wrapper" -e "never route around" SKILL.md | sort -u; for f in $(grep -rliE "bson\.encode|\.write\(uid|UPDATE +Unit|INSERT (OR REPLACE )?INTO +Unit|open\(f, \"wb\"\)" bin | sort); do grep -qF "$f" SKILL.md || echo "MISSING $f"; done; for f in bin/repair/copy_mappings.py bin/repair/copydoc.py bin/repair/exprparam_source.py bin/repair/widgetrestore.py bin/repair/widgetroute.py bin/restore_guid.py bin/restoreunit.py; do [ -f "$f" ] || echo "MISSING $f"; done' _ "$TK"
+ctl skill-permission-rule-catch 0 'permission rules' 'covers any wrapper' 'never route around' '!MISSING' -- sh -c 'cd "$1" || exit 2; grep -o -e "permission rules" -e "covers any wrapper" -e "never route around" SKILL.md | sort -u; for f in $(grep -rliE "bson\.encode|\.write\(uid|UPDATE +Unit|INSERT (OR REPLACE )?INTO +Unit|open\(f, \"wb\"\)" bin | sort); do grep -qF "$f" SKILL.md || echo "MISSING $f"; done; for f in bin/repair/copy_mappings.py bin/repair/copydoc.py bin/repair/exprparam_source.py bin/repair/repoint_images.py bin/repair/widgetrestore.py bin/repair/widgetroute.py bin/restore_guid.py bin/restoreunit.py; do [ -f "$f" ] || echo "MISSING $f"; done' _ "$TK"
 ctl skill-widget-xml-lesson-catch 0 'package XML' 'removing it removes' 'GM-19' '!MISSING' -- sh -c 'cd "$1" || exit 2; grep -o -e "package XML" -e "removing it removes" -e "GM-19" SKILL.md | sort -u; [ -f bin/replacement_check.py ] || echo "MISSING replacement_check.py"' _ "$TK"
 # GM-39: the R4 (Deep Link) row of replacements.tsv, the card triage prints, names the role trap, UrlPrefix (no mxcli syntax, by hand) and the /p/ to /link/ move.
 ctl replacements-r4-card-three-items-catch 0 '^role trap$' '^UrlPrefix$' '^p-to-link$' '!MISSING' -- sh -c 'r=$(grep -P "^R4\t" "$1/playbooks/replacements.tsv"); for k in "role trap:allowed roles" "UrlPrefix:UrlPrefix: mxcli has no syntax for it" "p-to-link:/p/ to /link/.*breaks bookmarks"; do if printf "%s" "$r" | grep -Eq "${k#*:}"; then echo "${k%%:*}"; else echo "MISSING ${k%%:*}"; fi; done' _ "$TK"
