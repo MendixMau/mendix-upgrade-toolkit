@@ -1854,7 +1854,7 @@ step_update() {
     fi
   fi
   # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
-  [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
+  [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" --app "$APP" | tee -a "$LOG" > /dev/null || true; }
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
   # Administration 4.5.0 has no UserRole_Select or RetrieveTimeZones, two own employee pages used them)
   if [ "$DRY" != 1 ]; then
