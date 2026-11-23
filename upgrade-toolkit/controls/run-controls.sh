@@ -1977,12 +1977,17 @@ if python3 -c "import bcrypt" 2> /dev/null; then
   # ASSUMED (GF-17 review): a tie does not stop the run: generic, each role from its own users (PR-F28), a loud NOTE; the SQL stops only for a role it cannot resolve
   ctl smoke-users-no-account-tie-catch 0 'NOTE users exist as several System.User specializations in equal number: MendixSSO.MendixSSOUser, Points.Member' 'UPG_SMOKE_ENTITY' "tie_ents text := 'MendixSSO.MendixSSOUser; Points.Member'" 'RAISE EXCEPTION .SMOKE-ENTITY-UNRESOLVED: role' '!AMBIGUOUS: users exist' \
     -- python3 $B/smoke_users.py fx_t --psql "$SU/user-no-account-tie.json"
-  # an Administration.Account entity with no rows is not the entity to follow: the message and the SQL name the same leaf
-  ctl smoke-users-empty-account-leaf-catch 0 'user entity Points.Member \(the most used System.User specialization with rows' "ELSE 'Points.Member' END" 'EXECUTE .SELECT EXISTS \(SELECT 1 FROM "administration\$account"\)' \
+  # PR-F28 kept: an Administration.Account entity that exists but has no rows is still the generic user (a mixed or user-less role stays on it); GF-17 is the app with no Administration.Account at all
+  ctl smoke-users-empty-account-stays-pass 0 'user entity Administration.Account if present, else System.User \(no deeper specialization has rows\)' "ELSE 'System.User' END" '!ELSE .Points.Member. END' '!SELECT EXISTS \(SELECT 1 FROM "administration\$account"\)' \
     -- python3 $B/smoke_users.py fx_t --psql "$SU/user-empty-account.json"
+  # the generated SQL must parse: a single-quoted string that closes and runs into a letter (an apostrophe in the text) made every --apply fail with a syntax error
+  # a pipe, so ctl sees the checker's verdict; no database is needed (CI has none)
+  ctl smoke-users-sql-quotes-tie-pass 0 '^quotes ok: [0-9]+ string literal' '!FAULT' -- sh -c "python3 $B/smoke_users.py fx_t --psql '$SU/user-no-account-tie.json' 2> /dev/null | python3 $here/sql_quotes_check.py"
+  ctl smoke-users-sql-quotes-sole-pass 0 '^quotes ok: [0-9]+ string literal' '!FAULT' -- sh -c "python3 $B/smoke_users.py fx_t --sole-target --psql '$SU/user-empty-account.json' 2> /dev/null | python3 $here/sql_quotes_check.py"
+  ctl smoke-users-sql-quotes-checker-catch 1 '^QUOTES FAULT: .*followed by' -- sh -c "python3 $here/sql_quotes_check.py < $FX/seed/sql-bad-quote.sql"
   ctl smoke-users-entity-flag-no-account-pass 0 "given text := 'MendixSSO.MendixSSOUser'" '!AMBIGUOUS' \
     -- python3 $B/smoke_users.py fx_t --entity MendixSSO.MendixSSOUser --psql "$SU/user-no-account-tie.json"
-else for c in smoke-users-no-account-leaf-catch smoke-users-no-account-tie-catch smoke-users-empty-account-leaf-catch smoke-users-entity-flag-no-account-pass; do skip $c "no python bcrypt"; done; fi
+else for c in smoke-users-no-account-leaf-catch smoke-users-no-account-tie-catch smoke-users-empty-account-stays-pass smoke-users-sql-quotes-tie-pass smoke-users-sql-quotes-sole-pass smoke-users-entity-flag-no-account-pass; do skip $c "no python bcrypt"; done; fi
 # the knob: UPG_SMOKE_ENTITY, else $WORK/smoke-entity.txt; every pipeline call to smoke_users.py carries it
 mkdir -p $T/gf17w; printf 'Points.Member\n' > $T/gf17w/smoke-entity.txt
 ctl smoke-entity-env-catch 0 '^--entity Other.Acct$' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17w Other.Acct

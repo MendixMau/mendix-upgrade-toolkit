@@ -12,7 +12,7 @@ Per user role (all rows of system$userrole unless --roles) it creates user smoke
 --entity Module.Entity (one row per inheritance level, the id carries the LEAF entity's short id: a home microflow that
 retrieves CustomAdminModule.UserAccount sends a plain Administration.Account user to the login page, T3-6). Default: the
 one specialization below Administration.Account that has users; several -> exit 2 and the candidates; none ->
-Administration.Account when that entity exists, else (GF-17: no Administration.Account, or no users under it) the System.User
+Administration.Account when that entity exists (empty or not: PR-F28), else (GF-17: the app has no Administration.Account) the System.User
 specialization that has rows (any module; several -> the most used, a tie -> a NOTE, each role from its own users, exit 2 only for a role with none), else System.User. Without --entity and with no single
 specialization below Administration.Account, each role's user is the entity that role's existing (non-smoke, non
 System.User) users all share (PR-F28: Purchase Request's approvers are MendixSSO.MendixSSOUser and its workflow assigns
@@ -70,9 +70,7 @@ DECLARE
   sup text; chain text[]; t text; deeper text; have text; mine text; nmine int;
   donor bigint; best int; k int; m int; moved int; a record; c record; cols text; vals text; dflt text; cn text;
 BEGIN
-  -- GF-17: has_acc means the Account table exists AND has rows; an empty Account entity is not a user entity to follow
   has_acc := to_regclass('"administration$account"') IS NOT NULL;
-  IF has_acc THEN EXECUTE 'SELECT EXISTS (SELECT 1 FROM "administration$account")' INTO has_acc; END IF;
   FOR r IN SELECT id, name FROM "system$userrole" {role_filter} ORDER BY name LOOP
     n := n + 1;
     leaf := given;
@@ -85,7 +83,7 @@ BEGIN
       IF nmine = 1 THEN leaf := mine; END IF;   -- plain System.User rows (MxAdmin) do not vote; a mixed role stays generic
     END IF;
     IF leaf IS NULL AND tie_ents IS NOT NULL THEN
-      RAISE EXCEPTION 'SMOKE-ENTITY-UNRESOLVED: role % has no single user entity of its own (the app's users are spread over several System.User specializations in equal number: %): set UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)', r.name, tie_ents;
+      RAISE EXCEPTION 'SMOKE-ENTITY-UNRESOLVED: role % has no single user entity of its own (the users of this app are spread over several System.User specializations in equal number: %): set UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)', r.name, tie_ents;
     END IF;
     IF leaf IS NULL THEN
       leaf := CASE WHEN has_acc THEN 'Administration.Account' ELSE {fb} END;
@@ -318,8 +316,8 @@ def main():
                       "; pick the one the home microflow retrieves: --entity Module.Entity", file=sys.stderr); sys.exit(2)
             if entity:
                 print(f"smoke_users: user entity {entity} (the only specialization of Administration.Account with rows)", file=sys.stderr)
-            elif "Administration.Account" not in {n for n, _ in ents.values()} or counts.get("Administration.Account", 0) == 0:
-                # GF-17: no Administration.Account users to follow: the leaf comes from every System.User specialization with rows
+            elif "Administration.Account" not in {n for n, _ in ents.values()}:
+                # GF-17: the app has no Administration.Account (its own account entity): the leaf comes from every System.User specialization with rows
                 leaf, lc, why = pick_user_leaf(ents, counts)
                 if why == "tie":
                     # ASSUMED (GF-17): stay generic, each role from its own users (PR-F28); the SQL stops (exit 2) only for a role it cannot resolve
