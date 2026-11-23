@@ -7869,8 +7869,26 @@ gflateq emptysigner 'Latecomer | module | update to the latest version | owner c
 gflateq agentconfirmed 'Latecomer | module | update to the latest version | owner chose in chat | agent | CONFIRMED | closes by: x'
 gflateq lowerassumed 'Latecomer | module | update to the latest version | owner chose in chat | Ana | assumed | closes by: x'
 gflateq shortline 'Latecomer'
-for v in agentassumed dashsigner emptysigner agentconfirmed lowerassumed shortline; do
+gflateq emptystatus 'Latecomer | module | update to the latest version | owner chose in chat | Ana |  | closes by: x'
+gflateq toolkitconfirmed 'Latecomer | module | update to the latest version | owner chose in chat | Toolkit | CONFIRMED | closes by: x'
+gflateq rejected 'Latecomer | module | update to the latest version | owner said no | Ana | REJECTED | closes by: x'
+gflateq confirmedq 'Latecomer | module | update to the latest version | owner unsure | Ana | CONFIRMED? | closes by: x'
+for v in agentassumed dashsigner emptysigner agentconfirmed lowerassumed shortline emptystatus toolkitconfirmed rejected confirmedq; do
   ctl gf32-late-appended-$v-stays-assumed-catch 0 '^module:Latecomer approval=assumed by=agent$' '!approved' -- gflatestate $v
+done
+# GF-32 review round 4: Ana answers by hand, THEN a junk line is appended, then ONE rerun: the step is approved in Ana's name (the line unseen() decided on), never the signer's
+gflateseq() { # name line...  (every line appended in order to a copy of gf-late, then one rerun)
+  rm -rf $PR/gf-late-$1; cp -R $PR/gf-late $PR/gf-late-$1; n=$1; shift
+  for l in "$@"; do bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | %s\n" "$id" "$2" >> "$1/DECISIONS.md"' _ $PR/gf-late-$n "$l"; done
+  bash $PR/prop.sh $PR/gf-late-$n > /dev/null
+}
+gflatestate2() { python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s source=%s' % (x['topic'], x['approval']['state'], x['approval']['by'], x['approval'].get('source')) for x in r))" $B $PR/gf-late-$1; }
+ANA='Latecomer | module | update to the latest version | owner chose in chat | Ana | CONFIRMED | closes by: x'
+gflateseq anajunk "$ANA" 'Latecomer | module | update to the latest version | unattended default | agent | ASSUMED | closes by: x'
+gflateseq anashort "$ANA" 'Latecomer'
+gflateseq anaonly "$ANA"
+for v in anajunk anashort anaonly; do
+  ctl gf32-late-answered-then-junk-$v-approved-by-ana-catch 0 '^module:Latecomer approval=approved by=Ana source=decisions$' '!by=Tester' -- gflatestate2 $v
 done
 # GF-32: a person answers the late item by hand (a non-ASSUMED line in DECISIONS.md, the way decisions.py add writes it): the next run approves its step in that name
 bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | Latecomer | module | update to the latest version | owner chose in chat | Ana | CONFIRMED | closes by: the rung that measures it passes (steps/decide.md)\n" "$id" >> "$1/DECISIONS.md"' _ $PR/gf-late; bash $PR/prop.sh $PR/gf-late > /dev/null

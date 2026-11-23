@@ -873,10 +873,22 @@ def approve_steps(work, ids, state, signer, source, answers=None):
 
 
 def by_hand(d):
-    """A DECISIONS.md line a real person answered: a status that is neither empty nor ASSUMED (any case) and a signer that is a name,
-    not empty, `-`, `agent` or `toolkit` (the toolkit's own lines and an unattended run's ASSUMED line never approve in a name)."""
-    return bool(d) and len(d) > 5 and d[5].strip() != "" and not d[5].strip().upper().startswith("ASSUMED") \
+    """A DECISIONS.md line a real person answered: a status of CONFIRMED or APPROVED (any case; REJECTED, ASSUMED, `CONFIRMED?` or empty
+    never approve) and a signer that is a name, not empty, `-`, `agent` or `toolkit` (the toolkit's own lines and an unattended run's
+    ASSUMED line never approve in a name)."""
+    return bool(d) and len(d) > 5 and d[5].strip().upper() in ("CONFIRMED", "APPROVED") \
         and d[4].strip().lower() not in ("", "-", "agent", "toolkit")
+
+
+def deciding_line(lines):
+    """The line that decides a late item (one with an `appeared after sign-off` line): the last by-hand line after the last late line,
+    or None. A later junk line (agent, ASSUMED, short) neither answers it nor takes the answer away. Items with no late line: the
+    last line, as decisions() has it (None when there is none)."""
+    late = [n for n, d in enumerate(lines) if len(d) > 3 and d[3].startswith("appeared after sign-off")]
+    if not late:
+        return lines[-1] if lines else None
+    hand = [d for d in lines[late[-1] + 1:] if by_hand(d)]
+    return hand[-1] if hand else None
 
 
 def decisions_all(work):
@@ -1212,14 +1224,8 @@ def main():
         # a rerun re-renders PROPOSAL.md with the late item in it, so the regex below would read it as seen: the lines DECISIONS.md
         # holds for it are what stay true. Any line saying "appeared after sign-off" keeps it late until a LATER line is a hand answer.
         lines = decisions_all(a.work).get(it["id"], [])
-        late = None
-        for d in lines:
-            if len(d) > 3 and d[3].startswith("appeared after sign-off"):
-                late = True
-            elif by_hand(d):
-                late = False
-        if late is not None:
-            return late
+        if any(len(d) > 3 and d[3].startswith("appeared after sign-off") for d in lines):
+            return deciding_line(lines) is None
         n = re.escape(it["name"])
         return not re.search(rf"^- \[P-\d+\] {re.escape(it['kind'])}: {n}$|module update {n} ", signed_text, re.M)
 
@@ -1250,7 +1256,8 @@ def main():
         # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was not seen by the signer: its step is assumed, not approved in their name
         late_ids = {it["id"] for it in F.items3 if unseen(it)}
         late = {s: k for s, k in sids.items() if k.startswith("3:") and k[2:] in late_ids}
-        approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff", decisions(a.work))
+        approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff",
+                      {i: deciding_line(l) for i, l in decisions_all(a.work).items()})
         approve_steps(a.work, late, "assumed", "agent", "after-signoff")
         print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else "")
               + (f"; {nl} item(s) appeared after sign-off (ASSUMED in DECISIONS.md, the signer did not see them)" if nl else ""))
