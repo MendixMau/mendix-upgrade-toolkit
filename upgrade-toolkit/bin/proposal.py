@@ -13,6 +13,7 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   release-impact.md                                                 rows whose "handled" cell is empty need a person (item 10)
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
   absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
+  owngone.out                                                       crosscalls.py --own: own documents that use targets a planned package drops (GF-39; optional, an older run has none)
   keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional, written once kept.txt exists)
   keptstyle.json                                                    keptstyle.py --json: platform widget selectors in a kept themesource (MC-11; optional, written once kept.txt exists)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
@@ -325,6 +326,33 @@ class Facts:
         for u in unchecked:
             self.not_measured.append((f"absentmods.py {u.get('module')} {u.get('version')}", u.get("reason") or "package not read"))
 
+    def owngone(self):
+        """GF-39: crosscalls.py --own output (owngone.out). An own document that uses a page, microflow or Java action the plan version of a
+        module no longer has is CE1613 after the update; one section-3 item per planned module, naming each target and the own document.
+        Optional (an older run has none); a NOTE line (package not cached) is listed as not measured, never as clean."""
+        t = read(self.p("owngone.out"))
+        if t is None:
+            return
+        self.measured.append("owngone.out")
+        cur, by = None, {}
+        for ln in t.splitlines():
+            m = re.match(r"OWN (\S+) (\S*) -> (\S+): (\d+) target", ln)
+            g = re.match(r"\s+GONE (\S+) (\S+) \(used by own (.+)\)", ln)
+            n = re.match(r"NOTE (\S+) (\S*) -> (\S+): .*NOT checked", ln)
+            if m:
+                cur = (m.group(1), m.group(2), m.group(3)); by[cur] = []
+            elif g and cur:
+                by[cur].append((g.group(1), g.group(2), g.group(3)))
+            elif n:
+                self.not_measured.append((f"crosscalls.py --own {n.group(1)} {n.group(3)}", "the plan version's package is not in the cache: own use of dropped targets not checked"))
+        for (pm, inst, pv), gone in sorted(by.items()):
+            ex = "; ".join(f"{k} {tgt} used by own {src}" for k, tgt, src in gone[:4]) + (f"; and {len(gone) - 4} more" if len(gone) > 4 else "")
+            self.add3("module", f"own documents use targets {pm} {pv} drops",
+                      f"{pm} {inst or '?'} -> {pv}: {len(gone)} target(s) the app's own modules use are gone from the {pv} package: {ex}",
+                      f"change the own documents to the replacement the {pm} release notes name before the update | hold {pm} at {inst or 'its installed version'} | hand to a named person",
+                      f"change the own documents to the replacement the {pm} release notes name before the update, or hold {pm}",
+                      "S", f"each is CE1613 at the build ({len(gone)} target(s)); mx check on the old model does not see it")
+
     def keptvend(self):
         """GM-15: a kept module's themesource uses a mixin, variable or file that a planned package no longer has (the theme compile
         fails after the update). keptvendor.json is optional (written once .stepupdate/kept.txt exists; an older run has none). One
@@ -568,8 +596,10 @@ class Facts:
                   "(release notes 10.24.0 and 11.0.0). QUESTION: which databases do the app's environments (test, acceptance, "
                   "production) run on, and who can read them? WHAT TO LOOK FOR: file document rows of those entities whose file is "
                   "still stored the pre-5.12 way; on 10.24 or later the runtime writes a warning at start when any exist, so a copy "
-                  "of each environment's database started on 10.24 shows it in the log. The SQL that lists them: to be confirmed on "
-                  "a real database (not written here: no source the toolkit holds gives the column or the rule)",
+                  "of each environment's database started on 10.24 shows it in the log. A read-only count that "
+                  "a GF field run checked on a copy of a real Postgres database (GF-49): select count(*) from \"system$filedocument\" where "
+                  "__uuid__ is null; it counts the rows 11 refuses (hascontents false, no uuid), and a copy with a uuid set on those rows got "
+                  "past the check. Run it on each environment's database; a count above 0 is a go-live item for that environment",
                   "the app's data was first created on Mendix 5.12 or later: no such file can exist; the convert goes ahead | "
                   "I checked each environment's database: none holds pre-5.12 file documents; the convert goes ahead | "
                   "some do: start on 10.x until the app team has moved the old file documents as the 11.0 release note describes, then convert | "
@@ -579,7 +609,7 @@ class Facts:
 
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.absent(); self.keptvend(); self.keptstyle(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.absent(); self.owngone(); self.keptvend(); self.keptstyle(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"

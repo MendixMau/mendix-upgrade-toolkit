@@ -1111,15 +1111,14 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
   # so it says "not measured" (never "clean") and the update step runs this again once the list exists. Only a triage MISSING stops (nj
   # item, code 13); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
   local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" pf="$WORK/keptvendor-plan.txt"
-  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
-  if [ ! -s "$kf" ]; then
-    [ "$mode" != triage ] || note "keptvendor NOT MEASURED: no $kf yet (the update step writes the kept list); mixins, variables and files of kept themesources are checked against the planned packages after it"
-    return 0
-  fi
-  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the kept themesources against"; return 0; }
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --own --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
+  # GF-56: the app's own styling is read too (--own), so a first triage with no kept.txt still measures it before the sign-off
+  local kopt=(--kept-file "$kf")
+  [ -s "$kf" ] || kopt=(--kept '')
+  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the app's own and kept themesources against"; return 0; }
   # awk 1 adds the missing final newline of plan.txt: with cat, its last line and the first of plan-pre.txt became one line
   awk 1 "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
-  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
+  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" "${kopt[@]}" --own --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
   case "$rc" in
     0) ;;
     1) note "keptvendor MISSING (exit 1): a kept themesource uses a mixin, variable or file a planned package removed; fix the kept SCSS or hold the package, see $WORK/keptvendor.out"
@@ -1458,9 +1457,27 @@ absent_modules_report() {
   esac
 }
 
+# GF-39: own documents that call something a planned package no longer has (CE1613 after the update) are a section-3 item BEFORE the
+# sign-off. The update step ran this too late (a field run met 21 CE1613 for a dropped admin-option microflow). Fresh each time.
+own_gone_report() {
+  local pf=(--plan-file "$WORK/plan.txt")
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")
+  [ "$DRY" != 1 ] || { say "+ crosscalls.py $WORK/original.mpr --kept '' --own ${pf[*]} > $WORK/owngone.out"; return 0; }
+  [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
+  local rc=0
+  rm -f "$WORK/owngone.out"
+  xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${pf[@]}" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "crosscalls --own: own modules use $(grep -c '^  GONE' "$WORK/owngone.out" 2> /dev/null || true) target(s) the plan versions drop (section 3 of the proposal), see $WORK/owngone.out" ;;
+    *) note "crosscalls --own exit $rc: own modules NOT checked against the plan versions, see $WORK/owngone.out" ;;
+  esac
+}
+
 step_propose() {
   local rc=0
   absent_modules_report
+  own_gone_report
   # a run whose triage predates the report
   [ -s "$WORK/dojo-react.md" ] || dojo_report
   [ -s "$WORK/replacements.md" ] || replacement_report
