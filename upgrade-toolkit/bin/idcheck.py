@@ -14,7 +14,7 @@ Inputs (old and new, any mix):
 Usage:
   idcheck.py OLD NEW [--json out.json] [--md out.md] [--red-only]
              [--approved approved.txt] [--baseline ORIGINAL]
-  idcheck.py APP --xmod                 list cross-module associations per TARGET module (update those targets last)
+  idcheck.py APP --xmod                 list cross-module associations per TARGET module (update those targets last, unless an owner is on the plan too: then before the owner)
 Exit: 0 = no open data-bearing finding, 1 = open data-bearing findings (RED), 2 = input error.
 
 Step mode (one module update at a time): OLD = the previous commit (git show HEAD:app.mpr > prev.mpr), NEW = the
@@ -330,7 +330,7 @@ def xmod(model):
                 by_target.setdefault(end.split(".")[0], []).append((qn, end, a["persistent"]))
     lines = ["# cross-module associations by target module",
              "A headless update of a TARGET module can drop these (seen: MxModelReflection 8.0.2 -> 8.0.4 removed 27).",
-             "Update target modules last, one per commit, with a step idcheck.", ""]
+             "Update target modules last, one per commit, with a step idcheck; but before an owner of these associations that is on the plan too (planorder.py --write).", ""]
     for t in sorted(by_target, key=lambda t: (-len(by_target[t]), t)):
         rows = sorted(set(by_target[t]))
         lines.append(f"{t}: {len(rows)} associations ({sum(1 for r in rows if r[2])} data-bearing)")
