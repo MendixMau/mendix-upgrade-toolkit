@@ -1240,7 +1240,7 @@ eval "\$(sed -n '/^widget_routes_ok() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)"
 try_fix() { local s=\$1; shift 3; "\$@" > /dev/null && SUBJ="repair: \$s" && echo "commit: repair: \$s"; }
 git_app() { case "\$*" in "log -1 --format=%s") echo "\$SUBJ" ;; "log --format=%H %s") printf 'h2 repair: unused sample module removed (widgetroute)\nh1 repair: deprecated widgets replaced (widgetroute)\n' ;; revert*) echo "git revert \$3" >> \$WORK/reverts ;; esac; }
 commit_app() { echo "commit: \$1"; }
-heavy() { echo "heavy \$*"; }; mxcli_run() { echo "mxcli \$1 <\$(cat "\$2")>" >&2; }
+heavy() { echo "heavy \$*"; }; update_widgets() { heavy update-widgets "\$TARGET" mx update-widgets "\$MPR"; }; mxcli_run() { echo "mxcli \$1 <\$(cat "\$2")>" >&2; }
 xo() { local o=\$1; shift; "\$@" > "\$o" 2>&1; }; note() { echo "note: \$*"; }; nj_file() { echo "nj_file \$*"; }
 nj_sections() { sed "s/^## \(.*\)\$/## \1 (exit \$1)/" "\$2"; }; nj_park() { echo "-- park"; }
 DRY=0; B=$B; APP=$WR/p/app; MPR=$WR/p/app/App.mpr; TARGET=11.12.7; WORK=$WR/p/w; LOG=$WR/p/w/log
