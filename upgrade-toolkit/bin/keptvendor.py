@@ -125,8 +125,10 @@ def main():
     for w in words(a.plan_file):
         if len(w) >= 3:
             plan[w[2]] = (w[0], w[1])
+    ownset = set()
     if a.own:   # GF-56: the app's own styling is never refused by an update, so it is not on kept.txt, yet it @uses the same packages
-        kept += [m for m in tc.classify(app, (), ())[1] if m not in plan] + (["theme"] if os.path.isdir(os.path.join(app, "theme")) else [])  # a planned package is the target, never own
+        ownset = {m for m in tc.classify(app, (), ())[1] if m not in plan} | ({"theme"} if os.path.isdir(os.path.join(app, "theme")) else set())  # a planned package is the target, never own
+        kept += sorted(ownset)
     kept = list(dict.fromkeys(kept))
     ts = os.path.join(app, "themesource")
     mods = {d: os.path.join(ts, d) for d in sorted(os.listdir(ts)) if os.path.isdir(os.path.join(ts, d))} if os.path.isdir(ts) else {}
@@ -144,8 +146,8 @@ def main():
     base = {"variable": set(), "mixin": set()}
     oldp = {m: {"variable": {}, "mixin": {}} for m in planned}
     for m in list(mods) + (["theme"] if os.path.isdir(os.path.join(app, "theme")) else []):
-        if m in kept:
-            continue
+        # every module that is not a planned package defines names that stay (a kept or own module too: GF-56 puts theme/ and own
+        # themesource modules on `kept`, and their definitions must still serve the other modules that use them)
         for p, f in (x for r in roots(m) for x in analysed(r)):
             if m in planned:
                 for x, l in f["var_defs"]:
@@ -197,7 +199,7 @@ def main():
                     um = next((o for o in owners if o in notchecked_why), next(iter(notchecked_why)))
                     unchecked.setdefault(um, []).append(f"{kind} {shown} at {r}:{line}")
                     continue
-                missing.append(dict(kind=kind, name=shown, module=k, where=f"{r}:{line}", old=oldp[m][kind][n], pkg=m, version=plan[m][1]))
+                missing.append(dict(kind=kind, name=shown, module=k, own=k in ownset, where=f"{r}:{line}", old=oldp[m][kind][n], pkg=m, version=plan[m][1]))
             for target, line in import_targets(tc.read(p)):
                 base_dir = os.path.dirname(p)
                 full = os.path.normpath(os.path.join(base_dir, target))
@@ -213,7 +215,7 @@ def main():
                 judged += 1
                 if m in tgt:
                     if not any(c in tgt[m][1] for c in candidates(sub)):
-                        missing.append(dict(kind="import", name=target, module=k, where=f"{r}:{line}", old=f"themesource/{m}/{sub}", pkg=m, version=plan[m][1]))
+                        missing.append(dict(kind="import", name=target, module=k, own=k in ownset, where=f"{r}:{line}", old=f"themesource/{m}/{sub}", pkg=m, version=plan[m][1]))
                 else:
                     unchecked.setdefault(m, []).append(f"import {target} at {r}:{line}")
     for x in missing:

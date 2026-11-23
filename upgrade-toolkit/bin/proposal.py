@@ -334,30 +334,33 @@ class Facts:
         if t is None:
             return
         self.measured.append("owngone.out")
-        cur, by = None, {}
+        cur, by, cnt = None, {}, {}
         for ln in t.splitlines():
             m = re.match(r"OWN (\S+) (\S*) -> (\S+): (\d+) target", ln)
-            g = re.match(r"\s+GONE (\S+) (\S+) \(used by own (.+)\)", ln)
+            g = re.match(r"\s+GONE (.+?) (\S+) \(used by own (.+)\)", ln)
             n = re.match(r"NOTE (\S+) (\S*) -> (\S+): .*NOT checked", ln)
             if m:
-                cur = (m.group(1), m.group(2), m.group(3)); by[cur] = []
+                cur = (m.group(1), m.group(2), m.group(3)); by[cur] = []; cnt[cur] = int(m.group(4))
             elif g and cur:
                 by[cur].append((g.group(1), g.group(2), g.group(3)))
             elif n:
                 self.not_measured.append((f"crosscalls.py --own {n.group(1)} {n.group(3)}", "the plan version's package is not in the cache: own use of dropped targets not checked"))
         for (pm, inst, pv), gone in sorted(by.items()):
-            ex = "; ".join(f"{k} {tgt} used by own {src}" for k, tgt, src in gone[:4]) + (f"; and {len(gone) - 4} more" if len(gone) > 4 else "")
+            total = max(cnt.get((pm, inst, pv), 0), len(gone))   # the OWN header line states the count; rows are only the examples
+            ex = "; ".join(f"{k} {tgt} used by own {src}" for k, tgt, src in gone[:4]) + (f"; and {total - min(len(gone), 4)} more" if total > min(len(gone), 4) else "")
             self.add3("module", f"own documents use targets {pm} {pv} drops",
-                      f"{pm} {inst or '?'} -> {pv}: {len(gone)} target(s) the app's own modules use are gone from the {pv} package: {ex}",
+                      f"{pm} {inst or '?'} -> {pv}: {total} target(s) the app's own modules use are gone from the {pv} package: {ex}",
                       f"change the own documents to the replacement the {pm} release notes name before the update | hold {pm} at {inst or 'its installed version'} | hand to a named person",
                       f"change the own documents to the replacement the {pm} release notes name before the update, or hold {pm}",
-                      "S", f"each is CE1613 at the build ({len(gone)} target(s)); mx check on the old model does not see it")
+                      "S", f"each is CE1613 at the build ({total} target(s)); mx check on the old model does not see it")
 
-    def keptvend(self):
+    def keptvend(self, only=None):
         """GM-15: a kept module's themesource uses a mixin, variable or file that a planned package no longer has (the theme compile
         fails after the update). keptvendor.json is optional (written once .stepupdate/kept.txt exists; an older run has none). One
         section-3 item per planned package with MISSING uses; a package whose target could not be read is listed as not measured,
-        never as clean. These items are not in the plan hash (see main): the file appears after the update step, like kept.txt."""
+        never as clean. GF-56: a MISSING use in the app's OWN styling (theme/, own themesource; `own` in the json) is measured at triage, before
+        the sign-off, so it is its own item and IS in the plan hash (main takes it through only="own"); a kept module's use is not: the file
+        gets those after the update step, like kept.txt."""
         t = read(self.p("keptvendor.json"))
         if t is None:
             return
@@ -366,22 +369,27 @@ class Facts:
             missing, unchecked = d.get("missing") or [], d.get("not_checked") or {}
             by = {}
             for x in missing:
-                by.setdefault((x["pkg"], x.get("version") or "?"), []).append(x)
+                by.setdefault((bool(x.get("own")), x["pkg"], x.get("version") or "?"), []).append(x)
             unchecked = {str(m): (v.get("why") or "package not read", v.get("uses") or []) for m, v in unchecked.items()}
         except (ValueError, AttributeError, KeyError, TypeError):
             self.not_measured.append(("keptvendor.json", "not valid JSON; kept themesource uses of planned packages were not checked"))
             return
         self.measured.append("keptvendor.json")
         self.kv_seen = True
-        for (pkg, ver), xs in sorted(by.items()):
+        for (isown, pkg, ver), xs in sorted(by.items()):
+            if only == "own" and not isown:
+                continue
+            who = "the app's own styling" if isown else "a kept themesource"
             what = "; ".join(f"{x.get('kind')} {x.get('name')} used in {x.get('where')} (module {x.get('module')})" for x in xs[:6]) \
                 + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
-            self.add3("theme", f"kept styling uses what {pkg} {ver} removes",
-                      f"keptvendor.json: {len(xs)} use(s) in a kept themesource that {pkg} {ver} no longer has: {what}",
-                      f"fix the kept SCSS (use what {pkg} {ver} offers instead) | hold {pkg}: the package stays at its installed version | hand to a named person",
-                      "fix the kept SCSS (the build fails at the theme compile otherwise)",
-                      "M", f"the theme compile fails at the build for every kept use listed ({len(xs)}), and the update step does not edit a kept module")
-            self.items3[-1]["own"] = True   # its options are fixed here: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+            self.add3("theme", f"{'own' if isown else 'kept'} styling uses what {pkg} {ver} removes",
+                      f"keptvendor.json: {len(xs)} use(s) in {who} that {pkg} {ver} no longer has: {what}",
+                      f"fix the {'own' if isown else 'kept'} SCSS (use what {pkg} {ver} offers instead) | hold {pkg}: the package stays at its installed version | hand to a named person",
+                      f"fix the {'own' if isown else 'kept'} SCSS (the build fails at the theme compile otherwise)",
+                      "M", f"the theme compile fails at the build for every use listed ({len(xs)}), and the update step does not edit {'the app' + chr(39) + 's own styling' if isown else 'a kept module'}")
+            self.items3[-1]["fixed"] = True
+            if not isown:
+                self.items3[-1]["own"] = True   # late (written after the sign-off); its options are fixed (see "fixed")
         for m, (why, uses) in sorted(unchecked.items()):
             self.not_measured.append((f"keptvendor.py {m}", f"{why}; {len(uses)} kept use(s) it defines are unverified"))
 
@@ -413,7 +421,8 @@ class Facts:
                       "look at a page with each of these widgets after the update and restyle the kept SCSS if it broke | accept the risk | hand to a named person",
                       "look at a page with each widget after the update (the screens rung names this cause)",
                       "S", f"a widget major can change the markup these selectors target; the layout may break with no build error ({len(xs)} selector(s) in {m})")
-            self.items3[-1]["own"] = True   # its options are fixed here: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+            self.items3[-1]["own"] = True   # late (after the sign-off); fixed options: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+            self.items3[-1]["fixed"] = True
 
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
@@ -596,9 +605,9 @@ class Facts:
                   "(release notes 10.24.0 and 11.0.0). QUESTION: which databases do the app's environments (test, acceptance, "
                   "production) run on, and who can read them? WHAT TO LOOK FOR: file document rows of those entities whose file is "
                   "still stored the pre-5.12 way; on 10.24 or later the runtime writes a warning at start when any exist, so a copy "
-                  "of each environment's database started on 10.24 shows it in the log. A read-only count that "
-                  "a GF field run checked on a copy of a real Postgres database (GF-49): select count(*) from \"system$filedocument\" where "
-                  "__uuid__ is null; it counts the rows 11 refuses (hascontents false, no uuid), and a copy with a uuid set on those rows got "
+                  "of each environment's database started on 10.24 shows it in the log. A read-only count in Postgres syntax that "
+                  "a GF field run checked on a copy of a real database (GF-49): select count(*) from \"system$filedocument\" where "
+                  "__uuid__ is null; it counts the file document rows with no uuid (it does not filter hascontents), the rows 11 refuses, and a copy with a uuid set on those rows got "
                   "past the check. Run it on each environment's database; a count above 0 is a go-live item for that environment",
                   "the app's data was first created on Mendix 5.12 or later: no such file can exist; the convert goes ahead | "
                   "I checked each environment's database: none holds pre-5.12 file documents; the convert goes ahead | "
@@ -672,7 +681,7 @@ class Facts:
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
         ra = load_ra(getattr(self.a, "ra_file", None))
         for it in self.items3:
-            for e in [] if it.get("own") else ra:
+            for e in [] if it.get("fixed") else ra:
                 if e["rx"].search(f"{it['kind']} {it['name']} {it['evidence']}"):
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
@@ -1086,6 +1095,8 @@ def main():
     ids_for(F.items3, a.work)
     reanswer(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
+    # keptvendor.json: the items about the app's OWN styling (GF-56) exist at triage, before the sign-off, so they are in the hash; a
+    # kept module's items (written after the update step) are not. keptstyle.json is not in it either.
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
     # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
@@ -1094,7 +1105,7 @@ def main():
     if F.kept or F.kv_seen or F.ks_seen:
         H = Facts(a)
         H.keptmods = lambda: None
-        H.keptvend = lambda: None   # GM-15: keptvendor.json, like kept.txt, is written by the update step after the sign-off
+        H.keptvend = lambda: Facts.keptvend(H, only="own")   # GM-15: a kept module's rows of keptvendor.json, like kept.txt, come after the sign-off; GF-56: own-styling rows do not
         H.keptstyle = lambda: None  # MC-11: keptstyle.json likewise
         H.build()
     ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \

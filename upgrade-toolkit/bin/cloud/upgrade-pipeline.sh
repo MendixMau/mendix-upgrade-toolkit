@@ -1109,7 +1109,7 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
   # kept_vendor_check triage|update. keptvendor.py exit: 0 judged and none missing, 1 MISSING, 3 NOT CHECKED (package not cached or
   # unreadable: never clean), 2 input error. The kept list is .stepupdate/kept.txt, written by the update step: a first triage has none,
   # so it says "not measured" (never "clean") and the update step runs this again once the list exists. Only a triage MISSING stops (nj
-  # item, code 13); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
+  # item, code 13; GF-56: own styling items are also in the proposal hash, see proposal.py main); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
   local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" pf="$WORK/keptvendor-plan.txt"
   if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --own --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
   # GF-56: the app's own styling is read too (--own), so a first triage with no kept.txt still measures it before the sign-off
@@ -1121,9 +1121,9 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
   xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" "${kopt[@]}" --own --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
   case "$rc" in
     0) ;;
-    1) note "keptvendor MISSING (exit 1): a kept themesource uses a mixin, variable or file a planned package removed; fix the kept SCSS or hold the package, see $WORK/keptvendor.out"
+    1) note "keptvendor MISSING (exit 1): a kept or own themesource (theme/ included) uses a mixin, variable or file a planned package removed; fix that SCSS or hold the package, see $WORK/keptvendor.out"
        if [ "$mode" = triage ]; then
-         nj_meta info; nj_file 13 "A kept module's styling uses something a planned package removes (GM-15: the theme compile would fail; fix the kept SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
+         nj_meta info; nj_file 13 "A kept or own module's styling uses something a planned package removes (GM-15, GF-56: the theme compile would fail; fix that SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
        fi ;;
     3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
     *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;
@@ -1460,8 +1460,9 @@ absent_modules_report() {
 # GF-39: own documents that call something a planned package no longer has (CE1613 after the update) are a section-3 item BEFORE the
 # sign-off. The update step ran this too late (a field run met 21 CE1613 for a dropped admin-option microflow). Fresh each time.
 own_gone_report() {
-  local pf=(--plan-file "$WORK/plan.txt")
-  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")
+  local pf=()
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+  pf+=(--plan-file "$WORK/plan.txt")
   [ "$DRY" != 1 ] || { say "+ crosscalls.py $WORK/original.mpr --kept '' --own ${pf[*]} > $WORK/owngone.out"; return 0; }
   [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
   local rc=0
@@ -1786,15 +1787,20 @@ step_update() {
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
   # Administration 4.5.0 has no UserRole_Select or RetrieveTimeZones, two own employee pages used them)
   if [ "$DRY" != 1 ]; then
-    local orc=0
-    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt" || orc=$?
+    local orc=0 opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}" || orc=$?
     if grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
       note "own modules use $(grep -c '^  GONE' "$WORK/owngone.out") target(s) the plan versions drop: CE1613 after the update, see $WORK/owngone.out (steps/repair.md row 28)"
     elif [ "$orc" = 2 ]; then
       note "crosscalls --own exit 2: own modules not checked against the plan versions, see $WORK/owngone.out"
     fi
   else
-    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt"
+    local opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}"
   fi
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
