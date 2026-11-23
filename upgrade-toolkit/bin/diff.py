@@ -406,26 +406,32 @@ def main():
             # a db.entity row (rows 10 -> 8) is noise only if no attribute or association of that entity stayed FAIL / REVIEW. The
             # snapshot has no per-row fingerprint of an entity (ids are model ids, not row ids), so this is all it can check:
             # an entity whose lost rows carry no non-null attribute and no association can still read as start noise.
-            # which entities a still-failing association row can be pinned on: its name must split EXACTLY as <Entity>_<Entity> of
-            # its module (entity names from either snapshot). A custom name (CustomerOrders) or an underscore entity name that
-            # splits no way is unattributable: it blocks EVERY entity row of its module, because noise cannot be ruled out.
+            # which entities a still-failing association row can be pinned on: its name must split as <Entity>_<Entity> with at
+            # least one side an entity of its OWNER module and the other side an entity of ANY module (an association can cross
+            # modules: Sales.Order_Account, Account in Administration). Every entity with either local name is blocked, in every
+            # module. A custom name (CustomerOrders) or an underscore name that splits no way is unattributable: it blocks EVERY
+            # entity row of its module AND every entity whose local name is one side of any `_` split, in any module.
             names = set((B.get("db") or {}).get("entities") or ()) | set((A.get("db") or {}).get("entities") or ())
-            mods = {}
+            mods, local = {}, set()
             for n in names:
-                if "." in n: mods.setdefault(n.split(".", 1)[0], set()).add(n.split(".", 1)[1])
-            blocked, blocked_mod = set(), set()
+                if "." in n:
+                    m, _, ln = n.partition("."); mods.setdefault(m, set()).add(ln); local.add(ln)
+            blocked_names, blocked_mod = set(), set()
             for v2, c2, _ in rows:
                 if v2 not in ("FAIL", "REVIEW") or not c2.startswith("db.assoc."): continue
                 mod, _, an = c2[len("db.assoc."):].partition(".")
-                ents = mods.get(mod, set()); pair = set()
+                ents = mods.get(mod, set()); pair, loose = set(), set()
                 for k, ch in enumerate(an):
-                    if ch == "_" and an[:k] in ents and an[k + 1:] in ents: pair |= {f"{mod}.{an[:k]}", f"{mod}.{an[k + 1:]}"}
-                if pair: blocked |= pair
-                else: blocked_mod.add(mod)
+                    if ch != "_" or not an[:k] or not an[k + 1:]: continue
+                    l, r = an[:k], an[k + 1:]
+                    loose |= {l, r}
+                    if (l in ents or r in ents) and l in local and r in local: pair |= {l, r}
+                if pair: blocked_names |= pair
+                else: blocked_mod.add(mod); blocked_names |= loose
             for i in ent:
                 v, c, d = rows[i]
                 en = c[len("db.entity."):]
-                if en.split(".", 1)[0] in blocked_mod or en in blocked or any(
+                if en.split(".", 1)[0] in blocked_mod or en.split(".", 1)[1] in blocked_names or any(
                         v2 in ("FAIL", "REVIEW") and c2.startswith(f"db.attr.{en}.") for v2, c2, _ in rows):
                     rows[i] = (v, c, f"{d} (also differs between two old starts, but an attribute or association of this entity still fails)"); continue
                 rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1

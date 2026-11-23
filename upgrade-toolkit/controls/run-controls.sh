@@ -10306,6 +10306,19 @@ mkassoc as1 Shop.CustomerOrders; mkassoc as2 Shop.Sales_Item_Order; mkassoc as3 
 ctl gf51-start-noise-entity-custom-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.CustomerOrders' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/as1-b.json $T/as1-a.json --restart $T/as1-r.json
 ctl gf51-start-noise-entity-underscore-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.Sales_Item_Order' 'FAIL \| db\.entity\.Shop\.Sales_Item \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as2-b.json $T/as2-a.json --restart $T/as2-r.json
 ctl gf51-start-noise-entity-attributable-assoc-pass 1 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Sales_Item' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as3-b.json $T/as3-a.json --restart $T/as3-r.json
+# an association can cross modules: Sales.Order_Account is owned by Sales but Account lives in Administration. Splitting only within Sales
+# found nothing and blocked Sales alone, so Administration.Account read START-NOISE although its association still FAILs
+python3 -c "
+import json,sys
+sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
+for d in (sb,sa):
+    for e in ('Sales.Order','Sales.Product','Administration.Account'): d['db']['entities'][e]=3
+    d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+for e in ('Sales.Order','Sales.Product','Administration.Account'): sa['db']['entities'][e]=2
+sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
+sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/xm1 Sales.Order_Account; touch -t 200001010000 $T/xm1-b.json; touch $T/xm1-r.json
+ctl gf51-start-noise-entity-cross-module-assoc-catch 1 'FAIL \| db\.assoc\.Sales\.Order_Account' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' -- python3 $B/diff.py $T/xm1-b.json $T/xm1-a.json --restart $T/xm1-r.json
 # a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
 GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
 ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }
