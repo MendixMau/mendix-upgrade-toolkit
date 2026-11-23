@@ -14,7 +14,7 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
   absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
   owngone.out                                                       crosscalls.py --own: own documents that use targets a planned package drops (GF-39; optional, an older run has none)
-  keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional, written once kept.txt exists)
+  keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional; rows for the app's own styling exist at triage, GF-56, rows for a kept module once kept.txt exists)
   keptstyle.json                                                    keptstyle.py --json: platform widget selectors in a kept themesource (MC-11; optional, written once kept.txt exists)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
   actions.json                                                      action_inventory.py summary (action count)
@@ -356,7 +356,7 @@ class Facts:
 
     def keptvend(self, only=None):
         """GM-15: a kept module's themesource uses a mixin, variable or file that a planned package no longer has (the theme compile
-        fails after the update). keptvendor.json is optional (written once .stepupdate/kept.txt exists; an older run has none). One
+        fails after the update). keptvendor.json is optional (the pipeline writes it at triage for the app's own styling, GF-56, and again after the update step for kept modules once .stepupdate/kept.txt exists; an older run has none). One
         section-3 item per planned package with MISSING uses; a package whose target could not be read is listed as not measured,
         never as clean. GF-56: a MISSING use in the app's OWN styling (theme/, own themesource; `own` in the json) is measured at triage, before
         the sign-off, so it is its own item and IS in the plan hash (main takes it through only="own"); a kept module's use is not: the file
@@ -397,7 +397,7 @@ class Facts:
         """MC-11: a kept module's themesource targets a platform widget selector (.widget-datagrid ...); after a widget major the
         markup changes and the kept SCSS can break the layout, which only a screenshot shows. keptstyle.json is optional (written once
         .stepupdate/kept.txt exists; an older run has none): a list of {module, file, line, selector, cls} rows, [] when clean. One
-        section-3 item per kept module with hits. A visual risk, not a stop. Not in the plan hash (see main), like keptvendor.json."""
+        section-3 item per kept module with hits. A visual risk, not a stop. Not in the plan hash (see main); keptvendor.json is only half in it: its own-styling rows are."""
         t = read(self.p("keptstyle.json"))
         if t is None:
             return

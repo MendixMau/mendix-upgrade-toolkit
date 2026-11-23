@@ -4815,10 +4815,17 @@ ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept t
 ctl gm15-wire-no-kept-list-own-styling-measured-catch 0 '^argv: .*/app --kept  --own --plan-file .*/w/keptvendor-plan\.txt --json ' '!NOTE' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
 ctl gm15-wire-no-plan-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*plan\.txt' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun noplan triage"
 ctl gm15-wire-no-kept-list-update-own-pass 0 '!NOTE' '^argv: .*--kept  --own ' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
-ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
-# GM-15 review nit (#144): a plan.txt without a final newline must not fuse its last line with the first of plan-pre.txt
-gk prenonl 0 kept pre; printf '9001 45.0.0 PlatformDesignSystem' > $GK/prenonl/w/plan.txt
-ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
+# GM-15 review nit (#144): a plan-pre.txt without a final newline must not fuse its last line with the first of plan.txt
+gk prenonl 0 kept pre; printf '9002 2.0.0 AtlasLite' > $GK/prenonl/w/plan-pre.txt
+ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+# GF-56 review: the SAME module in both plans (an older version in plan-pre.txt, the final one in plan.txt) is judged against plan.txt's
+# package, because keptvendor.py keeps the last version it reads. Real function, real keptvendor.py, real packages: the older package
+# keeps the names, the newer one drops them; plan-pre.txt listed after plan.txt used to give a false clean.
+mkdir -p $KVC/both; cp $KVC/old/9001-45.0.0.mpk $KVC/both/9001-44.0.0.mpk; cp $KVC/new/9001-45.0.0.mpk $KVC/both/9001-45.0.0.mpk
+gk samemod 0 nokept pre; printf '9001 44.0.0 PlatformDesignSystem\n' > $GK/samemod/w/plan-pre.txt; rm -rf $GK/samemod/app; cp -R $KV/app $GK/samemod/app
+gkreal() { local d=$GK/$1; (B="$B" UPG_CACHE="$KVC/both" WORK="$d/w" APP="$d/app" DRY=0 MODE=triage bash $GK/fn.sh) 2>&1; echo "out: $(grep -c '^MISSING' "$d/w/keptvendor.out" 2> /dev/null)"; }
+ctl gf56-plan-pre-older-same-module-still-missing-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: ' '^out: [1-9]' -- bash -c "$(declare -f gkreal); GK=$GK; B=$B; KVC=$KVC; gkreal samemod"
 ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
 # MC-11 wiring: kept_style_check (the real function) runs keptstyle.py in step_triage and after the update step; RISK reaches the
 # screens rung as a [keptstyle] line in screen-causes.txt, never a stop. Stub keptstyle.py records argv and prints out.txt. Synthetic: no field run.

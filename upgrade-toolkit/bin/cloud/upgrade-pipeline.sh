@@ -1116,8 +1116,10 @@ kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the m
   local kopt=(--kept-file "$kf")
   [ -s "$kf" ] || kopt=(--kept '')
   [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the app's own and kept themesources against"; return 0; }
-  # awk 1 adds the missing final newline of plan.txt: with cat, its last line and the first of plan-pre.txt became one line
-  awk 1 "$WORK/plan.txt" "$WORK/plan-pre.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
+  # awk 1 adds the missing final newline of the first file: with cat, its last line and the first of the next became one line.
+  # plan-pre.txt comes FIRST: keptvendor.py keeps the LAST version of a module, and plan.txt (the final target) must win over the
+  # older pre-convert version of the same module (GF-56 review: Atlas_Core 10 to 11 was judged against the pre-convert package)
+  awk 1 "$WORK/plan-pre.txt" "$WORK/plan.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
   xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" "${kopt[@]}" --own --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
   case "$rc" in
     0) ;;
