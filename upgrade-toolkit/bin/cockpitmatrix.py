@@ -100,6 +100,21 @@ def rungs_cell(g, names, labels=None):
     return cell(s, label, steps, tech)
 
 
+def build_failure(model):
+    """GF-46: the lines that say the build ran and failed, or None. A stop at step build (NEEDS-JUDGMENT.md titles, e.g. "mxbuild failed
+    (exit 3, 32 ERROR at lines)") or a last attempt of step build that failed with no stop file (state/timing.tsv). Without this the page
+    kept saying "The build has not run yet" over a build that had failed. A stop at the build that asks a person (owner: person) is a
+    judgment stop, not a failure: None, so it keeps the "waiting for you" call to action."""
+    s, f = model.get("stopped") or {}, model.get("failed") or {}
+    if s.get("step") == "build" and "person" in (s.get("owners") or []):
+        return None   # a judgment stop at the build (a question for a person), not a failed build: the page says "waiting for you"
+    if s.get("step") == "build":
+        return [t for t in s.get("titles", [])[:3] if t] or [f"The run stopped at the build (exit {s.get('code')})."]
+    if f.get("step") == "build":
+        return [f"Step build failed (exit {f.get('code')}). Read {f.get('log')}."]
+    return None
+
+
 TRIAGE_FILES = ("findings.json", "release-impact.md", "localedits.json", "jarclash.md", "appshape.out")
 PLAN_FILES = ("PROPOSAL.md", "DECISIONS.md", "NEEDS-JUDGMENT.md")
 
@@ -253,8 +268,10 @@ def derive(work, model):
          cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
          else notyet("No plan yet."))
     if done["convert"]:
+        bfail = build_failure(model)
         u = (cell("ok", "Converted, build clean", [f"The model was converted to Mendix {tgt}.", "The build finished with 0 errors."])
              if done["build"] and any(r["rung"] == "build" and r["verdict"].startswith("PASS") for r in g["rungs"])
+             else cell("bad", "Build failed", [f"The model was converted to Mendix {tgt}."] + bfail) if bfail and not any(r["rung"] == "build" for r in g["rungs"])
              else cell("wait", "Converted, build open", [f"The model was converted to Mendix {tgt}.", "The build is not clean yet."]))
         u["tech"] = [f"{h} {s}" for h, s in commit_rows(lambda s: s.startswith("convert"))]
     else:
@@ -263,7 +280,9 @@ def derive(work, model):
         t["d"] = f"{src} → {tgt}"
         p["d"] = p["d"] or "convert, then build"
     rows.append(row("runtime", "Mendix runtime", f"{src} → {tgt}" if src else "", "app",
-                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["build", "data"])},
+                    {"triage": t, "plan": p, "upgrade": u,
+                     "test": (cell("bad", "Build failed", build_failure(model)) if build_failure(model) and not any(r["rung"] == "build" for r in g["rungs"])
+                              else rungs_cell(g, ["build", "data"]))},
                     story={"found": [f"The app runs on Mendix {src}; the target is Mendix {tgt}."] if src else [],
                            "means": ["The whole app model is converted to the new version. Pages, microflows and Java code must still build after that."],
                            "plan": ["Convert the model with the new Studio Pro, then build it. Every repair after the build is its own Git commit."]}))
@@ -1458,7 +1477,11 @@ def band(model, rows, chips, g, tl, kpi=None):
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
         st, head, sub = "neutral", (f"Upgrade to Mendix {tgt} in progress" if tgt else "Upgrade in progress"), "The build has not run yet."
-    if model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
+    bfail = build_failure(model)
+    if bfail and not b and st != "ok":   # GF-46: the build ran and failed; "has not run yet" is wrong. Say failed, with the stop's first lines
+        st, head = "bad", "The build failed"
+        sub = " ".join(x.rstrip(".") + "." for x in bfail[:2]) + (" Details: NEEDS-JUDGMENT.md in the work folder." if model.get("stopped") else "")
+    elif model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
         s = model["stopped"]
         st, head = "bad", f"Stopped at {s['step']}, waiting for you"
         n = len(open_questions(model)) or len(s["titles"])   # the cards in Blocked on you, not the stop file's older list

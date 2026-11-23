@@ -1040,6 +1040,11 @@ close_proved_rows() {
 # Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) is picked by bin/modplan.py, run by the agent after review: exit 13 when absent.
 step_triage() {
   local rc
+  # GF-15: a rerun appended to state/notes.txt, so the first attempt's "no module-jumps.txt" read as current. This run's triage
+  # notes replace the earlier attempt's (other steps' notes stay).
+  if [ "$DRY" != 1 ] && [ -f "$WORK/state/notes.txt" ]; then
+    grep -v '^triage: ' "$WORK/state/notes.txt" > "$WORK/state/notes.txt.new" || true; mv "$WORK/state/notes.txt.new" "$WORK/state/notes.txt"
+  fi
   if [ "$DRY" = 1 ]; then say "+ mxversion.py app + toolsets > $WORK/versions.txt"; else
     { printf 'app: %s\n' "$(project_version "$MPR")"; printf 'toolset %s: %s\n' "$SOURCE" "$(project_version "$UPG_TOOLS/mxbuild-$SOURCE")"
       printf 'toolset %s: %s\n' "$TARGET" "$(project_version "$UPG_TOOLS/mxbuild-$TARGET")"; } > "$WORK/versions.txt"
@@ -1135,7 +1140,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
 The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
 \`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (\`--cid Module=ID\` or \`--proxy Module=VER\` arguments; each line is split into words, so \`--cid Module=ID\` on one line works), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
-    nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
+    nj_meta info; nj_file 13 "cross-module association targets (last, unless an owner is on the plan too: then before the owner, planorder.py --write)" "$WORK/xmod.txt" 20
     nj_flush
   fi
   kept_java_check
@@ -2607,6 +2612,13 @@ step_diff() {
     [ ! -f "$WORK/effect-accept.txt" ] || kv+=("JOURNEY_EFFECT_ACCEPT=$WORK/effect-accept.txt")   # the journeys rung's effect REVIEWs had no written-accept path
     only="$only,journeys"
   fi
+  # GF-52: a rerun of the diff step alone (--only diff) selects the rungs the gate itself lists, not just the ones whose stored
+  # inputs happen to be here: release and journeys read "not selected (--only ...)" otherwise, which says nothing about what is missing.
+  # Selected, an unconfigured rung says "not configured (no RELEASE_IMPACT given)"; that row is named in the notes, not a stop (unsel).
+  local unsel=""
+  if [ -n "${ONLY:-}" ]; then
+    local ur; for ur in release journeys; do case ",$only," in *",$ur,"*) ;; *) only="$only,$ur"; unsel="$unsel $ur";; esac; done
+  fi
   # PRC-4: the change ledger (gate.sh `Changes:` line) reads the app's git repo; the app is not always under $WORK/app
   # (Purchase Request run 4: the line never printed). Only a repo is named, like gate.sh's own $WORK/app default.
   [ ! -e "${APP:-/nonexistent}/.git" ] || kv+=("APP_REPO=$APP")
@@ -2617,6 +2629,7 @@ step_diff() {
   [ "$DRY" != 1 ] || return 0
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
   local ob=${only//,release/}   # release is judged and stopped at step gate (release_impact.py --check), not here
+  local ur; for ur in $unsel; do ob=${ob//,$ur/}; done   # GF-52: a rung selected only to be named is not a stop here
   bad=$(grep -E "^\| [0-9]+ \| (${ob//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
     gate_open_nj_meta $(sed -n 's/.* \([0-9][0-9]*\) with REGRESSIONS to fix, \([0-9][0-9]*\) need a decision, \([0-9][0-9]*\) not measured yet.*/\1 \2 \3/p' "$WORK/gate-summary.md" 2> /dev/null | head -1); nj_file 12 "$GATE_OPEN_TITLE" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
