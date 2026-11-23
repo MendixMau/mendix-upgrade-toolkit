@@ -752,6 +752,15 @@ write_original() { # write_original REV
   [ ! -d "$tmp/mprcontents" ] || mv "$tmp/mprcontents" "$WORK/mprcontents"
   mv -f "$tmp/$base" "$WORK/original.mpr"; rm -rf "$tmp"
 }
+# GF-9: .git is a FILE in a git worktree, so `[ -d .git ]` was false there and the pipeline ran git init. The app has its own git when
+# its repo's top level is the app folder itself (a plain subfolder of a bigger repo still gets its own, as before).
+app_has_own_git() {
+  local top; top=$(git -C "$APP" rev-parse --show-toplevel 2> /dev/null) || return 1
+  [ "$(cd "$top" && pwd -P)" = "$(cd "$APP" && pwd -P)" ]
+}
+# GF-28 / GF-33: "original" is the newest commit the pipeline itself made with subject `original` or `original: ...`, never the repo's
+# first commit (an app with history: that is years old). Prints nothing when there is none.
+original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} !f && ($0 == "original" || $0 ~ /^original: /) {f=1; r=h} END {if (f) print r}'; }   # reads the whole log: an early exit would SIGPIPE git under pipefail
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -941,12 +950,13 @@ step_fetch() {
   fi
   [ "$DRY" = 1 ] || printf '%s\n' "$APP" > "$WORK/state/app-dir"
   resolve_app
-  if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
+  if [ "$DRY" != 1 ] && ! app_has_own_git; then
     must git -C "$APP" init -q
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
+    mkdir -p "$WORK/state"; git_app rev-parse HEAD > "$WORK/state/original-rev" 2> /dev/null || rm -f "$WORK/state/original-rev"   # a fresh repo: an older run's hash must not survive
   elif [ "$DRY" != 1 ]; then
     local gi_before; gi_before=$(git_app status --porcelain -- .gitignore)   # FR-1: the person's own .gitignore change, if any, is seen BEFORE we touch it
     ensure_gitignore
@@ -961,10 +971,22 @@ step_fetch() {
     fi
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
+    # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
+    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark). The hash goes to
+    # $WORK/state/original-rev: a rerun of this run reuses it, a fresh run makes its own marker and never an older pushed one.
+    if [ -z "$OLD_MDA" ]; then
+      mkdir -p "$WORK/state"
+      orig_rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true)
+      if [ -z "$orig_rev" ] || ! git_app cat-file -e "$orig_rev^{commit}" 2> /dev/null; then
+        git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+        orig_rev=$(git_app rev-parse HEAD 2> /dev/null || true)
+        [ -z "$orig_rev" ] || { printf '%s\n' "$orig_rev" > "$WORK/state/original-rev"; note "ASSUMED: added an empty 'original' commit to the app's branch to mark the run start (original.mpr is read from it); drop it with git rebase/reset when the branch is not meant to carry it"; }
+      fi
+    fi
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(git_app rev-list --max-parents=0 HEAD | tail -n 1); fi
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); { [ -n "$rev" ] && git_app cat-file -e "$rev^{commit}" 2> /dev/null; } || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
     write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
