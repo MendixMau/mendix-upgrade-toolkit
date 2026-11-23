@@ -32,6 +32,11 @@ case "$mod" in
     banner; echo "mx module-import failed: exit status 117"
     echo "The package could not be imported, because it was created with version 9.3.0 of Mendix Studio Pro. Please open it in any version in the range from 9.18.0 to 9.24.99 first."
     exit 1;;
+  Old11NfBase*)  # GF-29: the INSTALLED package is refused (made before 10.21); the --no-baseline retry fails for ANOTHER reason (not found)
+    banner; echo "mx module-import failed: exit status 117"
+    if [[ "$args" == *" --no-baseline "* ]]; then echo "module $mod not found"; exit 1; fi
+    echo "The package could not be imported, because it was created with version 10.5.0 of Mendix Studio Pro. Please open it in any version in the range from 10.21.0 to 10.24.99 first."
+    exit 1;;
   Old11Base*)  # F13: the INSTALLED package (baseline) was made before 10.21; the --no-baseline route imports the target
     [[ "$args" == *" --no-baseline "* ]] && { cp "$src/step1-adds/App.mpr" "$mpr"; exit 0; }
     banner; echo "mx module-import failed: exit status 117"
