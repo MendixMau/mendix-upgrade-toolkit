@@ -7,7 +7,7 @@
 #
 #   stepupdate.sh <app dir> <plan.txt> [--approved approved.txt] [--baseline original.mpr] [--dry-run]
 #                 [--force-ui Mod,Mod] [--port-java Mod,Mod] [--saved-edits DIR] [--from N|Module] [--skip Mod,Mod] [--skip-reason Mod=why] [--unattended] [--no-fallback]
-#                 [--accept-unsaved Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
+#                 [--accept-unsaved Mod,Mod] [--accept-drop Mod,Mod] [--no-convert-made] [--localedits work/localedits.json]
 #
 # plan.txt: one update per line, "<content id> <version> <ModuleName>", # comments allowed. Order matters: put the
 # TARGET modules of cross-module associations last (idcheck.py <app> --xmod lists them); but a target goes BEFORE the
@@ -132,7 +132,7 @@ bin=$(cd "$(dirname "$0")" && pwd)
 # kind of commit, else nothing (STEP-RECORDS-PLAN.md slice 5; bin/changelog.py reads it)
 steptrailer() { local t; t=$(python3 "$bin/steps.py" trailer --kind "$1" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t"; }
 app=$(cd "$1" && pwd); plan=$2; shift 2
-approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; skipr=""; unattended=0; fallback=1; acceptun=","; convmade=1; ledits=""; chkacc=""; apptotal=""
+approved=""; baseline=""; dry=0; portjava=","; forceui=","; saved=""; from=""; skipm=","; skipr=""; unattended=0; fallback=1; acceptun=","; acceptdrop=","; convmade=1; ledits=""; chkacc=""; apptotal=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --approved) approved=$2; shift 2;;
@@ -147,6 +147,7 @@ while [ $# -gt 0 ]; do
     --unattended) unattended=1; shift;;
     --no-fallback) fallback=0; shift;;
     --accept-unsaved) acceptun=",$2,"; shift 2;;
+    --accept-drop) acceptdrop=",$2,"; shift 2;;
     --no-convert-made) convmade=0; shift;;
     --localedits) ledits=$2; shift 2;;
     --check-accepted) chkacc=$2; shift 2;;
@@ -187,6 +188,9 @@ tmpl=${UPG_UPDATE_CMD:-"$(printf %q "$bin/mxcli-container.sh") marketplace updat
 saved=${saved:-$app/.stepupdate/saved-edits}
 mkdir -p "$saved"; saved=$(cd "$saved" && pwd)
 st="$app/.stepupdate"
+# GF-31: .stepupdate/ran.txt names the modules THIS invocation really ran an update for; editroute.py plan holds a module as
+# "kept again for the same reason" only when it ran (a module the pass never reached keeps its stale kept.txt line)
+[ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; }
 jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; roles_run=""; assoc_run=""
 # PV-2: a target of a cross-module association updated AFTER the module that owns it loses the association (the owner's
 # import would have restored it); planorder.py says so before anything runs. A warning, not a stop: the cheap fix after
@@ -304,7 +308,7 @@ while read -r cid ver mod rest; do
   prevp=("$mpr"); [ -n "$(git -C "$app" ls-tree HEAD -- "$mcdir" 2> /dev/null)" ] && prevp+=("$mcdir")
   git -C "$app" archive HEAD -- "${prevp[@]}" | tar -x -C "$st/prevtree" || exit 2
   prevmpr="$st/prevtree/$mpr"
-  fstate=none
+  fstate=none; authored=0; arc=9
   stepcheck_before
   if hasfiles "$mod"; then
     # T5-17: files outside the model, compared with the installed package BEFORE the update, and kept as a snapshot
@@ -324,13 +328,28 @@ while read -r cid ver mod rest; do
         0) fstate=clean-history; echo "   FILES: the package could not be compared; git proves it instead:"; sed 's/^/   /' "$st/step$n-$mod.history";;
         1) fstate=edited; cp "$st/step$n-$mod.history.json" "$st/step$n-$mod.files.json"
            { echo "(by git history, the package could not be compared)"; cat "$st/step$n-$mod.history"; } > "$st/step$n-$mod.files";;
-        *) { echo; cat "$st/step$n-$mod.history"; } >> "$st/step$n-$mod.files";;
+        *) { echo; cat "$st/step$n-$mod.history"; } >> "$st/step$n-$mod.files"
+           # GF-55: neither package nor history could prove the files; git still shows WHO changed them last. A file whose
+           # newest commit is the app's own (not a "step:" commit, not the first commit) is an edit, not "unknown"
+           python3 "$bin/themefiles.py" authored "$app" "$mod" > "$st/step$n-$mod.authored" 2>&1; arc=$?
+           [ $arc = 3 ] && sed 's/^/   /' "$st/step$n-$mod.authored"
+           if [ $arc = 1 ]; then
+             fstate=edited; authored=1; echo "[]" > "$st/step$n-$mod.files.json"
+             { echo "(by git authorship, the package could not be compared)"; cat "$st/step$n-$mod.authored"; } > "$st/step$n-$mod.files"
+           fi;;
       esac
     fi
     python3 "$bin/themefiles.py" snapshot "$app" "$mod" "$st/saved/$mod" > /dev/null
     if [ $fstate = edited ]; then
       grep '^FILES-EDITED ' "$st/step$n-$mod.files" | sed 's/^/   /'
+      jlogic=1; jgone=0
       if grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files"; then
+        read -r jlogic jgone <<< "$(python3 "$bin/themefiles.py" javalogic "$st/step$n-$mod.files.json" 2> /dev/null || echo "1 0")"
+      fi
+      if grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files" && [ "${jlogic:-1}" = 0 ]; then
+        # GF-37: the only Java "edit" is a package file that is gone. A deleted file holds no user code: the update may restore it
+        echo "   $mod: $jgone package Java file(s) are deleted in the app; they hold no user code, so this is a FILES edit the update may restore (not Java logic)"
+      elif grep -q '^FILES-EDITED javasource/' "$st/step$n-$mod.files"; then
         if [ -n "$(echo "$portjava" | grep ",$mod,")" ]; then
           # cold rfq: a kept module's Java no longer compiled on 11 and its newer version had to come in; its one Java edit
           # (a forced Accept header) is ported by hand onto the new code. The snapshot holds no javasource: copy the edited files.
@@ -346,6 +365,12 @@ while read -r cid ver mod rest; do
       fi
       if ! grep '^FILES-EDITED ' "$st/step$n-$mod.files" | grep -qv '^FILES-EDITED javasource/'; then
         :
+      elif [ -z "$(echo "$forceui" | grep ",$mod,")" ] && [ $authored = 1 ]; then
+        # GF-55: git says the team changed these files, but nothing says WHICH lines: forcing would replace them with the package's
+        echo "   $mod has theme/JavaScript files the app's own commits changed (the package could not be compared, so which lines is unknown)."
+        echo "   The update would replace them: keep $mod at the installed version, or take the update by hand from a copy ($st/saved/$mod)."
+        keep "$mod" "own theme/javascript files (git authorship); the update would replace them and the package cannot show what changed" && continue
+        echo "STOP: update of $mod refused: its files are the app's own and cannot be compared ($st/step$n-$mod.files); nothing changed"; exit 2
       elif [ -z "$(echo "$forceui" | grep ",$mod,")" ]; then
         echo "   $mod has local theme/JavaScript file edits (UI edits the update replaces silently): rerun with --force-ui $mod; the files"
         echo "   are saved under $st/saved/$mod, the changed SCSS variables go to theme/web/custom-variables.scss (if it exists)."
@@ -360,6 +385,7 @@ while read -r cid ver mod rest; do
     fi
   fi
   log="$st/step$n-$mod.log"; : > "$log"; nrun=$((nrun + 1))
+  [ "$dry" = 0 ] && echo "$mod" >> "$st/ran.txt"
   runupd update "$cmd"
   nobase=0; conv=0
   if [ $rc != 0 ] && [ $fallback = 1 ] && grep -Eq "$BASELINE_GONE" "$log"; then
@@ -369,16 +395,24 @@ while read -r cid ver mod rest; do
     rec no-baseline.txt "$mod" "$mod $ver $(grep -Eo "$BASELINE_GONE" "$log" | head -1)"
     nobase_run="$nobase_run $mod "   # N1-5: the closing summary lists only the modules of THIS invocation
     revert
+    refused1=$(grep -Eo 'range from (9\.18\.0 to 9\.24\.99|10\.21\.0 to 10\.24\.99)' "$log" | head -1)   # GF-29: what the FIRST attempt (the installed package) was refused for
     runupd --no-baseline "$cmd --no-baseline"
     nobase=1
-    if [ $rc != 0 ] && tail -20 "$log" | grep -q 'range from 9.18.0 to 9.24.99'; then
+    # GF-29: judge the RETRY's own output ($st/attempt.out). $log holds both attempts, so the first attempt's refusal of the
+    # installed package was read as the target's and kept.txt said "3.0.0 target package made before 10.21" when it was not
+    retry=$(tail -20 "$st/attempt.out" 2> /dev/null)
+    if [ $rc != 0 ] && [ -n "$refused1" ] && ! printf '%s\n' "$retry" | grep -q 'range from '; then
+      echo "   NOTE: the INSTALLED $mod package was refused as the local-edit baseline ($refused1); the $ver package was not refused:"
+      echo "   the --no-baseline retry failed for another reason (last lines below), not because of the target's age"
+    fi
+    if [ $rc != 0 ] && printf '%s\n' "$retry" | grep -q 'range from 9.18.0 to 9.24.99'; then
       echo "   SKIP: the $mod $ver package itself was made before Studio Pro 9.18 and cannot be imported here (take a later version)"
       revert; rec kept.txt "$mod" "$mod $ver target package made before 9.18"; nkept=$((nkept + 1)); continue
     fi
     # F13 (Purchase Request 10.24, real run): on 11, mx imports no package made before Studio Pro 10.21. The first
     # refusal is the INSTALLED package (the local-edit baseline: Atlas_Core 4.5.0 needs 11, yet "made with 10.5.0");
     # only a refusal on the --no-baseline retry is the target itself, whose update then belongs before the convert
-    if [ $rc != 0 ] && tail -20 "$log" | grep -q 'range from 10.21.0 to 10.24.99'; then
+    if [ $rc != 0 ] && printf '%s\n' "$retry" | grep -q 'range from 10.21.0 to 10.24.99'; then
       echo "   SKIP: the $mod $ver package itself was made before Studio Pro 10.21 and Mendix 11 cannot import it: on a 10.x"
       echo "   source this update belongs in the pre-convert plan (plan-pre.txt, steps/triage.md), before the convert"
       revert; rec kept.txt "$mod" "$mod $ver target package made before 10.21 (pre-convert plan)"; nkept=$((nkept + 1)); continue
@@ -526,6 +560,32 @@ PY
     elif [ $conv = 0 ]; then
       echo "   saved edits for replay: $saved/$mod ($nsaved files); replay them before the gate"
     fi
+    # GF-48: --force replaces every locally changed element the log lists, saved or not. When the log names elements the
+    # save step could not keep (constants), they are gone: STOP before the commit, whatever else was saved. JAR_DEPENDENCY rows
+    # never count: the log itself says they are "not evidence of an edit" (ASSUMED: only the other element kinds are lost work)
+    nlost=$(python3 - "$log" <<'PY'
+import re, sys
+t = open(sys.argv[1], errors="replace").read()
+m = re.search(r"Proceeding under --force; (\d+) locally changed element\(s\) will be replaced:\n((?:[ \t]+\S.*\n?)*)", t)
+s = re.search(r"Saved (\d+) locally changed element", t)
+if not m:
+    print(0); sys.exit()
+rows = [r.split() for r in m.group(2).splitlines() if r.strip()]
+jar = sum(1 for r in rows if r and r[0] == "JAR_DEPENDENCY")
+print(max(0, int(m.group(1)) - jar - (int(s.group(1)) if s else 0)))
+PY
+)
+    if [ "${nlost:-0}" -gt 0 ] && [ $nobase = 0 ]; then
+      echo "   UNSAVED-FORCED: the forced update of $mod replaced $nlost locally changed element(s) that were saved nowhere (constants), whatever else it saved."
+      echo "   Their values were reset by the update."
+      case "$acceptun" in
+        *",$mod,"*) rec unsaved.txt "$mod" "$mod $ver --force replaced $nlost element(s) it did not save (--accept-unsaved): set them again by hand"
+                    echo "   accepted (--accept-unsaved $mod): committing; listed in .stepupdate/unsaved.txt";;
+        *) keep "$mod" "FORCED-UNSAVED: --force replaced $nlost element(s) and did not save them" && continue
+           echo "STOP: $mod would lose $nlost element(s) unsaved ($log). Keep the module (git checkout -- . && git clean -fd), or note the values"
+           echo "      from the log, rerun with --accept-unsaved $mod and set them again by hand. Nothing committed."; exit 2;;
+      esac
+    fi
     # mxcli v0.28.0 (#1502): associations of other modules are saved beside the entity files, one per association
     nas=$(find "$saved/$mod" -maxdepth 1 -type f -name 'association-*.mdl' 2>/dev/null | wc -l | tr -d ' ')
     if [ "${nas:-0}" -gt 0 ]; then
@@ -556,6 +616,21 @@ PY
         if [ $orc = 1 ]; then
           echo "$ov" | sed 's/^/   /'
           echo "   FILES-UNKNOWN: the update replaced $nov file(s) of $mod and the installed package could not prove they were unedited"
+          # GF-55: a big drop in the file count (35 -> 4) is a lost folder, not a package refresh: it is an edit, and
+          # --accept-unsaved does not cover it (a field run accepted it and got a 4-file skeleton for 35 own SCSS files)
+          nbefore=$(find "$st/saved/$mod" -type f 2>/dev/null | wc -l | tr -d ' ')
+          nafter=$(python3 "$bin/themefiles.py" count "$app" "$mod" 2> /dev/null || echo "$nbefore")
+          # git proved every file was last installed by a step: commit (authored arc 0): a real package restructure, not a dead end.
+          # The backstop applies whenever git could not prove that (arc 2 unknown, arc 3 no own commit but only the first/replay
+          # commit behind the files) and --accept-drop <Module> has not been given (ASSUMED: half and 8 files)
+          if [ "$nbefore" -ge 8 ] && [ $((nafter * 2)) -le "$nbefore" ] && [ "$arc" != 0 ] && [ -z "$(echo "$acceptdrop" | grep ",$mod,")" ]; then
+            echo "   FILES-DROP: $mod had $nbefore theme/JavaScript file(s) before the update and has $nafter after it: that is own work lost, not a package refresh"
+            keep "$mod" "FILES-DROP: the update cut $mod's files from $nbefore to $nafter (unproven, treated as edited)" && continue
+            echo "STOP: $mod went from $nbefore to $nafter files ($log); --accept-unsaved does not cover this. Keep the module at the installed version"
+            echo "      (git checkout -- . && git clean -fd) or merge the saved copies in $st/saved/$mod by hand."
+            echo "      (git could not show whether these files are the app's own, so the backstop applies.) If the drop is a real package"
+            echo "      restructure, rerun with --accept-drop $mod. Nothing committed."; exit 2
+          fi
           case "$acceptun" in
             *",$mod,"*) rec overwritten.txt "$mod" "$mod $ver $nov file(s) replaced, UNPROVEN (--accept-unsaved), saved under $st/saved/$mod"; files_run="$files_run $mod "
                         echo "   accepted (--accept-unsaved $mod): committing; the saved copies are in $st/saved/$mod";;
@@ -586,7 +661,15 @@ PY
   grep -E '^(warn|info MODULE_RECREATED) ' "$app/.stepupdate/step$n-$mod.idcheck" | sed 's/^/   /'
   # NS-6: a module import also replaces shared widgets/*.mpk (notification-service cdd62cc5: the Email Connector import
   # swapped Datagrid 2.28.3 -> 2.30.6 and 8 more; reverted on day 111). Name every widget the step changed.
+  # GF-41: a step to a LOWER module version keeps the newer widgets/*.mpk; the package's own widgets go back first, so the
+  # WIDGETS lines below show the net change and update-widgets never binds the widget to the newer version's properties
+  mpkc="${UPG_CACHE:-$HOME/.cache/upgrade-toolkit/mpk}/$cid-$ver.mpk"; case "$cid" in *[!0-9]*|0|'') mpkc="";; esac
+  oldv=$(git -C "$app" log --format=%s 2> /dev/null | sed -n "s/^step: $mod \([^ ]*\) .*/\1/p" | head -1)
+  wrest=$(python3 "$bin/widgetpkgfix.py" restore "$app" --module "$mod" --new-version "$ver" --package "$mpkc" ${oldv:+--old-version "$oldv"} --prev "$prevmpr" 2>&1)
   wout=$(python3 "$bin/widgetdiff.py" "$app" 2>/dev/null)
+  [ -z "$wrest" ] || { echo "$wrest" | sed 's/^/   WIDGETS: /'; }
+  # GF-43: the widget definitions mxcli cached for a package this step changed are stale (12's def judged 10.0.0's properties)
+  wdefs=$(python3 "$bin/widgetpkgfix.py" defs "$app" 2>&1); [ -z "$wdefs" ] || echo "$wdefs" | sed 's/^/   WIDGETS: /'
   if [ -n "$wout" ]; then
     echo "   WIDGETS: the $mod update changed $(echo "$wout" | wc -l | tr -d ' ') widget package(s) in widgets/ (check each one is meant; widgets.md section 3):"
     echo "$wout" | sed 's/^/      /'
@@ -720,6 +803,7 @@ if [ $dry = 0 ] && [ -s "$st/kept.txt" ]; then
     1) kdout=$(grep -E '^(FAIL|REVIEW|keptdeps: verdict)' "$st/keptdeps.txt");;
     *) kdout="keptdeps: INVALID (exit $kdrc): $(head -1 "$st/keptdeps.txt"); the kept modules are NOT checked against the updated ones";;
   esac
+  grep '^WARNING: skipped ' "$st/keptdeps.txt" | sed 's/^/stepupdate: keptdeps /' || true   # GF-40: a step subject that is not a module is skipped, the rest is checked
 fi
 # U1: the kept count is what kept.txt holds (a --skip module and a pre-9.18 package are kept without passing the counter);
 # NETWORK lines are counted as network, not as kept

@@ -1,0 +1,6 @@
+WARNING: This is a vibe-coded PoC, alpha quality, use with caution.
+refusing to update: 1 element(s) have been changed locally and the update would discard them:
+    JAR_DEPENDENCY com.nimbusds:oauth2-oidc-sdk
+
+  - Save them first:  --save-edits <dir>
+  - Then update:      --force
