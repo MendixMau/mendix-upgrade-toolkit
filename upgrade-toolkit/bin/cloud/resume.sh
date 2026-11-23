@@ -23,13 +23,15 @@ set -u
 log() { echo "[resume $(date -u +%H:%M:%S)] $*"; }
 first=$(cd "$1" 2>/dev/null && pwd) || { echo "resume.sh: not a folder: $1" >&2; exit 2; }
 
+dprobe() { bash "$(dirname "$(readlink -f "$0")")/../bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info > /dev/null 2>&1; }   # GF-34: a hung docker CLI plugin must not stall the resume
 if [ -z "${UPG_RESUME_NO_DOCKER:-}" ]; then
-  if ! docker info >/dev/null 2>&1; then
+  log "waiting on: docker info"
+  if ! dprobe; then
     log "docker is down, starting dockerd"
     (nohup dockerd > "$first/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do docker info >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do dprobe && break; sleep 1; done
   fi
-  docker info >/dev/null 2>&1 || { echo "resume.sh: docker did not start, see $first/dockerd.log" >&2; exit 3; }
+  dprobe || { echo "resume.sh: docker did not start (if the docker CLI hangs: a CLI plugin? try DOCKER_CONFIG=<a folder without cli-plugins>), see $first/dockerd.log" >&2; exit 3; }
   log "docker up"
 fi
 

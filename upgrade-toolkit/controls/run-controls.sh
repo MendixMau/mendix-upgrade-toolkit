@@ -9882,6 +9882,65 @@ ctl apimock-default-port-off-catch 0 '^9990$' -- env -u UPG_APIMOCK_PORT PORT_OF
 ctl apimock-default-port-clear-of-admin-catch 0 '^clear$' -- env -u UPG_APIMOCK_PORT python3 -c "import sys; sys.path.insert(0,'$B'); import apimock, os; print('clear' if all(apimock.default_port() != 8090+o for o in range(0,1001,100) if not os.environ.__setitem__('PORT_OFF', str(o))) else 'CLASH')"
 ctl apimock-default-port-pass 0 '^9290$' -- env -u UPG_APIMOCK_PORT -u PORT_OFF python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
 ctl apimock-default-port-env-pass 0 '^9555$' -- env UPG_APIMOCK_PORT=9555 PORT_OFF=700 python3 -c "import sys; sys.path.insert(0,'$B'); import apimock; print(apimock.default_port())"
+# --- GF-8, GF-13, GF-14, GF-34 (a field run on macOS): host robustness. bash older than 4.4 is refused (UPG_ASSUME_BASH stands in for
+# the running version), an aborted run keeps its exit status, every docker probe is bounded, both host ports are named and checked early ---
+GFP=$B/cloud/upgrade-pipeline.sh
+ctl gf8-pipeline-bash32-refused-catch 3 'bash 3\.2 is too old' 'brew install bash' 'put it first on PATH' -- env UPG_ASSUME_BASH=3.2 bash $GFP --dry-run
+ctl gf8-pipeline-bash43-refused-catch 3 'bash 4\.3 is too old' -- env UPG_ASSUME_BASH=4.3 bash $GFP --dry-run
+ctl gf8-pipeline-bash44-pass 2 '!too old' 'unknown argument' -- env UPG_ASSUME_BASH=4.4 bash $GFP --nope
+ctl gf8-toolcheck-host-bash32-refused-catch 2 'REFUSED, bash 3\.2 is too old' 'brew install bash' 'first on PATH' -- env UPG_ASSUME_BASH=3.2 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
+ctl gf8-toolcheck-host-bash44-pass 0 'host OK' '!too old' -- env UPG_ASSUME_BASH=4.4 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
+ctl gf8-doctor-bash-threshold-is-44-pass 0 'ok' -- bash -c "grep -q 'BASH_VERSINFO\[1\]\}\" -ge 4' $B/doctor.sh && echo ok"
+# an aborted run exits with its own status: cleanup() ends on `|| true`, so without its own `return` an old bash took 0 as the run's
+ctl gf8-cleanup-keeps-exit-status-catch 0 '^status=4$' -- bash -c "$CLF; ( exit 4 ); cleanup > /dev/null 2>&1; echo status=\$?"
+ctl gf8-cleanup-clean-run-status-pass 0 '^status=0$' -- bash -c "$CLF; ( exit 0 ); cleanup > /dev/null 2>&1; echo status=\$?"
+# GF-34: bounded.sh kills a hung probe and says 124; every way of bounding it (timeout, perl, bash watchdog) is tried
+for bm in timeout perl watchdog; do
+  bf=$bm; [ "$bm" != timeout ] || bf=""
+  ctl gf34-bounded-hung-$bm-catch 0 '^rc=124$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 1 sleep 20; echo rc=\$?"
+  ctl gf34-bounded-fast-$bm-pass 0 '^rc=3$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 5 sh -c 'exit 3'; echo rc=\$?"
+done
+# the pipeline's preflight (cut out of the script): a docker that never answers stops the run with the cause named, after a line that says
+# what it waits on
+GFD=$T/gfdocker; mkdir -p $GFD; printf '#!/bin/sh\nsleep 8\n' > $GFD/docker; chmod +x $GFD/docker
+GFPF="say() { echo \"\$*\"; }; need_tool() { :; }; need_path() { :; }; eval \"\$(sed -n '/^preflight() {/,/^}/p' $GFP)\"; DRY=0; ONLY=''; APP_ZIP=''; SOURCE=1; TARGET=2; TARGET2=''; UPG_TOOLS=$T; B=$B; preflight"
+ctl gf34-preflight-hung-docker-stops-catch 3 'waiting on: docker info' 'docker CLI hangs|the docker CLI hangs' 'DOCKER_CONFIG' 'cli-plugins' -- env PATH=$GFD:$PATH UPG_DOCKER_PROBE_SECS=1 bash -c "$GFPF"
+mkdir -p $T/gfdocker-ok; printf '#!/bin/sh\nexit 0\n' > $T/gfdocker-ok/docker; chmod +x $T/gfdocker-ok/docker
+ctl gf34-preflight-answering-docker-pass 0 'waiting on: docker info' '!hangs' '!not running' -- env PATH=$T/gfdocker-ok:$PATH UPG_DOCKER_PROBE_SECS=5 bash -c "$GFPF"
+ctl gf34-resume-setup-bounded-pass 0 '^ok$' -- bash -c "grep -n '^[^#]*docker info' $B/cloud/resume.sh $B/cloud/setup.sh | grep -v 'dprobe\|waiting on' | grep -q . && echo bad || echo ok"
+# GF-13/14: the message names the port that is taken, here the admin port (8090+PORT_OFF) with the app port free; both ports are checked;
+# the run's own old app is not a holder (the start removes it first)
+GFR="import socket, sys, io, contextlib; sys.path.insert(0, '$B'); import runapp as r
+def hold():
+    s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(); return s, s.getsockname()[1]
+def run(off, own=None):
+    b = io.StringIO()
+    with contextlib.redirect_stdout(b): taken = r.check_ports(off, own)
+    return taken, b.getvalue()"
+mkdir -p $T/gfdocker-none; printf '#!/bin/sh\nexit 0\n' > $T/gfdocker-none/docker; chmod +x $T/gfdocker-none/docker
+ctl gf13-admin-port-named-catch 0 '^named$' '!^wrong' -- env PATH=$T/gfdocker-none:$PATH python3 -c "$GFR
+s, P = hold(); taken, out = run(P - 8090)
+print('named' if taken and f'port {P} in use' in out and 'port 8080 ' not in out else 'wrong: ' + out)"
+ctl gf14-app-port-checked-catch 0 '^named$' -- env PATH=$T/gfdocker-none:$PATH python3 -c "$GFR
+s, P = hold(); taken, out = run(P - 8080)
+print('named' if taken and f'port {P} in use' in out else 'wrong: ' + out)"
+ctl gf14-both-ports-free-pass 0 '^free$' -- env PATH=$T/gfdocker-none:$PATH python3 -c "$GFR
+s, P = hold(); s.close(); taken, out = run(P - 8080)
+print('free' if not taken and not out else 'wrong: ' + out)"
+printf '#!/bin/sh\necho mig-old\n' > $T/gfdocker-none/docker
+ctl gf14-own-old-app-is-not-a-holder-pass 0 '^own-ignored$' '^other-named$' -- env PATH=$T/gfdocker-none:$PATH python3 -c "$GFR
+s, P = hold(); taken, out = run(P - 8080, 'mig-old')
+print('own-ignored' if not taken else 'wrong: ' + out)
+taken, out = run(P - 8080, 'mig-new')
+print('other-named' if taken and 'mig-old' in out else 'wrong: ' + out)"
+ctl gf14-baseline-checks-ports-before-the-build-pass 0 '^ok$' -- awk '/ports_gate old; fi/ {g=NR} /heavy build-old/ && !b {b=NR} END {print (g && b && g<b) ? "ok" : "bad"}' $GFP
+# toolcheck --host warns (it does not refuse: a resumed run may hold the ports itself) when the app or admin port is taken
+GFT="import socket, subprocess, os; s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(); P = s.getsockname()[1]
+r = subprocess.run(['zsh', '$B/toolcheck.sh', '--host'], capture_output=True, text=True, env=dict(os.environ, UPG_PYTHON='$T/py-ok', PORT_OFF=str(P - 8090)))
+print(r.returncode, r.stdout + r.stderr, P)"
+ctl gf14-toolcheck-host-port-warning-catch 0 '^0 ' 'WARNING, port [0-9]+ is in use on this machine' 'host OK' -- python3 -c "$GFT"
+ctl gf14-toolcheck-host-ports-free-pass 0 '!is in use on this machine' 'host OK' -- env PORT_OFF=30000 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"
