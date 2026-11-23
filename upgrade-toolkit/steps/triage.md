@@ -81,6 +81,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    target goes BEFORE a planned module that owns an association into it, because the owner's import restores it;
    `python3 $B/planorder.py app/ $W/plan.txt` lists each pair in the wrong order and `--write` reorders the plan.
    So LAST holds for a target with no planned owner; with a planned owner the target goes before that owner and the two rules agree (`modplan.py --app` applies only the pair rule; use `--last` for the rest).
+   Own callers of dropped targets (GF-39): the pipeline also runs `crosscalls.py app/ --kept '' --own --plan-file $W/plan.txt` at propose (`$W/owngone.out`); `proposal.py` makes each planned module with GONE rows a section-3 item before the sign-off.
    Callers of the OLD API (T5-15, T5F-4): a module that stays kept (stranded, edited, refused) keeps calling the API it
    was built against. Once the plan and the kept/stranded list exist: `python3 $B/crosscalls.py app/ --kept <A,B> --planned <C,D>`
    (or `--kept-file .stepupdate/kept.txt --plan-file $W/plan.txt`; `--kept ''` when nothing stays). A `CAP <P> at <newest
@@ -103,7 +104,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
    module (own theme and the kept file itself count as definitions). `MISSING` (exit 1) = fix the kept SCSS or hold the package;
    `NOT CHECKED` (exit 3) = the target package is not in the cache: say so in the proposal, never read it as clean.
-   The pipeline runs it itself (`kept_vendor_check`): in triage when `.stepupdate/kept.txt` exists (a first triage has none and notes "NOT MEASURED"), and again after the update step; output `$W/keptvendor.out`. A triage `MISSING` stops with an item (text: fix the kept SCSS or hold the package); `NOT CHECKED` is a note. `proposal.py` reads `$W/keptvendor.json`: one section-3 item per planned package with MISSING uses (kind, name, file:line; options: fix the kept SCSS, or hold the package: it stays at its installed version), and a package it could not read under "not measured" in section 5, never clean; no file, no item. The items are not in the plan hash (the file is written after the update step, like `kept.txt`), so a signed proposal stays signed when it appears; the item is recorded ASSUMED in DECISIONS.md and its step is assumed, not approved (the signer did not see it), never CONFIRMED or approved in their name. keptstyle is still run by hand, and the proposal does not list it.
+   The pipeline runs it itself (`kept_vendor_check`): in triage and again after the update step, always with `--own` (GF-56: the app's own `theme/` and non-Marketplace themesource modules are judged like kept ones, so a first triage with no `kept.txt` still measures them; PDS 45 dropped four mixins the team's own styling used); output `$W/keptvendor.out`. A triage `MISSING` stops with an item (text: fix that SCSS, kept or the app's own, or hold the package); `NOT CHECKED` is a note. `proposal.py` reads `$W/keptvendor.json`: one section-3 item per planned package with MISSING uses (kind, name, file:line; options: fix the kept SCSS, or hold the package: it stays at its installed version), and a package it could not read under "not measured" in section 5, never clean; no file, no item. Items for a kept module are not in the plan hash (the update step writes them, like `kept.txt`); items for the app's OWN styling (`own: true` in the json, GF-56) exist at triage, before the sign-off, so they are in the hash and the signer sees them; a kept item appears only after it, so it is not in the hash and a signed proposal stays signed; a kept item is recorded ASSUMED in DECISIONS.md and its step is assumed, not approved (the signer did not see it), never CONFIRMED or approved in their name. keptstyle is still run by hand, and the proposal does not list it.
 5. Local edits in Marketplace modules, BEFORE any update:
    `python3 $B/localedits.py app/ --md $W/localedits.md --json $W/localedits.json`
    - RED = data-bearing local edit (added attribute or association, changed storage): a stop rule (SKILL).
@@ -316,8 +317,9 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    System.FileDocument or System.Image (`file_documents`); when there are any, that 11.0.0 row stays open (also under
    `--evidence`; 0 closes it by the fact), and the proposal raises a BLOCKER item: ask which databases the environments run on and
    check each one for pre-5.12 file documents before the convert, starting on 10.x until the migration finishes. The model cannot
-   see an environment's database. The exact query is "to be confirmed on a real database" until one is run: do not paste one in
-   from memory. On 10.24 or later a copy of each database started once shows the runtime's warning in the log. Nothing here is
+   see an environment's database. The proposal item carries the count a field run (GF-49) checked on a copy of a real database:
+   `select count(*) from "system$filedocument" where __uuid__ is null` (Postgres syntax; it counts rows with no uuid, it does not filter `hascontents`; those rows are the ones 11 refuses); run it on each
+   environment's database, a count above 0 is a go-live item for that environment. On 10.24 or later a copy of each database started once shows the runtime's warning in the log. Nothing here is
    checked on the seeded database: `seed_pg.py` seeds no FileDocument rows, and the readiness data rung says "file storage not
    exercised" for it.
 11. Packages that make an entity non-persistent in the target version (Atlas_Web_Content 3.7.0 LoginContext, E4-19):
