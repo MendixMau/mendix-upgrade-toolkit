@@ -3205,6 +3205,63 @@ thapp jp $TH/vars-same.scss 'export const a = 1;' $TH/Act-edit.java; cp $TH/jp.p
 ctl stepupdate-port-java-catch 0 '^ +PORT-JAVA Administration javasource/administration/actions/Act\.java \(old file under .*/\.stepupdate/saved/Administration\)' 'committed' '!KEPT' '!theme/JavaScript file edits' -- thstep bash $B/stepupdate.sh $S/jp $S/jp.plan --unattended --port-java Administration
 ctl stepupdate-port-java-saved-pass 0 'int a = 2' -- cat $S/jp/.stepupdate/saved/Administration/javasource/administration/actions/Act.java
 ctl stepupdate-java-edit-kept-pass 1 'port the edits by hand \(--port-java Administration\)' 'KEPT: Administration' '!PORT-JAVA' -- thstep bash $B/stepupdate.sh $S/jk $S/jp.plan --unattended
+# GF-55: FILES-UNKNOWN, then --accept-unsaved replaced 35 own SCSS files with a 4-file skeleton. Git knows who changed a file
+# last: a file whose newest commit is the app's own (not a "step:" commit, not the first commit) is an EDITED file, and the
+# stop does not recommend --force-ui (it cannot save what the package cannot show); a big drop in the file count is edited too
+thapp own $TH/vars-same.scss; cp $TH/own.plan $S/own.plan
+for i in 1 2 3 4 5 6 7 8 9 10; do printf '$v%s: 1;\n' $i > $TH/own/themesource/administration/web/_part$i.scss; done
+(cd $TH/own && git add -A . && git -c user.email=c@c -c user.name=ctl commit -q --amend --no-edit && echo '$brand-own: #123;' >> themesource/administration/web/_part3.scss && git -c user.email=c@c -c user.name=ctl commit -qam "own brand tweak")
+rm -rf $S/own; cp -R $TH/own $S/own
+ctl themefiles-authored-edited-catch 1 '^FILES-EDITED themesource/administration/web/_part3\.scss \(newest change is the app.s own commit [0-9a-f]{7}, not a step\)' '!_part4' -- python3 $B/themefiles.py authored $TH/own Administration
+thapp ownstep $TH/vars-same.scss
+(cd $TH/ownstep && echo '$a: 2;' >> themesource/administration/web/_variables.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)")
+# review of GF-55: a toolkit commit is not the app's own work, whatever its subject: replay:/repair:/rung start carry "Changed-By: toolkit"
+thapp owntk $TH/vars-same.scss
+(cd $TH/owntk && echo '$a: 2;' >> themesource/administration/web/_variables.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)" -m "Changed-By: toolkit" \
+  && echo 'export const a = 3;' >> javascriptsource/administration/actions/util.js && git -c user.email=c@c -c user.name=ctl commit -qam "repair: restore the module's script" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair x')")
+ctl themefiles-authored-toolkit-trailer-pass 3 '^no file of Administration has an own commit as its newest, but [0-9]+ of [0-9]+ files were last committed by the first commit or a non-install toolkit commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/owntk Administration
+ctl themefiles-authored-step-only-unproven-catch 3 '^no file of Administration has an own commit as its newest, but [0-9]+ of [0-9]+ files were last committed by the first commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/ownstep Administration
+ctl stepupdate-files-authored-edited-catch 2 'FILES-EDITED themesource/administration/web/_part3\.scss \(newest change is the app.s own commit' 'own theme/JavaScript files|app.s own commits changed' 'STOP: update of Administration refused: its files are the app.s own' '!--force-ui' '!committed [0-9a-f]{7}' -- env UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/own $S/own.plan"
+rm -rf $S/own2; cp -R $TH/own $S/own2; cp $TH/own.plan $S/own2.plan
+ctl stepupdate-files-authored-edited-unattended-catch 1 'KEPT: Administration .*own theme/javascript files \(git authorship\)' '!committed [0-9a-f]{7}' '!--force-ui' -- env UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/own2 $S/own2.plan --unattended"
+thapp skel $TH/vars-same.scss; cp $TH/skel.plan $S/skel.plan
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/skel/themesource/administration/web/_part$i.scss; done
+(cd $TH/skel && git add -A . && git -c user.email=c@c -c user.name=ctl commit -q --amend --no-edit)
+# skelroot: the pipeline's shape for an app that had no git: ONE first commit holding everything as delivered (own SCSS too)
+rm -rf $S/skelroot; cp -R $TH/skel $S/skelroot; cp $TH/skel.plan $S/skelroot.plan
+# skel: the same files, but each one last written by a real step: install commit (the toolkit installed them)
+(cd $TH/skel && for f in $(git ls-files themesource javascriptsource); do echo "// installed" >> $f; done && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)")
+rm -rf $S/skel; cp -R $TH/skel $S/skel
+ctl themefiles-authored-all-step-installed-pass 0 '^no file of Administration has an own commit as its newest \([0-9]+ files, all last installed by a step: commit\)' '!FILES-EDITED' '!git cannot show' -- python3 $B/themefiles.py authored $TH/skel Administration
+ctl themefiles-authored-root-commit-only-catch 3 'files were last committed by the first commit or a non-install toolkit commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skelroot Administration
+# review of GF-55 (2): an untracked file has no commit, and another module's step: commit (git add -A .) sweeps this module's own file in:
+# neither proves the toolkit installed it, so authored exits 3 (unproven), not 0
+rm -rf $S/skunt $S/skoth; cp -R $TH/skel $S/skunt; cp -R $TH/skel $S/skoth
+echo '$own-untracked: 1;' > $S/skunt/themesource/administration/web/_own.scss
+(cd $S/skoth && echo '// own edit' >> themesource/administration/web/_part5.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Other 1.0.0 (stepupdate, content 9)" -m "Changed-By: toolkit")
+ctl themefiles-authored-untracked-unproven-catch 3 '1 file\(s\) under its folders are untracked \(e\.g\. themesource/administration/web/_own\.scss\)' '!all last installed by a step' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skunt Administration
+ctl themefiles-authored-other-module-step-unproven-catch 3 'files were last committed by the first commit or a non-install toolkit commit \(e\.g\. themesource/administration/web/_part5\.scss\)' '!all last installed by a step' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skoth Administration
+# review of GF-55: with every file tracked and each one's newest commit a step: install commit (git proved the toolkit put them there:
+# authored exit 0) a big drop is a package restructure, not a dead end: no FILES-DROP stop. When git could not prove that (files
+# untracked, authored exit 2; or the newest commit is the pipeline's first "original" commit or a replay commit, authored exit 3)
+# the backstop stops, and --accept-drop <Module> overrides it
+ctl stepupdate-files-drop-git-clean-restructure-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skel $S/skel.plan --accept-unsaved Administration"
+thapp sku $TH/vars-same.scss; cp $TH/sku.plan $S/sku.plan
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/sku/themesource/administration/web/_part$i.scss; done
+(cd $TH/sku && git rm -rq --cached themesource javascriptsource && git -c user.email=c@c -c user.name=ctl commit -qm "untrack the module files")
+rm -rf $S/sku $S/sku2; cp -R $TH/sku $S/sku; cp -R $TH/sku $S/sku2
+ctl stepupdate-files-drop-root-commit-only-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'rerun with --accept-drop Administration' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skelroot $S/skelroot.plan --accept-unsaved Administration"
+ctl stepupdate-files-drop-not-accepted-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'STOP: Administration went from [0-9]+ to [0-9] files' '--accept-unsaved does not cover this' 'git could not show whether these files are the app.s own' 'rerun with --accept-drop Administration' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku $S/sku.plan --accept-unsaved Administration"
+ctl stepupdate-files-drop-accept-drop-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku2 $S/sku.plan --accept-unsaved Administration --accept-drop Administration"
+# GF-37: a module whose only Java "edit" is a package file the app deleted holds no user code: a FILES edit the update may restore
+thapp jdel $TH/vars-same.scss; cp $TH/jdel.plan $S/jdel.plan
+(cd $TH/jdel && git rm -q javasource/administration/actions/Act.java && mkdir -p javasource/administration/proxies && echo 'class P {}' > javasource/administration/proxies/P.java && git add -A . && git -c user.email=c@c -c user.name=ctl commit -qm "delete the java action")
+rm -rf $S/jdel; cp -R $TH/jdel $S/jdel
+ctl stepupdate-java-deleted-only-not-logic-catch 0 'FILES-EDITED javasource/administration/actions/Act\.java' 'package Java file\(s\) are deleted in the app; they hold no user code' 'committed [0-9a-f]{7}' '!KEPT' '!local Java USER CODE edits' -- thstep bash $B/stepupdate.sh $S/jdel $S/jdel.plan --unattended
+thapp jdel2 $TH/vars-same.scss 'export const a = 1;' $TH/Act-edit.java; cp $TH/jdel2.plan $S/jdel2.plan
+(cd $TH/jdel2 && printf 'public class B {\n}\n' > javasource/administration/actions/Gone.java && git add -A . && git -c user.email=c@c -c user.name=ctl commit -qm "add b")
+rm -rf $S/jdel2; cp -R $TH/jdel2 $S/jdel2
+ctl stepupdate-java-deleted-plus-logic-edit-kept-pass 1 'has local Java USER CODE edits \(logic\)' 'KEPT: Administration' '!hold no user code' -- thstep bash $B/stepupdate.sh $S/jdel2 $S/jdel2.plan --unattended
 # QW-3 (backlog #31): a package that answers HTTP 500 cannot be compared with, but git can prove the theme/JS/Java files
 # unedited: the install commit C (the newest commit touching the module's folders that also changes the module's recorded
 # version) has the same files as now. Built here: a real git repo, App.mpr 4.0.0 then 4.1.0 (mkmodel from base)
@@ -8931,6 +8988,20 @@ ctl stepupdate-no-assoc-saved-not-listed-pass 0 'saved edits for replay' 'commit
 newapp as8 '111349 10.6.2 MendixSSO\n'
 ctl stepupdate-target-mpk-tool-error-catch 3 'STOP: TOOL ERROR in the update of MendixSSO \(open package target\.mpk: open /tmp/mxu[0-9]+/target\.mpk: no such file or directory' 'tree reverted' 'rerun with --from MendixSSO' '!committed' '!KEPT' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-assoc.log FAKE_FORCE=$L28/update-force-saveedits.log bash $B/stepupdate.sh $S/as8 $S/as8.plan --unattended --force-ui MendixSSO
 ctl stepupdate-target-mpk-reverted-pass 0 '^clean$' -- sh -c "cd $S/as8 && test -z \"\$(git status --porcelain --untracked-files=no)\" && ! test -s .stepupdate/kept.txt && echo clean"
+# GF-48: a --force-ui step whose log said "will be replaced: 3" but saved nothing (constants, a JAR dependency) committed with
+# the values reset. It stops before the commit (derived logs: CAPTURE.txt); --accept-unsaved commits it and lists it
+newapp fa1 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-nothing-saved-stop-catch 2 'UNSAVED-FORCED: the forced update of MendixSSO replaced 2 locally changed element' 'STOP: MendixSSO would lose 2 element\(s\) unsaved' '!JAR' 'Nothing committed' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa1 $S/fa1.plan --force-ui MendixSSO
+newapp fa2 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-nothing-saved-unattended-catch 1 'KEPT: MendixSSO .*FORCED-UNSAVED' 'kept: MendixSSO FORCED-UNSAVED' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash -c "bash $B/stepupdate.sh $S/fa2 $S/fa2.plan --force-ui MendixSSO --unattended; rc=\$?; cat $S/fa2/.stepupdate/kept.txt | sed 's/^/kept: /'; exit \$rc"
+newapp fa3 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-nothing-saved-accept-pass 0 'accepted \(--accept-unsaved MendixSSO\)' 'committed [0-9a-f]{7}' 'UNSAVED \(replay by hand\): MendixSSO' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-constants.log FAKE_FORCE=$L28/update-force-constants-unsaved.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa3 $S/fa3.plan --force-ui MendixSSO --accept-unsaved MendixSSO
+# review of GF-48: one element saved is no reason to ignore the ones that were not (a page saved, two constants lost), and a JAR_DEPENDENCY
+# row ("not evidence of an edit" in the log itself) is no loss at all
+newapp fa4 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-partial-save-stop-catch 2 'UNSAVED-FORCED: the forced update of MendixSSO replaced 2 locally changed element' 'STOP: MendixSSO would lose 2 element\(s\) unsaved' 'Nothing committed' '!committed [0-9a-f]{7}' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-partial.log FAKE_FORCE=$L28/update-force-partial.log FAKE_SAVED=$FAKE_SAVED_ASSOC FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa4 $S/fa4.plan --force-ui MendixSSO
+newapp fa5 '111349 10.6.2 MendixSSO\n'
+ctl stepupdate-forced-jar-only-no-stop-pass 0 'committed [0-9a-f]{7}' '!UNSAVED-FORCED' '!STOP' -- env UPG_UPDATE_CMD="$FLG" FAKE_REFUSE=$L28/update-refused-jaronly.log FAKE_FORCE=$L28/update-force-jaronly.log FAKE_FORCE_RC=0 FAKE_OK=$M/step1-adds/App.mpr bash $B/stepupdate.sh $S/fa5 $S/fa5.plan --force-ui MendixSSO
 # the pipeline notes a saved association that no replay script creates
 AU=$T/assoc-unreplayed; mkdir -p $AU/saved-edits/MendixSSO $AU/replay
 cp $L28/saved-edits/MendixSSO/association-PurchaseApprovals_Request_MendixSSOUser_Requester.mdl $AU/saved-edits/MendixSSO/
@@ -9369,6 +9440,14 @@ ctl editroute-brain-notes-pass 0 "^brain: Realmod \['architecture/ext'" "^brain:
 ctl editroute-reset-pass 0 '^editroute-reset: [1-9][0-9]* line' '^force-ui.txt: Handmod # a person forced this$' '!^force-ui.txt: .*# editroute' '^approved-step editroute lines: 0$' '!^work: edit-routes.json$' '^rc=0$' -- $ER reset
 ctl editroute-reroute-adds-route-pass 0 '^ROUTE Cosmo XASSOC' '^routes: Cosmo COSMETIC\+XASSOC$' '^route-plan.txt: 7 2.0.0 Cosmo$' -- $ER reroute
 ctl editroute-reroute-same-reason-held-catch 0 '^ROUTE Cosmo HOLD: the routed update kept it again for the same reason' '^rc=1$' -- $ER reroute
+# GF-36: reset dropped the approvals of steps already committed, reopening findings the step had closed
+ctl editroute-reset-keeps-done-approval-catch 0 '^approved.txt: Vendmod.E.Gone # editroute VENDOR' '^rc=0$' -- $ER reset-done
+# GF-31: a kept line left by an earlier pass is not "kept again" when the last pass never reached the module
+ctl editroute-reroute-not-reached-rerouted-catch 0 '^ROUTE Cosmo XASSOC' '!^ROUTE Cosmo HOLD' '^routes: Cosmo COSMETIC\+XASSOC$' -- $ER reroute-stale
+ctl editroute-reroute-ran-held-pass 0 '^ROUTE Cosmo HOLD: the routed update kept it again for the same reason' -- $ER reroute-ran
+# GF-35: DESCRIBE output ends with a lone "/" line mxcli exec refuses, and the replay skipped the checked() dry run
+ctl editroute-collect-assoc-no-slash-catch 0 '^Target.mdl: create or modify association Other.A_B' '!^Target.mdl: /$' -- $ER collect
+ctl editroute-collect-assoc-refused-held-catch 0 '^HELD Target association Other.A_B: mxcli check refuses' '!^Target.mdl: create or modify association Other.A_B' -- env XABAD=1 $ER collect
 ctl cockpit-check-keep-recommended-catch 0 "'keep old version \(kept list\); ': CAUGHT" "'keep old version until 2027-03': ok" "'update to the latest version a': ok" -- $ER gate
 ctl cockpit-db-pattern-pass 0 'has claude\.use\("db"\)' 'has claude\.use\("user"\)' 'decisions"\)\.doc\(it\.id\)\.set' 'signoffs"\)\.doc\(await user\.id\(\)\)\.set' 'decisions"\)\.onSnapshot' 'never reads window\.claude\.db' -- $CK pattern
 ctl cockpit-live-script-only-with-flag-pass 0 'live: polls stamp 1' 'standalone without --live: polls stamp 0' 'content page: polls stamp 0' -- $CK live-script
