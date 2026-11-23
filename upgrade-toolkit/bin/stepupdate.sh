@@ -395,16 +395,24 @@ while read -r cid ver mod rest; do
     rec no-baseline.txt "$mod" "$mod $ver $(grep -Eo "$BASELINE_GONE" "$log" | head -1)"
     nobase_run="$nobase_run $mod "   # N1-5: the closing summary lists only the modules of THIS invocation
     revert
+    refused1=$(grep -Eo 'range from (9\.18\.0 to 9\.24\.99|10\.21\.0 to 10\.24\.99)' "$log" | head -1)   # GF-29: what the FIRST attempt (the installed package) was refused for
     runupd --no-baseline "$cmd --no-baseline"
     nobase=1
-    if [ $rc != 0 ] && tail -20 "$log" | grep -q 'range from 9.18.0 to 9.24.99'; then
+    # GF-29: judge the RETRY's own output ($st/attempt.out). $log holds both attempts, so the first attempt's refusal of the
+    # installed package was read as the target's and kept.txt said "3.0.0 target package made before 10.21" when it was not
+    retry=$(tail -20 "$st/attempt.out" 2> /dev/null)
+    if [ $rc != 0 ] && [ -n "$refused1" ] && ! printf '%s\n' "$retry" | grep -q 'range from '; then
+      echo "   NOTE: the INSTALLED $mod package was refused as the local-edit baseline ($refused1); the $ver package was not refused:"
+      echo "   the --no-baseline retry failed for another reason (last lines below), not because of the target's age"
+    fi
+    if [ $rc != 0 ] && printf '%s\n' "$retry" | grep -q 'range from 9.18.0 to 9.24.99'; then
       echo "   SKIP: the $mod $ver package itself was made before Studio Pro 9.18 and cannot be imported here (take a later version)"
       revert; rec kept.txt "$mod" "$mod $ver target package made before 9.18"; nkept=$((nkept + 1)); continue
     fi
     # F13 (Purchase Request 10.24, real run): on 11, mx imports no package made before Studio Pro 10.21. The first
     # refusal is the INSTALLED package (the local-edit baseline: Atlas_Core 4.5.0 needs 11, yet "made with 10.5.0");
     # only a refusal on the --no-baseline retry is the target itself, whose update then belongs before the convert
-    if [ $rc != 0 ] && tail -20 "$log" | grep -q 'range from 10.21.0 to 10.24.99'; then
+    if [ $rc != 0 ] && printf '%s\n' "$retry" | grep -q 'range from 10.21.0 to 10.24.99'; then
       echo "   SKIP: the $mod $ver package itself was made before Studio Pro 10.21 and Mendix 11 cannot import it: on a 10.x"
       echo "   source this update belongs in the pre-convert plan (plan-pre.txt, steps/triage.md), before the convert"
       revert; rec kept.txt "$mod" "$mod $ver target package made before 10.21 (pre-convert plan)"; nkept=$((nkept + 1)); continue
@@ -653,7 +661,15 @@ PY
   grep -E '^(warn|info MODULE_RECREATED) ' "$app/.stepupdate/step$n-$mod.idcheck" | sed 's/^/   /'
   # NS-6: a module import also replaces shared widgets/*.mpk (notification-service cdd62cc5: the Email Connector import
   # swapped Datagrid 2.28.3 -> 2.30.6 and 8 more; reverted on day 111). Name every widget the step changed.
+  # GF-41: a step to a LOWER module version keeps the newer widgets/*.mpk; the package's own widgets go back first, so the
+  # WIDGETS lines below show the net change and update-widgets never binds the widget to the newer version's properties
+  mpkc="${UPG_CACHE:-$HOME/.cache/upgrade-toolkit/mpk}/$cid-$ver.mpk"; case "$cid" in *[!0-9]*|0|'') mpkc="";; esac
+  oldv=$(git -C "$app" log --format=%s 2> /dev/null | sed -n "s/^step: $mod \([^ ]*\) .*/\1/p" | head -1)
+  wrest=$(python3 "$bin/widgetpkgfix.py" restore "$app" --module "$mod" --new-version "$ver" --package "$mpkc" ${oldv:+--old-version "$oldv"} --prev "$prevmpr" 2>&1)
   wout=$(python3 "$bin/widgetdiff.py" "$app" 2>/dev/null)
+  [ -z "$wrest" ] || { echo "$wrest" | sed 's/^/   WIDGETS: /'; }
+  # GF-43: the widget definitions mxcli cached for a package this step changed are stale (12's def judged 10.0.0's properties)
+  wdefs=$(python3 "$bin/widgetpkgfix.py" defs "$app" 2>&1); [ -z "$wdefs" ] || echo "$wdefs" | sed 's/^/   WIDGETS: /'
   if [ -n "$wout" ]; then
     echo "   WIDGETS: the $mod update changed $(echo "$wout" | wc -l | tr -d ' ') widget package(s) in widgets/ (check each one is meant; widgets.md section 3):"
     echo "$wout" | sed 's/^/      /'
@@ -778,6 +794,7 @@ if [ $dry = 0 ] && [ -s "$st/kept.txt" ]; then
     1) kdout=$(grep -E '^(FAIL|REVIEW|keptdeps: verdict)' "$st/keptdeps.txt");;
     *) kdout="keptdeps: INVALID (exit $kdrc): $(head -1 "$st/keptdeps.txt"); the kept modules are NOT checked against the updated ones";;
   esac
+  grep '^WARNING: skipped ' "$st/keptdeps.txt" | sed 's/^/stepupdate: keptdeps /' || true   # GF-40: a step subject that is not a module is skipped, the rest is checked
 fi
 # U1: the kept count is what kept.txt holds (a --skip module and a pre-9.18 package are kept without passing the counter);
 # NETWORK lines are counted as network, not as kept

@@ -275,6 +275,15 @@ ctl gm15-kept-moved-between-planned-pass 0 '0 missing, 0 not checked' '!MISSING'
 ctl gm15-kept-uncached-sibling-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: package not cached' 'mixin moved-mixin at themesource/KeptMove/web/main\.scss:2' '!^MISSING' '!variable \$moved-var' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/half
 ctl gm15-kept-corrupt-package-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: cannot read 9002-2\.0\.0\.mpk' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/corrupt
 ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
+# GF-56 / GF-45: --own judges the app's OWN styling (theme/ and non-Marketplace themesource modules) with an empty kept list, so a first
+# triage, before any update step wrote kept.txt, still shows a mixin or file the planned package drops (PDS 45.0.0 vs the team's styling module).
+ctl gf56-own-styling-mixin-catch 1 '^MISSING mixin dark-theme: used in themesource/KeptMixin/web/main\.scss:4, defined in old PlatformDesignSystem .*gone in PlatformDesignSystem 45\.0\.0$' '^MISSING import \.\./\.\./PlatformDesignSystem/web/gone: used in themesource/KeptImport' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-no-own-flag-measures-nothing-catch 0 '!^MISSING' '0 kept module' -- python3 $B/keptvendor.py $KV/app --kept '' --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-own-styling-old-package-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/old
+# GF-56 review: --own puts theme/ and the own themesource modules on `kept`, which used to drop their definitions from the set that
+# stays. A variable theme/ defines, an own module uses and the planned package also dropped was a false MISSING that stopped triage (code 13).
+ctl gf56-own-theme-variable-still-defined-pass 1 '!MISSING variable \$pds-themed' '^MISSING mixin dark-theme' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-own-theme-variable-not-defined-anywhere-catch 1 '^MISSING variable \$pds-themed: used in themesource/OwnTheme/web/main\.scss:2' -- sh -c "rm -rf $T/kv-notheme; cp -R $KV/app $T/kv-notheme; printf '\$brand: #0a0;\n' > $T/kv-notheme/theme/web/custom-variables.scss; python3 $B/keptvendor.py $T/kv-notheme --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new"
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
 ctl crosscalls-none-pass 0 '0 planned module\(s\) capped' 'scanned [1-9][0-9]* documents' '!CAP ' -- python3 $B/crosscalls.py $M/xcall-none --kept KeptConn --planned AuthMod
@@ -312,6 +321,11 @@ ctl crosscalls-own-gone-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) 
 ctl crosscalls-own-present-pass 0 '^crosscalls: 0 target\(s\) used by own modules are gone' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-here
 ctl crosscalls-own-unchecked-pass 0 '^NOTE AuthMod 3\.2\.0 -> 4\.1\.0: used by own Shop; targets NOT checked' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none
 ctl crosscalls-own-off-pass 0 '!OWN|GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+# GF-39 review: --plan-file is repeatable (plan.txt plus plan-pre.txt on a 10 -> 11 run); the argument used to keep only the LAST one, so a
+# comment-only plan-pre.txt after plan.txt erased the plan and every own document read clean. A later file's version of a module wins.
+printf '# updates before the convert: none\n' > $T/xc-plan-pre-none.txt
+ctl crosscalls-own-two-plan-files-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) own modules use are gone' '^  GONE page AuthMod\.Login_Page \(used by own Shop\.ACT_Open\)' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --plan-file $T/xc-plan-pre-none.txt --cache $T/cache-xc-own-gone
+ctl crosscalls-own-two-plan-files-reversed-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) own modules use are gone' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-pre-none.txt --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
 
 # GM-12: the target package's project.mpr is read at plan time; a module its documents call that is neither in the app nor in
 # the plan is "needs module X" (31 CE1613 at the build for NotificationProducer 4.1.0 -> MxTokenModule). Packages are cached
@@ -2411,6 +2425,48 @@ ctl mprmodel-v2-empty-mprcontents-catch 1 'holds none of its units' '!"modules"'
 mkdir -p $G8/w3/mprcontents; printf stale > $G8/w3/mprcontents/stale-leftover.mxunit
 ctl pipeline-original-rerun-clears-stale-pass 0 '^stale gone$' '^mprcontents units: [1-9]' '"modules": 3,' -- bash -c "$G8F; APP=$G8/v2app MPR=$G8/v2app/App.mpr WORK=$G8/w3; write_original HEAD || exit 9; [ -e $G8/w3/mprcontents/stale-leftover.mxunit ] || echo 'stale gone'; echo mprcontents units: \$(ls $G8/w3/mprcontents | wc -l); python3 $B/mprmodel.py $G8/w3/original.mpr"
 ctl pipeline-original-v1-pass 0 '^mprcontents beside original: no$' '^original read: yes$' -- bash -c "$G8F; APP=$G8/v1app MPR=$G8/v1app/App.mpr WORK=$G8/w1; write_original HEAD || exit 9; [ -e $G8/w1/mprcontents ] && echo 'mprcontents beside original: yes' || echo 'mprcontents beside original: no'; cmp -s $G8/w1/original.mpr $M/base/App.mpr && python3 $B/mprmodel.py $G8/w1/original.mpr > /dev/null && echo 'original read: yes'"
+# GF-28 / GF-33 / GF-9: "original" is the newest commit the pipeline made (subject `original` or `original: ...`), never the repo's
+# first commit; an MPR v2 original gets mprcontents/ beside it; a git worktree (.git is a file) does not get git init.
+GF=$T/gf28; mkdir -p $GF/w1 $GF/w2 $GF/w3
+GFF="eval \"\$(sed -n '/^write_original() {/,/^}/p; /^git_app() {/p; /^app_has_own_git() {/,/^}/p; /^original_rev() /p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; die4() { echo \"\$*\" >&2; exit 4; }"
+gfc() { git -C "$1" -c user.email=c@c -c user.name=ctl commit -q "${@:2}"; }
+# v1 app: an old first commit (the model years ago), team commits, then the pipeline's own "original" and later step commits
+mkdir -p $GF/v1app; cp $M/base/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app init -q; git -C $GF/v1app add -A; gfc $GF/v1app -m "svn import"
+cp $M/step1-adds/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app add -A; gfc $GF/v1app -m "team work"
+gfc $GF/v1app --allow-empty -m original -m "Changed-By: toolkit"
+cp $M/guard/App.mpr $GF/v1app/App.mpr; git -C $GF/v1app add -A; gfc $GF/v1app -m "step: Mod 1.0.0"
+ctl pipeline-original-history-run-start-catch 0 '^original is the run start: yes$' '^subject: original$' '!^original is the first commit' -- bash -c "$GFF; APP=$GF/v1app MPR=$GF/v1app/App.mpr WORK=$GF/w1; rev=\$(original_rev); [ -n \"\$rev\" ] || exit 9; echo subject: \$(git -C $GF/v1app log -1 --format=%s \$rev); write_original \$rev || exit 9; cmp -s $GF/w1/original.mpr $M/step1-adds/App.mpr && echo 'original is the run start: yes'; cmp -s $GF/w1/original.mpr $M/base/App.mpr && echo 'original is the first commit'; true"
+# the newest wins, `original: ...` counts, `originally` / `original work` do not
+mkdir -p $GF/sub; git -C $GF/sub init -q; gfc $GF/sub --allow-empty -m original; gfc $GF/sub --allow-empty -m "original: rung start"; gfc $GF/sub --allow-empty -m "original work by the team"; gfc $GF/sub --allow-empty -m originally
+ctl pipeline-original-rev-newest-pass 0 '^subject: original: rung start$' -- bash -c "$GFF; APP=$GF/sub; echo subject: \$(git -C $GF/sub log -1 --format=%s \$(original_rev))"
+ctl pipeline-original-rev-none-pass 0 '^none$' -- bash -c "$GFF; APP=$GF/v1app; git -C $GF/v1app branch -q nomark \$(git -C $GF/v1app rev-list --max-parents=0 HEAD); APP=$GF/none; mkdir -p \$APP; git -C \$APP init -q; git -C \$APP -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m base; [ -z \"\$(original_rev)\" ] && echo none"
+# review of #185: a long history with a stale pushed marker near the head. original_rev must read the whole log (an early awk exit
+# SIGPIPEs git under pipefail and kills the step), and a fresh run makes its own marker, records it in state/original-rev, notes it
+# as ASSUMED; a rerun of the same run reuses it.
+LH=$GF/long; mkdir -p $LH/app $LH/w; git -C $LH/app init -q
+python3 - $LH/app > $LH/stream.txt <<'PY'
+import sys
+n = 4000
+for i in range(1, n + 1):
+    m = "original" if i == n - 3 else "team commit %d with a long enough subject to fill the pipe buffer" % i
+    print("commit refs/heads/master\ncommitter c <c@c> %d +0000\ndata %d\n%s\n" % (1700000000 + i, len(m), m))
+PY
+git -C $LH/app fast-import --quiet < $LH/stream.txt; git -C $LH/app reset -q --hard master
+LHF="set -Eeuo pipefail; eval \"\$(sed -n '/^git_app() {/p; /^original_rev() /p; /^note() {/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh})\"; APP=$LH/app; WORK=$LH/w; DRY=0; STEP=fetch; OLD_MDA=; LOG=$LH/log.txt; export GIT_AUTHOR_NAME=c GIT_AUTHOR_EMAIL=c@c GIT_COMMITTER_NAME=c GIT_COMMITTER_EMAIL=c@c"
+ctl pipeline-original-rev-long-history-pipefail-catch 0 '^stale: [0-9a-f]{40}$' '^found: yes$' -- bash -c "$LHF; mkdir -p \$WORK/state; rev=\$(original_rev); echo stale: \$rev; [ -n \"\$rev\" ] && echo found: yes"
+LHB="sed -n '/# GF-28: an app with its own history/,/^  else say \"+ git init/p' \${PIPE:-$B/cloud/upgrade-pipeline.sh} | sed '\$d'"
+ctl pipeline-original-fresh-run-own-marker-catch 0 '^own marker: yes$' '^subject: original$' '^commits \+1: yes$' '^noted ASSUMED: yes$' '^rerun reuses: yes$' -- bash -c "$LHF; stale=\$(original_rev); n=\$(git -C $LH/app rev-list --count HEAD); eval \"\$($LHB)\"; r1=\$(cat \$WORK/state/original-rev); [ \"\$r1\" != \"\$stale\" ] && [ \"\$(original_rev)\" = \"\$r1\" ] && echo own marker: yes; echo subject: \$(git -C \$APP log -1 --format=%s \$r1); [ \$(git -C \$APP rev-list --count HEAD) = \$((n+1)) ] && echo commits +1: yes; grep -q 'ASSUMED' \$WORK/state/notes.txt && echo noted ASSUMED: yes; eval \"\$($LHB)\"; [ \"\$(cat \$WORK/state/original-rev)\" = \"\$r1\" ] && [ \$(git -C \$APP rev-list --count HEAD) = \$((n+1)) ] && echo rerun reuses: yes"
+# a stale state/original-rev from an older repo (app folder wiped and git-inited again) must not be used: the rev line falls back
+LHR="\$(grep -o 'if \[ -n \"\$OLD_MDA\" \]; then rev=HEAD; else rev=\$(cat \"\$WORK/state/original-rev\".*' \${PIPE:-$B/cloud/upgrade-pipeline.sh})"
+ctl pipeline-original-stale-state-rev-ignored-catch 0 '^usable: yes$' -- bash -c "$LHF; WORK=$LH/w2; mkdir -p \$WORK/state; echo 60bd42fb0000000000000000000000000000beef > \$WORK/state/original-rev; eval \"$LHR\"; git -C \$APP cat-file -e \"\$rev^{commit}\" && echo usable: yes"
+# v2 app with history: mprcontents/ of the original commit lands beside original.mpr
+mkdir -p $GF/v2app; cp -R $S2/base/. $GF/v2app/; git -C $GF/v2app init -q; git -C $GF/v2app add -A; gfc $GF/v2app -m "svn import"
+rm -rf $GF/v2app/mprcontents; cp -R $S2/step1-adds/. $GF/v2app/; git -C $GF/v2app add -A; gfc $GF/v2app -m "team work"
+gfc $GF/v2app --allow-empty -m original
+ctl pipeline-original-v2-history-mprcontents-catch 0 '^mprcontents beside original: yes$' '"modules": 3,' -- bash -c "$GFF; APP=$GF/v2app MPR=$GF/v2app/App.mpr WORK=$GF/w2; write_original \$(original_rev) || exit 9; [ -d $GF/w2/mprcontents ] && echo 'mprcontents beside original: yes'; python3 $B/mprmodel.py $GF/w2/original.mpr"
+# GF-9: a worktree has its own git (.git is a file); a plain folder, and a subfolder of a bigger repo, do not
+git -C $GF/v1app worktree add -q $GF/wt HEAD 2> /dev/null; mkdir -p $GF/plain $GF/v1app/sub
+ctl pipeline-worktree-has-git-catch 0 '^worktree: own git$' '^plain: none$' '^subfolder: none$' '^repo: own git$' -- bash -c "$GFF; chk() { APP=\$2; app_has_own_git && echo \$1: own git || echo \$1: none; }; [ -f $GF/wt/.git ] || exit 9; chk worktree $GF/wt; chk plain $GF/plain; chk subfolder $GF/v1app/sub; chk repo $GF/v1app"
 ctl stepupdate-catch-nothing-committed 0 'step: step1-adds' '!step: guid-changed' -- git -C $S/app log --format=%s
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
@@ -2763,6 +2819,9 @@ ctl pipeline-build-port-java-done-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub
 ctl pipeline-build-port-java-none-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wn; f; echo built"
 # the update step runs crosscalls --own on the original model BEFORE the module updates (cold CMM: 3 CE1613 found only at the build)
 ctl pipeline-dry-update-owngone-catch 0 '^own-before-update$' -- bash -c "bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run | awk '/crosscalls\.py .*\/pw\/original\.mpr --kept .*--own --plan-file .*\/pw\/plan\.txt/{if(!c)c=NR} /stepupdate\.sh/{if(!s)s=NR} END{print (c && c<s) ? \"own-before-update\" : \"no c=\" c \" s=\" s}'"
+# GF-39 review: the update step's own-gone call uses the same plan files as the triage report (plan-pre.txt first, then plan.txt)
+rm -rf $V/pwpre; cp -R $V/pw $V/pwpre; printf '# none before the convert\n' > $V/pwpre/plan-pre.txt
+ctl pipeline-dry-update-owngone-plan-pre-catch 0 'crosscalls\.py .*/pwpre/original\.mpr --kept .*--own --plan-file .*/pwpre/plan-pre\.txt --plan-file .*/pwpre/plan\.txt$' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwpre --only update --dry-run
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
 mkdir -p $V/pw4/replay; printf 'MendixSSO\n' > $V/pw4/force-ui.txt; echo 'create or modify association A.R_X from A.R to B.U;' > $V/pw4/replay/MendixSSO.mdl
 printf '# original GUIDs back\nA.R_X\nA.R_Y\n' > $V/pw4/replay/MendixSSO.guids; printf 'A.R_X # restored by replay/MendixSSO.guids\n' > $V/pw4/approved-step.txt; printf '# accepted\n' > $V/pw4/approved.txt
@@ -2789,7 +2848,7 @@ ctl pipeline-dry-journeys-psql-pass 0 'gen_journeys\.py .* --data-rung' 'run_jou
 ctl pipeline-dry-journeys-users-pass 0 'gen_journeys\.py .* --users .*/pw/users\.json --data-rung' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only journeys --dry-run
 ctl pipeline-dry-build-rows-pass 0 'mx sync-java-dependencies .* > .*/sync-java.log' 'missing_deps.py .* --target 11\.15\.0\.1' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
 ctl pipeline-dry-build-gridlayout-catch 0 'repair/gridlayout\.py .*/papp --causes .*/pw/screen-causes\.txt > .*/pw/gridlayout\.out' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only build --dry-run
-ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
+ctl pipeline-dry-diff-gate-pass 0 'gate\.sh .*--config .*gate\.conf --only build.?,idcheck.?,const.?,data.?,logdiff.?,screens(.?,release)?(.?,journeys)? --dry-run' 'OLD_MDA=.*/old-10\.24\.26\.1\.mda' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 # the NEEDS-JUDGMENT rerun hint carries exactly one --from (the stopped step), not the run's own plus a second
 NJ=$V/njrun; mkdir -p $NJ/app $NJ/tools/mxbuild-10.24.26.1 $NJ/tools/mxbuild-11.15.0.1 $NJ/tools/runtime-10.24.26.1 $NJ/tools/runtime-11.15.0.1; touch $NJ/app/App.mpr; git init -q $NJ/app; printf '#!/bin/sh\nexit 0\n' > $NJ/tools/mxcli-linux; chmod +x $NJ/tools/mxcli-linux
 ctl pipeline-nj-one-from-pass 0 'needs judgment \(exit 13\)' 'upgrade-pipeline\.sh .*--only update --from update$' '!--from update .*--from' -- bash -c "MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/work --from update --only update; cat $NJ/work/NEEDS-JUDGMENT.md"
@@ -2836,6 +2895,73 @@ ctl pipeline-auto-hard-stop-still-stops-catch 0 'needs judgment \(exit 13\)' '!P
 ctl pipeline-auto-rerun-clears-pass 0 'PASS    gate' '!PARKED' '!parked item' -- bash -c "cp $NJ/ga/kept.txt $NJ/ga/kept-ack.txt; printf '## Studio Pro\n\n| 1 | 11.15 | behaviour | x | not relevant: control fixture |\n' > $NJ/ga/release-impact.md; MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/ga --only gate"
 newapp o11b '1 1.0 Old11Base\n'
 ctl stepupdate-pre1021-baseline-pass 0 'installed Old11Base cannot serve as the local-edit baseline \(range from 10.21.0 to 10.24.99\)' 'committed' '!SKIP' -- bash $B/stepupdate.sh $S/o11b $S/o11b.plan --unattended
+# --- GF small pipeline fixes (field run GF): GF-12, 15, 29, 40, 41, 43, 46, 52 ---
+# GF-12: the triage stop and idcheck --xmod say where the targets go when an owner is on the plan too (planorder.py refuses "last" then)
+# behaviour: the triage stop's own nj_file line is cut out of the pipeline (PIPE=<file> runs it against another copy) and run with a stub that prints the title it is given
+ctl pipeline-xmod-owner-title-catch 0 '^TITLE: cross-module association targets \(last, unless an owner is on the plan too: then before the owner' -- bash -c "grep -m1 '^    nj_meta info; nj_file 13 \"cross-module association targets' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $T/xt.sh; test -s $T/xt.sh && bash -c 'nj_meta() { :; }; nj_file() { echo \"TITLE: \$2\"; }; WORK=/w; . $T/xt.sh'"
+ctl idcheck-xmod-owner-line-catch 0 'but before an owner of these associations that is on the plan too \(planorder\.py --write\)' 'Account_Device' -- python3 $B/idcheck.py $M/xmod/App.mpr --xmod
+# GF-15: a triage rerun clears the "triage: " lines of the earlier attempt out of state/notes.txt before it notes again
+# behaviour: the GF-15 block is cut out of step_triage and run on a notes.txt that holds a stale triage line and another step's line
+TN=$T/tn; rm -rf $TN; mkdir -p $TN/w/state; printf 'triage: no module-jumps.txt\nbuild: kept note\ntriage: second stale\n' > $TN/w/state/notes.txt
+sed -n '/^  # GF-15: a rerun appended/,/^  fi$/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh} > $TN/block.sh
+ctl pipeline-triage-notes-cleared-catch 0 '^build: kept note$' '!triage:' '^lines: 1$' -- bash -c "DRY=0 WORK=$TN/w; . $TN/block.sh; cat \$WORK/state/notes.txt; echo lines: \$(wc -l < \$WORK/state/notes.txt | tr -d ' ')"
+ctl pipeline-triage-notes-dry-untouched-pass 0 '^triage: x$' -- bash -c "mkdir -p $TN/d/state; printf 'triage: x\n' > $TN/d/state/notes.txt; DRY=1 WORK=$TN/d; . $TN/block.sh; cat \$WORK/state/notes.txt"
+# GF-29: the --no-baseline retry's own output decides what was refused: the installed package, not the target
+newapp nfb '1 1.0 Old11NfBase\n'
+ctl stepupdate-nobaseline-retry-not-target-catch 1 'NOTE: the INSTALLED Old11NfBase package was refused as the local-edit baseline' '!package itself was made before' '!target package made before 10\.21' -- bash $B/stepupdate.sh $S/nfb $S/nfb.plan --unattended
+# GF-40: one commit subject that is not a module name is skipped with a warning; the other modules are still checked
+rm -rf $T/kdg2; mkdir -p $T/kdg2; cp -R $T/kdg/. $T/kdg2/; (cd $T/kdg2 && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Some Marketplace Package Name 1.0.0 (idcheck PASS)')
+ctl keptdeps-wrong-subject-skipped-catch 1 '^WARNING: skipped Some: ' '^FAIL UpdConn 4\.0\.0 needs kept AuthMod' '!nothing judged' -- python3 $B/keptdeps.py $T/kdg2 --kept-file $T/kdg-kept.txt --updated-from-git
+# GF-41 / GF-43: a downgrade puts the module's own widgets back (only those its earlier step brought); a changed widget package moves its cached def aside
+GW=$T/gfw; rm -rf $GW; mkdir -p $GW/app/widgets $GW/app/.mxcli/widgets $GW/pkg
+cat > $GW/mk.py <<'PY'
+import sys, zipfile
+def wmpk(path, ver, name="Dock", wid="com.x.Dock"):
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("package.xml", '<package xmlns="http://www.mendix.com/package/1.0/"><clientModule name="%s" version="%s" xmlns="http://www.mendix.com/clientModule/1.0/"><widgetFiles><widgetFile path="W.xml"/></widgetFiles></clientModule></package>' % (name, ver))
+        z.writestr("W.xml", '<widget id="%s" xmlns="http://www.mendix.com/widget/1.0/"/>' % wid)
+app, pkg = sys.argv[1], sys.argv[2]
+wmpk(app + "/widgets/Dock.mpk", "12.0.0")                       # brought by the module step
+wmpk(app + "/widgets/Grid.mpk", "2.30.6", "Grid", "com.x.Grid")  # a shared widget the app upgraded itself
+with zipfile.ZipFile(pkg + "/mod.mpk", "w") as z:                 # the 10.0.0 package: its own Dock, and an OLDER Grid
+    wmpk(pkg + "/own.mpk", "10.0.0"); z.write(pkg + "/own.mpk", "widgets/Dock.mpk")
+    wmpk(pkg + "/own2.mpk", "2.28.3", "Grid", "com.x.Grid"); z.write(pkg + "/own2.mpk", "widgets/Grid.mpk")
+PY
+python3 $GW/mk.py $GW/app $GW/pkg
+echo '{"widgetId": "com.x.Dock", "templateFile": "Dock.tpl.json"}' > $GW/app/.mxcli/widgets/Dock.def.json; echo '{"tpl": 1}' > $GW/app/.mxcli/widgets/Dock.tpl.json
+echo '{"widgetId": "com.x.Grid"}' > $GW/app/.mxcli/widgets/Grid.def.json
+(cd $GW/app && git init -q && echo base > readme.txt && git add readme.txt && git -c user.email=c@c -c user.name=ctl commit -qm base)
+(cd $GW/app && git add widgets/Grid.mpk && git -c user.email=c@c -c user.name=ctl commit -qm 'app: upgrade grid widget by hand')
+(cd $GW/app && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm 'step: Dock 12.0.0 (idcheck PASS)')
+# no 'step: Dock 11.0.0' commit: nothing shows the module brought the widget, so it stays and is said (runs before the restore control, which changes the file)
+ctl widgetpkgfix-no-step-commit-not-restored-catch 0 'WIDGET-NOT-RESTORED widgets/Dock\.mpk' '!WIDGET-RESTORED' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 9.0.0 --old-version 11.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-downgrade-catch 0 'WIDGET-RESTORED widgets/Dock\.mpk Dock 12\.0\.0 -> 10\.0\.0' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 10.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+# the shared widget the app upgraded itself stays at its newer version, said, never overwritten
+ctl widgetpkgfix-shared-widget-kept-catch 0 'WIDGET-NOT-RESTORED widgets/Grid\.mpk Grid 2\.30\.6 stays' '!WIDGET-RESTORED widgets/Grid' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 10.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-shared-widget-bytes-pass 0 '^2\.30\.6$' -- python3 -c "import sys; sys.path.insert(0, '$B'); from widgetdiff import meta; print(meta(open('$GW/app/widgets/Grid.mpk','rb').read())[1])"
+ctl widgetpkgfix-upgrade-untouched-pass 0 '!WIDGET-RESTORED' -- python3 $B/widgetpkgfix.py restore $GW/app --module Dock --new-version 13.0.0 --old-version 12.0.0 --package $GW/pkg/mod.mpk
+ctl widgetpkgfix-def-dropped-catch 0 'WIDGET-DEF-DROPPED \.mxcli/widgets/Dock\.def\.json \(widget id com\.x\.Dock.*moved with 1 template file\(s\) to \.stepupdate/saved/mxcli-widgets/' '!Grid' -- python3 $B/widgetpkgfix.py defs $GW/app
+# nothing is deleted: the def and its template are under .stepupdate/saved, the other widget's def stays
+ctl widgetpkgfix-def-moved-not-deleted-pass 0 '^saved: Dock\.def\.json Dock\.tpl\.json$' '^left: Grid\.def\.json$' -- bash -c "echo saved: \$(ls $GW/app/.stepupdate/saved/mxcli-widgets | tr '\n' ' ' | sed 's/ \$//'); echo left: \$(ls $GW/app/.mxcli/widgets | tr '\n' ' ' | sed 's/ \$//')"
+# a second step changes the same widget package: the first saved def (maybe hand-written) survives, the new one is kept beside it as .2
+echo '{"widgetId": "com.x.Dock", "fresh": "second"}' > $GW/app/.mxcli/widgets/Dock.def.json
+ctl widgetpkgfix-def-second-move-keeps-first-catch 0 'WIDGET-DEF-DROPPED' '^first: .*templateFile' '^second: .*"fresh"' -- bash -c "python3 $B/widgetpkgfix.py defs $GW/app; S=$GW/app/.stepupdate/saved/mxcli-widgets; echo first: \$(cat \$S/Dock.def.json); echo second: \$(cat \$S/Dock.def.json.2)"
+# the derivation of --old-version (the last step commit's module version) and --package (cache path from the content id) in stepupdate.sh,
+# cut out and run against a git log and a stub widgetpkgfix.py that prints its argv
+SW=$T/sw; rm -rf $SW; mkdir -p $SW/bin $SW/app; printf 'import sys\nprint("ARGV " + " ".join(sys.argv[1:]))\n' > $SW/bin/widgetpkgfix.py; printf 'import sys\n' > $SW/bin/widgetdiff.py
+(cd $SW/app && git init -q && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Dock 12.0.0 (idcheck PASS)' && git -c user.email=c@c -c user.name=ctl commit -q --allow-empty -m 'step: Other 3.0.0 (idcheck PASS)')
+sed -n '/^  mpkc="\${UPG_CACHE/,/^  wrest=/p' $B/stepupdate.sh | sed 's/^  //' > $SW/derive.sh
+swr() { bash -c "bin=$SW/bin app=$SW/app prevmpr=prev.mpr UPG_CACHE=$SW/cache mod=\$1 ver=10.0.0 cid=\$2; . $SW/derive.sh; echo \"\$wrest\"" _ "$@"; }
+ctl stepupdate-widgets-restore-wired-catch 0 '^ARGV restore '"$SW"'/app --module Dock --new-version 10\.0\.0 --package '"$SW"'/cache/77-10\.0\.0\.mpk --old-version 12\.0\.0 --prev prev\.mpr$' -- swr Dock 77
+ctl stepupdate-widgets-restore-no-cid-no-package-catch 0 '--package  --old-version 12\.0\.0' -- swr Dock abc
+ctl stepupdate-widgets-restore-no-step-commit-no-oldversion-pass 0 '!--old-version' -- swr Nothing 77
+ctl stepupdate-widgets-restore-wired-count-catch 0 '^2$' -- bash -c "grep -c 'widgetpkgfix.py\" \(restore\|defs\)' $B/stepupdate.sh"
+# GF-46: a failed build reads "The build failed", never "The build has not run yet"
+ctl cockpit-build-failed-not-unrun-catch 0 '^failed headline: [1-9]' '^stale words: 0$' -- bash $here/cockpit_control.sh chk-build-failed
+# a judgment stop at the build (owner: person) keeps "waiting for you"; only a real build failure says "The build failed"
+ctl cockpit-build-judgment-stop-waits-for-you-catch 0 '^failed headline: 0$' '^waiting headline: [1-9]' -- bash $here/cockpit_control.sh chk-build-judgment-stop
+# GF-52: a rerun of one step selects the gate's own release and journeys rungs (their rows then say what is missing, not "not selected")
+ctl pipeline-dry-diff-own-rungs-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release.?,journeys --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only diff --dry-run
 newapp o11 '1 1.0 Old11Pkg\n'
 ctl stepupdate-pre1021-skip-catch 0 'SKIP: the Old11Pkg 1.0 package itself was made before Studio Pro 10.21' 'pre-convert plan \(plan-pre.txt' 'kept: Old11Pkg' ' 0 committed, 1 kept' -- bash -c "bash $B/stepupdate.sh $S/o11 $S/o11.plan --unattended; cat $S/o11/.stepupdate/kept.txt; test ! -e $S/o11/junk.txt && echo reverted"
 # v3.1 E7-1: a --force-ui module that only updates through --no-baseline saves nothing: UNSAVED, never "saved edits"
@@ -4845,18 +4971,27 @@ gk() { local d=$GK/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $GK/b/k
   printf '9001 45.0.0 PlatformDesignSystem\n' > "$d/w/plan.txt"; [ "${4:-}" = pre ] && printf '9002 2.0.0 AtlasLite\n' > "$d/w/plan-pre.txt"
   [ "$3" = kept ] && printf 'MendixProjectStyling kept\n' > "$d/app/.stepupdate/kept.txt"; return 0; }
 gkrun() { local d=$GK/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=0 MODE=$2 bash $GK/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "planfile: $(tr '\n' ' ' < "$d/w/keptvendor-plan.txt" 2> /dev/null)"; }
-gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
-ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
-ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: A kept module.s styling uses something a planned package removes .*fix the kept SCSS or hold the package.*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
+gk noplan 0 nokept; rm -f $GK/noplan/w/plan.txt; gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
+ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --own --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
+ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\): a kept or own themesource \(theme/ included\)' '^NJ: A kept or own module.s styling uses something a planned package removes .*fix that SCSS or hold the package.*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
 ctl gm15-wire-missing-update-note-only-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing update"
 ctl gm15-wire-not-checked-not-clean-catch 0 '^NOTE: keptvendor NOT CHECKED \(exit 3\).*NOT measured \(never read as clean\)' '!NJ:' '!MISSING \(exit' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun notchecked triage"
 ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept themesources NOT measured' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun bad update"
-ctl gm15-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
-ctl gm15-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
-ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
-# GM-15 review nit (#144): a plan.txt without a final newline must not fuse its last line with the first of plan-pre.txt
-gk prenonl 0 kept pre; printf '9001 45.0.0 PlatformDesignSystem' > $GK/prenonl/w/plan.txt
-ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+# GF-56: no kept.txt (a first triage) no longer means "not measured": the app's own styling is judged with an empty kept list
+ctl gm15-wire-no-kept-list-own-styling-measured-catch 0 '^argv: .*/app --kept  --own --plan-file .*/w/keptvendor-plan\.txt --json ' '!NOTE' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
+ctl gm15-wire-no-plan-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*plan\.txt' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun noplan triage"
+ctl gm15-wire-no-kept-list-update-own-pass 0 '!NOTE' '^argv: .*--kept  --own ' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
+ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
+# GM-15 review nit (#144): a plan-pre.txt without a final newline must not fuse its last line with the first of plan.txt
+gk prenonl 0 kept pre; printf '9002 2.0.0 AtlasLite' > $GK/prenonl/w/plan-pre.txt
+ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+# GF-56 review: the SAME module in both plans (an older version in plan-pre.txt, the final one in plan.txt) is judged against plan.txt's
+# package, because keptvendor.py keeps the last version it reads. Real function, real keptvendor.py, real packages: the older package
+# keeps the names, the newer one drops them; plan-pre.txt listed after plan.txt used to give a false clean.
+mkdir -p $KVC/both; cp $KVC/old/9001-45.0.0.mpk $KVC/both/9001-44.0.0.mpk; cp $KVC/new/9001-45.0.0.mpk $KVC/both/9001-45.0.0.mpk
+gk samemod 0 nokept pre; printf '9001 44.0.0 PlatformDesignSystem\n' > $GK/samemod/w/plan-pre.txt; rm -rf $GK/samemod/app; cp -R $KV/app $GK/samemod/app
+gkreal() { local d=$GK/$1; (B="$B" UPG_CACHE="$KVC/both" WORK="$d/w" APP="$d/app" DRY=0 MODE=triage bash $GK/fn.sh) 2>&1; echo "out: $(grep -c '^MISSING' "$d/w/keptvendor.out" 2> /dev/null)"; }
+ctl gf56-plan-pre-older-same-module-still-missing-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: ' '^out: [1-9]' -- bash -c "$(declare -f gkreal); GK=$GK; B=$B; KVC=$KVC; gkreal samemod"
 ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
 # MC-11 wiring: kept_style_check (the real function) runs keptstyle.py in step_triage and after the update step; RISK reaches the
 # screens rung as a [keptstyle] line in screen-causes.txt, never a stop. Stub keptstyle.py records argv and prints out.txt. Synthetic: no field run.
@@ -5038,7 +5173,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-java-m2ee replace-java-m2ee-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-java-api11 replace-java-api11-ok replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-java-m2ee replace-java-m2ee-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -5064,6 +5199,10 @@ ctl replace-java-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Old\.java \(1
 ctl replace-java-entityid-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Ids\.java \(1\)' -- $RC $M/replace-java-id --to 11.12.5
 ctl replace-java-entityid-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-id-ok --to 11.12.5
 # cold WM1: DeepLink 10.0.10 (no 11 release) imports com.mendix.core.conf.RuntimeVersion, gone in 11; Core.getRuntimeVersion() is clear
+# GF-47: three more removed-in-11 symbols the field build met only at javac: com.mendix.webui.CustomJavaAction (an orphan own action, not
+# regenerated), com.mendix.core.actionmanagement.CoreAction (Queue, kept) and IMendixIdentifier.getId() (o.getId().getId()). One file per hit.
+ctl gf47-java-removed-in-11-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Sess\.java \(1\)' 'javasource/queue/impl/Q\.java \(1\)' 'javasource/queue/impl/R\.java \(1\)' -- $RC $M/replace-java-api11 --to 11.12.5
+ctl gf47-java-removed-in-11-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-api11-ok --to 11.12.5
 ctl replace-java-rtver-catch 1 '^HIT +R18 ' 'in javasource/deeplink/implementation/handler/SessionHandler\.java \(2\)' -- $RC $M/replace-java-rtver --to 11.12.5
 ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-rtver-ok --to 11.12.5
 # GM-28: com.mendix.m2ee.api.IMxRuntimeRequest still exists in the 11 public API (8 false hits on a field app); IMxRuntimeResponse is exempt too
@@ -7589,7 +7728,7 @@ model fd-files > /dev/null; model facts-clean > /dev/null
 for n in fd fdclean fd11; do rm -rf $PR/$n; cp -R $PR/plain $PR/$n; done
 bash $PR/prop.sh $PR/fd --original $M/fd-files/App.mpr > /dev/null; bash $PR/prop.sh $PR/fdclean --original $M/facts-clean/App.mpr > /dev/null
 bash $PR/prop.sh $PR/fd11 --original $M/fd-files/App.mpr --source 11.0.0 > /dev/null
-ctl proposal-file-documents-blocker-catch 0 '^- \[P-[0-9]+\] data: BLOCKER: pre-5\.12 file documents in each environment.s database' 'FileDocument specializations: Shop\.Attachment, Shop\.Photo' 'which databases do the app.s environments' 'to be confirmed on a real database' 'recommendation: I cannot read an environment.s database: hand to a named person; the convert waits for their answer' 'the convert goes ahead' 'as the 11\.0 release note describes' 'first created on Mendix 5\.12 or later' '!local file system' '!10\.x only' -- bash $PR/sec.sh $PR/fd 3
+ctl proposal-file-documents-blocker-catch 0 '^- \[P-[0-9]+\] data: BLOCKER: pre-5\.12 file documents in each environment.s database' 'FileDocument specializations: Shop\.Attachment, Shop\.Photo' 'which databases do the app.s environments' 'select count\(\*\) from "system\$filedocument" where __uuid__ is null' '!to be confirmed on a real database' 'in Postgres syntax' 'file document rows with no uuid \(it does not filter hascontents\)' 'recommendation: I cannot read an environment.s database: hand to a named person; the convert waits for their answer' 'the convert goes ahead' 'as the 11\.0 release note describes' 'first created on Mendix 5\.12 or later' '!local file system' '!10\.x only' -- bash $PR/sec.sh $PR/fd 3
 ctl proposal-file-documents-no-entities-pass 0 '!BLOCKER' '!file documents' -- bash $PR/sec.sh $PR/fdclean 3
 ctl proposal-file-documents-already-on-11-pass 0 '!BLOCKER' -- bash $PR/sec.sh $PR/fd11 3
 # re-architecture catalogue (playbooks/rearchitecture.md): a section-3 item that fits RA-1's match gets the RA options and cites the id; a non-matching item does not
@@ -7694,6 +7833,28 @@ bash $PR/prop.sh $PR/gm12 > /dev/null; bash $PR/prop.sh $PR/gm12-unchecked > /de
 ctl gm12-proposal-section3-item-catch 0 '^- \[P-[0-9]+\] module: needs module MxTokenModule' 'NotifProd 3\.1\.0 -> 4\.1\.0 calls it \(3 refs' 'install MxTokenModule' -- bash $PR/sec.sh $PR/gm12 3
 ctl gm12-proposal-unchecked-not-measured-catch 0 '!needs module' 'absentmods\.py NotifProd 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gm12-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm12-unchecked/PROPOSAL.md"
 ctl gm12-proposal-no-file-no-item-pass 0 '!needs module' '!absentmods' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
+# GF-39: crosscalls.py --own output (owngone.out, real output over the xcall-own fixture) makes a section-3 item per planned module whose
+# plan version drops a target an own document uses, before the sign-off; a package not cached is "not measured", never clean
+mkw gf39; mkw gf39-unchecked
+python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone > $PR/gf39/owngone.out
+python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none > $PR/gf39-unchecked/owngone.out
+bash $PR/prop.sh $PR/gf39 > /dev/null; bash $PR/prop.sh $PR/gf39-unchecked > /dev/null
+ctl gf39-proposal-own-gone-item-catch 0 '^- \[P-[0-9]+\] module: own documents use targets AuthMod 4\.1\.0 drops' 'AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) the app.s own modules use are gone.*page AuthMod\.Login_Page used by own Shop\.ACT_Open' -- bash $PR/sec.sh $PR/gf39 3
+ctl gf39-proposal-own-unchecked-not-measured-catch 0 '!own documents use targets' 'crosscalls\.py --own AuthMod 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gf39-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gf39-unchecked/PROPOSAL.md"
+ctl gf39-proposal-no-file-no-item-pass 0 '!own documents use targets' -- bash $PR/sec.sh $PR/plain 3
+# GF-39 review: a multi-word kind ("java action", "javascript action") must not drop the row, and the count comes from the OWN header line
+model xcall-own-java > /dev/null; model xcall-own-java-new > /dev/null
+mkdir -p $T/cache-xc-own-java; (cd $M/xcall-own-java-new && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-xc-own-java/2222-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+mkw gf39-java
+python3 $B/crosscalls.py $M/xcall-own-java --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-java > $PR/gf39-java/owngone.out || true
+bash $PR/prop.sh $PR/gf39-java > /dev/null
+ctl gf39-proposal-java-action-row-catch 0 'AuthMod 3\.2\.0 -> 4\.1\.0: 2 target\(s\) the app.s own modules use are gone.*java action AuthMod\.JA_Token used by own Shop\.ACT_Tok; page AuthMod\.Login_Page used by own Shop\.ACT_Open$' '!and [0-9]+ more' -- bash $PR/sec.sh $PR/gf39-java 3
+# the pipeline's own_gone_report (the real function) with a comment-only plan-pre.txt beside a plan.txt that has a GONE: every 10 -> 11 run has one
+GG=$T/gf39pipe; rm -rf $GG; mkdir -p $GG/w; cp $M/xcall-own/App.mpr $GG/w/original.mpr; cp $T/xc-plan-major.txt $GG/w/plan.txt; cp $T/xc-plan-pre-none.txt $GG/w/plan-pre.txt
+{ sed -n '/^own_gone_report() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'say() { echo "SAY: $*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'own_gone_report'; } > $GG/fn.sh
+ctl gf39-pipeline-plan-pre-comment-only-catch 0 '^NOTE: crosscalls --own: own modules use 1 target\(s\) the plan versions drop' '^  GONE page AuthMod\.Login_Page' -- bash -c "(B=$B WORK=$GG/w DRY=0 UPG_CACHE=$T/cache-xc-own-gone bash $GG/fn.sh) 2>&1; cat $GG/w/owngone.out"
+ctl gf39-pipeline-dry-both-plan-files-catch 0 'plan-pre\.txt --plan-file .*/plan\.txt >' -- bash -c "B=$B WORK=$GG/w DRY=1 bash $GG/fn.sh"
 # GM-15: keptvendor.json (bin/keptvendor.py --json, real output over the keptvendor fixture) makes one section-3 item per planned
 # package with MISSING uses (options: fix the kept SCSS, or hold the package); a package it could not read is listed under "not
 # measured"; no file, no item. The items are left out of the plan hash (the file appears after the update step, like kept.txt):
@@ -7712,6 +7873,28 @@ cp $PR/gm15-missing/keptvendor.json $PR/gm15-signed-run/keptvendor.json
 ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gm15-signed-run
 ctl gm15-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept styling uses what PlatformDesignSystem 45\.0\.0 removes \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!kept styling.*CONFIRMED' -- cat $PR/gm15-signed-run/DECISIONS.md
 ctl gm15-proposal-late-step-assumed-not-approved-catch 0 '^late-step-state:assumed$' '^other-steps-approved:[1-9][0-9]*$' -- python3 -c "import json,sys; ev=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; ap=[e for e in ev if e.get('field')=='approval']; late={e['id'] for e in ap if e['value'].get('source')=='after-signoff'}; st={}; [st.update({e['id']: e['value']['state']}) for e in ap]; print('late-step-state:' + ','.join(sorted({st[i] for i in late}))); print('other-steps-approved:%d' % sum(1 for i,v in st.items() if i not in late and v=='approved'))" $PR/gm15-signed-run/steps.jsonl
+# GF-56 review: a MISSING use in the app's OWN styling (`own` in keptvendor.json) exists at triage, before the sign-off, so it is its own
+# item ("own styling uses ...") and IS in the plan hash; a kept Marketplace module's use (written after the update step) is still not.
+# KeptVar plays the kept Marketplace module: its rows are marked own=false, like keptvendor.py marks a module that is not on the own list.
+mkw gf56-both; mkw gf56-ownsigned
+python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new --json $PR/gf56-both/keptvendor.json > /dev/null || true
+python3 - $PR/gf56-both/keptvendor.json $PR/gf56-ownsigned/keptvendor.json <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for x in d["missing"]:
+    x["own"] = x["module"] != "KeptVar"
+json.dump(d, open(sys.argv[1], "w"))
+d["missing"] = [x for x in d["missing"] if x["own"]]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+bash $PR/prop.sh $PR/gf56-both > /dev/null
+ctl gf56-proposal-own-and-kept-items-catch 0 '^- \[P-[0-9]+\] theme: own styling uses what PlatformDesignSystem 45\.0\.0 removes$' 'in the app.s own styling that PlatformDesignSystem 45\.0\.0 no longer has: .*mixin dark-theme used in themesource/KeptMixin/web/main\.scss:4 \(module KeptMixin\)' '^- \[P-[0-9]+\] theme: kept styling uses what PlatformDesignSystem 45\.0\.0 removes$' '1 use\(s\) in a kept themesource that PlatformDesignSystem 45\.0\.0 no longer has: variable \$pds-gone' 'options: fix the own SCSS .* \| hold PlatformDesignSystem' -- bash $PR/sec.sh $PR/gf56-both 3
+rm -rf $PR/gf56-signed-plain $PR/gf56-signed-own; cp -R $PR/plain $PR/gf56-signed-plain; rm -f $PR/gf56-signed-plain/PROPOSAL.md; bash $PR/prop.sh $PR/gf56-signed-plain > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gf56-signed-plain/PROPOSAL.md; rm -f $PR/gf56-signed-plain/PROPOSAL.md.sedi
+cp $PR/gf56-both/keptvendor.json $PR/gf56-signed-plain/keptvendor.json
+ctl gf56-proposal-own-item-after-signoff-asks-again-catch 14 'proposal awaits sign-off' '!proposal: signed by' -- bash $PR/prop.sh $PR/gf56-signed-plain
+cp -R $PR/gf56-ownsigned $PR/gf56-signed-own; rm -f $PR/gf56-signed-own/PROPOSAL.md; bash $PR/prop.sh $PR/gf56-signed-own > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gf56-signed-own/PROPOSAL.md; rm -f $PR/gf56-signed-own/PROPOSAL.md.sedi
+cp $PR/gf56-both/keptvendor.json $PR/gf56-signed-own/keptvendor.json
+ctl gf56-proposal-kept-item-after-signoff-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf56-signed-own
 # MC-11: keptstyle.json (bin/keptstyle.py --json, real output over the keptstyle fixture $T/ks above) makes one section-3 item per kept
 # module with platform widget selectors; an empty list adds nothing; invalid JSON is listed under not measured; no file, no item. Left out
 # of the plan hash like keptvendor.json: a signed proposal stays signed, and the late item is ASSUMED, never CONFIRMED.
@@ -8329,7 +8512,7 @@ dgstop() { bash -c "set -Eeu; . $DG/fn.sh; nj_meta() { :; }; nj_park() { :; }; g
 ctl pipeline-diff-release-open-not-stopping-pass 0 '^RELEASE_IMPACT=' '^DIFF-RETURNED$' '!NJ-STOP' -- dgstop $DG/w4
 ctl pipeline-diff-release-open-other-row-stops-catch 0 '^NJ-STOP 12$' '^DIFF-RETURNED$' -- dgstop $DG/w5
 mkdir -p $V/pwr; cp $DG/w3/release-impact.md $V/pwr/release-impact.md
-ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
+ctl pipeline-dry-diff-release-only-catch 0 'gate\.sh .*--only build.?,idcheck.?,const.?,data.?,logdiff.?,screens.?,release(.?,journeys)? --dry-run' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwr --only diff --dry-run
 # TLT rung 2: a line written to allow.txt at the diff stop was not applied on `--from diff` (allow-effective.txt came only from the heal step).
 # Golden: the real line shape `<check pattern> [detail pattern] # reason` (log.new_error with the task name between wildcards).
 for c in stale fresh; do mkdir -p "$DG/al-$c"; done
@@ -8425,7 +8608,7 @@ ctl buildout-baseline-step-adds-exclude-catch 0 '^/\.classpath$' '^/\.project$' 
 frapp() { local d=$1; rm -rf $d; mkdir -p $d; (cd $d && git init -q && touch App.mpr && cp $FX/fr/mendix-gitignore.txt .gitignore && ${2:-:} && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm original); }
 frrun() { env PATH=$BTR/bin:$PATH MXCLI= bash $B/cloud/upgrade-pipeline.sh --app-dir $1 --source 10.24.26.1 --target 11.15.0.1 --work $BTR/work-$2 --only fetch 2>&1; }
 FR1=$BTR/app-fr1; frapp $FR1
-ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -1 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
+ctl fr1-existing-gitignore-committed-catch 0 'TREE-CLEAN' '^toolkit: ignore tool folders$' '^Upgrade-Change: config gitignore-tool-folders$' '^\.stepupdate/$' '!has uncommitted changes' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR1 fr1 | grep -E 'uncommitted' ; git -C $FR1 log -2 --format=%B; git -C $FR1 show HEAD:.gitignore | grep stepupdate; [ -z \"\$(git -C $FR1 status --porcelain)\" ] && echo TREE-CLEAN"
 FR2=$BTR/app-fr2; frapp $FR2; echo scratch > $FR2/notes-by-a-person.txt
 ctl fr1-other-dirt-still-refused-pass 4 'has uncommitted changes' '^\?\? notes-by-a-person.txt$' '!notes-by-a-person.txt.*toolkit' -- bash -c "$(declare -f frrun); B=$B BTR=$BTR; frrun $FR2 fr2 | grep uncommitted; git -C $FR2 status --porcelain; git -C $FR2 log -1 --format=%s; exit 4"
 FR3=$BTR/app-fr3; frapp $FR3; echo my-own-private-ignore >> $FR3/.gitignore
