@@ -7779,9 +7779,11 @@ ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| Latecomer \|
 # GF-32 rerun: the second and third run re-render PROPOSAL.md with the late item in it; its step must stay assumed by the agent, never approved in the signer's name
 bash $PR/prop.sh $PR/gf-late > /dev/null; bash $PR/prop.sh $PR/gf-late > /dev/null
 ctl gf32-late-kept-rerun-step-stays-assumed-catch 0 '^module:Latecomer approval=assumed by=agent$' '!approved' -- python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s' % (x['topic'], x['approval']['state'], x['approval']['by']) for x in r))" $B $PR/gf-late
-ctl gf32-late-kept-rerun-decisions-stay-assumed-pass 0 '^P-[0-9]+ \| Latecomer \| module \| .*\| ASSUMED \|' -- cat $PR/gf-late/DECISIONS.md
 # a kept module the signed PROPOSAL.md rendered (DataWidgets, section 2 of the plain plan) was seen: CONFIRMED in the signer's name
 ctl gf32-late-kept-seen-module-confirmed-pass 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| accepted with the sign-off of Tester .*\| CONFIRMED \|' '!DataWidgets.*ASSUMED' -- cat $PR/gf-late/DECISIONS.md
+# GF-32: a person answers the late item by hand (a non-ASSUMED line in DECISIONS.md, the way decisions.py add writes it): the next run approves its step in that name
+bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | Latecomer | module | update to the latest version | owner chose in chat | Ana | CONFIRMED | closes by: the rung that measures it passes (steps/decide.md)\n" "$id" >> "$1/DECISIONS.md"' _ $PR/gf-late; bash $PR/prop.sh $PR/gf-late > /dev/null
+ctl gf32-late-kept-answered-by-hand-approved-catch 0 '^module:Latecomer approval=approved by=Ana source=decisions$' -- python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s source=%s' % (x['topic'], x['approval']['state'], x['approval']['by'], x['approval'].get('source')) for x in r))" $B $PR/gf-late
 # GF-23 / GF-24: a held module the plan does not carry, and one whose installed version is already the newest
 rm -rf $PR/gf-rec; cp -R $PR/plain $PR/gf-rec; rm -f $PR/gf-rec/PROPOSAL.md
 printf 'Fresh update refused\nOrphan update refused\nDataWidgets update refused\n' > $PR/gf-rec/kept.txt

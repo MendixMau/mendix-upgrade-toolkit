@@ -823,8 +823,6 @@ def approve_steps(work, ids, state, signer, source, answers=None):
             continue
         if state == "approved" and have in ("approved", "rejected"):
             continue
-        if state == "approved" and have == "assumed" and cur.get("source") == "after-signoff":
-            continue  # GF-32: an item the signer never saw is not approved in their name by a later run
         by, src = signer, source
         d = (answers or {}).get(key[2:]) if key.startswith("3:") else None
         if state == "approved" and d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
@@ -1155,6 +1153,8 @@ def main():
             return False
         # a rerun re-renders PROPOSAL.md with the late item in it: the line DECISIONS.md already holds for it is what stays true
         d = decisions(a.work).get(it["id"])
+        if d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
+            return False  # a person answered it by hand: approve_steps takes the name on that line
         if d and len(d) > 3 and d[3].startswith("appeared after sign-off"):
             return True
         n = re.escape(it["name"])
@@ -1169,7 +1169,7 @@ def main():
         late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
                 for it in todo if unseen(it)]
         n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
-        return n, write_decisions(F, late, "-", "ASSUMED", "a person answers it or signs section 6 again (steps/decide.md)")
+        return n, write_decisions(F, late, "-", "ASSUMED", "a person answers it with decisions.py add, or a hand-written line (steps/decide.md)")
 
     if so and so[0] == "paused":
         print(f"proposal: PAUSED by the owner: {so[1]}. Resume: remove the Status line and sign, then rerun the pipeline.")
