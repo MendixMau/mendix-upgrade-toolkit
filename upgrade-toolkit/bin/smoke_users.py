@@ -13,7 +13,7 @@ Per user role (all rows of system$userrole unless --roles) it creates user smoke
 retrieves CustomAdminModule.UserAccount sends a plain Administration.Account user to the login page, T3-6). Default: the
 one specialization below Administration.Account that has users; several -> exit 2 and the candidates; none ->
 Administration.Account when that entity exists, else (GF-17: no Administration.Account, or no users under it) the System.User
-specialization that has rows (any module; several -> the most used, a tie -> exit 2), else System.User. Without --entity and with no single
+specialization that has rows (any module; several -> the most used, a tie -> a NOTE, each role from its own users, exit 2 only for a role with none), else System.User. Without --entity and with no single
 specialization below Administration.Account, each role's user is the entity that role's existing (non-smoke, non
 System.User) users all share (PR-F28: Purchase Request's approvers are MendixSSO.MendixSSOUser and its workflow assigns
 tasks to MendixSSOUser by role, so an Account smoke_approver never got a task); a role whose users are mixed, or that has
@@ -53,7 +53,7 @@ def qlit(s):
     return "'" + s.replace("'", "''") + "'"
 
 
-def sql(pw_hash, roles, entity=None, sole=False, fallback=None):
+def sql(pw_hash, roles, entity=None, sole=False, fallback=None, tie=None):
     """entity None = generic: Administration.Account when that table exists, else System.User, and the SQL itself raises
     when a deeper specialization has rows (so a printed script applied by hand cannot guess either, T3-6)."""
     q = qlit
@@ -61,15 +61,18 @@ def sql(pw_hash, roles, entity=None, sole=False, fallback=None):
     leaf = q(entity) if entity else "NULL"
     fb = q(fallback) if fallback else "'System.User'"   # GF-17: the generic user when there is no Administration.Account
     per_role = "false" if entity else "true"
+    tie_msg = q("; ".join(tie)) if tie else "NULL"   # GF-17: several System.User specializations in equal number
     return f"""-- smoke_users.py: one login per role on a DATABASE COPY; sessions cleared
 -- user entity: {entity or '(generic: Administration.Account if present, else System.User; raises if a deeper specialization has rows)'}
 DO $$
 DECLARE
-  r record; uid bigint; given text := {leaf}; leaf text; sid bigint; n int := 0; has_acc boolean; cur text; tbl text;
+  r record; uid bigint; given text := {leaf}; leaf text; sid bigint; n int := 0; has_acc boolean; tie_ents text := {tie_msg}; cur text; tbl text;
   sup text; chain text[]; t text; deeper text; have text; mine text; nmine int;
   donor bigint; best int; k int; m int; moved int; a record; c record; cols text; vals text; dflt text; cn text;
 BEGIN
+  -- GF-17: has_acc means the Account table exists AND has rows; an empty Account entity is not a user entity to follow
   has_acc := to_regclass('"administration$account"') IS NOT NULL;
+  IF has_acc THEN EXECUTE 'SELECT EXISTS (SELECT 1 FROM "administration$account")' INTO has_acc; END IF;
   FOR r IN SELECT id, name FROM "system$userrole" {role_filter} ORDER BY name LOOP
     n := n + 1;
     leaf := given;
@@ -80,6 +83,9 @@ BEGIN
         JOIN "system$userroles" ur ON ur."system$userid" = u.id
        WHERE ur."system$userroleid" = r.id AND u.name NOT LIKE 'smoke\\_%' AND u.submetaobjectname <> 'System.User';
       IF nmine = 1 THEN leaf := mine; END IF;   -- plain System.User rows (MxAdmin) do not vote; a mixed role stays generic
+    END IF;
+    IF leaf IS NULL AND tie_ents IS NOT NULL THEN
+      RAISE EXCEPTION 'SMOKE-ENTITY-UNRESOLVED: role % has no users of its own and users exist as several System.User specializations in equal number (%): set UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)', r.name, tie_ents;
     END IF;
     IF leaf IS NULL THEN
       leaf := CASE WHEN has_acc THEN 'Administration.Account' ELSE {fb} END;
@@ -290,7 +296,7 @@ def main():
               f"--ledger $W/db-ledger.txt here; --any-db to force)" + (f"; {a.ledger} does not list it" if a.ledger else ""),
               file=sys.stderr); sys.exit(2)
     entity = a.entity
-    fallback = None
+    fallback = None; tie = None
     if entity and not re.match(r"^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$", entity):
         print(f"smoke_users: bad --entity {entity!r} (want Module.Entity)", file=sys.stderr); sys.exit(2)
     pw_hash = bcrypt_hash(a.password)  # after the argument checks: a bad argument is exit 2 also without bcrypt
@@ -316,9 +322,11 @@ def main():
                 # GF-17: no Administration.Account users to follow: the leaf comes from every System.User specialization with rows
                 leaf, lc, why = pick_user_leaf(ents, counts)
                 if why == "tie":
-                    print("smoke_users: AMBIGUOUS: users exist as several System.User specializations in equal number: " + ", ".join(lc) +
-                          "; pick the one the home microflow retrieves: --entity Module.Entity (the pipeline: UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt)",
-                          file=sys.stderr); sys.exit(2)
+                    # ASSUMED (GF-17): stay generic, each role from its own users (PR-F28); the SQL stops (exit 2) only for a role it cannot resolve
+                    tie = lc
+                    print("smoke_users: NOTE users exist as several System.User specializations in equal number: " + ", ".join(lc) +
+                          "; each role's smoke user follows that role's own users; a role with none stops here. To choose the one the home "
+                          "microflow retrieves: UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt (smoke_users.py --entity Module.Entity)", file=sys.stderr)
                 if leaf:
                     fallback = leaf
                     print(f"smoke_users: user entity {leaf} ({'the only' if why == 'only' else 'the most used'} System.User specialization with rows"
@@ -330,12 +338,14 @@ def main():
                 print("smoke_users: user entity Administration.Account if present, else System.User (no deeper specialization has rows)", file=sys.stderr)
     else:
         print(f"smoke_users: user entity {entity} (--entity)", file=sys.stderr)
-    text = sql(pw_hash, [r for r in (a.roles or "").split(",") if r], entity, a.sole_target, fallback)
+    text = sql(pw_hash, [r for r in (a.roles or "").split(",") if r], entity, a.sole_target, fallback, tie)
     if not a.apply:
         print(text); return
     p = subprocess.run(shlex.split(cmd) + ["-v", "ON_ERROR_STOP=1"],
                        input=text, capture_output=True, text=True)
     print(p.stdout + p.stderr)
+    if p.returncode != 0 and "SMOKE-ENTITY-UNRESOLVED:" in p.stderr:
+        sys.exit(2)
     sys.exit(0 if p.returncode == 0 else 1)
 
 

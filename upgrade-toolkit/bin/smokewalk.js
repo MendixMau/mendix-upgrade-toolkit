@@ -190,14 +190,18 @@ function homeErrorFromLog(text) {
   const l = String(text || '').split('\n').filter(x => /(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)/i.test(x));
   return l.length ? l[l.length - 1].trim().slice(0, 300) : null;
 }
-function runtimeLogText(file) {
+// The log only grows: runtimeLogMark() is its line count before a sign-in, runtimeLogText(file, mark) only the lines after it,
+// so an earlier role's error line is never quoted for a later role.
+function runtimeLogAll(file) {
   try {
-    if (file) return require('fs').readFileSync(file, 'utf8').slice(-300000);
+    if (file) return require('fs').readFileSync(file, 'utf8');
     const c = process.env.UPG_RUNTIME_LOG_CMD;
-    if (c) return require('child_process').execSync(c, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 }).slice(-300000);
+    if (c) return require('child_process').execSync('(' + c + ') 2>&1', { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 });   // docker logs writes the app's stderr to stderr
   } catch (e) { /* no log: the plain message */ }
   return '';
 }
+function runtimeLogMark(file) { return runtimeLogAll(file).split('\n').length; }
+function runtimeLogText(file, mark) { return runtimeLogAll(file).split('\n').slice(mark || 0).join('\n').slice(-300000); }
 function loginFailure({ status, url, user, error, logError }) {
   if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
   if (user) return 'home failed for this user: ' + (error || 'the home page did not render (no server error captured)') + ' (session exists, HTTP ' + status + ', on ' + url + ')';
@@ -209,6 +213,7 @@ function loginFailure({ status, url, user, error, logError }) {
 function loginUrl(url, loginPath) { return url + (loginPath || '/login.html'); }
 
 async function login(page, url, user, pass, timeout, loginPath, runtimeLog) {
+  const logMark = runtimeLogMark(runtimeLog);   // GF-17: only log lines written after this sign-in started
   let status = 0, srvErr = null;
   page.on('response', r => {
     if (!r.url().endsWith('/xas/')) return;
@@ -226,7 +231,7 @@ async function login(page, url, user, pass, timeout, loginPath, runtimeLog) {
   } catch (e) {
     const sessUser = await page.evaluate(sessionUser, user).catch(() => null);
     const dlg = sessUser ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
-    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg, logError: status === 200 && !sessUser ? homeErrorFromLog(runtimeLogText(runtimeLog)) : null });
+    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg, logError: status === 200 && !sessUser ? homeErrorFromLog(runtimeLogText(runtimeLog, logMark)) : null });
   }
 }
 
@@ -418,7 +423,7 @@ function apiOnlyHome(plan, s) {
     ? 'API-only role: its home page is the login page ' + s.page + ', no signed-in home to walk' : null;
 }
 
-module.exports = { sessionUser, loginFailure, homeErrorFromLog, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
+module.exports = { sessionUser, loginFailure, homeErrorFromLog, runtimeLogMark, runtimeLogText, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
 if (require.main === module) (async () => {
   const o = args();
   let results;

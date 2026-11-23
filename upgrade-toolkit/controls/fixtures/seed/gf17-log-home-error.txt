@@ -1,3 +1,3 @@
 2026-11-20 10:00:00 INFO - Runtime: started
-2026-11-20 10:01:02 ERROR - MicroflowEngine: An error occurred in microflow Dashboard.Nav_OpenOwnProfile: Boolean member can not be set to null
+2026-11-20 10:01:02 ERROR - MicroflowEngine: An error occurred in microflow Home.Nav_Open: Boolean member can not be set to null
 2026-11-20 10:01:03 INFO - Core: done

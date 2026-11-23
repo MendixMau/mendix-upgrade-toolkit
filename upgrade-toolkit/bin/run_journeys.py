@@ -1197,19 +1197,29 @@ def session_cap_refused(findings_path):
 HOME_ERR_RE = re.compile(r"(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)", re.I)
 
 
-def runtime_log_tail(a):
-    """GF-17: the last 300 KB of the app's runtime log: --runtime-log FILE, else the output of $UPG_RUNTIME_LOG_CMD (the
-    pipeline sets it to `docker logs <app container>` for the app it started). "" when neither answers."""
+def runtime_log_lines(a):
+    """GF-17: the app's runtime log as lines: --runtime-log FILE, else the output of $UPG_RUNTIME_LOG_CMD (the pipeline sets it
+    to `docker logs <app container>` for the app it started). [] when neither answers. The log only grows, so the line count
+    taken before a sign-in (runtime_log_mark) marks where THIS role's lines begin."""
     try:
         if getattr(a, "runtime_log", None):
-            return open(a.runtime_log, errors="replace").read()[-300000:]
+            return open(a.runtime_log, errors="replace").read().splitlines()
         cmd = os.environ.get("UPG_RUNTIME_LOG_CMD")
         if cmd:
             p = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=30)
-            return (p.stdout + p.stderr)[-300000:]
+            return (p.stdout + p.stderr).splitlines()
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
-    return ""
+    return []
+
+
+def runtime_log_mark(a):
+    return len(runtime_log_lines(a))
+
+
+def runtime_log_since(a, mark):
+    """Only the lines written after `mark`: an earlier role's error line is never this role's cause."""
+    return "\n".join(runtime_log_lines(a)[mark:])[-300000:]
 
 
 def login_cause(detail, log_text):
@@ -1673,6 +1683,7 @@ def main():
             # --session-retries times. The retries are written to summary.json (session_retries) and stay visible.
             tries = 0
             while True:
+                log_mark = runtime_log_mark(a)   # GF-17: this attempt's sign-in starts here; earlier lines belong to earlier roles
                 if art.exists():
                     shutil.rmtree(art)
                 if prog:
@@ -1708,7 +1719,7 @@ def main():
             # PR-P4: a login that FAILs after a destructive journey ran on this same database is not a finding about this
             # role: the journey may have deleted its account (identity), its data or the seed. CONTAMINATED, never FAIL
             if login:
-                login = dict(login, detail=login_cause(login.get("detail"), runtime_log_tail(a)))   # GF-17, after the session-cap retries above
+                login = dict(login, detail=login_cause(login.get("detail"), runtime_log_since(a, log_mark)))   # GF-17, after the session-cap retries above
             lword, lverdict, lwhy = login_outcome(login, prior_dirty)
             summary["roles"][key] = {"exit": p.returncode, "user": cred["user"], "login": lword,
                                       "login_detail": login["detail"] if login else ""}
