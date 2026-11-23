@@ -917,6 +917,7 @@ step_fetch() {
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
+    mkdir -p "$WORK/state"; git_app rev-parse HEAD > "$WORK/state/original-rev" 2> /dev/null || rm -f "$WORK/state/original-rev"   # a fresh repo: an older run's hash must not survive
   elif [ "$DRY" != 1 ]; then
     local gi_before; gi_before=$(git_app status --porcelain -- .gitignore)   # FR-1: the person's own .gitignore change, if any, is seen BEFORE we touch it
     ensure_gitignore
@@ -946,7 +947,7 @@ step_fetch() {
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); [ -n "$rev" ] || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); { [ -n "$rev" ] && git_app cat-file -e "$rev^{commit}" 2> /dev/null; } || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
     write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
