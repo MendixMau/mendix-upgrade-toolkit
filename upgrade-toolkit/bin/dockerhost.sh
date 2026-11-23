@@ -32,8 +32,9 @@ done
 BOUNDED=$(dirname "$0")/bounded.sh   # KILL after the bound (a TERM-only stop leaves an attached `docker run` of a container that ignores TERM running)
 probe_img=; probe_note=
 # only an image that reports amd64 is a Rosetta probe: an arm64 postgres:16 runs natively and proves nothing
+# (a hung Docker Desktop must not hang the pipeline start: the inspect and the rm are bounded too)
 for i in eclipse-temurin:21-jdk postgres:16 eclipse-temurin:11-jdk; do
-  [ "$(docker image inspect -f '{{.Architecture}}' "$i" 2> /dev/null)" = amd64 ] && { probe_img=$i; break; }
+  [ "$(bash "$BOUNDED" "${UPG_PROBE_INSPECT_TIMEOUT:-15}" docker image inspect -f '{{.Architecture}}' "$i" 2> /dev/null)" = amd64 ] && { probe_img=$i; break; }
 done
 if [ -z "$probe_img" ]; then
   for m in "" mirror.gcr.io/library/; do   # Docker Hub answers 429 from a shared egress IP: the mirror is the second try
@@ -41,11 +42,11 @@ if [ -z "$probe_img" ]; then
   done
   [ -n "$probe_img" ] || probe_note="dockerhost: no amd64 image to probe with, and alpine:3 could not be pulled (network?): Rosetta could not be checked."
 fi
-probe_name=upg-rosetta-probe-$$; probe_ok=
+probe_name=upg-rosetta-probe-$$-$RANDOM; probe_ok=
 if [ -n "$probe_img" ]; then   # a named container, so a failed or timed-out probe (124, or 137 after the KILL) can remove it: killing the docker CLI does not stop the container
   rc=0; bash "$BOUNDED" "${UPG_PROBE_TIMEOUT:-60}" docker run --rm --name "$probe_name" --platform linux/amd64 --entrypoint sh "$probe_img" -c 'test -e /proc/sys/fs/binfmt_misc/rosetta || grep -q VirtualApple /proc/cpuinfo' > /dev/null 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || probe_ok=1
-  [ "$rc" -eq 0 ] || docker rm -f "$probe_name" > /dev/null 2>&1 || true
+  [ "$rc" -eq 0 ] || bash "$BOUNDED" "${UPG_PROBE_INSPECT_TIMEOUT:-15}" docker rm -f "$probe_name" > /dev/null 2>&1 || true
 fi
 if [ -n "$probe_ok" ]; then
   echo "${DOCKER_HOST:-}"; exit 0

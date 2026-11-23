@@ -4283,7 +4283,8 @@ printf '#!/bin/sh\ncase "$1" in -sm) echo Darwin arm64;; -m) echo arm64;; *) ech
 cat > $DHB/docker <<'DOCK'
 #!/bin/sh
 case "$1 $2" in
-  "image inspect") [ "${FAKE_IMG:-0}" = 0 ] || exit 1; echo "${FAKE_ARCH:-amd64}"; echo "$3 $4 $5" >> "$HOME/inspect.log"; exit 0;;
+  "image inspect") [ "${FAKE_INSPECT:-}" != hang ] || { trap '' TERM; exec sleep 30; }
+                   [ "${FAKE_IMG:-0}" = 0 ] || exit 1; echo "${FAKE_ARCH:-amd64}"; echo "$3 $4 $5" >> "$HOME/inspect.log"; exit 0;;
   "context inspect") echo unix:///nonexistent/docker.sock;;
   "context show") echo desktop-linux;;
   pull*) echo "$*" >> "$HOME/pull.log"; exit ${FAKE_PULL:-0};;
@@ -4302,7 +4303,7 @@ ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' '
 rm -rf $SC/dhfresh; mkdir -p $SC/dhfresh
 ctl dockerhost-gf6-fresh-mac-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhfresh FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
 ctl dockerhost-gf6-fresh-mac-pulled-amd64-probe-pass 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dhfresh/pull.log
-ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
+ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
 rm -rf $SC/dhq; mkdir -p $SC/dhq
 ctl dockerhost-gf6-fresh-mac-qemu-catch 1 'no running container VM with Rosetta' '!could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhq FAKE_IMG=1 FAKE_RUN=1 bash $B/dockerhost.sh
 # no image and the pull fails: no probe is guessed, the refusal says why
@@ -4310,11 +4311,16 @@ ctl dockerhost-gf6-no-image-pull-fails-no-probe-catch 1 'no running container VM
 # a probe container that hangs (amd64 under qemu) is refused within the bound, not waited for
 # the hung probe (a container that ignores TERM, as the field one does) is stopped within the bound and its named container removed
 ctl dockerhost-gf6-probe-hang-bounded-catch 0 'no running container VM with Rosetta' '^done$' -- sh -c "rm -f $SC/dhhome/rm.log; env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo done"
-ctl dockerhost-gf6-probe-hang-removes-container-catch 0 '^rm -f upg-rosetta-probe-[0-9]+$' -- cat $SC/dhhome/rm.log
-ctl dockerhost-gf6-probe-named-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 ' -- head -1 $SC/dhhome/run.log
+# the bound is a time bound: a probe that ignores TERM is KILLed 2 s after it (took= is whole seconds, 1 + 2 expected, 30 if the KILL is missing)
+ctl dockerhost-gf6-probe-hang-elapsed-bounded-catch 0 '^took=[0-9]$' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh > /dev/null 2>&1; echo took=\$((\$(date +%s) - t0))"
+# a hung `docker image inspect` (Docker Desktop wedged) is bounded too: the pipeline start must not hang on it
+rm -rf $SC/dhhang; mkdir -p $SC/dhhang
+ctl dockerhost-gf6-inspect-hang-bounded-catch 0 '^took=[0-9]$' 'no running container VM with Rosetta' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhang FAKE_INSPECT=hang FAKE_RUN=1 UPG_PROBE_INSPECT_TIMEOUT=1 UPG_PROBE_PULL_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo took=\$((\$(date +%s) - t0))"
+ctl dockerhost-gf6-probe-hang-removes-container-catch 0 '^rm -f upg-rosetta-probe-[0-9]+-[0-9]+$' -- cat $SC/dhhome/rm.log
+ctl dockerhost-gf6-probe-named-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 ' -- head -1 $SC/dhhome/run.log
 # a local image is a probe only when it is amd64: an arm64 postgres:16 must not be chosen, alpine is pulled instead
 rm -rf $SC/dharm; mkdir -p $SC/dharm
-ctl dockerhost-gf6-arm64-local-image-not-probe-catch 0 '^run --rm --name upg-rosetta-probe-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- sh -c "env PATH=$DHB:$NR HOME=$SC/dharm FAKE_ARCH=arm64 FAKE_RUN=0 bash $B/dockerhost.sh > /dev/null 2>&1; cat $SC/dharm/run.log"
+ctl dockerhost-gf6-arm64-local-image-not-probe-catch 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- sh -c "env PATH=$DHB:$NR HOME=$SC/dharm FAKE_ARCH=arm64 FAKE_RUN=0 bash $B/dockerhost.sh > /dev/null 2>&1; cat $SC/dharm/run.log"
 ctl dockerhost-gf6-arm64-local-image-pulls-amd64-catch 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dharm/pull.log
 ctl dockerhost-gf7-context-back-catch 1 'colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60' 'docker context use desktop-linux' 'export DOCKER_HOST=unix://' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
 ctl dockerhost-not-arm-mac-quiet-pass 0 '^$' -- env -u DOCKER_HOST PATH=$NR HOME=$SC/dhhome bash $B/dockerhost.sh
@@ -10116,6 +10122,10 @@ for bm in timeout perl watchdog; do
   ctl gf34-bounded-hung-$bm-catch 0 '^rc=124$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 1 sleep 20; echo rc=\$?"
   ctl gf34-bounded-fast-$bm-pass 0 '^rc=3$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 5 sh -c 'exit 3'; echo rc=\$?"
 done
+# a command that ignores TERM needs the KILL: timeout mode still says 124 (callers check only 124), not 137
+ctl gf34-bounded-term-ignored-timeout-catch 0 '^rc=124$' -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
+ctl gf34-bounded-term-ignored-perl-catch 0 '^rc=124$' -- env BOUNDED_FORCE=perl bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
+ctl gf34-bounded-real-137-pass 0 '^rc=137$' -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 5 sh -c 'exit 137'; echo rc=\$?"
 # the pipeline's preflight (cut out of the script): a docker that never answers stops the run with the cause named, after a line that says
 # what it waits on
 GFD=$T/gfdocker; mkdir -p $GFD; printf '#!/bin/sh\nsleep 8\n' > $GFD/docker; chmod +x $GFD/docker
