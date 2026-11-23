@@ -3093,23 +3093,31 @@ thapp ownstep $TH/vars-same.scss
 thapp owntk $TH/vars-same.scss
 (cd $TH/owntk && echo '$a: 2;' >> themesource/administration/web/_variables.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)" -m "Changed-By: toolkit" \
   && echo 'export const a = 3;' >> javascriptsource/administration/actions/util.js && git -c user.email=c@c -c user.name=ctl commit -qam "repair: restore the module's script" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: repair x')")
-ctl themefiles-authored-toolkit-trailer-pass 0 '^no file of Administration has an own commit as its newest' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/owntk Administration
-ctl themefiles-authored-step-only-pass 0 '^no file of Administration has an own commit as its newest' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/ownstep Administration
+ctl themefiles-authored-toolkit-trailer-pass 3 '^no file of Administration has an own commit as its newest, but [0-9]+ of [0-9]+ files were last committed by the first commit or a non-install toolkit commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/owntk Administration
+ctl themefiles-authored-step-only-unproven-catch 3 '^no file of Administration has an own commit as its newest, but [0-9]+ of [0-9]+ files were last committed by the first commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $TH/ownstep Administration
 ctl stepupdate-files-authored-edited-catch 2 'FILES-EDITED themesource/administration/web/_part3\.scss \(newest change is the app.s own commit' 'own theme/JavaScript files|app.s own commits changed' 'STOP: update of Administration refused: its files are the app.s own' '!--force-ui' '!committed [0-9a-f]{7}' -- env UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/own $S/own.plan"
 rm -rf $S/own2; cp -R $TH/own $S/own2; cp $TH/own.plan $S/own2.plan
 ctl stepupdate-files-authored-edited-unattended-catch 1 'KEPT: Administration .*own theme/javascript files \(git authorship\)' '!committed [0-9a-f]{7}' '!--force-ui' -- env UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/own2 $S/own2.plan --unattended"
 thapp skel $TH/vars-same.scss; cp $TH/skel.plan $S/skel.plan
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/skel/themesource/administration/web/_part$i.scss; done
 (cd $TH/skel && git add -A . && git -c user.email=c@c -c user.name=ctl commit -q --amend --no-edit)
+# skelroot: the pipeline's shape for an app that had no git: ONE first commit holding everything as delivered (own SCSS too)
+rm -rf $S/skelroot; cp -R $TH/skel $S/skelroot; cp $TH/skel.plan $S/skelroot.plan
+# skel: the same files, but each one last written by a real step: install commit (the toolkit installed them)
+(cd $TH/skel && for f in $(git ls-files themesource javascriptsource); do echo "// installed" >> $f; done && git -c user.email=c@c -c user.name=ctl commit -qam "step: Administration 4.1.0 (stepupdate, content 23513)")
 rm -rf $S/skel; cp -R $TH/skel $S/skel
-# review of GF-55: with every file tracked and none of them the app's own (git proved it: authored exit 0) a big drop is a package
-# restructure, not a dead end: no FILES-DROP stop. Only when git could not say (files untracked, authored exit 2) does the backstop
-# stop, and --accept-drop <Module> overrides it
+ctl themefiles-authored-all-step-installed-pass 0 '^no file of Administration has an own commit as its newest \([0-9]+ files, all last installed by a step: commit\)' '!FILES-EDITED' '!git cannot show' -- python3 $B/themefiles.py authored $TH/skel Administration
+ctl themefiles-authored-root-commit-only-catch 3 'files were last committed by the first commit or a non-install toolkit commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skelroot Administration
+# review of GF-55: with every file tracked and each one's newest commit a step: install commit (git proved the toolkit put them there:
+# authored exit 0) a big drop is a package restructure, not a dead end: no FILES-DROP stop. When git could not prove that (files
+# untracked, authored exit 2; or the newest commit is the pipeline's first "original" commit or a replay commit, authored exit 3)
+# the backstop stops, and --accept-drop <Module> overrides it
 ctl stepupdate-files-drop-git-clean-restructure-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skel $S/skel.plan --accept-unsaved Administration"
 thapp sku $TH/vars-same.scss; cp $TH/sku.plan $S/sku.plan
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '$v%s: 1;\n' $i > $TH/sku/themesource/administration/web/_part$i.scss; done
 (cd $TH/sku && git rm -rq --cached themesource javascriptsource && git -c user.email=c@c -c user.name=ctl commit -qm "untrack the module files")
 rm -rf $S/sku $S/sku2; cp -R $TH/sku $S/sku; cp -R $TH/sku $S/sku2
+ctl stepupdate-files-drop-root-commit-only-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'rerun with --accept-drop Administration' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/skelroot $S/skelroot.plan --accept-unsaved Administration"
 ctl stepupdate-files-drop-not-accepted-catch 2 'FILES-DROP: Administration had [0-9]+ theme/JavaScript file\(s\) before the update and has [0-9] after it' 'STOP: Administration went from [0-9]+ to [0-9] files' '--accept-unsaved does not cover this' 'git could not show whether these files are the app.s own' 'rerun with --accept-drop Administration' '!committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku $S/sku.plan --accept-unsaved Administration"
 ctl stepupdate-files-drop-accept-drop-pass 0 '!FILES-DROP' 'accepted \(--accept-unsaved Administration\)' 'committed [0-9a-f]{7}' -- env FAKE_DROP=1 UPG_CACHE_TH=$TH/empty bash -c "$(declare -f thstep); thstep bash $B/stepupdate.sh $S/sku2 $S/sku.plan --accept-unsaved Administration --accept-drop Administration"
 # GF-37: a module whose only Java "edit" is a package file the app deleted holds no user code: a FILES edit the update may restore

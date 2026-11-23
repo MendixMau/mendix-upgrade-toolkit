@@ -332,6 +332,7 @@ while read -r cid ver mod rest; do
            # GF-55: neither package nor history could prove the files; git still shows WHO changed them last. A file whose
            # newest commit is the app's own (not a "step:" commit, not the first commit) is an edit, not "unknown"
            python3 "$bin/themefiles.py" authored "$app" "$mod" > "$st/step$n-$mod.authored" 2>&1; arc=$?
+           [ $arc = 3 ] && sed 's/^/   /' "$st/step$n-$mod.authored"
            if [ $arc = 1 ]; then
              fstate=edited; authored=1; echo "[]" > "$st/step$n-$mod.files.json"
              { echo "(by git authorship, the package could not be compared)"; cat "$st/step$n-$mod.authored"; } > "$st/step$n-$mod.files"
@@ -611,8 +612,9 @@ PY
           # --accept-unsaved does not cover it (a field run accepted it and got a 4-file skeleton for 35 own SCSS files)
           nbefore=$(find "$st/saved/$mod" -type f 2>/dev/null | wc -l | tr -d ' ')
           nafter=$(python3 "$bin/themefiles.py" count "$app" "$mod" 2> /dev/null || echo "$nbefore")
-          # git has no own commit to lose (authored said unedited, arc 0): a real package restructure, not a dead end. The backstop
-          # applies only when git could not say (arc 2) and --accept-drop <Module> has not been given (ASSUMED: half and 8 files)
+          # git proved every file was last installed by a step: commit (authored arc 0): a real package restructure, not a dead end.
+          # The backstop applies whenever git could not prove that (arc 2 unknown, arc 3 no own commit but only the first/replay
+          # commit behind the files) and --accept-drop <Module> has not been given (ASSUMED: half and 8 files)
           if [ "$nbefore" -ge 8 ] && [ $((nafter * 2)) -le "$nbefore" ] && [ "$arc" != 0 ] && [ -z "$(echo "$acceptdrop" | grep ",$mod,")" ]; then
             echo "   FILES-DROP: $mod had $nbefore theme/JavaScript file(s) before the update and has $nafter after it: that is own work lost, not a package refresh"
             keep "$mod" "FILES-DROP: the update cut $mod's files from $nbefore to $nafter (unproven, treated as edited)" && continue

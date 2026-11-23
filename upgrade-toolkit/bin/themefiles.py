@@ -386,7 +386,9 @@ STEPSUBJ = re.compile(r"^step:")
 
 
 def authored(app, mod):
-    """-> (status, lines): 'edited' (an own commit is the newest of some file) | 'unedited' | 'unknown' (git cannot say)."""
+    """-> (status, lines): 'edited' (an own commit is the newest of some file) | 'unedited' (PROVEN: every file's newest commit is a
+    "step:" install commit, the toolkit put it there) | 'unproven' (no own commit, but some file's newest is the first commit or a
+    replay/repair commit: git cannot tell the app's own work from package files there) | 'unknown' (git cannot say)."""
     try:
         if subprocess.run(["git", "-C", app, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode != 0:
             raise Unknown("not a git work tree")
@@ -409,7 +411,13 @@ def authored(app, mod):
         own = sorted(f for f, (sha, subj) in last.items() if sha not in first and sha not in toolkit and not STEPSUBJ.match(subj))
         if own:
             return "edited", [f"FILES-EDITED {f} (newest change is the app's own commit {last[f][0][:7]}, not a step)" for f in own]
-        return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files)"]
+        # the pipeline's own first commit ("original": everything as delivered, own SCSS included) and replay: commits (the app's
+        # own theme patches re-applied) are not own commits, but they prove nothing either: only a step: install commit does
+        unproven = sorted(f for f in files if not (f in last and STEPSUBJ.match(last[f][1])))
+        if unproven:
+            return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(unproven)} of {len(files)} files were last "
+                                f"committed by the first commit or a non-install toolkit commit (e.g. {unproven[0]}): git cannot show they are not the app's own"]
+        return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files, all last installed by a step: commit)"]
     except Unknown as e:
         return "unknown", [f"FILES-UNKNOWN {mod}: {e}"]
 
@@ -441,11 +449,11 @@ def main():
         print("\n".join(lines))
         if o.json:
             json.dump(rows, open(o.json, "w"), indent=1)
-        sys.exit({"unedited": 0, "edited": 1, "unknown": 2}[status])
+        sys.exit({"unedited": 0, "edited": 1, "unknown": 2, "unproven": 3}[status])
     if len(a) == 3 and a[0] == "authored":
         status, lines = authored(a[1], a[2])
         print("\n".join(lines))
-        sys.exit({"unedited": 0, "edited": 1, "unknown": 2}[status])
+        sys.exit({"unedited": 0, "edited": 1, "unknown": 2, "unproven": 3}[status])
     if len(a) == 2 and a[0] == "javalogic":
         print(javalogic(a[1])); sys.exit(0)
     if len(a) == 3 and a[0] == "count":
