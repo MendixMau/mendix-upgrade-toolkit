@@ -51,6 +51,15 @@
 # Hidden options for rung 2 (set by this script): --db NAME --old-mda PATH --seed-from DB
 set -Eeuo pipefail
 
+# GF-8 (a field run): macOS ships bash 3.2, where `"${arr[@]}"` of an empty array under `set -u` is an unbound-variable error and
+# the run died mid-triage. Refuse before anything runs. UPG_ASSUME_BASH=M.N stands in for the running version (controls only).
+_bv=${UPG_ASSUME_BASH:-${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}}
+if [ "${_bv%%.*}" -lt 4 ] || { [ "${_bv%%.*}" = 4 ] && [ "${_bv#*.}" -lt 4 ]; }; then
+  echo "upgrade-pipeline.sh: bash $_bv is too old (macOS ships 3.2; the pipeline needs bash 4.4 or newer). Install it with: brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\" (add that line to ~/.zshrc), open a new terminal and check that 'bash --version' says 5.x" >&2
+  exit 3
+fi
+unset _bv
+
 ARGS_ORIG=("$@")
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 TK="$(cd "$(dirname "$SELF")/../.." && pwd)"
@@ -704,6 +713,8 @@ cleanup() {
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
   feedback_finish "$rc" "$st" || true
+  # no `return "$rc"` here: under set -E a non-zero return from the EXIT trap fires the ERR trap and turns every stop into exit 4.
+  # bash 4.4+ (refused below that, GF-8) keeps the run's exit status itself.
 }
 trap cleanup EXIT
 
@@ -850,7 +861,14 @@ preflight() {
   [ "$ONLY" != propose ] || toolfree=1
   for t in docker zsh git python3 node; do [ "$toolfree" = 1 ] && [ "$t" = docker ] && continue; need_tool "$t"; done
   [ -z "$APP_ZIP" ] || need_tool unzip
-  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then docker info > /dev/null 2>&1 || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }; fi
+  # GF-34: a hung `docker info` (a Docker CLI plugin that never answers) stalled a run 22 minutes with an empty log. Say what is waited on,
+  # bound the probe (UPG_DOCKER_PROBE_SECS, default 30), and name the likely cause when it times out.
+  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then
+    say "waiting on: docker info (at most ${UPG_DOCKER_PROBE_SECS:-30} s)"
+    local drc=0; bash "$B/bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info > /dev/null 2>&1 || drc=$?
+    [ "$drc" != 124 ] || { echo "upgrade-pipeline.sh: 'docker info' did not answer in ${UPG_DOCKER_PROBE_SECS:-30} s: the docker CLI hangs. A Docker CLI plugin is the usual cause: try DOCKER_CONFIG=<a folder without cli-plugins> (mkdir -p ~/.docker-bare && DOCKER_CONFIG=~/.docker-bare), or restart Docker Desktop, then rerun" >&2; exit 3; }
+    [ "$drc" = 0 ] || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }
+  fi
   [ "$toolfree" = 0 ] || return 0
   need_path "$UPG_TOOLS/mxbuild-$SOURCE" "source mxbuild toolset"
   need_path "$UPG_TOOLS/mxbuild-$TARGET" "target mxbuild toolset"
@@ -1214,9 +1232,18 @@ modcase_fix() { # modcase_fix BUILD_LOG
 
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.
 # Scripts: heavy-lock.sh + mx9/mx10.sh mxbuild, runapp.py, seed_pg.py, snapshot.py, diff.py
+ports_gate() { # ports_gate NAME: GF-14: both host ports (8080+PORT_OFF app, 8090+PORT_OFF admin) free before a build or a start that needs them
+  [ "$DRY" != 1 ] || return 0
+  local rc=0
+  runenv
+  x env "${RUNENV[@]}" python3 "$B/runapp.py" ports "$1" || rc=$?
+  infra_rc "$rc" "$1"
+}
 step_baseline() {
   local old rc=0 base probe keep line p code
   old=$(mda_old)
+  # GF-14: a taken port used to show only after the 190 s build of the old app; check it first (the run's own old app is not a holder)
+  if [ -z "$OLD_MDA" ] && ! db_exists "$X_FROZEN"; then ports_gate old; fi
   # DV-6: idempotent again here, because a run resumed (--from/--only baseline) on an app whose run start predates the exclude never passed it
   x python3 "$B/buildout.py" exclude "$APP" || note "buildout.py exclude failed: .classpath, .project, *.launch may show as dirty (DV-6)"
   if [ -z "$OLD_MDA" ] && [ ! -f "$old" ]; then
