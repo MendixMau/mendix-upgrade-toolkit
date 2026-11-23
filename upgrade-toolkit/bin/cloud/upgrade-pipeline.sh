@@ -741,6 +741,15 @@ write_original() { # write_original REV
   [ ! -d "$tmp/mprcontents" ] || mv "$tmp/mprcontents" "$WORK/mprcontents"
   mv -f "$tmp/$base" "$WORK/original.mpr"; rm -rf "$tmp"
 }
+# GF-9: .git is a FILE in a git worktree, so `[ -d .git ]` was false there and the pipeline ran git init. The app has its own git when
+# its repo's top level is the app folder itself (a plain subfolder of a bigger repo still gets its own, as before).
+app_has_own_git() {
+  local top; top=$(git -C "$APP" rev-parse --show-toplevel 2> /dev/null) || return 1
+  [ "$(cd "$top" && pwd -P)" = "$(cd "$APP" && pwd -P)" ]
+}
+# GF-28 / GF-33: "original" is the newest commit the pipeline itself made with subject `original` or `original: ...`, never the repo's
+# first commit (an app with history: that is years old). Prints nothing when there is none.
+original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} $0 == "original" || $0 ~ /^original: / {print h; exit}'; }
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -902,7 +911,7 @@ step_fetch() {
   fi
   [ "$DRY" = 1 ] || printf '%s\n' "$APP" > "$WORK/state/app-dir"
   resolve_app
-  if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
+  if [ "$DRY" != 1 ] && ! app_has_own_git; then
     must git -C "$APP" init -q
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
@@ -922,10 +931,15 @@ step_fetch() {
     fi
     if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
+    # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
+    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark) or a rerun (one exists).
+    if [ -z "$OLD_MDA" ] && [ -z "$(original_rev)" ]; then
+      git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+    fi
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(git_app rev-list --max-parents=0 HEAD | tail -n 1); fi
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
     write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
