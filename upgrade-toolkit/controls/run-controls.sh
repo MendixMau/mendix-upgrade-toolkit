@@ -5180,6 +5180,33 @@ ctl release-impact-orphan-returns-pass 0 '\| 4 \| 11\.6\.8 \| breaking .*\| hand
 sed -E 's/^(\| 1 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 handled: evidence\/dotnet.md |/; s/^(\| 3 \|.*\|) not relevant \(auto\)[^|]*\|$/\1 not relevant: own words |/' $RI/n19.md > $RI/n19w.md
 ctl release-impact-would-auto-catch 0 'auto would also decide 2 rows that carry a human entry; 1 of them differ in kind \(auto says not relevant, the person says handled\)' 'row 1 \(11\.6\.5\): human `handled: evidence/dotnet\.md` vs not relevant \(auto\): dotnet-ide-host' 'This run: 8 auto, 2 kept from a person, 2 open\.' '!row 3 \(11\.6\.7\): human' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19w.md; cat $RI/n19w.md"
 ctl release-impact-would-auto-quiet-pass 0 '!auto would also decide' -- sh -c "$RIN --auto --facts $RF/facts-n19.json --out $RI/n19q.md"
+# Cold test (fresh install): no company brain, so release_impact.py found no tables, wrote no release-impact.md and the
+# cockpit asked the person to decide. The toolkit ships a starter brain (data/starter-brain, the public Mendix release
+# notes); a company brain wins where both have a table, the starter fills what it lacks. A table the starter lacks is a
+# "Toolkit gaps" line, never a row. Open rows get one recommended action each.
+RS="env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py"
+mkdir -p $RI/nohome
+ctl reln-starter-brain-pass 0 '^brain: the toolkit.s starter brain .*/data/starter-brain \(public Mendix release notes; no company brain configured\)' 'Studio Pro [1-9][0-9]* rows' '!no brain version tables' -- $RS --from 9.24.2 --to 10.24.16 --out $RI/st.md
+ctl reln-starter-brain-report-pass 0 '^Brain: the toolkit.s starter brain' '\| 10\.21\.0 \| removal \| runtime \| Removed support for Java 11 and Java 17' '^## Open rows: what to do \([1-9]' -- cat $RI/st.md
+ctl brainpath-starter-fallback-pass 0 '/data/starter-brain$' 'starter brain shipped with the toolkit .*no company brain: no folder under ~/Mendix' -- sh -c "HOME=$RI/nohome UPG_BRAIN= python3 $B/brainpath.py 2>&1"
+ctl brainpath-company-only-catch 1 'no folder under ~/Mendix' '!starter-brain' -- sh -c "HOME=$RI/nohome UPG_BRAIN= python3 $B/brainpath.py --company 2>&1"
+printf 'NoSuchModuleQq 1.0.0->2.0.0\n' > $RI/st-plan.txt
+ctl reln-starter-gap-line-catch 2 '^TOOLKIT GAP NoSuchModuleQq: no brain file' '!^UNKNOWN' -- $RS --from 10.24.16 --to 10.24.16 --plan $RI/st-plan.txt --out $RI/stg.md
+ctl reln-starter-gap-not-a-row-pass 0 '^## Toolkit gaps \(1\)' '^- NoSuchModuleQq: no brain file' 'Not a decision for you' '!^## Not covered' '!\| NoSuchModuleQq \|' -- cat $RI/stg.md
+ctl reln-starter-gap-check-pass 0 '^toolkit gaps: 1 ' '0 of 0 rows handled' -- python3 $B/release_impact.py --check $RI/stg.md
+# a company brain via UPG_BRAIN (fixtures/brain-auto: newest 10.x row 10.8.0) on top of the starter: its rows win, the
+# starter fills the versions above 10.8.0, the header says both. --brain DIR still reads DIR alone (to-above-table-catch).
+ctl reln-company-over-starter-pass 0 '^brain: company brain .*brain-auto/baseline/versions; the starter brain filled Studio Pro 10 above 10\.8\.0' '!not in brain' -- env HOME=$RI/nohome UPG_BRAIN=$RA python3 $B/release_impact.py --from 10.7.0 --to 10.9.0 --out $RI/sto.md
+ctl reln-company-over-starter-rows-pass 0 '\| 10\.8\.0 \|' '\| 10\.9\.[0-9]+ \|.*docs\.mendix\.com/releasenotes/studio-pro/10\.9' -- cat $RI/sto.md
+# relevance: a java-actions deprecation whose symbols the app never names closes itself (cold test: 26 rows stayed open);
+# one the app uses stays open, with a recommended action
+mkdir -p $RI/jd-none/javasource/shop/actions $RI/jd-uses/javasource/shop/actions
+printf 'package shop.actions;\npublic class A { void run() { Core.execute(null, "x"); } }\n' > $RI/jd-none/javasource/shop/actions/A.java
+printf 'package shop.actions;\npublic class A { void run() { Core.executeVoid(null, "x"); } }\n' > $RI/jd-uses/javasource/shop/actions/A.java
+for v in none uses; do printf '{"project_dir": "%s", "own_java": 1}\n' $RI/jd-$v > $RI/jd-$v.json; done
+ctl reln-java-deprecation-absent-pass 1 '\| 10\.6\.0 \| deprecation \| java-actions \| Deprecated Core\.executeVoid.*not relevant \(auto\): java-symbol-absent: executeVoid: 0 hits' -- sh -c "python3 $B/release_impact.py --brain $RA --from 9.24.2 --to 10.8.0 --auto --facts $RI/jd-none.json --out $RI/jd-none.md >/dev/null; cat $RI/jd-none.md; python3 $B/release_impact.py --check $RI/jd-none.md"
+ctl reln-java-deprecation-used-catch 1 '^OPEN Studio Pro row [0-9]+: 10\.6\.0 deprecation Deprecated Core\.executeVoid' '!executeVoid.*java-symbol-absent' -- sh -c "python3 $B/release_impact.py --brain $RA --from 9.24.2 --to 10.8.0 --auto --facts $RI/jd-uses.json --out $RI/jd-uses.md >/dev/null; python3 $B/release_impact.py --check $RI/jd-uses.md"
+ctl reln-open-row-recommendation-pass 0 '^- row [0-9]+ \(10\.6\.0\): nothing to do for this upgrade \(it still works on the target\); plan to replace Core\.executeVoid' '!^- row [0-9]+ \(9\.24\.5\)' -- cat $RI/jd-uses.md
 # Cold test (owner's rule: only real decisions reach a person; 190 open rows, each with a recommendation, still drowned him).
 # --evidence: a row stays open only when the app's own modules use what it names (evidence cited); environment rows are one
 # go-live checklist (the run's database as the TEST environment); the rest close as not used, with what was searched;
@@ -5196,10 +5223,6 @@ ctl reln-ev-deprecated-used-pass 0 '^\| 6 \| 10\.1\.0 .*\| not relevant \(auto\)
 ctl reln-ev-check-later-pass 1 '^go-live environment checklist: 2 rows' '^auto: 3, human: 0, open: 1$' '!^OPEN .*MariaDB' '!^OPEN .*Java 21' -- python3 $B/release_impact.py --check $RI/ev.md
 ctl reln-ev-cockpit-later-lane-pass 0 '^At deploy \| Go-live environment checklist \(2 items\) \| you / customer$' '!Your call' -- sh -c "mkdir -p $RI/ev-work && cp $RI/ev.md $RI/ev-work/release-impact.md && python3 -c \"import sys; sys.path.insert(0, '$B'); import cockpitmatrix as c; M = c.build('$RI/ev-work', {'items': [], 'sub': ''}); [print(o['group'] + ' | ' + o['text'] + ' | ' + o['owner']) for o in M['band']['open']['items']]\""
 ctl reln-ev-pipeline-pass 0 'riauto=\(--auto --evidence --facts-from-mpr' -- grep -n 'riauto=(' $B/cloud/upgrade-pipeline.sh
-# no brain at all: --evidence says so exactly as a run without it does (exit 2, no file written), never closing a row on nothing
-mkdir -p $RI/nohome
-ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
-ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
 BRV=${UPG_BRAIN:-$HOME/Mendix/<company>-brain}
 if [ -f $BRV/baseline/versions/studio-pro-upgrade-10.md ] && [ -f $BRV/baseline/versions/modules/task-queue-helpers.md ]; then
   # the real brain, read only. The 3.1.0 jump has no ShowSystemQueuesInCharts row in the brain (a gap, FEEDBACK V31-RI),
@@ -7688,14 +7711,14 @@ ctl gate-changes-no-repo-pass 0 'Overall: \*\*PASS\*\*' '!Changes:' -- gcase chn
 # DV-3: which brain was found is one line from brainpath.py --describe, at triage and in the gate summary
 BPH=$T/bph; mkdir -p $BPH/empty
 BPD() { env -u UPG_BRAIN HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix
-ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
+ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none\) - set UPG_BRAIN=<path> - using the starter brain .*/data/starter-brain$' -- BPD python3 $B/brainpath.py --describe
 ctl brainpath-describe-upg-brain-pass 0 "^brain: $RB \(from UPG_BRAIN\)\$" '!none found' -- env HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-describe-bad-upg-brain-catch 0 '^brain: none found \(looked: UPG_BRAIN /nowhere/x has no baseline/versions tables' -- env HOME="$BPH/empty" UPG_BRAIN=/nowhere/x python3 $B/brainpath.py --describe
 mkdir -p $BPH/h2/.config/upgrade-toolkit; echo "UPG_BRAIN=$RB" > $BPH/h2/.config/upgrade-toolkit/local.env
 ctl brainpath-describe-local-env-pass 0 "^brain: $RB \(from local\.env\)\$" -- env -u UPG_BRAIN HOME="$BPH/h2" python3 $B/brainpath.py --describe
 mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
-ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
+ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN HOME=$BPH/empty python3 $B/brainpath.py --company 2>/dev/null"
 gbr() ( export HOME="$BPH/empty"; unset UPG_BRAIN; gcase "$@" )
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn

@@ -1131,7 +1131,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     note "release_impact.py --auto exit $rc (facts not counted from $MPR): rows written without auto, see $WORK/release-impact.out"
     rc=0; xo "$WORK/release-impact.out" python3 "$B/release_impact.py" "${riargs[@]}" || rc=$?
   fi
-  [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a module is UNKNOWN to the brain: fill its row by hand), see $WORK/release-impact.out"
+  [ "$rc" = 0 ] || note "release_impact.py exit $rc (2 = a table is missing: a module or version the brain has no notes for, listed in release-impact.md), see $WORK/release-impact.out"
   dojo_report
   replacement_report
   # judgment: the plan

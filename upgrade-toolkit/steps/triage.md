@@ -5,9 +5,10 @@ Goal: know the version path, the module plan and the traps before anything chang
 Paths: `B=$TK/bin` (`TK` = the folder that holds SKILL.md, see there),
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
-with version tables; the scripts find it the same way).
+with version tables, else the starter brain the toolkit ships in `data/starter-brain`: the public Mendix release-note tables;
+the scripts find it the same way, and release_impact.py fills what a company brain lacks from the starter).
 Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <path> (from ...)` or
-`brain: none found (looked: ...)`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
+`brain: none found (looked: ...) - using the starter brain <path>`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).
