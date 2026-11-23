@@ -13,7 +13,7 @@
 // Usage:
 //   node smokewalk.js --plan plan.json --url http://localhost:8380 --user Administrator=MxAdmin:pass \
 //        [--user Role=name:pass ...] [--microflows] [--out results.json] [--compare old-results.json ...] [--shots DIR]
-//        [--repeat N] [--login-path /login-without-sso.html]   (T5: where the walk signs in, default /login.html, as run_journeys.py)
+//        [--repeat N] [--runtime-log FILE] [--login-path /login-without-sso.html]   (T5: where the walk signs in, default /login.html, as run_journeys.py)
 //   node smokewalk.js --rejudge new.json [--rejudge new2.json ...] --compare old.json [--compare ...]   (no browser: judge
 //        again; several --rejudge files are pooled as the walks of one new run)
 // T6R-9: one walk is a coin flip for an intermittent client error (T6R DepartmentManager Settings, React #409 "attempt to
@@ -70,6 +70,7 @@ function args() {
     else if (k === '--url') o.url = a[++i].replace(/\/$/, '');
     else if (k === '--user') { const [r, cred] = a[++i].split(/=(.*)/s); const j = cred.indexOf(':'); o.users[r] = [cred.slice(0, j), cred.slice(j + 1)]; }
     else if (k === '--microflows') o.microflows = true;
+    else if (k === '--runtime-log') o.runtimeLog = a[++i];
     else if (k === '--out') o.out = a[++i];
     else if (k === '--compare') (o.compare = o.compare || []).push(a[++i]);
     else if (k === '--repeat') o.repeat = +a[++i];
@@ -183,15 +184,31 @@ function sessionUser(want) {
 }
 // The reason a login did not finish. A session that exists means the credentials worked and the home page errored: say so,
 // with the server's or the dialog's own text when there is one (it was "login failed (HTTP 200, still on login3.html)").
-function loginFailure({ status, url, user, error }) {
+// GF-17: the last error line of the runtime log that names a microflow or an exception, or null. The log is --runtime-log FILE,
+// else the output of $UPG_RUNTIME_LOG_CMD (the pipeline: docker logs <app container>).
+function homeErrorFromLog(text) {
+  const l = String(text || '').split('\n').filter(x => /(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)/i.test(x));
+  return l.length ? l[l.length - 1].trim().slice(0, 300) : null;
+}
+function runtimeLogText(file) {
+  try {
+    if (file) return require('fs').readFileSync(file, 'utf8').slice(-300000);
+    const c = process.env.UPG_RUNTIME_LOG_CMD;
+    if (c) return require('child_process').execSync(c, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 }).slice(-300000);
+  } catch (e) { /* no log: the plain message */ }
+  return '';
+}
+function loginFailure({ status, url, user, error, logError }) {
   if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
   if (user) return 'home failed for this user: ' + (error || 'the home page did not render (no server error captured)') + ' (session exists, HTTP ' + status + ', on ' + url + ')';
+  if (logError) return 'login failed (HTTP ' + status + ', back on ' + url + '): the sign-in itself worked and the home page then failed; the runtime log says: "' + logError +
+    '" (check the entity the smoke user was made as: UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt)';
   return 'login failed (HTTP ' + status + ', still on ' + url + ')';
 }
 
 function loginUrl(url, loginPath) { return url + (loginPath || '/login.html'); }
 
-async function login(page, url, user, pass, timeout, loginPath) {
+async function login(page, url, user, pass, timeout, loginPath, runtimeLog) {
   let status = 0, srvErr = null;
   page.on('response', r => {
     if (!r.url().endsWith('/xas/')) return;
@@ -209,7 +226,7 @@ async function login(page, url, user, pass, timeout, loginPath) {
   } catch (e) {
     const sessUser = await page.evaluate(sessionUser, user).catch(() => null);
     const dlg = sessUser ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
-    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg });
+    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg, logError: status === 200 && !sessUser ? homeErrorFromLog(runtimeLogText(runtimeLog)) : null });
   }
 }
 
@@ -401,7 +418,7 @@ function apiOnlyHome(plan, s) {
     ? 'API-only role: its home page is the login page ' + s.page + ', no signed-in home to walk' : null;
 }
 
-module.exports = { sessionUser, loginFailure, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
+module.exports = { sessionUser, loginFailure, homeErrorFromLog, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
 if (require.main === module) (async () => {
   const o = args();
   let results;
@@ -428,7 +445,7 @@ if (require.main === module) (async () => {
         let errs = [];
         page.on('pageerror', e => errs.push('pageerror: ' + String(e.message).slice(0, 300)));
         page.on('console', m => { if (m.type() === 'error' && !IGNORE_CONSOLE.some(re => re.test(m.text()))) errs.push('console: ' + m.text().slice(0, 300)); });
-        const le = await login(page, o.url, cred[0], cred[1], o.timeout, o.loginPath);
+        const le = await login(page, o.url, cred[0], cred[1], o.timeout, o.loginPath, o.runtimeLog);
         if (le) { rr.verdict = 'INVALID'; rr.reason = le; await ctx.close(); continue; }
         for (const s of r.steps) {
           const res = { caption: s.caption, kind: s.kind, via: s.via, target: s.page || s.microflow };

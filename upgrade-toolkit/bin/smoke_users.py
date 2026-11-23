@@ -12,7 +12,8 @@ Per user role (all rows of system$userrole unless --roles) it creates user smoke
 --entity Module.Entity (one row per inheritance level, the id carries the LEAF entity's short id: a home microflow that
 retrieves CustomAdminModule.UserAccount sends a plain Administration.Account user to the login page, T3-6). Default: the
 one specialization below Administration.Account that has users; several -> exit 2 and the candidates; none ->
-Administration.Account when that entity exists, else System.User. Without --entity and with no single
+Administration.Account when that entity exists, else (GF-17: no Administration.Account, or no users under it) the System.User
+specialization that has rows (any module; several -> the most used, a tie -> exit 2), else System.User. Without --entity and with no single
 specialization below Administration.Account, each role's user is the entity that role's existing (non-smoke, non
 System.User) users all share (PR-F28: Purchase Request's approvers are MendixSSO.MendixSSOUser and its workflow assigns
 tasks to MendixSSOUser by role, so an Account smoke_approver never got a task); a role whose users are mixed, or that has
@@ -52,12 +53,13 @@ def qlit(s):
     return "'" + s.replace("'", "''") + "'"
 
 
-def sql(pw_hash, roles, entity=None, sole=False):
+def sql(pw_hash, roles, entity=None, sole=False, fallback=None):
     """entity None = generic: Administration.Account when that table exists, else System.User, and the SQL itself raises
     when a deeper specialization has rows (so a printed script applied by hand cannot guess either, T3-6)."""
     q = qlit
     role_filter = f"WHERE name IN ({', '.join(q(r) for r in roles)})" if roles else ""
     leaf = q(entity) if entity else "NULL"
+    fb = q(fallback) if fallback else "'System.User'"   # GF-17: the generic user when there is no Administration.Account
     per_role = "false" if entity else "true"
     return f"""-- smoke_users.py: one login per role on a DATABASE COPY; sessions cleared
 -- user entity: {entity or '(generic: Administration.Account if present, else System.User; raises if a deeper specialization has rows)'}
@@ -80,7 +82,7 @@ BEGIN
       IF nmine = 1 THEN leaf := mine; END IF;   -- plain System.User rows (MxAdmin) do not vote; a mixed role stays generic
     END IF;
     IF leaf IS NULL THEN
-      leaf := CASE WHEN has_acc THEN 'Administration.Account' ELSE 'System.User' END;
+      leaf := CASE WHEN has_acc THEN 'Administration.Account' ELSE {fb} END;
       IF has_acc THEN
         WITH RECURSIVE d AS (SELECT id FROM "mendixsystem$entity" WHERE entity_name = 'Administration.Account'
                              UNION SELECT e.id FROM "mendixsystem$entity" e JOIN d ON e.superentity_id = d.id)
@@ -238,6 +240,22 @@ def pick_entity(ents, counts):
     return (cands[0] if len(cands) == 1 else None), cands
 
 
+def pick_user_leaf(ents, counts):
+    """GF-17: an app with its own account entity has no Administration.Account (or no users below it), and every smoke
+    user became a plain System.User: the login post worked and the home microflow, which changes the app's own user
+    entity, failed on an object that was not there. The leaf is read from the System.User specializations that have
+    rows (any module, never System.User itself). Returns (entity|None, candidates, why): one candidate -> it; several ->
+    the one with the most rows when that is unique (ASSUMED: the entity most users are; --entity overrides), a tie ->
+    (None, candidates, 'tie'); none -> (None, [], '')."""
+    names = {n for n, _ in ents.values()}
+    cands = sorted(((n, c) for n, c in counts.items() if c > 0 and n in names and n != "System.User"), key=lambda x: (-x[1], x[0]))
+    if not cands:
+        return None, [], ""
+    if len(cands) == 1 or cands[0][1] > cands[1][1]:
+        return cands[0][0], [n for n, _ in cands], ("only" if len(cands) == 1 else "most")
+    return None, [n for n, _ in cands], "tie"
+
+
 def ledger_dbs(path):
     """Databases the run ledger lists (first word of each line, snapshot.py format); every one is a copy of X_frozen,
     because snapshot.py refuses *_frozen and the steps only ever record `createdb -T X_frozen <name>` copies."""
@@ -272,6 +290,7 @@ def main():
               f"--ledger $W/db-ledger.txt here; --any-db to force)" + (f"; {a.ledger} does not list it" if a.ledger else ""),
               file=sys.stderr); sys.exit(2)
     entity = a.entity
+    fallback = None
     if entity and not re.match(r"^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$", entity):
         print(f"smoke_users: bad --entity {entity!r} (want Module.Entity)", file=sys.stderr); sys.exit(2)
     pw_hash = bcrypt_hash(a.password)  # after the argument checks: a bad argument is exit 2 also without bcrypt
@@ -285,15 +304,33 @@ def main():
             print("smoke_users: NOTE database not reachable: entity not resolved; the SQL raises if a deeper specialization has rows "
                   "(pass --entity Module.Entity to fix it)", file=sys.stderr)
         else:
-            entity, cands = pick_entity({r[0]: (r[1], r[3] if len(r) > 3 and r[3] else None) for r in er}, {r[0]: int(r[1]) for r in cr if r[0]})
+            ents = {r[0]: (r[1], r[3] if len(r) > 3 and r[3] else None) for r in er}
+            counts = {r[0]: int(r[1]) for r in cr if r[0]}
+            entity, cands = pick_entity(ents, counts)
             if len(cands) > 1:
                 print("smoke_users: AMBIGUOUS: users exist as several specializations of Administration.Account: " + ", ".join(cands) +
                       "; pick the one the home microflow retrieves: --entity Module.Entity", file=sys.stderr); sys.exit(2)
-            print(f"smoke_users: user entity {entity} (the only specialization of Administration.Account with rows)" if entity else
-                  "smoke_users: user entity Administration.Account if present, else System.User (no deeper specialization has rows)", file=sys.stderr)
+            if entity:
+                print(f"smoke_users: user entity {entity} (the only specialization of Administration.Account with rows)", file=sys.stderr)
+            elif "Administration.Account" not in {n for n, _ in ents.values()} or counts.get("Administration.Account", 0) == 0:
+                # GF-17: no Administration.Account users to follow: the leaf comes from every System.User specialization with rows
+                leaf, lc, why = pick_user_leaf(ents, counts)
+                if why == "tie":
+                    print("smoke_users: AMBIGUOUS: users exist as several System.User specializations in equal number: " + ", ".join(lc) +
+                          "; pick the one the home microflow retrieves: --entity Module.Entity (the pipeline: UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt)",
+                          file=sys.stderr); sys.exit(2)
+                if leaf:
+                    fallback = leaf
+                    print(f"smoke_users: user entity {leaf} ({'the only' if why == 'only' else 'the most used'} System.User specialization with rows"
+                          + (f"; others: {', '.join(n for n in lc if n != leaf)}; a role whose users all share another one gets that one" if why == "most" else "")
+                          + "; --entity overrides)", file=sys.stderr)
+                else:
+                    print("smoke_users: user entity Administration.Account if present, else System.User (no specialization has rows)", file=sys.stderr)
+            else:
+                print("smoke_users: user entity Administration.Account if present, else System.User (no deeper specialization has rows)", file=sys.stderr)
     else:
         print(f"smoke_users: user entity {entity} (--entity)", file=sys.stderr)
-    text = sql(pw_hash, [r for r in (a.roles or "").split(",") if r], entity, a.sole_target)
+    text = sql(pw_hash, [r for r in (a.roles or "").split(",") if r], entity, a.sole_target, fallback)
     if not a.apply:
         print(text); return
     p = subprocess.run(shlex.split(cmd) + ["-v", "ON_ERROR_STOP=1"],

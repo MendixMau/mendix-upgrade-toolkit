@@ -1,7 +1,7 @@
 // Control for E5 F9: the smokewalk wait predicates must return false (not throw) while the Mendix session is not
 // available yet, and true once it is. Playwright's waitForFunction rejects on the first throw, which made every role
 // INVALID one second after a login that worked. Runs in plain node with a fake window/mx; exit 0 = pass.
-const { judge, directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure } = require('../bin/smokewalk.js');
+const { judge, directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure, homeErrorFromLog } = require('../bin/smokewalk.js');
 let fail = 0;
 const check = (name, got, want) => {
   const ok = got === want;
@@ -138,6 +138,10 @@ function pwLoad() {
     'home failed for this user: NullPointerException in Home (session exists, HTTP 200, on http://h/login3.html)');
   check('loginFailure session without error text', /^home failed for this user: the home page did not render/.test(loginFailure({ status: 200, url: 'u', user: 'x' })), true);
   check('loginFailure no session', loginFailure({ status: 200, url: 'http://h/login3.html', user: null, error: 'x' }), 'login failed (HTTP 200, still on http://h/login3.html)');
+  // GF-17: a sign-in that works and then lands back on login quotes the home microflow error from the runtime log
+  check('homeErrorFromLog last error line', homeErrorFromLog('INFO a\nERROR - MicroflowEngine: error in microflow M.Home\nINFO b\n'), 'ERROR - MicroflowEngine: error in microflow M.Home');
+  check('homeErrorFromLog none', homeErrorFromLog('INFO a\nINFO b\n'), null);
+  check('loginFailure quotes the log error', loginFailure({ status: 200, url: 'http://h/login.html', user: null, logError: 'ERROR - microflow M.Home: null' }).startsWith('login failed (HTTP 200, back on http://h/login.html): the sign-in itself worked and the home page then failed; the runtime log says: "ERROR - microflow M.Home: null"'), true);
   check('loginFailure license limit wins', /^login refused: license session limit/.test(loginFailure({ status: 402, url: 'u', user: 'x' })), true);
   // GM-31: no menu link (a pluggable navigation widget draws the menu): open the target directly, say so, never claim the menu
   const mfStep = { kind: 'microflow', via: 'menu', microflow: 'M.Do' }, pgStep = { kind: 'page', via: 'menu', page_path: 'M/P.page.xml', url: '' };

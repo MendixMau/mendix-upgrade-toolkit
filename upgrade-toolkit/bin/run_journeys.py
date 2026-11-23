@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
+import argparse, collections, json, os, re, shlex, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -1194,6 +1194,43 @@ def session_cap_refused(findings_path):
     return bool(login and login.get("verdict") == "INVALID" and "concurrent-session cap" in (login.get("detail") or ""))
 
 
+HOME_ERR_RE = re.compile(r"(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)", re.I)
+
+
+def runtime_log_tail(a):
+    """GF-17: the last 300 KB of the app's runtime log: --runtime-log FILE, else the output of $UPG_RUNTIME_LOG_CMD (the
+    pipeline sets it to `docker logs <app container>` for the app it started). "" when neither answers."""
+    try:
+        if getattr(a, "runtime_log", None):
+            return open(a.runtime_log, errors="replace").read()[-300000:]
+        cmd = os.environ.get("UPG_RUNTIME_LOG_CMD")
+        if cmd:
+            p = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=30)
+            return (p.stdout + p.stderr)[-300000:]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return ""
+
+
+def login_cause(detail, log_text):
+    """GF-17: the engine words a refused sign-in as the trial-licence session cap (measured once, 2026-08-18). When the
+    runtime log is at hand and has no session-limit line, that cause is wrong: say what the log says instead (the last
+    ERROR line naming a microflow or an exception: the home microflow failing for this user), or that it shows nothing.
+    Without a log the engine's text stays, as before."""
+    if "concurrent-session cap" not in (detail or "") or not log_text:
+        return detail
+    if "Maximum number of sessions" in log_text:
+        return detail
+    errs = [l.strip() for l in log_text.splitlines() if HOME_ERR_RE.search(l)]
+    if errs:
+        return ('login faulted: the sign-in post worked but the app refused the session. Not a credential failure and not '
+                'the licence session cap (the runtime log has no session-limit line). The runtime log says: "'
+                + errs[-1][:300] + '". The home microflow most likely failed for this user: check the entity the smoke user '
+                'was made as (UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt, smoke_users.py --entity).')
+    return ('login faulted: the app refused the session, and the runtime log has neither a session-limit line nor an error '
+            'line, so it is not the licence cap. Read the runtime log around the sign-in.')
+
+
 def session_wait(a):
     """Seconds to wait before a retry: the pause between roles (the app runs with UPG_SESSION_TIMEOUT=30000 and the cluster
     manager frees expired sessions every 15 s) plus a margin; --session-wait overrides."""
@@ -1487,6 +1524,8 @@ def main():
     ap.add_argument("--login-path", default="/login.html",
                     help="where the engine signs in (default /login.html, as smokewalk.js; T7-10, T8-9). '/' only for an "
                          "app whose anonymous home renders the standard login form itself")
+    ap.add_argument("--runtime-log", metavar="FILE", help="the app's runtime log: a refused sign-in is explained from it (GF-17); "
+                    "default: the output of $UPG_RUNTIME_LOG_CMD, which the pipeline sets")
     ap.add_argument("--patch-engine", metavar="DIR",
                     help="only copy and patch the engine into DIR, print the patch report (exit 1 if one did not apply)")
     a = ap.parse_args()
@@ -1668,6 +1707,8 @@ def main():
             login = next((r for r in F["results"] if r["rung"] == "ui" and r["name"] == "login"), None)
             # PR-P4: a login that FAILs after a destructive journey ran on this same database is not a finding about this
             # role: the journey may have deleted its account (identity), its data or the seed. CONTAMINATED, never FAIL
+            if login:
+                login = dict(login, detail=login_cause(login.get("detail"), runtime_log_tail(a)))   # GF-17, after the session-cap retries above
             lword, lverdict, lwhy = login_outcome(login, prior_dirty)
             summary["roles"][key] = {"exit": p.returncode, "user": cred["user"], "login": lword,
                                       "login_detail": login["detail"] if login else ""}

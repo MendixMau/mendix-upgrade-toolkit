@@ -1,0 +1,6 @@
+{"entities": [["e1", "System.User", "system$user", null], ["e2", "UserManagement.Account", "usermanagement$account", "e1"], ["e3", "Gamification.User", "gamification$user", "e1"], ["e4", "MendixSSO.MendixSSOUser", "mendixsso$mendixssouser", "e1"]],
+ "identifiers": [["e2", 10, 1], ["e3", 11, 1], ["e4", 12, 1]],
+ "attributes": [["e1", "Name", "name", 30, 100], ["e1", "Password", "password", 30, 100]],
+ "columns": [["system$user", "id"], ["system$user", "name"], ["system$user", "password"], ["system$user", "submetaobjectname"], ["gamification$user", "id"], ["gamification$user", "linkedaccount"]],
+ "associations": [],
+ "usercounts": [["System.User", 1], ["Gamification.User", 12], ["MendixSSO.MendixSSOUser", 3]]}
