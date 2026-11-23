@@ -10,6 +10,9 @@
 #    Not finished: run-pipeline.sh is started detached (nohup, own session) and appends to the log.
 #    The same command resumes: finished steps are skipped by their done markers. Never --from: that clears markers
 #    and would redo (and archive) finished journeys.
+# 3. cockpit: per run folder with a work/ folder, the live cockpit server is started when it is not running (bin/cloud/cockpit-up.sh, the
+#    same start as the pipeline's cockpit_live; never a second server for the same folder), also for a finished run, so its
+#    page can be read again. UPG_COCKPIT_OPEN=0 skips it. A line says "cockpit: server up at URL" or why it is not.
 # Log: <run>/pipeline.log, else the newest <run>/run*.log, else a new pipeline.log.
 # Skipped, one line each: finished (gate.done / exit line), already running, no run-pipeline.sh.
 # Env: UPG_RESUME_DOCKER_WAIT=SECONDS (default 60); UPG_RESUME_NO_DOCKER=1 skips step 1 (controls, hosts without docker); UPG_RESUME_FOREGROUND=1 waits for each
@@ -20,19 +23,25 @@ set -u
 log() { echo "[resume $(date -u +%H:%M:%S)] $*"; }
 first=$(cd "$1" 2>/dev/null && pwd) || { echo "resume.sh: not a folder: $1" >&2; exit 2; }
 
+dprobe() { bash "$(dirname "$(readlink -f "$0")")/../bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info > /dev/null 2>&1; }   # GF-34: a hung docker CLI plugin must not stall the resume
 if [ -z "${UPG_RESUME_NO_DOCKER:-}" ]; then
-  if ! docker info >/dev/null 2>&1; then
+  log "waiting on: docker info"
+  if ! dprobe; then
     log "docker is down, starting dockerd"
     (nohup dockerd > "$first/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do docker info >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 "${UPG_RESUME_DOCKER_WAIT:-60}"); do dprobe && break; [ $? != 124 ] || break; sleep 1; done   # 124: the CLI hangs, waiting more will not help
   fi
-  docker info >/dev/null 2>&1 || { echo "resume.sh: docker did not start, see $first/dockerd.log" >&2; exit 3; }
+  dprobe || { echo "resume.sh: docker did not start (if the docker CLI hangs: a CLI plugin? try DOCKER_CONFIG=<a folder without cli-plugins>), see $first/dockerd.log" >&2; exit 3; }
   log "docker up"
 fi
 
 for d in "$@"; do
   R=$(cd "$d" 2>/dev/null && pwd) || { log "SKIP $d: not a folder"; continue; }
   if [ ! -f "$R/run-pipeline.sh" ]; then log "SKIP $R: no run-pipeline.sh"; continue; fi
+  if [ -d "$R/work" ] && [ "${UPG_COCKPIT_OPEN:-auto}" != 0 ]; then
+    up=$(bash "$(dirname "$0")/cockpit-up.sh" --work "$R/work" --keep-work 2>/dev/null) \
+      && log "cockpit: server ${up% *} at http://127.0.0.1:${up#* }/ ($R)" || log "cockpit: no cockpit is running for $R: ${up#failed: }"
+  fi
   L=$R/pipeline.log
   [ -f "$L" ] || { n=$(ls -t "$R"/run*.log 2>/dev/null | head -1); [ -z "$n" ] || L=$n; }
   if [ -f "$R/work/state/gate.done" ]; then log "SKIP $R: finished (gate.done)"; continue; fi

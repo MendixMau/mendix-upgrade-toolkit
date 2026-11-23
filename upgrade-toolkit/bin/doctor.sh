@@ -23,8 +23,8 @@ bounded() { local s=$1; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$s
 [ -n "$TOOLS" ] || echo "note: UPG_TOOLS is not set; for a run folder made by setup, source <run dir>/upg-env.sh first (toolsets and the run's mxcli are then checked too)"
 
 # shell and git
-if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then ok bash "$BASH_VERSION"
-else warn bash "bash $BASH_VERSION (macOS ships 3.2; the scripts are tested on bash 5)" "brew install bash"; fi
+if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then ok bash "$BASH_VERSION"
+else warn bash "bash $BASH_VERSION (macOS ships 3.2; the pipeline and toolcheck refuse bash older than 4.4)" "brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\""; fi
 have zsh || fail zsh "no zsh (toolcheck.sh and several helpers are zsh scripts)" "install zsh (apt install zsh)"
 if have git; then ok git "$(git --version | cut -d' ' -f3)"; else fail git "no git" "install git"; fi
 

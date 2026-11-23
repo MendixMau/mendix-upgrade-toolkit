@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time
+import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -195,7 +195,9 @@ PATCHES = [
      "      const el = w(a.widget);\n      await el.waitFor(",
      "      const el = await V.topmost(page, a.widget, a.near, a.unassigned ? { has: a.has } : null);\n      await el.waitFor("),
     # PR-F42: an information or warning message box over the widget is answered with OK, as its user would; the
-    # message is logged. Anything else still covering it stays the finding
+    # message is logged. Anything else still covering it stays the finding, and names the dialog it is: an error box's
+    # underlay read only "covered by .mx-underlay", and the cause ("Could not get information from <service>", an
+    # outside service the sandbox does not reach) was in the screenshot alone (17 FAILs on the old app, cold run 4)
     ("click: OK on a message box that covers the widget (PR-F42)",
      "      if (cover)\n        throw new Error(`.mx-name-${a.widget} is covered by",
      "      for (let k = 0; cover && k < 3; k++) {\n"
@@ -204,7 +206,8 @@ PATCHES = [
      "        console.log(`    ack: OK on the message \"${said.slice(0, 100)}\" over .mx-name-${a.widget}, as its user would`);\n"
      "        cover = await V.cover(el);\n"
      "      }\n"
-     "      if (cover)\n        throw new Error(`.mx-name-${a.widget} is covered by"),
+     "      const under = cover ? await V.openDialog(page, 0) : null;\n"
+     "      if (cover)\n        throw new Error((under ? `open dialog ${under}; ` : '') + `.mx-name-${a.widget} is covered by"),
     # E5b-21 / E7-3: switches, native drop-downs and reference selectors, confirmation dialogs
     ("act: toggle/switch, select/reference/dropdown, row, menu, confirm (E7-3, E2E-10, PR-F35)",
      "    case 'dismissModal': await H.dismissModal(page); break;",
@@ -325,6 +328,29 @@ PATCHES = [
      "      && !/login\\.html|\\/login(\\b|\\/|$)/.test(page.url())\n"
      "      && await page.locator(cfg.readySelectors.join(', ')).evaluateAll((els) => els.some((e) => e.getClientRects().length > 0)).catch(() => false)) {",
      "helpers.js"),
+    # SITS: a login page that folds the local form under "Show alternative login" (an SSO starter app): the password input
+    # is in the DOM, never visible, so the engine waited 15 s, found no form and every journey FAILed on a healthy app.
+    # Same text test as bin/loginreveal.js (the scratch engine copy cannot require it).
+    ("loginOnce: click 'Show alternative login' when the form is folded away (SITS)",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(800).catch(() => {});\n"
+     "  if (!(await page.locator('#passwordInput, input[type=password]').first().isVisible().catch(() => false))) {\n"
+     "    const ALT = /^(?![\\s\\S]*\\bhide\\b)[\\s\\S]*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
+     "    const links = page.locator('.alt-login, a, button, [role=button]').filter({ hasText: ALT });\n"
+     "    for (let i = 0, n = Math.min(await links.count().catch(() => 0), 6); i < n; i++) {\n"
+     "      if (!(await links.nth(i).isVisible().catch(() => false))) continue;\n"
+     "      await links.nth(i).click({ timeout: 2000 }).catch(() => {});\n"
+     "      if (await page.locator('#passwordInput, input[type=password]').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) break;\n"
+     "    }\n"
+     "  }\n"
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "helpers.js"),
     ("loginOnce: wait until no password input is visible (T8-9)",
      "    const ready = document.querySelector(sel);\n    return !onLogin && !!ready;",
      "    const ready = document.querySelector(sel);\n"
@@ -335,10 +361,10 @@ PATCHES = [
     # and an item without a title attribute is found by its exact text
     ("navTo: also menu bars, and exact text when no title matches (T2-11)",
      "    const a = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a')]\n"
-     "      .find((x) => x.getAttribute('title') === title);",
+     "      .filter((x) => x.getAttribute('title') === title)[k || 0];",
      "    const all = [...document.querySelectorAll('.mx-navigationtree a, .mx-navbar a, .mx-menubar a, .mx-simplemenubar a')];\n"
-     "    const a = all.find((x) => x.getAttribute('title') === title)\n"
-     "      || all.find((x) => (x.innerText || '').trim() === title);",
+     "    const a = all.filter((x) => x.getAttribute('title') === title)[k || 0]\n"
+     "      || (k ? undefined : all.find((x) => (x.innerText || '').trim() === title));",
      "helpers.js"),
     # E2E-9 / E5b-11: `mxcli oql --direct` does not answer on a runapp runtime; ask the app's Postgres (pgdata.js)
     ("oql: SQL through UPG_PSQL (pgdata.js + pgmap.py), not mxcli oql --direct (E2E-9, E5b-11)",
@@ -372,7 +398,7 @@ def copy_engine(eng):
     eng.mkdir(parents=True, exist_ok=True)
     for f in ENGINE:
         shutil.copy2(TOOLKIT_E2E / f, eng / f)
-    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "pgdata.js", "pgmap.py"):
+    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "loginreveal.js", "pgdata.js", "pgmap.py"):
         shutil.copy2(HERE / f, eng / f)
     shutil.copy2(HERE.parent / "playbooks" / "widget-render.tsv", eng / "widget-render.tsv")
     texts = {}
@@ -872,7 +898,7 @@ def check_no_signout(j, entry, refs):
         from mprmodel import Model
         import impact_map
         hits = impact_map.any_sign_out(Model.load(mp))
-    except Exception as e:
+    except (SystemExit, Exception) as e:
         return False, f"NO-SIGNOUT: model {mp} not readable ({e})"
     if hits:
         w, by, d = hits[0]
@@ -973,7 +999,7 @@ def check_unreachable(j, entry, refs, acts_file, acts):
             from mprmodel import Model
             mm = Model.load(mp)
             callers = mm.callers_index()
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             return False, f"UNREACHABLE: model={mp}: not readable ({e})"
         seen_d, todo_d = [], list(x.get("via_pages") or [x.get("host")])
         while todo_d and len(seen_d) < 2000:   # the readable caller chain, walked as action_inventory.py orphans() does
@@ -1548,7 +1574,15 @@ def main():
                                         "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
-        for key, role, role_dir, files in ([] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)):
+        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        # issue 26 (SNOW, 435 user paths): a progress line while the runner walks them, and the expected duration before the first; said only, no verdict
+        prog = None
+        if not a.positive_control and waves:
+            import journeys_progress
+            prog = journeys_progress.Progress(a.label, sum(len(w[3]) for w in waves), os.environ.get("UPG_PROGRESS_FILE") or str(out / "progress.json"),
+                                              os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
+            prog.start()
+        for key, role, role_dir, files in waves:
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
@@ -1602,7 +1636,11 @@ def main():
             while True:
                 if art.exists():
                     shutil.rmtree(art)
-                p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
+                if prog:
+                    p = types.SimpleNamespace()
+                    p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
+                else:
+                    p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
                 (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
@@ -1681,6 +1719,8 @@ def main():
                         s.update(verdict="INVALID", why=DOWN_WHY, app_down=True, before_down=s.get("not_pass", [])[:2]); n += 1
                 summary["roles"][key]["app_down"] = True
                 print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
+        if prog:
+            prog.finish(prog.base)
         # a hand-written journey may close plan items: "closes": ["menu:Wizard", ...] (E7-3)
         for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
             d = read_journey(f)
@@ -1739,7 +1779,8 @@ def main():
         import apimock
         nc_lines = apimock.mark_journeys(summary["journeys"], a.apimock_log, apimock.systems_arg(a.exclude_systems))
     if a.compare:
-        before = json.load(open(cmp_summary)).get("journeys", {})
+        before_all_cmp = json.load(open(cmp_summary))
+        before = before_all_cmp.get("journeys", {})
         for j, s in summary["journeys"].items():
             b = before.get(j, {}).get("verdict")
             if s["verdict"] != "FAIL":  # INVALID stays INVALID: it says nothing about the upgrade
@@ -1750,6 +1791,14 @@ def main():
                 s["compare"] = "NOT IN BASELINE (run it on the old app too)"
             else:
                 s["compare"] = f"BASELINE DEFECT (before {b})"
+        # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
+        # visitor sees; both PASS, so no verdict flips: say it (a note, not a failure)
+        before_roles = before_all_cmp.get("roles", {})
+        summary["login_changes"] = [{"role": r, "before": before_roles[r].get("login_detail", ""), "after": s.get("login_detail", "")}
+                                    for r, s in summary["roles"].items()
+                                    if r in before_roles and s.get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail") != s.get("login_detail")]
         if not a.positive_control:  # T1-26 / T4-17: the screens line is printed (and stored) even when all pairs PASS
             import shotdiff
             rows = screen_compare(cmp_dir, out, summary["journeys"], a.shot_accept)
@@ -1765,6 +1814,22 @@ def main():
             if not erows:
                 eline += " (INVALID: no journey PASSes on both runs)"
             summary["effects"] = dict(ec, line=eline, rows=erows)
+    if not a.compare and not a.positive_control and a.label.startswith("before") and evidence:
+        # the baseline walk judges its own FAILs by the SAME checked evidence the compare run applies (check_evidence:
+        # file+line, fixture JSON, two reruns), never on the line's word: a journey that fails on the old app for a reason
+        # the old app's own log shows is a listed baseline defect (PASS*), not a stop with no way past (run PMNT)
+        import fnmatch
+        for j, s in summary["journeys"].items():
+            if s["verdict"] != "FAIL" or s.get("scope_class"):
+                continue
+            hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
+            if hit is None:
+                continue
+            good, detail = check_evidence(j, hit[1], hit[2])
+            if good:
+                s["compare"] = f"BASELINE DEFECT {hit[1]} ({detail})"
+            else:
+                s["evidence_refused"] = f"evidence line {hit[4]}: {detail}"
     cov = None
     if not a.positive_control:   # E2E-11: the coverage line, and with --compare the rules that keep INVALID honest
         cur_set = (summary.get("journey_set") if a.rejudge else None) or journey_set(a.gen_dir)
@@ -1829,6 +1894,8 @@ def main():
         print(f"  role {r:24} login {s['login']:7} {s.get('login_detail', '')[:60]}" + (f"  control {s['control']}" if "control" in s else ""))
         for e in s.get("data_errors", []):
             print(f"    data: {e[:160]}")
+    for c in summary.get("login_changes", []):
+        print(f"  NOTE anonymous role {c['role']}: the visitor's home changed, before \"{c['before']}\", now \"{c['after']}\" (not a failure; look at it)")
     scoped = collections.Counter(s["scope_class"] for s in summary["journeys"].values() if s.get("scope_class"))
     for k, n in sorted(scoped.items()):   # one line per class, the rows are in summary.json
         print(f"  INFO    out of scope ({k}): {n} actions listed, no journey, never INVALID (plan.json out_of_scope, scope.json)")
@@ -1839,6 +1906,7 @@ def main():
         tag += f" effect {s['effect'][:120]}" if s.get("effect", "PASS").split()[0] not in ("PASS",) else ""
         tag += f" [UNREACHABLE refused, {s['unreachable_refused'][:300]}]" if s.get("unreachable_refused") else ""
         what = s.get("unreachable") or ('; '.join(s.get('not_pass', [])) or s.get('why', ''))[:150]
+        tag += f" [evidence refused, {s['evidence_refused'][:300]}]" if s.get("evidence_refused") else ""
         tag += shown_tag(s)
         tag += f" [DESTRUCTIVE({s['destructive']})]" if s.get("destructive") else ""
         print(f"  {s['verdict']:7} {j:55} {what}{tag}")
@@ -1854,7 +1922,8 @@ def main():
         fail = any(s.get("compare") in ("REGRESSION", "NOT IN BASELINE (run it on the old app too)", "SCREEN REVIEW", "EFFECT REVIEW")
                    for s in summary["journeys"].values())   # SCREEN / EFFECT INVALID is INVALID, never FAIL (N1R2-8)
     else:
-        fail = "FAIL" in vs
+        fail = any(s["verdict"] == "FAIL" and not re.match(r"BASELINE DEFECT (FIXTURE|OLD-APP|FLAKY)\b", str(s.get("compare", "")))
+                   for s in summary["journeys"].values())
     counts = {v: vs.count(v) for v in ("PASS", "FAIL", "INVALID", "INFO", "NOT CHECKED", "UNREACHABLE", "CONTAMINATED", "SKIPPED")}
     # E2E-11: a baseline defect with checked evidence is PASS* (listed), not INVALID; without evidence it stays INVALID.
     # B4N1-13: the headline counts it as PASS* (baseline defect), not as FAIL next to "= N PASS*" two lines down;

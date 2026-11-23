@@ -1,10 +1,25 @@
 ---
 name: mendix-upgrade
 description: Orchestrate a Mendix app upgrade (Studio Pro version plus Marketplace modules) from triage to an honest progress report (N of M checks closed; machine codes PASS / FAIL / INVALID). Says which step file and script to use, in which order, and when to stop. Use when asked to upgrade a Mendix app or to judge whether an upgrade is safe.
-status: v3.1 (2026-10-05; release-impact.md is a required triage output and gate rung, screenshots wait for the page to settle, positive controls judge only ui-landing rows, convert-made module edits are recognised, every script has a catch and a pass control, `make test` in controls/)
+status: current. Fixed steps run by upgrade-pipeline.sh; the agent drives the stops (see Driving the run); every script has a catch and a pass control in controls/.
 ---
 
 # Mendix upgrade orchestrator
+
+## Driving the run (every stop)
+
+At every stop of `upgrade-pipeline.sh` the agent does these four things, in this order. The terminal is where the run is
+driven; the cockpit page is for the owner who wants to glance.
+
+1. Print the brief: `upgrade-pipeline.sh --work $W --brief` (the pipeline also prints it at each stop). Tell the person its
+   "Do this now" line in your own words first, before any detail.
+2. Ask each open decision in the chat, one question with clickable options: `AskUserQuestion` on Claude Code, numbered
+   markdown elsewhere, with "something else" always available. List them with `python3 $B/decisions.py pending --work $W`;
+   put the recommended option first; then end your turn and wait for the answer. A sign-off is never taken from chat.
+3. Record each answer: `python3 $B/decisions.py add --work $W --item ID --choice KEY --by NAME --source chat`.
+4. Rerun the command the stop file names (`NEEDS-JUDGMENT.md`).
+
+Before the first model write, read the user's permission rules (for Claude Code the `permissions` deny and allow lists in its settings files) for the write tools. A deny on `mxcli exec` also covers any wrapper or script that calls it; never route around a deny, ask instead. The same check applies to the tools that write the model without mxcli (direct BSON or .mpr writes): `bin/repair/copy_mappings.py`, `bin/repair/copydoc.py`, `bin/repair/exprparam_source.py`, `bin/repair/repoint_images.py`, `bin/repair/widgetrestore.py`, `bin/repair/widgetroute.py`, `bin/restore_guid.py`, `bin/restoreunit.py`. Before running one, say in chat "this edits the model without mxcli"; if the user's rules deny model writes, ask instead of running.
 
 Run the steps in order. Each step file says what to run and what proves it. Every step writes its evidence to the run
 folder's work dir `$W`; the report cites only files that exist.
@@ -32,7 +47,7 @@ Playbooks per path: [9 to 10](playbooks/9-to-10.md), [10 to 11](playbooks/10-to-
 
 New machine or container: [SETUP.md](SETUP.md) (`bin/setup-container.sh` does it in one command).
 
-Paths: `TK=~/Mendix/mxcli-project-toolkit/upgrade-toolkit`, `B=$TK/bin` (every script). A run folder holds `app/` (the
+Paths: `TK` = the folder that holds this SKILL.md (derive it from where you read this file; no home folder or sibling checkout is assumed), `B=$TK/bin` (every script). A run folder holds `app/` (the
 project under its own git), `work/` (`$W`) and `tools/` (mxbuild-<ver>, runtime-<ver>, mxcli-linux; may be symlinks
 to a shared folder). Container tools take any run folder: `UPG_ROOT=<run folder>`. Heavy Docker steps (mxbuild,
 mx check, marketplace update, app start) go through `$B/heavy-lock.sh` (one at a time per laptop, /tmp/heavy-docker.lock).
@@ -72,8 +87,9 @@ rung whether the app can be judged, what the customer must supply, and the best 
 ## Rules that hold in every step
 
 - Target version (LTS-1): the default target is the latest released LTS at its newest patch that has release notes,
-  recorded as a full version (`mxversion.py`). As of 2026-10-13 that is Mendix 11.12 LTS (newest patch 11.12.6,
-  2026-10-08; 11.12.5 says "do not upgrade to this version", so a patch is never taken from this text: read the notes); the next LTS, 11.18, is planned for December 2026. Check the source of truth at triage, never memory, and grep the chosen patch's notes for "do not upgrade to this version" (NR2-1):
+  recorded as a full version (`mxversion.py`). As of 2026-11 that is Mendix 11.12 LTS. This text names no
+  patch on purpose: a patch number written here goes stale within weeks (DV-2), so the patch is always read from the notes
+  at triage (11.12.5 is an example of a patch whose notes say "do not upgrade to this version"); the next LTS, 11.18, is planned for December 2026. Check the source of truth at triage, never memory, and grep the chosen patch's notes for "do not upgrade to this version" (NR2-1):
   https://docs.mendix.com/releasenotes/studio-pro/lts-mts/ and the release notes of that minor. Paths: 9.x to 10.24 to
   11.12; 10.x to 10.24 to 11.12; 11.x below 11.12 one rung to 11.12. An app already on a newer non-LTS 11.x (11.15) is
   parked until the next LTS, never downgraded. Another target (MTS, non-LTS) only when the user asks for it by name. A
@@ -150,6 +166,7 @@ A run is DONE when there are 0 open items and the owner has signed off. Every it
 - The agent closes FIXED alone. It may propose EVIDENCED, DECIDED or HANDED-OFF with a recommendation, never close them.
 - Re-architecture (replace a widget family, rebuild a layout, drop a module, rewrite Java) is always a proposal to the owner,
   never done silently. Pause is a valid answer at every stop.
+- Before removing or replacing a pluggable widget, read its package XML (inside the .mpk) for properties of type form, widgets or action: `mxcli describe page` leaves them out, so a placeholder can look like an empty skeleton while it holds a whole page (GM-19: lazy-load placeholders were removed as empty and the pages inside were lost). `bin/replacement_check.py` and `bin/dojo_report.py` print the same note per instance (`removing it removes: ...`; dojo_report.py in brackets, `[removing it removes: ...]`); read that line before any removal.
 - Before anything changes, the owner signs the upgrade proposal ([steps/propose.md](steps/propose.md)); an unsigned proposal
   is a stop (rule below) and, on an unattended run, "proposal not signed" in every report.
 - AGENT-DECISIONS: every D row names its step id (`S-n`, written in the row). A choice the agent makes on its own and that has no step

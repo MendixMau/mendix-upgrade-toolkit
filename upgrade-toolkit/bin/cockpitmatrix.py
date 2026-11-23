@@ -100,6 +100,21 @@ def rungs_cell(g, names, labels=None):
     return cell(s, label, steps, tech)
 
 
+def build_failure(model):
+    """GF-46: the lines that say the build ran and failed, or None. A stop at step build (NEEDS-JUDGMENT.md titles, e.g. "mxbuild failed
+    (exit 3, 32 ERROR at lines)") or a last attempt of step build that failed with no stop file (state/timing.tsv). Without this the page
+    kept saying "The build has not run yet" over a build that had failed. A stop at the build that asks a person (owner: person) is a
+    judgment stop, not a failure: None, so it keeps the "waiting for you" call to action."""
+    s, f = model.get("stopped") or {}, model.get("failed") or {}
+    if s.get("step") == "build" and "person" in (s.get("owners") or []):
+        return None   # a judgment stop at the build (a question for a person), not a failed build: the page says "waiting for you"
+    if s.get("step") == "build":
+        return [t for t in s.get("titles", [])[:3] if t] or [f"The run stopped at the build (exit {s.get('code')})."]
+    if f.get("step") == "build":
+        return [f"Step build failed (exit {f.get('code')}). Read {f.get('log')}."]
+    return None
+
+
 TRIAGE_FILES = ("findings.json", "release-impact.md", "localedits.json", "jarclash.md", "appshape.out")
 PLAN_FILES = ("PROPOSAL.md", "DECISIONS.md", "NEEDS-JUDGMENT.md")
 
@@ -192,6 +207,31 @@ def worst(*cs):
 
 
 # ---- derivation ----
+def parked_count(work):
+    """Items Interview mode auto parked (NEEDS-JUDGMENT.md header, else the park markers in parked/*.md): the run went on, a person still has to answer."""
+    t = cp.rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
+    m = re.search(r"^# NEEDS JUDGMENT: (\d+) parked item", t, re.M)
+    if m:
+        return int(m.group(1))
+    d = os.path.join(work, "parked")
+    n = 0
+    for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+        n += len(re.findall(r"^<!-- park exit", cp.rd(os.path.join(d, f)) or "", re.M))
+    return n
+
+
+def parked_act(n, running=None):
+    """The parked-items card. While a step runs, the count may include answered files of steps a rerun has not reached yet
+    (main() deletes NEEDS-JUDGMENT.md at its start, run_step deletes parked/<step>.md only when that step reruns), so a running
+    run says "so far" and sends the person to the end of the run; only an idle run says the items wait for an answer."""
+    if running:
+        return {"kind": "wait", "text": f"{n} parked so far. Answer {'it' if n == 1 else 'them'} after the run ends (NEEDS-JUDGMENT.md).",
+                "rec": "The run is still going and goes on without them. Some of the count may be left from an earlier run until its step runs again.", "q": "",
+                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
+    return {"kind": "wait", "text": f"{n} parked {'item waits' if n == 1 else 'items wait'} for your answer. The run went on without {'it' if n == 1 else 'them'}.",
+            "rec": "They are listed in NEEDS-JUDGMENT.md in the work folder (details under parked/). Answer them in one round, then rerun once.", "q": "", "time": ""}
+
+
 def derive(work, model):
     P = cp.parse_proposal(cp.rd(os.path.join(work, "PROPOSAL.md")))
     dm = cp.parse_decisions_md(cp.rd(os.path.join(work, "DECISIONS.md")))
@@ -228,8 +268,10 @@ def derive(work, model):
          cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
          else notyet("No plan yet."))
     if done["convert"]:
+        bfail = build_failure(model)
         u = (cell("ok", "Converted, build clean", [f"The model was converted to Mendix {tgt}.", "The build finished with 0 errors."])
              if done["build"] and any(r["rung"] == "build" and r["verdict"].startswith("PASS") for r in g["rungs"])
+             else cell("bad", "Build failed", [f"The model was converted to Mendix {tgt}."] + bfail) if bfail and not any(r["rung"] == "build" for r in g["rungs"])
              else cell("wait", "Converted, build open", [f"The model was converted to Mendix {tgt}.", "The build is not clean yet."]))
         u["tech"] = [f"{h} {s}" for h, s in commit_rows(lambda s: s.startswith("convert"))]
     else:
@@ -238,7 +280,9 @@ def derive(work, model):
         t["d"] = f"{src} → {tgt}"
         p["d"] = p["d"] or "convert, then build"
     rows.append(row("runtime", "Mendix runtime", f"{src} → {tgt}" if src else "", "app",
-                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["build", "data"])},
+                    {"triage": t, "plan": p, "upgrade": u,
+                     "test": (cell("bad", "Build failed", build_failure(model)) if build_failure(model) and not any(r["rung"] == "build" for r in g["rungs"])
+                              else rungs_cell(g, ["build", "data"]))},
                     story={"found": [f"The app runs on Mendix {src}; the target is Mendix {tgt}."] if src else [],
                            "means": ["The whole app model is converted to the new version. Pages, microflows and Java code must still build after that."],
                            "plan": ["Convert the model with the new Studio Pro, then build it. Every repair after the build is its own Git commit."]}))
@@ -439,7 +483,7 @@ def derive(work, model):
                         story={"found": t["steps"],
                                "means": ["The test must not call real outside systems. A call with no stand-in is not tested."],
                                "plan": [f"Answer {len(mocked)} calls with a stand-in during the test.",
-                                        f"The other {len(eps) - len(mocked)} are checked on the real test systems by a person before go-live."]}))
+                                        f"The other {sum(1 for e in eps if e.get('status') in ('UNKNOWN', 'EXCLUDED'))} are checked on the real test systems by a person before go-live."]}))
 
     # Release notes
     ri = cp.rd(os.path.join(work, "release-impact.md"))
@@ -863,6 +907,13 @@ def plan_doc(text):
         if sec is None or not ln.strip():
             continue
         t = ln.strip().replace("`", "")
+        if sec["h"] == "Agent notes" and t.startswith(">"):   # the notes are a blockquote in PROPOSAL.md: show the text, not the marker
+            t = t[1:].strip()
+            if not t:
+                continue
+            sec["intro"].append(t)
+            cur = None
+            continue
         if ln.startswith("- "):
             cur = {"text": t[2:], "subs": []}
             mm = re.match(r"^\[(P-\d+)\] (\w+): (.*)$", cur["text"])
@@ -940,20 +991,22 @@ def found_detail(rec, work):
             why = e.get("why") or ""
             if e.get("status") == "MOCKED":
                 items.append([e["doc"], "stand-in ready", "ok", "The tests answer this call with a stand-in, so the screens that use it can be checked."])
+            elif e.get("status") == "UNCALLED":
+                items.append([e["doc"], "not called", "ok", "A web address setting that nothing in the model calls. No stand-in is needed; if Java code calls it after all, the test says so."])
             elif why.startswith("location from data"):
                 fld = why.split(":")[0].replace("location from data", "").strip()
                 items.append([e["doc"], "address from data", "wait", f"The address is read from the database ({fld}) while the app runs. The tests cannot know where it goes; a person names the real test system."])
             elif "computed by Java action" in why:
-                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs. The toolkit cannot see it, so a person says which system this is."])
+                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs, from nothing the toolkit can read. Recommended: test this call in the customer's test environment before go-live."])
             elif e.get("kind") == "const":
                 items.append([e["doc"], "unused address?", "wait", "A web address setting that nothing in the model reads. Either it is unused, or a Java action reads it. A person checks."])
             else:
                 items.append([e["doc"], e.get("status", "").lower() or "open", "wait", why])
         ok = sum(1 for i in items if i[2] == "ok")
-        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") != "MOCKED"})
-        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests.",
-                          f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
-                          f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."], "items": items}
+        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") not in ("MOCKED", "UNCALLED")})
+        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests."]
+                + ([f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
+                    f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."] if mods else []), "items": items}
     if t in ("modules", "module-edits"):
         edits = {m["name"]: m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)}
         items, clean, touched, unknown = [], 0, [], 0
@@ -1117,6 +1170,8 @@ def step_row(rec, work=None):
     ap = rec.get("approval") or {}
     # slice 8: only a step that is still assumed (or has no approval) gets the buttons; an answered step shows who answered
     r["ask"] = ap.get("state") in (None, "assumed") and not (rec.get("topic") or "").startswith("person:")
+    if r["ask"] and ap.get("source") == "unattended":   # an unattended run asked nobody: the choice is listed for review, no card (issue 11 item 4)
+        r["ask"], r["unattended"] = False, True
     if ap.get("state") in ("approved", "rejected"):
         r["ans"] = {"state": ap["state"], "by": ap.get("by") or "", "day": _answered(ap), "reason": ap.get("reason") or ""}
     states = [c["s"] for c in cells.values() if c["s"] not in ("ok", "none")]
@@ -1240,11 +1295,12 @@ def build(work, model):
     tl = tiles(rows, chips, g.get("open_reg"))
     return {"stages": stage_texts(rl, per), "groups": [{"key": k, "name": n} for k, n in groups], "rows": rows, "ready": chips,
             "tiles": tl, "feed": feed(work, model, ledger, items, g.get("closed_q") or []), "loop": list(LOOP),
-            "band": band(model, rows, chips, g, tl, kpi),
+            "band": band(model, rows, chips, g, tl, kpi), "brief": brief(work, model, rows, g, tl),
             "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "phases": phases(rows), "ladder": ladder(work), "health": health(work), "cases": cases(work, model),
             "itemsFile": os.path.exists(os.path.join(work, "cockpit-items.json")), "stepsFile": recs is not None,
-            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work)}
+            "plan": plan_doc(cp.rd(os.path.join(work, "PROPOSAL.md"))), "ran": test_runs(work),
+            "allowUnmatched": [x for x in (cp.rd(os.path.join(work, "allow-unmatched.txt")) or "").splitlines() if x.strip()]}
 
 
 def _count_line(txt):
@@ -1414,11 +1470,18 @@ def band(model, rows, chips, g, tl, kpi=None):
     elif b and b["verdict"].startswith("PASS"):
         st, head = "ok", f"The app runs on Mendix {tgt}" if tgt else "The app runs on the new Mendix version"
         sub = "" if reg is None else (f"{reg} regression" + ("" if reg == 1 else "s"))
+        if reg:   # "runs on" next to open regressions read as all well (lane review): say what is true
+            st, head = "warn", f"The app builds on Mendix {tgt}, but not everything works yet" if tgt else "The app builds, but not everything works yet"
+            sub = f"{reg} regression" + ("" if reg == 1 else "s") + " to fix: it worked on the old app and fails on the new one."
     elif b and b["verdict"] == "FAIL":
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
         st, head, sub = "neutral", (f"Upgrade to Mendix {tgt} in progress" if tgt else "Upgrade in progress"), "The build has not run yet."
-    if model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
+    bfail = build_failure(model)
+    if bfail and not b and st != "ok":   # GF-46: the build ran and failed; "has not run yet" is wrong. Say failed, with the stop's first lines
+        st, head = "bad", "The build failed"
+        sub = " ".join(x.rstrip(".") + "." for x in bfail[:2]) + (" Details: NEEDS-JUDGMENT.md in the work folder." if model.get("stopped") else "")
+    elif model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
         s = model["stopped"]
         st, head = "bad", f"Stopped at {s['step']}, waiting for you"
         n = len(open_questions(model)) or len(s["titles"])   # the cards in Blocked on you, not the stop file's older list
@@ -1447,6 +1510,369 @@ def band(model, rows, chips, g, tl, kpi=None):
     opens = [o for o in opens if not any(h in (o["text"] + " " + o["group"]).lower() for h in hide)]
     return {"state": st, "head": head, "sub": sub, "reg": reg, "closed": {"n": sum(c["n"] for c in closed), "chips": closed},
             "open": {"n": len(opens), "items": opens}}
+
+
+# ---- the brief: the answer on top, the detail folded (cockpit clarity, 10-second test) ----
+# Wording, order and emphasis only: every number is copied from the run's files (gate-summary.md Progress / Changes lines, the
+# open questions, the stop file, the running marker). Nothing here decides a verdict.
+PLAIN_WORDS = [(r"\s*\(exit \d+\)", ""), (r"(?:/[^\s/]+)+/([^\s/]+)", r"\1"), (r"\bREGRESSION/FAIL\b", "regression"),
+               (r"\bINVALID\b", "could not be measured"), (r"\bPASS\*", "passed with accepted differences"), (r"\bPASS\b", "passed"),
+               (r"\bFAIL\b", "failed"), (r"\bREGRESSIONS?\b", "regression"), (r"\bgate\b", "final check"), (r"\buser journeys\b", "user paths"), (r"\bjourneys\b", "user paths"),
+               (r"\bjourney\b", "user path"), (r"\bNEW app\b", "upgraded app"), (r"\bOLD app\b", "old app"),
+               (r"\bbaseline defects?\b", "problem the old app has too"), (r"\bidcheck\b", "data identity check"),
+               (r"\bstepupdate(?:\.sh)?\b", "automatic module update"), (r"\bconvert-made\b", "made by the automatic converter"),
+               (r"\brungs?\b", "check"), (r"\bthemesource\b", "theme files")]
+GLOSSARY = [("Regression", "Something that worked on the old app and fails on the new one. This is the only kind of problem that harms your users."),
+            ("Not measured yet", "A check that has not run, or could not run yet. It is not a failure. It only means nobody knows yet."),
+            ("Check", "One kind of proof that the new app behaves like the old one (build, data, settings, pages, user paths). Also called a rung or gate in the files."),
+            ("Passed with accepted differences", "The check found differences and each one is explained in writing as harmless (shown as PASS*)."),
+            ("User path", "A recorded click path through the app, run on the old and the new app (called a journey in the files)."),
+            ("Data identity check", "Proves the data keeps its identity when the model changes, so stored data is not lost (idcheck)."),
+            ("Triage", "The first step: the toolkit reads the app and lists what an upgrade would change."),
+            ("Automatic module update", "The toolkit's own way of moving a Marketplace module to a newer version (stepupdate)."),
+            ("Stand-in", "A fake copy of an outside system, used so tests can run without calling the real one.")]
+GATE_PROGRESS = re.compile(r"^Progress: (\d+) of (\d+) checks closed \((\d+)%\)", re.M)
+GATE_COUNTS = re.compile(r"(\d+) with REGRESSIONS to fix, (\d+) need a decision, (\d+) not measured yet")
+GATE_CHANGES = re.compile(r"^Changes: (\d+) \(toolkit (\d+), agent (\d+), person (\d+)(?:, unlabelled (\d+))?\)", re.M)
+
+
+def plainwords(t):
+    for pat, rep in PLAIN_WORDS:
+        t = re.sub(pat, rep, t or "")
+    return " ".join(t.split())
+
+
+# a file name is the script's word, not the reader's (SNOW review 02: "The agent has to finish this (plan-pre.txt missing on a 10.x to 11 run)")
+FILE_WORDS = [(r"\bplan-pre\.txt missing on a 10\.x to 11 run\b", "the list of add-on updates that go before the Mendix 11 conversion is missing"),
+              (r"\bplan\.txt missing\b", "the module update plan is missing"),
+              (r"\bmx check: (\d+) errors?\b", lambda m: f"the app model check found {m.group(1)} {'error' if m.group(1) == '1' else 'errors'}"),
+              (r"\b[\w.-]+\.(?:txt|json|md|tsv|out|log)\b", "a work file")]
+
+
+def unfile(t):
+    for pat, r in FILE_WORDS:
+        t = re.sub(pat, r, t or "")
+    return t
+
+
+AGENT_TASK = re.compile(r"\bwrite\s+\S+\.(?:txt|json|md|tsv)\b", re.I)   # "Module plan missing: write plan.txt": a file the agent writes, not a person's answer
+
+
+def clip_ask(t, n=120, head=False):
+    """One short line for a question title: the first sentence or line, in plain words (the full text stays in the dialog).
+    head=True keeps only what comes before the first ": " (an agent-written stop title is "<what>: <long raw verdict text>")."""
+    t = re.sub(r"^#+\s*", "", (t or "").strip()).split(" ## ")[0]
+    if head and ": " in t and len(t.split(": ", 1)[0]) >= 10:
+        t = t.split(": ", 1)[0]
+    return cp.short(plainwords(t), n)
+
+
+def ask_line(i, n=120):
+    """The line for a question card in the brief: plan choices, sign-off and confirmations are already worded for a person."""
+    return clip_ask(question_of(i), n, head=i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked"))
+
+
+def vshort(v):
+    return ".".join(v.split(".")[:3])
+
+
+def _steps_done(work):
+    return sum(1 for s in cp.STEP_ORDER if cp.rd(os.path.join(work, "state", s + ".done")))
+
+
+TEST_STEPS = ("basewalk", "afterwalk", "journeys", "heal", "apidirect", "diff", "gate")
+# steps that only RECORD the old app as the reference: nothing is tested yet (lead user test on PSOP: "Testing now" while recording)
+RECORD_STEPS = ("baseline", "basewalk")
+# what a choice the AI made on its own does to the app, most impact first (lead user test on CHK: 20 choices, which matter?).
+# Matched on the evidence the plan item carries, never on the generic recommendation text every module shares.
+IMPACT = [("held back at its old version, a person has to look", re.compile(r"held for a person", re.I)),
+          ("a widget setting would be dropped", re.compile(r"widget[^.;]*\b(?:dropped?|lost)\b|setting[^.;]*would be dropped|would be dropped", re.I)),
+          ("your own edits are kept or carried over", re.compile(r"local edit|changed in this app|changed by this app|would overwrite|edits refuse", re.I))]
+
+
+def impact_of(text):
+    """(rank, phrase) of a choice: 0 held module, 1 dropped widget setting, 2 kept local edit, 3 routine (version updates, rules)."""
+    for n, (phrase, rx) in enumerate(IMPACT):
+        if rx.search(text or ""):
+            return n, phrase
+    return 3, ""
+
+
+def chosen_by_ai(items, rows):
+    """The choices the AI made on its own: plan items and step rows, ranked by effect. Returns (total, top, routine); top is
+    [(name, phrase)] for the ones with an effect on the app, routine is the count of the rest. The sign-off is no choice."""
+    its = [i for i in items if i["kind"] != "signoff"]
+    out = []
+    for i in its:
+        ev = " ".join(((i.get("evidence") or {}).get("what") or []) + [i.get("problem") or ""])
+        r, ph = impact_of(ev)
+        out.append((r, re.sub(r"\s*\((module|widget|jar|java|check|theme|page)\)$", "", i.get("title", "")), ph))
+    for r in own_asks(rows, its):
+        k, ph = impact_of(r.get("name", ""))
+        out.append((k, re.sub(r"^Keep or update module ", "", r.get("name", "")), ph))
+    out.sort(key=lambda x: x[0])   # stable: the plan's own order inside a rank
+    top = [(n, ph) for k, n, ph in out if k < 3][:3]
+    return len(out), top, sum(1 for k, _, _ in out if k == 3)
+
+
+def rung1_say(work, gs):
+    """On the second rung's page, before its own final check exists: what the first rung measured, from its gate summary and the ladder
+    (the page said "nothing has been measured yet" over 37 passed journeys; issue 17). None when this is not a second rung or it has a gate."""
+    if gs or os.path.basename(os.path.normpath(work)) != "rung2":
+        return None
+    base = run_base(work)
+    m = GATE_COUNTS.search(cp.rd(os.path.join(base, "gate-summary.md")) or "")
+    route = (cp.rj(os.path.join(base, "ladder.json")) or {}).get("route") or []
+    if not m or len(route) < 3:
+        return None
+    reg, dec, unm = (int(x) for x in m.groups())
+    v1, v2 = vshort(route[1]), vshort(route[2])
+    left = ", ".join(x for x in ((f"{dec} to decide" if dec else ""), (f"{unm} not measured" if unm else "")) if x)
+    if reg:
+        return ("bad", f"On Mendix {v1}: {reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one. Mendix {v2} is not tested yet.")
+    return ("ok" if not left else "none", f"On Mendix {v1}: nothing broke" + (f" ({left})" if left else "") + f". Mendix {v2} is not tested yet.")
+
+
+def _journeys_line(work):
+    """"Testing now: 212 of 435 user paths done, about 40 min left" from state/journeys-progress.json; "" when there is none or it is over."""
+    try:
+        d = json.load(open(os.path.join(work, "state", "journeys-progress.json")))
+        if d.get("finished"):
+            return ""
+        import journeys_progress as jp
+        return "Testing now: " + jp.say_line(int(d["done"]), int(d["total"]), d.get("left_min"))
+    except Exception:
+        return ""
+
+
+def brief(work, model, rows, g, tl):
+    """What a person with no context needs in ten seconds: where the upgrade stands, what is broken, the one thing to do, who changed
+    what. Returns plain strings and numbers; h_brief draws them."""
+    gs = cp.rd(os.path.join(work, "gate-summary.md")) or ""
+    mp = GATE_PROGRESS.search(gs)
+    mc = GATE_COUNTS.search(gs)
+    vm = re.search(r"(\d+(?:\.\d+)+) → (\d+(?:\.\d+)+)", model.get("sub", ""))
+    route = f"Upgrade from Mendix {vshort(vm.group(1))} to {vshort(vm.group(2))}" if vm else "Upgrade"
+    allq = open_questions(model)
+    # a stop whose first instruction is "write <file>" is the agent's task; the other sections of that stop file are its context
+    agent_task = [i for i in allq if i["id"].startswith("stop:") and AGENT_TASK.search(i["title"])]
+    qs = [i for i in allq if not (agent_task and i["id"].startswith("stop:"))]
+    asks = own_asks([r for r in (rows or []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"], qs)
+    stopped, running = model.get("stopped"), model.get("running")
+    # a stop that is the agent's own task comes first, and after the conversion no run waits for the plan: the unsigned plan of an unattended run is no ask above
+    # the agent's stop (lead user test on PSOP: "Approve the plan?" on top while the stop was the agent's own build, Q9 page/stop mismatch)
+    later = later_q = ""
+    own_stop = [o for o in ((stopped or {}).get("owners") or []) if o != "info"]
+    agent_stop = stopped and ((own_stop and all(o == "agent" for o in own_stop)) or agent_task)
+    past_plan = bool(cp.rd(os.path.join(work, "state", "convert.done")))   # the conversion ran: nothing waits for the plan's sign-off any more
+    if str(stopped.get("code") if stopped else "") not in ("14", "15") and (agent_stop or (past_plan and not stopped)):
+        held = [i for i in qs if i["kind"] == "signoff"]
+        if held and len(qs) == len(held) and not asks:
+            qs, later, later_q = [], "The plan still waits for your sign-off; the run does not wait for it.", f"q{allq.index(held[0]) + 1}"
+    # choices the AI made on its own while the run goes on are an optional review, not something the run waits for (lane review 03)
+    # a run that is running waits for nobody: every open question is then a review, not a block (lane review 03: "Blocked on you: 21"
+    # next to "Running now", in an unattended run)
+    optional = (asks + qs) if (running and not stopped) else []
+    if optional:
+        asks, qs = [], []
+    # the AI's own choices, in any state: what an unattended run took at the recommendation, plus what a running step does not wait for
+    own_items = [i for i in model["items"] if i.get("unattended") and not i.get("decided")] + [i for i in optional if "cells" not in i]
+    own_rows = [r for r in (rows or []) if r.get("unattended")] + [r for r in optional if "cells" in r]
+    nchosen, top, routine = chosen_by_ai(own_items, own_rows)
+    nask = len(qs) + len(asks)
+    if mp:
+        prog = f"{mp.group(1)} of {mp.group(2)} checks closed ({mp.group(3)}%)"
+    else:
+        n = _steps_done(work)
+        prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
+    ov = cp.parse_gate(gs)["overall"]
+    sinfo = model.get("stopped") or {}
+    failed = model.get("failed")   # the last attempt failed with no stop file (cockpitpage.failed_step)
+    rep_n = sinfo.get("repeats") or 0
+    stuck = f"Stopped here {rep_n} times in a row, each time for the same reason." if rep_n >= 2 else ""   # the run is stuck (lane B, PMNT)
+    if stopped and nask:
+        now = f"Paused, waiting for {nask} {'answer' if nask == 1 else 'answers'} from you." + (f" {stuck}" if stuck else "")
+    elif stopped and sinfo.get("handoff"):
+        now = "Paused: the agent cannot get past this alone." + (f" {stuck}" if stuck else "")
+    elif stopped:
+        now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
+    elif running:
+        now = f"The agent is working: {running['text'][:1].lower() + running['text'][1:]}."
+    elif failed:
+        now = f"Step {failed['step']} failed (exit {failed['code']}). Nothing is running."
+    elif nask:
+        now = f"Waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
+    elif ov == "PASS":
+        now = "Finished: every required check passed."
+    else:
+        now = "No step is running right now."
+    status = f"{route}: {prog}. {now}"
+    # broken vs not measured: kept apart on purpose (a grey "not measured" is not a failure)
+    reg = tl.get("reg") if tl.get("reg") is not None else (int(mc.group(1)) if mc else None)
+    unm, dec = (int(mc.group(3)), int(mc.group(2))) if mc else (None, None)
+    if reg == 0 and not gs:   # no final-check file yet: "0" would be a claim nobody measured
+        reg = None
+    # the tests ARE the journeys / page walks: a step that runs or stopped among them is testing, not "not started" (lead user test, CHK)
+    testing = running and running.get("step") in TEST_STEPS and running.get("step") not in RECORD_STEPS
+    stopped_test = stopped and stopped.get("step") in TEST_STEPS and stopped.get("step") not in RECORD_STEPS
+    recording = running and running.get("step") in RECORD_STEPS
+    stopped_rec = stopped and stopped.get("step") in RECORD_STEPS
+    base_done = bool(cp.rd(os.path.join(work, "state", "basewalk.done")))
+    low = lambda t: t[:1].lower() + t[1:]
+    # the closed first rung of a two-rung run: the second rung's page must not say "nothing measured" over a measured rung
+    r1 = rung1_say(work, gs)
+    if reg is None and r1:
+        broken = r1
+    elif reg is None and stopped and stopped.get("step") == "build":
+        broken = ("none", "Nothing is broken for your users: the old app is unchanged. The new app does not build yet.")
+    elif reg is None and (recording or stopped_rec):
+        broken = ("none", "Nothing is known to be broken so far. The old app is only being recorded; nothing is tested yet.")
+    elif reg is None and testing:
+        broken = ("none", "Nothing is known to be broken so far. The tests are running now.")
+    elif reg is None:
+        broken = ("none", "Nothing is known to be broken, because nothing has been measured yet.")
+    elif reg:
+        broken = ("bad", f"{reg} {'thing' if reg == 1 else 'things'} worked on the old app and fail on the new one.")
+    else:
+        broken = ("ok", "Nothing found broken so far.")
+    # a step that stopped on a regression found it before the final check ran (lane B, PSOP afterwalk: "nothing is known to be broken" over
+    # three regressions): the box names it, and the final check's count stays what it is
+    sregs = [r for r in (sinfo.get("regs") or [])]
+    if sregs and (reg or 0) < len(sregs):
+        nm = ", ".join(f"{w} (for {k} {'role' if k == 1 else 'roles'})" if k > 1 else w for w, k in sregs[:3]) + (", ..." if len(sregs) > 3 else "")
+        broken = ("bad", f"{len(sregs)} {'thing' if len(sregs) == 1 else 'things'} worked on the old app and {'fails' if len(sregs) == 1 else 'fail'} on the new one: {nm}.")
+    # screens that changed wait for a person's look; the final check counts them apart from regressions (the owner's call, public PR 41),
+    # but "0 regressions" must not read as "all fine" (lane B, CHK: the Employees table rendered as a list)
+    scr = next((int(m.group(1)) for r in cp.parse_gate(gs)["rungs"] if r["rung"] == "screens" and r["verdict"] not in ("PASS", "PASS*")
+                for m in [re.search(r"(\d+) REVIEW", r["detail"])] if m), 0)
+    if scr:
+        sc = f"{scr} {'screen' if scr == 1 else 'screens'} changed and {'waits' if scr == 1 else 'wait'} for your look."
+        broken = ("bad" if broken[0] == "bad" else "wait", ("Nothing counted as broken. " if broken[0] != "bad" else broken[1] + " ") + sc)
+    if unm is None:
+        if reg is not None:
+            unmeasured = ""
+        elif recording:
+            unmeasured = f"Recording the old app as the reference: {low(running['text'])}. The new app is compared against it later; nothing is tested yet."
+        elif stopped_rec:
+            unmeasured = f"Recording the old app stopped during this step: {low(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. It goes on after it reruns; nothing is tested yet."
+        elif testing:
+            unmeasured = f"Testing now: {running['text'][:1].lower() + running['text'][1:]}. Results appear here when they finish."
+            if running.get("step") == "journeys":   # a long walk says how far it is (journeys_progress.py), so slow is not read as hung
+                pl = _journeys_line(work)
+                if pl:
+                    unmeasured = pl + ". Results appear here when they finish."
+        elif stopped_test:
+            unmeasured = f"The tests stopped during this step: {(lambda t: t[:1].lower() + t[1:])(plainwords(cp.STEP_TEXT.get(stopped['step'], stopped['step'])))}. Results appear here after it reruns."
+        elif any(cp.rd(os.path.join(work, "state", s + ".done")) for s in TEST_STEPS if s not in RECORD_STEPS):
+            unmeasured = "Some tests have run. The results are added up in the final check, which has not run yet."
+        elif base_done:
+            unmeasured = "The old app is recorded as the reference. The new app is tested against it after the conversion."
+        else:
+            unmeasured = "The tests run in the Test step, which has not started."
+    elif unm:
+        unmeasured = f"{unm} {'check has' if unm == 1 else 'checks have'} not run yet. That is not a failure: nobody knows yet."
+    else:
+        unmeasured = "Everything planned has been measured."
+    if dec:
+        unmeasured += f" {dec} {'needs' if dec == 1 else 'need'} a decision."
+    # the one thing to do now
+    if qs or asks:
+        if qs:
+            i = qs[0]
+            act = {"kind": "ask", "text": ("Decide: " if i["kind"] not in ("plan-choice", "signoff", "confirm") and not i.get("asked") else "") + ask_line(i), "q": allq.index(i) and f"q{allq.index(i) + 1}" or "q1", "time": "One click" + (f", then {nask - 1} more" if nask > 1 else "")}
+            rl = plain(next((o["label"] for o in i["options"] if o["key"] == i.get("rec")), ""))
+            if len(i["options"]) > 1:   # the choices are said in the card: behind the button they were invisible (SNOW review 03: "Nothing you can answer here" for a keep-or-rewind question)
+                act["opts"] = [plainwords(plain(o["label"])).rstrip(".") for o in i["options"]]
+            if i.get("asked") and i["id"].startswith("stop:"):   # a stop section written for a person: say the run waits and that nobody else can answer
+                act["time"] = "The run is paused until you answer. " + act["time"]
+            act["rec"] = ("We recommend: " + plainwords(rl)) if rl and len(i["options"]) > 1 else "No recommendation: this one is your call." + (f" {i['norec_why']}" if i.get("norec_why") else "")
+            if i["kind"] == "signoff":
+                act["rec"] = "We recommend: approve, once the other answers are in."
+        else:
+            act = {"kind": "ask", "text": f"Check what the agent chose on its own: {asks[0]['name']}", "q": "", "rec": "", "time": "One click"}
+    elif stopped:
+        owned = stopped.get("agent_titles") or []
+        what = clip_ask(owned[0], 100, head=True) if owned else clip_ask(agent_task[0]["title"], 100, head=True) if agent_task else ""
+        what = unfile(re.sub(r"\s*\((?:exit|code)\b[^)]*\)", "", what).strip())   # "(exit 1, 7 ERROR at lines)" is the script's words, not the reader's
+        act = {"kind": "agent", "text": "Nothing you can answer here. The agent has to " + (f"finish this ({what}) and " if what else "") + "rerun.", "rec": "", "q": "",
+               "time": f"It reruns from {stopped['step']}. If your agent is not running, ask it to carry on." if stopped.get("step") else ""}
+        if sinfo.get("handoff"):   # an agent-owned stop with no route the agent can take is a hand-off, not "the agent will finish this" (lane B, PMNT, LDMS, PSOP)
+            why, needs = sinfo["handoff"]
+            act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
+                   "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
+    elif failed and not running:
+        act = {"kind": "agent", "text": "Nothing you can answer here. " + (f"Read {failed['log']}, fix the cause, then rerun this command." if failed.get("cmd") else f"Read {failed['log']}, fix the cause, then rerun with --from {failed['step']}."), "rec": "", "q": "", "cmd": failed.get("cmd") or "",
+               "time": "The run goes on from that step once it passes."}
+    elif parked_count(work):   # after the stop branch: a stop that needs an agent or a person takes precedence over the parked count
+        act = parked_act(parked_count(work), running)
+    elif running:
+        act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
+               "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
+    elif reg:
+        act = {"kind": "wait", "text": "Nothing you can answer. The regression has to be fixed by the agent or handed to a developer.", "rec": "", "q": "", "time": ""}
+    else:
+        act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing to do now.", "rec": "", "q": "", "time": ""}
+    if later:
+        act["later"], act["later_q"] = later, later_q
+    mch = GATE_CHANGES.search(gs)
+    if mch:
+        n, tk, ag, pe, un = (int(x or 0) for x in mch.groups())
+        who = f"{n} changes to the app so far: {tk} by the toolkit's automatic tools, {ag} by the AI agent, {pe} by a person"
+        who += f", {un} not labelled (nobody has said who made them)." if un else "."
+    elif not cp.rd(os.path.join(work, "state", "convert.done")):
+        who = "No changes to the app yet."
+    else:
+        who = "Shown after the final check. So far every change is a commit you can review."
+    # who approved: a person's sign-off line, or the plain fact that nobody has (an unattended run lets the AI take the recommendations)
+    if model.get("signed"):
+        who += f" The plan was approved by {model['signed'][0]} on {model['signed'][1]}."
+    elif cp.rd(os.path.join(work, "PROPOSAL.md")):
+        dec = cp.rd(os.path.join(work, "DECISIONS.md")) or ""
+        k = nchosen or len(re.findall(r"^P-[1-9]\d* .*ASSUMED", dec, re.M))
+        if "ASSUMED" in dec:
+            who += (f" Nobody has approved the plan yet; the AI made {k} {'choice' if k == 1 else 'choices'} on its own" if k else
+                    " Nobody has approved the plan yet; the AI made some choices on its own") + (" (unattended run)." if "unattended" in dec.lower() else ".")
+        else:
+            who += " The plan is not approved by a person yet."
+    return {"status": status, "broken": {"s": broken[0], "text": broken[1]}, "unmeasured": unmeasured, "act": act, "who": who, "n": nask,
+            "chosen": {"n": nchosen, "top": top, "routine": routine}}
+
+
+def h_brief(b, qlist):
+    a = b["act"]
+    btn = f'<button type="button" class="resolve big" data-q="{a["q"]}">Resolve →</button>' if a["q"] else ""
+    rec = f'<p class="arec">{E(a["rec"])}</p>' if a["rec"] else ""
+    tm = f'<p class="atime">{E(a["time"])}</p>' if a["time"] else ""
+    if a.get("opts"):
+        o = a["opts"]
+        rec += f'<p class="aopts">Your choices: {", ".join(E(x) for x in o[:-1])} or {E(o[-1])}.</p>'
+    if a.get("later"):   # the sign-off stays one click away, quietly: it is not what the run waits for
+        tm += f'<p class="atime">{E(a["later"])} <button type="button" class="resolve" data-q="{a["later_q"]}">Review the plan →</button></p>'
+    c = b.get("chosen") or {}
+    chosen = ""
+    if c.get("n"):
+        lis = "".join(f"<li><b>{E(n)}</b>: {E(ph)}.</li>" for n, ph in c["top"])
+        rest = c["routine"] if c["top"] else c["n"]
+        tail = (f"The other {rest} {'is a' if rest == 1 else 'are'} routine {'version update or rule' if rest == 1 else 'version updates and rules'}. " if c["top"] else
+                (f"None of the {c['n']} changes how the app behaves; they are routine version updates and rules. " if c["n"] > 1 else "It does not change how the app behaves. ")) if rest else ""
+        head = (f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own. Open this to see the {len(c['top'])} with the most impact"
+                if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
+        chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
+                  f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
+    if a.get("cmd"):   # the exact rerun command (rung 2 differs from the ladder command): shown whole, never cut to fit
+        tm += f'<p class="atime"><code>{E(a["cmd"])}</code></p>'
+    more = f'<details class="allq"><summary>All {b["n"]} questions waiting for you</summary>{qlist}</details>' if b["n"] > 1 and qlist else ""
+    return ('<section class="brief" aria-label="Where the upgrade stands">\n'
+            f'<p class="status">{E(b["status"])}</p>\n'
+            f'<div class="bl"><div class="bk {b["broken"]["s"]}"><b>Broken for your users</b><span>{E(b["broken"]["text"])}</span></div>'
+            f'<div class="bk"><b>Not measured yet</b><span>{E(b["unmeasured"] or "nothing; every check has run.")}</span></div></div>\n'
+            f'<div class="act {a["kind"]}"><b class="at">Do this now</b><div class="ab"><div><p class="atext">{E(a["text"])}</p>{rec}{tm}</div>{btn}</div>{more}</div>\n{chosen}'
+            f'<p class="who"><b>Who changed what:</b> {E(b["who"])}</p>\n</section>')
+
+
+def h_glossary():
+    return ('<details class="card gloss"><summary>Words used on this page, in plain language</summary><dl>'
+            + "".join(f"<dt>{E(t)}</dt><dd>{E(d)}</dd>" for t, d in GLOSSARY) + "</dl></details>")
 
 
 # ---- page ----
@@ -1685,11 +2111,13 @@ details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bot
 .qclose{font:inherit;font-size:13px;margin-top:6px;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 .legend .gbreak{flex-basis:100%;height:0}.legend .gl b{color:var(--fg);font-weight:600}
 .stopbar{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--badbg);border:1px solid var(--bad);font-size:14px}
+.stopbar.agent,.stopbar.wait{background:var(--waitbg);border-color:var(--wait)}.stopbar.agent b,.stopbar.wait b{color:var(--fg)}
 .stopbar b{color:var(--bad)}.stopbar ul{margin:6px 0;padding-left:20px}.stopbar small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
 @keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.nowrun .pulse{animation:none}}
-.nowrun b{font-weight:600}.nowrun small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
+.nowrun b{font-weight:600}.nowrun small{display:none;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
+.nowrun{cursor:pointer}.nowrun.open small{display:block}.nowrun b::after{content:" (tap for technical detail)";font-weight:400;font-size:12px;color:var(--muted)}.nowrun.open b::after{content:""}
 .hero{display:grid;gap:18px;padding:20px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
 .hmsg{display:flex;gap:14px;align-items:center}
 .hmsg .tick{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--ok);color:#fff;font-size:24px;font-weight:700}
@@ -1729,6 +2157,38 @@ details.more[open]>summary{margin-bottom:10px}
   .ns span{grid-column:1/-1;order:3}
   .ns em{white-space:nowrap}
 }
+.brief{display:grid;gap:14px;padding:20px 22px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
+.brief .status{margin:0;font-size:22px;line-height:1.3;font-weight:650;text-wrap:balance}
+.brief .bl{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.brief .bk{padding:10px 12px;border-radius:10px;background:var(--nonebg);display:grid;gap:2px;align-content:start}
+.brief .bk b{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.brief .bk span{font-size:15px}
+.brief .bk.bad{background:var(--badbg)} .brief .bk.bad b{color:var(--bad)} .brief .bk.bad span{font-weight:650}
+.brief .bk.ok{background:var(--okbg)} .brief .bk.ok b{color:var(--ok)}
+.brief .bk.wait{background:var(--waitbg)} .brief .bk.wait b{color:var(--wait)} .brief .bk.wait span{font-weight:650}
+.brief .act.handoff{border-color:var(--wait);background:var(--waitbg)} .brief .act.handoff .at{color:var(--wait)}
+.brief .act{padding:14px 16px;border-radius:12px;border:2px solid var(--line);display:grid;gap:8px}
+.brief .act.ask{border-color:var(--you);background:var(--youbg)}
+.brief .at{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.brief .act.ask .at{color:var(--you)}
+.brief .ab{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brief .ab>div{flex:1 1 260px;min-width:0}
+.brief p{margin:0}.brief .atext{font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.brief .arec{margin-top:4px;font-size:15px}.brief .aopts{margin-top:4px;font-size:15px}.brief .atime{margin-top:2px;font-size:13px;color:var(--muted)}
+.resolve.big{font-size:16px;padding:12px 20px;min-height:44px;border-radius:12px}
+.brief .allq summary,.brief .chosen summary{cursor:pointer;font-size:13px;color:var(--muted)}.brief .chosen{margin-top:10px}.brief .chosen ol{margin:8px 0 0;padding-left:20px;font-size:14px}.brief .chosen .m{margin:6px 0 0;font-size:13px;color:var(--muted)}
+.brief .allq ol{margin:8px 0 0;padding:0;list-style:none}.brief .allq li{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.brief .who{font-size:14px;color:var(--muted)}.brief .who b{color:var(--fg)}
+details.fold{padding:0;overflow:visible}
+details.fold>summary{cursor:pointer;padding:14px 18px;font-size:14px;color:var(--muted)}
+details.fold>summary b{color:var(--fg);font-size:16px}
+details.fold>.layout{padding:0 16px 16px}
+details.gloss{margin:14px 16px 16px;padding:10px 16px}
+details.gloss>summary{cursor:pointer;font-size:13px;color:var(--muted)}
+details.gloss dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px;margin:10px 0 0}
+details.gloss dt{font-weight:600}details.gloss dd{margin:0}
+.stopbar details summary{cursor:pointer;font-size:13px;color:var(--muted)}
+@media (max-width:560px){.brief{padding:16px}.brief .status{font-size:19px}.brief .bl{grid-template-columns:1fr}.resolve.big{width:100%}details.gloss dl{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){.drawer{animation:in .18s ease-out}@keyframes in{from{transform:translateX(24px);opacity:.6}}}
 """
 
@@ -2015,6 +2475,9 @@ async function decide(it,btn){
     if(msg)msg.textContent="Saved.";
   }catch(e){btn.disabled=false;if(msg)msg.textContent="Could not save: "+(e&&e.message?e.message:e)}
 }
+// the Resolve buttons open their question on a copy of the page too (the live page wires the same click; an open dialog is left alone)
+document.querySelectorAll(".resolve[data-q]").forEach(b=>b.addEventListener("click",()=>{const d=document.getElementById(b.dataset.q);if(d&&d.showModal&&!d.open)d.showModal()}));
+const nr=document.getElementById("nowrun");if(nr)nr.addEventListener("click",()=>nr.classList.toggle("open"));
 (async()=>{
   try{ if(window.claude&&claude.use){db=await claude.use("db");user=await claude.use("user")} }catch(_){db=null;user=null}
   if(!db||!user){NEED.forEach(ctrl);return}
@@ -2067,11 +2530,20 @@ def h_health(H):
     return '<section class="card health" aria-label="How the tests improved"><h2>How the tests improved</h2>' + "".join(out) + "</section>"
 
 
+def h_allow_unmatched(lines_):
+    """A written accept that matched no row (diff.py writes allow-unmatched.txt): the person believes it applied, the row is still open."""
+    if not lines_:
+        return ""
+    return ('<section class="card health" aria-label="Accepts that matched nothing"><h2>Accepts that matched nothing</h2>'
+            '<p class="m">These lines in allow.txt did not match any row, so they accepted nothing. The row they were meant for is still open. No verdict changed.</p><ul>'
+            + "".join(f"<li>{E(x)}</li>" for x in lines_) + "</ul></section>")
+
+
 def h_band(b):
     tick = {"ok": "✓", "bad": "!", "warn": "→"}.get(b["state"], "…")
     reg = ""
     if b["sub"]:
-        bad = b["state"] == "ok" and b["reg"]
+        bad = b["state"] in ("ok", "warn") and b["reg"] and "regression" in b["sub"]
         reg = f'<span class="rg{" bad" if bad else ""}">{E(b["sub"])}</span>'
     chips = "".join(f'<span class="cc"><b>{c["n"]}</b>{E(c["label"])}</span>' for c in b["closed"]["chips"])
     # who closes each open topic, and when (cold test WM1: "16 open topics still to validate" and the owner asked "what should a
@@ -2175,18 +2647,33 @@ def h_stopped(s):
     if not s:
         return ""
     if str(s["code"]) in ("14", "15"):   # the plan waits for sign-off: the Decide now cards are the questions, no paths or commands
-        return ('<div class="stopbar" role="alert"><b>The run stopped before changing anything: the plan waits for your answers and '
+        # a normal wait for answers is amber and says "paused", not the red "stopped" of a failure (nothing is wrong, nothing ran)
+        return ('<div class="stopbar wait" role="status"><b>The run is paused before changing anything: the plan waits for your answers and '
                 'your approval.</b><small>Open <b>Blocked on you</b> on the right to answer. The run goes on after you approve.</small></div>')
-    li = "".join(f"<li>{E(t)}</li>" for t in s["titles"])
+    li = "".join(f"<li>{E(clip_ask(t, 160, head=True))}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
-    return (f'<div class="stopbar" role="alert"><b>The run stopped at {E(s["step"])} (exit {s["code"]}) and waits for you.</b>'
-            f'{"<ul>" + li + "</ul>" if li else ""}<small>Answer under <b>Blocked on you</b> on the right. Details: NEEDS-JUDGMENT.md in the work folder.</small>{cmd}</div>')
+    # the headline answers "is it stuck?"; what stopped it and the rerun command are for the agent, so they fold (cockpit clarity)
+    own = [o for o in (s.get("owners") or []) if o != "info"]
+    cls = "stopbar agent" if own and all(o == "agent" for o in own) and not s.get("handoff") else "stopbar"   # the agent's own task is amber, not the red of a real block
+    return (f'<div class="{cls}" role="alert"><b>The run stopped during this step: {E(plainwords(cp.STEP_TEXT.get(s["step"], s["step"])))}.</b>'
+            '<details><summary>What stopped it, technical (for the agent)</summary>'
+            f'{"<ul>" + li + "</ul>" if li else ""}<small>Details: NEEDS-JUDGMENT.md in the work folder (stop code {s["code"]}).</small>{cmd}</details></div>')
 
 
 def open_questions(model):
     """The items a person still has to answer, one question card each: plan choices and judgments first, the sign-off last."""
-    qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup"]
+    qs = [i for i in model["items"] if i.get("options") and not i.get("decided") and i["kind"] != "confirmgroup" and not i.get("unattended")]
     return sorted(qs, key=lambda i: i["kind"] == "signoff")
+
+
+def own_asks(asks, qs):
+    """The "agent chose this on its own" step rows that are not already a question card: a plan item shows up both as the card
+    (P-n) and as its step row, and the page counted it twice (31 "choices" for 16; lane review 03)."""
+    titles = [re.sub(r"\s*\((module|widget|jar|java|check)\)$", "", i.get("title", "")) for i in qs]
+    def dup(r):
+        n = re.sub(r"^Keep or update module ", "", r.get("name", ""))
+        return any(n and (n == t or t.startswith(n) or n.startswith(t)) for t in titles if t)
+    return [r for r in asks if not dup(r)]
 
 
 def question_of(i):
@@ -2358,15 +2845,16 @@ def h_questions(model, matrix=None, cases_=None):
     /decide, live page only); on a static copy they stay off and the answer goes through chat."""
     qs = open_questions(model)
     # a choice the agent made on its own (a step with an assumed approval) blocks too; Resolve opens its plan cell, where its buttons are
-    asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"]
+    ok_ = {id(r) for r in own_asks([r for r in (matrix or {}).get("rows", []) if r.get("fromSteps") and r.get("ask") and r["cells"]["plan"]["s"] == "you"], qs)}
+    asks = [(n, r) for n, r in enumerate((matrix or {}).get("rows", [])) if id(r) in ok_]
     if not qs and not asks:
-        return "", ""
+        return "", "", ""
     rows, dlgs = [], []
     for n, r in asks:
         rows.append(f'<li><span>The agent chose this on its own: {E(r["name"])}. OK?</span>'
                     f'<button type="button" class="resolve" data-i="{n}" data-s="plan">Resolve →</button></li>')
     for n, i in enumerate(qs, 1):
-        rows.append(f'<li><span>{E(question_of(i))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
+        rows.append(f'<li><span>{E(ask_line(i, 140))}</span><button type="button" class="resolve" data-q="q{n}">Resolve →</button></li>')
         btns = []
         cs = (cases_ or {}).get(case_id(i["id"])) or {}
         for o in i["options"]:
@@ -2383,6 +2871,11 @@ def h_questions(model, matrix=None, cases_=None):
                         f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:320]) + "</small>" if say else ""}'
                         f'{"<small class=" + chr(34) + "catch" + chr(34) + ">The catch: " + E(co["catch"]) + "</small>" if co.get("catch") else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
+        ar = i.get("assumed_rows") or []   # the rows the "n choices were assumed" count is made of (same list, DV-13)
+        if ar:
+            ctx += ('<div class="qev" id="assumed-list"><b>' + E(f"{len(ar)} {'choice' if len(ar) == 1 else 'choices'} assumed by the agent") + '</b><ul>'
+                    + "".join(f"<li>{E(x['id'])}: {E(x['text'])}</li>" for x in ar[:5])
+                    + (f'<li><a href="#matrix">+{len(ar) - 5} more, see the matrix</a></li>' if len(ar) > 5 else "") + "</ul></div>")
         # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
         ev = i.get("evidence") or {}
         if ev.get("what"):
@@ -2395,15 +2888,18 @@ def h_questions(model, matrix=None, cases_=None):
             why = why[len(rl) + 1:].strip()
             why = why[:1].upper() + why[1:]
         rec = f'<p class="qrec"><b>Why we recommend it:</b> {E(why)}</p>' if why and len(i["options"]) > 1 and not cs.get("options") else ""
+        if i.get("norec_why") and not rl:
+            rec = f'<p class="qrec"><b>No recommendation:</b> this one is your call. {E(i["norec_why"])}</p>'
         if cs:   # a case written by the agent replaces the generic context: the case says what is wrong, shows it, and why
             ctx = h_case(cs)
         dlgs.append(f'<dialog class="qdlg{" wide" if cs else ""}" id="q{n}"><div class="qcard" data-item="{E(i["id"])}"><div class="qk">Question {n} of {len(qs)} · '
                     f'blocks step {E(i.get("step") or "")}</div><h3>{E(question_of(i))}</h3>{ctx}{rec}<div class="qopts">{btns and "".join(btns)}</div>'
                     '<div class="qmsg" data-qmsg aria-live="polite"></div><p class="qhint">The buttons work in the live cockpit. On a copy, answer in chat.</p>'
                     '<button type="button" class="qclose">Close</button></div></dialog>')
+    lst = "<ol>" + "".join(rows) + "</ol>"
     side = (f'<section class="blocked" aria-label="Blocked on you"><h2>Blocked on you: {len(qs) + len(asks)}</h2>'
-            '<p>The run waits for these answers. Click Resolve for the full question.</p><ol>' + "".join(rows) + "</ol></section>")
-    return side, "".join(dlgs)
+            '<p>The run waits for these answers. Click Resolve for the full question.</p>' + lst + "</section>")
+    return side, "".join(dlgs), lst
 
 
 def render(model, matrix):
@@ -2412,16 +2908,19 @@ def render(model, matrix):
     e = html.escape
     head_, tiles_ = h_tiles(matrix)
     cases_ = matrix.pop("cases", None) or {}   # kept out of the page data: the screenshots are embedded once, in the dialog
-    qside, qdlgs = h_questions(model, matrix, cases_)
+    qside, qdlgs, qlist = h_questions(model, matrix, cases_)
     return (f"<title>{e(model['title'])}</title>\n"
+            '<meta charset="utf-8">\n'   # the fragment is written to disk by the pipeline: opened from the folder, the arrows and dots are mojibake without it
             '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             '<meta name="claude:viewport-fit-sides" content="cover">\n'
             f"<style>{CSS}</style>\n"
             '<div class="wrap">\n  <header class="head">\n    <div>\n      <div class="eyebrow">Upgrade cockpit</div>\n'
-            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(model['sub'])}</div>\n"
+            f"      <h1>{e(model['title'])}</h1>\n      <div class=\"ver\">{e(re.sub(r"\btriage\b", "triage (reading the app)", re.sub(r"stopped at (\w+)", lambda m_: "stopped at " + plainwords(STEP_PLAIN.get(m_.group(1), m_.group(1))), plainwords(model['sub']))))}</div>\n"
             "    </div>\n"
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
+            f"  {h_brief(matrix['brief'], qlist)}\n"
             f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n"
+            '  <details class="card fold" id="fold"><summary><b>Everything else</b> <span>the readiness checks, every item by stage, test results and history. Open it only if you want the proof.</span></summary>\n'
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'
@@ -2431,13 +2930,13 @@ def render(model, matrix):
             f'  <div class="legend">{h_legend(matrix)}</div>\n'
             f'  <section class="card scroll" aria-label="Items per stage"><div class="pbar" id="phases" hidden></div><div class="grid" id="matrix">{h_matrix(matrix)}</div></section>\n'
             '  <p class="note">Click a stage name to see how that stage works. Click any cell for that item, step by step.</p>\n'
-            f"  {h_health(matrix.get('health'))}\n"
+            f"  {h_health(matrix.get('health'))}{h_allow_unmatched(matrix.get('allowUnmatched'))}\n"
             '  <section class="card feed" aria-label="Recent changes">\n    <h2>Since you last looked</h2>\n'
             f'    <ol id="feed">{h_feed(matrix)}</ol>\n  </section>\n  </div>\n'
-            f'  <aside class="side">{qside}{h_band(matrix["band"])}'
+            f'  <aside class="side">{h_band(matrix["band"])}'
             # the page can lag the run; the session that drives it always knows (cold test WM1)
             '<p class="agentnote">Page not up to date, or stuck? Talk to your agent in the chat. It is easier.</p>'
-            f'</aside>\n  </div>\n</div>\n{qdlgs}\n'
+            f'</aside>\n  </div>\n  {h_glossary()}\n  </details>\n</div>\n{qdlgs}\n'
             '<div class="shade" id="shade" hidden></div>\n'
             '<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Details">\n'
             '  <button class="x" id="dClose" type="button" aria-label="Close">×</button>\n  <div id="dBody"></div>\n</aside>\n\n'

@@ -110,6 +110,7 @@ else:
     if e.get("ui") is None or e.get("logic") is None: why.append("UI or logic layer not compared")
     if e.get("ui"): why.append(f"{len(e['ui'])} UI lines")
     if e.get("logic"): why.append(f"{len(e['logic'])} logic lines")
+    if e.get("config"): why.append(f"{len(e['config'])} constant/jar rows")
     if e.get("compared_with") not in (None, e.get("version")):
         why.append(f"compared with a proxy ({e['compared_with']}), not the installed {e.get('version')}")
     # The offline layers do not compare CONTENTS: logic is "document present on one side only", UI is "page

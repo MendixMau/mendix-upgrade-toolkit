@@ -13,11 +13,17 @@ under "not measured" in section 5, never skipped.
 4 needs a person anyway, 5 human effort, 6 sign-off. A kept module, a stranded module, a RED local edit, Java or theme
 edits and a widget with no successor are section 3, never section 2.
 
+## Agent notes
+A note for the reader of the proposal goes in `$W/AGENT-NOTES.md` (free text, one file, append to it). Never edit PROPOSAL.md: a rerun
+writes the whole file. Propose shows the notes in an `## Agent notes` section and the cockpit shows them in the plan drawer under "Agent notes"; a rerun keeps
+them. A choice you made on your own is not a note: it is a D row ([decide.md](decide.md)).
+
 ## Ask, then stop
 Ask one question per section-3 item in chat (options and evidence are in the item; same rules as
 [decide.md](decide.md)), write each answer as a `P-n` line in `$W/DECISIONS.md` (decide.md format), then end the turn.
 The person writes section 6: `Signed-off: <name> <yyyy-mm-dd>` or `Status: PAUSED <reason>`. An agent never writes it.
 Signing an item nobody answered accepts its recommendation (recorded as a P-n line, CONFIRMED, signer named).
+A plan that only shrinks after the sign-off (a hold-back: items removed, none added or changed) clears the sign-off like any changed plan: same action (the person signs section 6 again), same exit 14, unattended handling unchanged. Only the reading is lighter: PROPOSAL.md gets a `Held back since signed` block listing exactly the held-back items, so the person sees what differs from the plan they signed. The cockpit page does not show that block. An agent never writes the line. An added or changed item, or a PROPOSAL.md without a readable stored item set (written before GM-21), gets the `Changed since signed` block as before (GM-21).
 
 ## Gate
 | state | pipeline exit | next |

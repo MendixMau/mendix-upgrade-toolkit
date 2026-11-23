@@ -1,0 +1,12 @@
+{
+ "modules": [
+  {
+   "name": "Shop",
+   "entities": [
+    {"name": "Order", "persistent": true, "attributes": [{"name": "Total", "type": "Decimal"}]},
+    {"name": "Attachment", "persistent": true, "generalization": "System.FileDocument", "attributes": [{"name": "Note", "type": "String"}]},
+    {"name": "Photo", "persistent": true, "generalization": "Shop.Attachment", "attributes": []}
+   ]
+  }
+ ]
+}

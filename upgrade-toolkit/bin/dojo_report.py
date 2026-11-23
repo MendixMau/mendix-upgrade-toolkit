@@ -124,7 +124,9 @@ def analyse(path, rows, js_rx):
         p["pluggable"] = sum(1 for _, plug in ws if plug)
         for wid, plug in ws:
             if not plug:
-                p["dojo"].append({"id": wid, "uses": sum(used.get(wid, {}).values()), "docs": sorted(used.get(wid, {}))})
+                uses = sum(used.get(wid, {}).values())
+                p["dojo"].append({"id": wid, "uses": uses, "docs": sorted(used.get(wid, {})),
+                                  "lost": app.removal_note([wid]) if uses else ""})   # GM-19: pages, child widgets, actions inside
         inuse = [d for d in p["dojo"] if d["uses"]]
         if not p["dojo"]:
             p["status"] = "ready"
@@ -213,7 +215,7 @@ def markdown(r, to, blocking, line):
            f"## Widget packages ({len(r['packages'])})", "",
            "| status | package | version | Dojo widgets in use (uses) | React path | source |", "|---|---|---|---|---|---|"]
     for p in sorted(r["packages"], key=lambda p: (ORDER.index(p["status"]), p["package"].lower())):
-        dw = ", ".join(f"{d['id']} ({d['uses']})" for d in p["dojo"] if d["uses"]) or \
+        dw = ", ".join(f"{d['id']} ({d['uses']})" + (f" [{d['lost']}]" if d.get("lost") else "") for d in p["dojo"] if d["uses"]) or \
             ("none (all pluggable)" if p["status"] == "ready" else "none")
         src = p["source"] + (f" [{p['verified']}]" if p["verified"] and p["verified"] != "yes" else "")
         out.append(f"| {p['status']} | {cell(p['package'])} | {p['version']} | {cell(dw)} | {cell(p['react'])} | "

@@ -1,0 +1,11 @@
+{
+ "modules": [
+  {
+   "name": "AppMod"
+  }
+ ],
+ "files": {
+  "javasource/appmod/actions/Present.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\npublic class Present extends CustomJavaAction<Boolean> {\n  // Present action\n  public Boolean executeAction() { return true; }\n}\n",
+  "javasource/appmod/actions/Gone.java": "package appmod.actions;\nimport com.mendix.webui.CustomJavaAction;\npublic class Gone extends CustomJavaAction<Boolean> {\n  // Gone action\n  public Boolean executeAction() { return true; }\n}\n"
+ }
+}
