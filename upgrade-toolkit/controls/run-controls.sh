@@ -275,6 +275,15 @@ ctl gm15-kept-moved-between-planned-pass 0 '0 missing, 0 not checked' '!MISSING'
 ctl gm15-kept-uncached-sibling-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: package not cached' 'mixin moved-mixin at themesource/KeptMove/web/main\.scss:2' '!^MISSING' '!variable \$moved-var' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/half
 ctl gm15-kept-corrupt-package-not-checked 3 '^NOT CHECKED AtlasLite 2\.0\.0: cannot read 9002-2\.0\.0\.mpk' '!^MISSING' -- python3 $B/keptvendor.py $KV/app --kept KeptMove --plan-file $KV/plan-two.txt --cache $KVC/corrupt
 ctl gm15-kept-no-plan-invalid 2 'give --plan-file' -- python3 $B/keptvendor.py $KV/app --kept KeptMixin
+# GF-56 / GF-45: --own judges the app's OWN styling (theme/ and non-Marketplace themesource modules) with an empty kept list, so a first
+# triage, before any update step wrote kept.txt, still shows a mixin or file the planned package drops (PDS 45.0.0 vs the team's styling module).
+ctl gf56-own-styling-mixin-catch 1 '^MISSING mixin dark-theme: used in themesource/KeptMixin/web/main\.scss:4, defined in old PlatformDesignSystem .*gone in PlatformDesignSystem 45\.0\.0$' '^MISSING import \.\./\.\./PlatformDesignSystem/web/gone: used in themesource/KeptImport' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-no-own-flag-measures-nothing-catch 0 '!^MISSING' '0 kept module' -- python3 $B/keptvendor.py $KV/app --kept '' --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-own-styling-old-package-pass 0 '0 missing, 0 not checked' '!MISSING' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/old
+# GF-56 review: --own puts theme/ and the own themesource modules on `kept`, which used to drop their definitions from the set that
+# stays. A variable theme/ defines, an own module uses and the planned package also dropped was a false MISSING that stopped triage (code 13).
+ctl gf56-own-theme-variable-still-defined-pass 1 '!MISSING variable \$pds-themed' '^MISSING mixin dark-theme' -- python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new
+ctl gf56-own-theme-variable-not-defined-anywhere-catch 1 '^MISSING variable \$pds-themed: used in themesource/OwnTheme/web/main\.scss:2' -- sh -c "rm -rf $T/kv-notheme; cp -R $KV/app $T/kv-notheme; printf '\$brand: #0a0;\n' > $T/kv-notheme/theme/web/custom-variables.scss; python3 $B/keptvendor.py $T/kv-notheme --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new"
 ctl crosscalls-flow-catch 1 '^CAP AuthMod at newest 3\.x \(installed 3\.2\.0\): called by kept KeptConn \(3 refs' 'microflow KeptConn\.ACT_Ask -> AuthMod\.ACT_Sign' 'java action KeptConn\.ACT_Java -> AuthMod\.JA_Token' 'entity KeptConn domain model -> AuthMod\.Credential' '!CAP OtherMod' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod,OtherMod
 ctl crosscalls-newest-catch 1 '^CAP AuthMod at 3\.9\.0 ' -- python3 $B/crosscalls.py $M/xcall --kept KeptConn --planned AuthMod --newest AuthMod=3.9.0
 ctl crosscalls-none-pass 0 '0 planned module\(s\) capped' 'scanned [1-9][0-9]* documents' '!CAP ' -- python3 $B/crosscalls.py $M/xcall-none --kept KeptConn --planned AuthMod
@@ -312,6 +321,11 @@ ctl crosscalls-own-gone-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) 
 ctl crosscalls-own-present-pass 0 '^crosscalls: 0 target\(s\) used by own modules are gone' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-here
 ctl crosscalls-own-unchecked-pass 0 '^NOTE AuthMod 3\.2\.0 -> 4\.1\.0: used by own Shop; targets NOT checked' '!GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none
 ctl crosscalls-own-off-pass 0 '!OWN|GONE' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
+# GF-39 review: --plan-file is repeatable (plan.txt plus plan-pre.txt on a 10 -> 11 run); the argument used to keep only the LAST one, so a
+# comment-only plan-pre.txt after plan.txt erased the plan and every own document read clean. A later file's version of a module wins.
+printf '# updates before the convert: none\n' > $T/xc-plan-pre-none.txt
+ctl crosscalls-own-two-plan-files-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) own modules use are gone' '^  GONE page AuthMod\.Login_Page \(used by own Shop\.ACT_Open\)' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --plan-file $T/xc-plan-pre-none.txt --cache $T/cache-xc-own-gone
+ctl crosscalls-own-two-plan-files-reversed-catch 1 '^OWN AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) own modules use are gone' -- python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-pre-none.txt --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone
 
 # GM-12: the target package's project.mpr is read at plan time; a module its documents call that is neither in the app nor in
 # the plan is "needs module X" (31 CE1613 at the build for NotificationProducer 4.1.0 -> MxTokenModule). Packages are cached
@@ -2806,6 +2820,9 @@ ctl pipeline-build-port-java-done-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub
 ctl pipeline-build-port-java-none-pass 0 '!^NJ' '^built$' -- bash -c ". $PJ/stub.sh; WORK=$PJ/wn; f; echo built"
 # the update step runs crosscalls --own on the original model BEFORE the module updates (cold CMM: 3 CE1613 found only at the build)
 ctl pipeline-dry-update-owngone-catch 0 '^own-before-update$' -- bash -c "bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pw --only update --dry-run | awk '/crosscalls\.py .*\/pw\/original\.mpr --kept .*--own --plan-file .*\/pw\/plan\.txt/{if(!c)c=NR} /stepupdate\.sh/{if(!s)s=NR} END{print (c && c<s) ? \"own-before-update\" : \"no c=\" c \" s=\" s}'"
+# GF-39 review: the update step's own-gone call uses the same plan files as the triage report (plan-pre.txt first, then plan.txt)
+rm -rf $V/pwpre; cp -R $V/pw $V/pwpre; printf '# none before the convert\n' > $V/pwpre/plan-pre.txt
+ctl pipeline-dry-update-owngone-plan-pre-catch 0 'crosscalls\.py .*/pwpre/original\.mpr --kept .*--own --plan-file .*/pwpre/plan-pre\.txt --plan-file .*/pwpre/plan\.txt$' -- bash $B/cloud/upgrade-pipeline.sh --app-dir $V/papp --source 10.24.26.1 --target 11.15.0.1 --work $V/pwpre --only update --dry-run
 # F14: replay/<Module>.guids restores the original GUIDs after the MDL replay; approved-step.txt reaches the step idcheck only
 mkdir -p $V/pw4/replay; printf 'MendixSSO\n' > $V/pw4/force-ui.txt; echo 'create or modify association A.R_X from A.R to B.U;' > $V/pw4/replay/MendixSSO.mdl
 printf '# original GUIDs back\nA.R_X\nA.R_Y\n' > $V/pw4/replay/MendixSSO.guids; printf 'A.R_X # restored by replay/MendixSSO.guids\n' > $V/pw4/approved-step.txt; printf '# accepted\n' > $V/pw4/approved.txt
@@ -4831,18 +4848,27 @@ gk() { local d=$GK/$1; mkdir -p "$d/w" "$d/app/.stepupdate" "$d/bin"; cp $GK/b/k
   printf '9001 45.0.0 PlatformDesignSystem\n' > "$d/w/plan.txt"; [ "${4:-}" = pre ] && printf '9002 2.0.0 AtlasLite\n' > "$d/w/plan-pre.txt"
   [ "$3" = kept ] && printf 'MendixProjectStyling kept\n' > "$d/app/.stepupdate/kept.txt"; return 0; }
 gkrun() { local d=$GK/$1; (B="$d/bin" WORK="$d/w" APP="$d/app" DRY=0 MODE=$2 bash $GK/fn.sh) 2>&1; echo "argv: $(tr '\n' ' ' < "$d/bin/argv.txt" 2> /dev/null)"; echo "planfile: $(tr '\n' ' ' < "$d/w/keptvendor-plan.txt" 2> /dev/null)"; }
-gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
-ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
-ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: A kept module.s styling uses something a planned package removes .*fix the kept SCSS or hold the package.*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
+gk noplan 0 nokept; rm -f $GK/noplan/w/plan.txt; gk clean 0 kept; gk missing 1 kept; gk notchecked 3 kept; gk bad 2 kept; gk nokept 0 nokept; gk pre 0 kept pre
+ctl gm15-wire-clean-args-pass 0 '^argv: .*/app --kept-file .*/gm15wire/clean/app/\.stepupdate/kept\.txt --own --plan-file .*/w/keptvendor-plan\.txt --json .*/w/keptvendor\.json $' '!NOTE' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun clean triage"
+ctl gm15-wire-missing-triage-stops-catch 0 '^NOTE: keptvendor MISSING \(exit 1\): a kept or own themesource \(theme/ included\)' '^NJ: A kept or own module.s styling uses something a planned package removes .*fix that SCSS or hold the package.*keptvendor\.out \| \^MISSING$' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing triage"
 ctl gm15-wire-missing-update-note-only-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun missing update"
 ctl gm15-wire-not-checked-not-clean-catch 0 '^NOTE: keptvendor NOT CHECKED \(exit 3\).*NOT measured \(never read as clean\)' '!NJ:' '!MISSING \(exit' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun notchecked triage"
 ctl gm15-wire-input-error-not-measured-catch 0 '^NOTE: keptvendor exit 2: kept themesources NOT measured' '!NJ:' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun bad update"
-ctl gm15-wire-no-kept-list-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*kept\.txt yet' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
-ctl gm15-wire-no-kept-list-update-silent-pass 0 '!NOTE' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
-ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
-# GM-15 review nit (#144): a plan.txt without a final newline must not fuse its last line with the first of plan-pre.txt
-gk prenonl 0 kept pre; printf '9001 45.0.0 PlatformDesignSystem' > $GK/prenonl/w/plan.txt
-ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9001 45\.0\.0 PlatformDesignSystem 9002 2\.0\.0 AtlasLite $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+# GF-56: no kept.txt (a first triage) no longer means "not measured": the app's own styling is judged with an empty kept list
+ctl gm15-wire-no-kept-list-own-styling-measured-catch 0 '^argv: .*/app --kept  --own --plan-file .*/w/keptvendor-plan\.txt --json ' '!NOTE' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept triage"
+ctl gm15-wire-no-plan-not-measured-catch 0 '^NOTE: keptvendor NOT MEASURED: no .*plan\.txt' '^argv: $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun noplan triage"
+ctl gm15-wire-no-kept-list-update-own-pass 0 '!NOTE' '^argv: .*--kept  --own ' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun nokept update"
+ctl gm15-wire-plan-pre-merged-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun pre triage"
+# GM-15 review nit (#144): a plan-pre.txt without a final newline must not fuse its last line with the first of plan.txt
+gk prenonl 0 kept pre; printf '9002 2.0.0 AtlasLite' > $GK/prenonl/w/plan-pre.txt
+ctl gm15-wire-plan-no-final-newline-catch 0 '^planfile: 9002 2\.0\.0 AtlasLite 9001 45\.0\.0 PlatformDesignSystem $' -- bash -c "$(declare -f gkrun); GK=$GK; gkrun prenonl triage"
+# GF-56 review: the SAME module in both plans (an older version in plan-pre.txt, the final one in plan.txt) is judged against plan.txt's
+# package, because keptvendor.py keeps the last version it reads. Real function, real keptvendor.py, real packages: the older package
+# keeps the names, the newer one drops them; plan-pre.txt listed after plan.txt used to give a false clean.
+mkdir -p $KVC/both; cp $KVC/old/9001-45.0.0.mpk $KVC/both/9001-44.0.0.mpk; cp $KVC/new/9001-45.0.0.mpk $KVC/both/9001-45.0.0.mpk
+gk samemod 0 nokept pre; printf '9001 44.0.0 PlatformDesignSystem\n' > $GK/samemod/w/plan-pre.txt; rm -rf $GK/samemod/app; cp -R $KV/app $GK/samemod/app
+gkreal() { local d=$GK/$1; (B="$B" UPG_CACHE="$KVC/both" WORK="$d/w" APP="$d/app" DRY=0 MODE=triage bash $GK/fn.sh) 2>&1; echo "out: $(grep -c '^MISSING' "$d/w/keptvendor.out" 2> /dev/null)"; }
+ctl gf56-plan-pre-older-same-module-still-missing-catch 0 '^NOTE: keptvendor MISSING \(exit 1\)' '^NJ: ' '^out: [1-9]' -- bash -c "$(declare -f gkreal); GK=$GK; B=$B; KVC=$KVC; gkreal samemod"
 ctl gm15-wire-call-sites-catch 0 '^triage$' '^update$' -- bash -c "P=${PIPE:-$B/cloud/upgrade-pipeline.sh}; awk '/^step_triage\\(\\) \\{/,/^}\$/' \$P | grep -q 'kept_vendor_check triage' && echo triage; grep -q '^    kept_vendor_check update\$' \$P && echo update"
 # MC-11 wiring: kept_style_check (the real function) runs keptstyle.py in step_triage and after the update step; RISK reaches the
 # screens rung as a [keptstyle] line in screen-causes.txt, never a stop. Stub keptstyle.py records argv and prints out.txt. Synthetic: no field run.
@@ -5024,7 +5050,7 @@ fi
 # jump does not reach, a version that is no version number (UNKNOWN), and an app that cannot be read. Every run must list
 # all 37 rows: a row is never dropped.
 RC="python3 $B/replacement_check.py"
-for v in replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-java-m2ee replace-java-m2ee-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
+for v in replace-java-api11 replace-java-api11-ok replace-clean replace-sso replace-datagrid2 replace-java replace-metrics replace-metrics-new replace-js replace-chart replace-native replace-hashver replace-dojo replace-expr replace-strict replace-settings-924 replace-settings-set replace-react19 replace-react19-unused replace-react19-form replace-react19-noform replace-react19-form-bare dojo-react-form replace-react19-form-empty replace-react-bundled replace-react-fresh replace-mxlogger replace-mxlogger-quiet replace-mxlogger-global replace-mxlogger-global-quiet replace-java-id replace-java-id-ok replace-java-rtver replace-java-rtver-ok replace-java-m2ee replace-java-m2ee-ok replace-wc3 replace-wc3-absent replace-wc3-v2 replace-wc4; do model $v > /dev/null; done
 ctl replace-clean-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '!^HIT' '^NOT APPLICABLE R8 ' '^clear +R3 ' -- $RC $M/replace-clean --to 10.24.16
 ctl replace-clean-11-pass 0 '37 rows: 0 HIT \(open\), 0 UNKNOWN \(open\)' '^clear +R9 .*' 'no widgets/ folder next to the \.mpr \(0 files\)' -- $RC $M/replace-clean --to 11.12.5
 ctl replace-module-catch 1 '^HIT +R3 +MendixSSO module' 'evidence: module MendixSSO 3\.2\.1 \(Marketplace\)' '37 rows: 1 HIT' -- $RC $M/replace-sso --to 10.24.16
@@ -5050,6 +5076,10 @@ ctl replace-java-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Old\.java \(1
 ctl replace-java-entityid-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Ids\.java \(1\)' -- $RC $M/replace-java-id --to 11.12.5
 ctl replace-java-entityid-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-id-ok --to 11.12.5
 # cold WM1: DeepLink 10.0.10 (no 11 release) imports com.mendix.core.conf.RuntimeVersion, gone in 11; Core.getRuntimeVersion() is clear
+# GF-47: three more removed-in-11 symbols the field build met only at javac: com.mendix.webui.CustomJavaAction (an orphan own action, not
+# regenerated), com.mendix.core.actionmanagement.CoreAction (Queue, kept) and IMendixIdentifier.getId() (o.getId().getId()). One file per hit.
+ctl gf47-java-removed-in-11-catch 1 '^HIT +R18 ' 'in javasource/myown/actions/Sess\.java \(1\)' 'javasource/queue/impl/Q\.java \(1\)' 'javasource/queue/impl/R\.java \(1\)' -- $RC $M/replace-java-api11 --to 11.12.5
+ctl gf47-java-removed-in-11-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-api11-ok --to 11.12.5
 ctl replace-java-rtver-catch 1 '^HIT +R18 ' 'in javasource/deeplink/implementation/handler/SessionHandler\.java \(2\)' -- $RC $M/replace-java-rtver --to 11.12.5
 ctl replace-java-rtver-ok-pass 0 '!^HIT +R18' '37 rows: 0 HIT' -- $RC $M/replace-java-rtver-ok --to 11.12.5
 # GM-28: com.mendix.m2ee.api.IMxRuntimeRequest still exists in the 11 public API (8 false hits on a field app); IMxRuntimeResponse is exempt too
@@ -7575,7 +7605,7 @@ model fd-files > /dev/null; model facts-clean > /dev/null
 for n in fd fdclean fd11; do rm -rf $PR/$n; cp -R $PR/plain $PR/$n; done
 bash $PR/prop.sh $PR/fd --original $M/fd-files/App.mpr > /dev/null; bash $PR/prop.sh $PR/fdclean --original $M/facts-clean/App.mpr > /dev/null
 bash $PR/prop.sh $PR/fd11 --original $M/fd-files/App.mpr --source 11.0.0 > /dev/null
-ctl proposal-file-documents-blocker-catch 0 '^- \[P-[0-9]+\] data: BLOCKER: pre-5\.12 file documents in each environment.s database' 'FileDocument specializations: Shop\.Attachment, Shop\.Photo' 'which databases do the app.s environments' 'to be confirmed on a real database' 'recommendation: I cannot read an environment.s database: hand to a named person; the convert waits for their answer' 'the convert goes ahead' 'as the 11\.0 release note describes' 'first created on Mendix 5\.12 or later' '!local file system' '!10\.x only' -- bash $PR/sec.sh $PR/fd 3
+ctl proposal-file-documents-blocker-catch 0 '^- \[P-[0-9]+\] data: BLOCKER: pre-5\.12 file documents in each environment.s database' 'FileDocument specializations: Shop\.Attachment, Shop\.Photo' 'which databases do the app.s environments' 'select count\(\*\) from "system\$filedocument" where __uuid__ is null' '!to be confirmed on a real database' 'in Postgres syntax' 'file document rows with no uuid \(it does not filter hascontents\)' 'recommendation: I cannot read an environment.s database: hand to a named person; the convert waits for their answer' 'the convert goes ahead' 'as the 11\.0 release note describes' 'first created on Mendix 5\.12 or later' '!local file system' '!10\.x only' -- bash $PR/sec.sh $PR/fd 3
 ctl proposal-file-documents-no-entities-pass 0 '!BLOCKER' '!file documents' -- bash $PR/sec.sh $PR/fdclean 3
 ctl proposal-file-documents-already-on-11-pass 0 '!BLOCKER' -- bash $PR/sec.sh $PR/fd11 3
 # re-architecture catalogue (playbooks/rearchitecture.md): a section-3 item that fits RA-1's match gets the RA options and cites the id; a non-matching item does not
@@ -7680,6 +7710,28 @@ bash $PR/prop.sh $PR/gm12 > /dev/null; bash $PR/prop.sh $PR/gm12-unchecked > /de
 ctl gm12-proposal-section3-item-catch 0 '^- \[P-[0-9]+\] module: needs module MxTokenModule' 'NotifProd 3\.1\.0 -> 4\.1\.0 calls it \(3 refs' 'install MxTokenModule' -- bash $PR/sec.sh $PR/gm12 3
 ctl gm12-proposal-unchecked-not-measured-catch 0 '!needs module' 'absentmods\.py NotifProd 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gm12-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gm12-unchecked/PROPOSAL.md"
 ctl gm12-proposal-no-file-no-item-pass 0 '!needs module' '!absentmods' -- sh -c "bash $PR/sec.sh $PR/plain 3; cat $PR/plain/PROPOSAL.md"
+# GF-39: crosscalls.py --own output (owngone.out, real output over the xcall-own fixture) makes a section-3 item per planned module whose
+# plan version drops a target an own document uses, before the sign-off; a package not cached is "not measured", never clean
+mkw gf39; mkw gf39-unchecked
+python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-gone > $PR/gf39/owngone.out
+python3 $B/crosscalls.py $M/xcall-own --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-none > $PR/gf39-unchecked/owngone.out
+bash $PR/prop.sh $PR/gf39 > /dev/null; bash $PR/prop.sh $PR/gf39-unchecked > /dev/null
+ctl gf39-proposal-own-gone-item-catch 0 '^- \[P-[0-9]+\] module: own documents use targets AuthMod 4\.1\.0 drops' 'AuthMod 3\.2\.0 -> 4\.1\.0: 1 target\(s\) the app.s own modules use are gone.*page AuthMod\.Login_Page used by own Shop\.ACT_Open' -- bash $PR/sec.sh $PR/gf39 3
+ctl gf39-proposal-own-unchecked-not-measured-catch 0 '!own documents use targets' 'crosscalls\.py --own AuthMod 4\.1\.0.*not in the cache' -- sh -c "bash $PR/sec.sh $PR/gf39-unchecked 3; sed -n '/^## 5\\./,/^## 6\\./p' $PR/gf39-unchecked/PROPOSAL.md"
+ctl gf39-proposal-no-file-no-item-pass 0 '!own documents use targets' -- bash $PR/sec.sh $PR/plain 3
+# GF-39 review: a multi-word kind ("java action", "javascript action") must not drop the row, and the count comes from the OWN header line
+model xcall-own-java > /dev/null; model xcall-own-java-new > /dev/null
+mkdir -p $T/cache-xc-own-java; (cd $M/xcall-own-java-new && python3 -c "import zipfile; z=zipfile.ZipFile('$T/cache-xc-own-java/2222-4.1.0.mpk','w'); z.write('App.mpr'); z.close()")
+mkw gf39-java
+python3 $B/crosscalls.py $M/xcall-own-java --kept '' --own --plan-file $T/xc-plan-major.txt --cache $T/cache-xc-own-java > $PR/gf39-java/owngone.out || true
+bash $PR/prop.sh $PR/gf39-java > /dev/null
+ctl gf39-proposal-java-action-row-catch 0 'AuthMod 3\.2\.0 -> 4\.1\.0: 2 target\(s\) the app.s own modules use are gone.*java action AuthMod\.JA_Token used by own Shop\.ACT_Tok; page AuthMod\.Login_Page used by own Shop\.ACT_Open$' '!and [0-9]+ more' -- bash $PR/sec.sh $PR/gf39-java 3
+# the pipeline's own_gone_report (the real function) with a comment-only plan-pre.txt beside a plan.txt that has a GONE: every 10 -> 11 run has one
+GG=$T/gf39pipe; rm -rf $GG; mkdir -p $GG/w; cp $M/xcall-own/App.mpr $GG/w/original.mpr; cp $T/xc-plan-major.txt $GG/w/plan.txt; cp $T/xc-plan-pre-none.txt $GG/w/plan-pre.txt
+{ sed -n '/^own_gone_report() {/,/^}/p' ${PIPE:-$B/cloud/upgrade-pipeline.sh}
+  printf '%s\n' 'say() { echo "SAY: $*"; }' 'xo() { local o=$1; shift; "$@" > "$o" 2>&1; }' 'note() { echo "NOTE: $*"; }' 'own_gone_report'; } > $GG/fn.sh
+ctl gf39-pipeline-plan-pre-comment-only-catch 0 '^NOTE: crosscalls --own: own modules use 1 target\(s\) the plan versions drop' '^  GONE page AuthMod\.Login_Page' -- bash -c "(B=$B WORK=$GG/w DRY=0 UPG_CACHE=$T/cache-xc-own-gone bash $GG/fn.sh) 2>&1; cat $GG/w/owngone.out"
+ctl gf39-pipeline-dry-both-plan-files-catch 0 'plan-pre\.txt --plan-file .*/plan\.txt >' -- bash -c "B=$B WORK=$GG/w DRY=1 bash $GG/fn.sh"
 # GM-15: keptvendor.json (bin/keptvendor.py --json, real output over the keptvendor fixture) makes one section-3 item per planned
 # package with MISSING uses (options: fix the kept SCSS, or hold the package); a package it could not read is listed under "not
 # measured"; no file, no item. The items are left out of the plan hash (the file appears after the update step, like kept.txt):
@@ -7698,6 +7750,28 @@ cp $PR/gm15-missing/keptvendor.json $PR/gm15-signed-run/keptvendor.json
 ctl gm15-proposal-signed-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '!awaits' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gm15-signed-run
 ctl gm15-proposal-late-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| kept styling uses what PlatformDesignSystem 45\.0\.0 removes \| theme \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!kept styling.*CONFIRMED' -- cat $PR/gm15-signed-run/DECISIONS.md
 ctl gm15-proposal-late-step-assumed-not-approved-catch 0 '^late-step-state:assumed$' '^other-steps-approved:[1-9][0-9]*$' -- python3 -c "import json,sys; ev=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; ap=[e for e in ev if e.get('field')=='approval']; late={e['id'] for e in ap if e['value'].get('source')=='after-signoff'}; st={}; [st.update({e['id']: e['value']['state']}) for e in ap]; print('late-step-state:' + ','.join(sorted({st[i] for i in late}))); print('other-steps-approved:%d' % sum(1 for i,v in st.items() if i not in late and v=='approved'))" $PR/gm15-signed-run/steps.jsonl
+# GF-56 review: a MISSING use in the app's OWN styling (`own` in keptvendor.json) exists at triage, before the sign-off, so it is its own
+# item ("own styling uses ...") and IS in the plan hash; a kept Marketplace module's use (written after the update step) is still not.
+# KeptVar plays the kept Marketplace module: its rows are marked own=false, like keptvendor.py marks a module that is not on the own list.
+mkw gf56-both; mkw gf56-ownsigned
+python3 $B/keptvendor.py $KV/app --kept '' --own --plan-file $KV/plan.txt --cache $KVC/new --json $PR/gf56-both/keptvendor.json > /dev/null || true
+python3 - $PR/gf56-both/keptvendor.json $PR/gf56-ownsigned/keptvendor.json <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for x in d["missing"]:
+    x["own"] = x["module"] != "KeptVar"
+json.dump(d, open(sys.argv[1], "w"))
+d["missing"] = [x for x in d["missing"] if x["own"]]
+json.dump(d, open(sys.argv[2], "w"))
+PY
+bash $PR/prop.sh $PR/gf56-both > /dev/null
+ctl gf56-proposal-own-and-kept-items-catch 0 '^- \[P-[0-9]+\] theme: own styling uses what PlatformDesignSystem 45\.0\.0 removes$' 'in the app.s own styling that PlatformDesignSystem 45\.0\.0 no longer has: .*mixin dark-theme used in themesource/KeptMixin/web/main\.scss:4 \(module KeptMixin\)' '^- \[P-[0-9]+\] theme: kept styling uses what PlatformDesignSystem 45\.0\.0 removes$' '1 use\(s\) in a kept themesource that PlatformDesignSystem 45\.0\.0 no longer has: variable \$pds-gone' 'options: fix the own SCSS .* \| hold PlatformDesignSystem' -- bash $PR/sec.sh $PR/gf56-both 3
+rm -rf $PR/gf56-signed-plain $PR/gf56-signed-own; cp -R $PR/plain $PR/gf56-signed-plain; rm -f $PR/gf56-signed-plain/PROPOSAL.md; bash $PR/prop.sh $PR/gf56-signed-plain > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gf56-signed-plain/PROPOSAL.md; rm -f $PR/gf56-signed-plain/PROPOSAL.md.sedi
+cp $PR/gf56-both/keptvendor.json $PR/gf56-signed-plain/keptvendor.json
+ctl gf56-proposal-own-item-after-signoff-asks-again-catch 14 'proposal awaits sign-off' '!proposal: signed by' -- bash $PR/prop.sh $PR/gf56-signed-plain
+cp -R $PR/gf56-ownsigned $PR/gf56-signed-own; rm -f $PR/gf56-signed-own/PROPOSAL.md; bash $PR/prop.sh $PR/gf56-signed-own > /dev/null; sed -i.sedi 's/^Status: open$/Signed-off: Tester 2026-10-15/' $PR/gf56-signed-own/PROPOSAL.md; rm -f $PR/gf56-signed-own/PROPOSAL.md.sedi
+cp $PR/gf56-both/keptvendor.json $PR/gf56-signed-own/keptvendor.json
+ctl gf56-proposal-kept-item-after-signoff-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' '!Changed since signed' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf56-signed-own
 # MC-11: keptstyle.json (bin/keptstyle.py --json, real output over the keptstyle fixture $T/ks above) makes one section-3 item per kept
 # module with platform widget selectors; an empty list adds nothing; invalid JSON is listed under not measured; no file, no item. Left out
 # of the plan hash like keptvendor.json: a signed proposal stays signed, and the late item is ASSUMED, never CONFIRMED.
