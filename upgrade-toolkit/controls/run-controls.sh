@@ -665,6 +665,9 @@ def put(d, cid=None):
     con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (u, cid, bson.encode(d)))
     return u
 shop, pds, oth = put(mod("Shop", False)), put(mod("PDS", len(sys.argv) < 3)), put(mod("Other", True))
+web = put(mod("Web", False))
+put(coll("Images", ["Total"]), shop)   # Shop.Images.Total is an image; Shop.Order.Total in the log is an ATTRIBUTE (same CE1613 code)
+put({"$ID": I(), "$Type": "Forms$Page", "Name": "Attr", "Widgets": [2, {"$ID": I(), "$Type": "Forms$TextBox", "Attribute": "Shop.Order.Total"}]}, web)
 put(coll("Images", []), pds); put(coll("Restricted_Images", ["Logo", "Both"]), pds); put(coll("Universal_Images", ["Both"]), pds)
 put(page("Home", "PDS.Images.Logo", "PDS.Images.Both", "PDS.Images.Gone", "PDS.Restricted_Images.Logo", "Shop.Images.Logo"), shop)
 put(page("Inner", "PDS.Images.Logo"), pds)
@@ -676,12 +679,12 @@ import bson, sqlite3, sys
 for (b,) in sqlite3.connect(sys.argv[1]).execute("select Contents from Unit"):
     d = bson.decode(b)
     if d.get("$Type") == "Forms$Page":
-        print(d["Name"] + ": " + " ".join(w["Image"] for w in d["Widgets"][1:]))
+        print(d["Name"] + ": " + " ".join(w.get("Image") or w.get("Attribute") for w in d["Widgets"][1:]))
 EOF2
 python3 $RI/mk.py $RI/a
-printf '%s\n' '[error] [CE1613] "The selected image no longer exists." at Page Shop.Home: PDS.Images.Logo' '[error] [CE1613] "x" at Page Shop.Home: PDS.Images.Both' '[error] [CE1613] "y" at Page Shop.Home: PDS.Images.Gone' '[error] [CE1613] "z" Shop.Home uses PDS.Gone_Page' '[error] [CE0117] "w" PDS.Images.Zed' > $RI/check.log
+printf '%s\n' "[error] [CE1613] \"The selected image 'PDS.Images.Logo' no longer exists.\" at Image 'image1' (Page 'Shop.Home')" "[error] [CE1613] \"The selected image 'PDS.Images.Both' no longer exists.\" at Image 'image2' (Page 'Shop.Home')" "[error] [CE1613] \"The selected image 'PDS.Images.Gone' no longer exists.\" at Image 'image3' (Page 'Shop.Home')" "[error] [CE1613] \"The selected attribute 'Shop.Order.Total' no longer exists.\" at Text box 'textBox1' (Page 'Web.Attr')" "[error] [CE1613] \"The selected page 'PDS.Gone_Page' no longer exists.\" at Page 'Shop.Home'" "[error] [CE0117] \"w\" PDS.Images.Zed" > $RI/check.log
 RIP="python3 $B/repair/repoint_images.py $RI/a --log $RI/check.log"
-ctl repoint-images-dry-catch 0 '^REPOINT Shop\.Home: 1 x PDS\.Images\.Logo -> PDS\.Restricted_Images\.Logo$' '1 reference\(s\) in 1 unit\(s\); dry run' '!Gone_Page' -- bash -c "$RIP; python3 $RI/show.py $RI/a/App.mpr"
+ctl repoint-images-dry-catch 0 '^REPOINT Shop\.Home: 1 x PDS\.Images\.Logo -> PDS\.Restricted_Images\.Logo$' '1 reference\(s\) in 1 unit\(s\); dry run' '!Gone_Page' '!^REPOINT .*Order\.Total' -- bash -c "$RIP; python3 $RI/show.py $RI/a/App.mpr"
 ctl repoint-images-dry-unchanged-pass 0 '^Home: PDS\.Images\.Logo PDS\.Images\.Both PDS\.Images\.Gone ' -- python3 $RI/show.py $RI/a/App.mpr
 ctl repoint-images-ambiguous-pass 0 '^LEFT PDS\.Images\.Both: Both is in 2 collections of PDS \(Restricted_Images, Universal_Images\); pick one by hand$' '^LEFT PDS\.Images\.Gone: no collection of PDS holds an image called Gone$' '!Zed' -- $RIP
 cp -r $RI/a $RI/b

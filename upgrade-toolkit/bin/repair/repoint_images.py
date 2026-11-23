@@ -8,9 +8,10 @@ Why (field run GF-38): a Marketplace module update moved its images from the col
 `Module.Images.Logo`; 54 of 85 CE1613 ("the selected image no longer exists") were exactly this. mxcli cannot rewrite an
 image reference on a page, so it was rewritten in the BSON.
 
-Input: the missing names, either as the CE1613 lines of a mx check log (--log: every three-part `Module.Coll.Name` in a
-CE1613 line is taken; lines with a two-part name, a page or a microflow, are not image references and are skipped) or
-named with --image (repeatable). For each name the app's module Module must hold exactly ONE image collection that has
+Input: the missing names, either as the CE1613 lines of a mx check log (--log: only the quoted name of an image message,
+`The selected image 'Module.Coll.Name' no longer exists.`, is taken; the same CE1613 code also reports attributes,
+enumerations, pages and microflows, and those lines are skipped even when their name has three parts) or named with
+--image (repeatable). For each name the app's module Module must hold exactly ONE image collection that has
 an image called Name: every string equal to `Module.Coll.Name` in an OWN unit becomes `Module.NewColl.Name`.
   REPOINT   one collection holds it now: the rewrite (units and counts are listed)
   LEFT      the name is still there (nothing is missing), the module is not in the app, no collection holds the name,
@@ -31,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from copy_mappings import Mpr  # noqa: E402
 from copydoc import module_unit, replace_exact, strings, APPSTORE  # noqa: E402
 
-IMG = re.compile(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b")
+IMG = re.compile(r"selected image '([A-Za-z_]\w*\.[A-Za-z_]\w*\.[A-Za-z_]\w*)'")
 
 
 def names_from_log(path):
@@ -40,7 +41,7 @@ def names_from_log(path):
         if "CE1613" not in line:
             continue
         for m in IMG.finditer(line):
-            qn = ".".join(m.groups())
+            qn = m.group(1)
             if qn not in out:
                 out.append(qn)
     return out
@@ -60,9 +61,15 @@ def collections(m):
     return out
 
 
+_OWN = {}
+
+
 def is_own(m, mod):
-    _, md = module_unit(m, mod) if mod else (None, None)
-    return md is not None and not any(md.get(k) for k in APPSTORE) and not md.get("AppStoreVersion")
+    key = (id(m), mod)
+    if key not in _OWN:
+        _, md = module_unit(m, mod) if mod else (None, None)
+        _OWN[key] = md is not None and not any(md.get(k) for k in APPSTORE) and not md.get("AppStoreVersion")
+    return _OWN[key]
 
 
 def main():
