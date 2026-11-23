@@ -382,9 +382,6 @@ def history(app, mod, mpr, installed=None, limit=300):
 # either way, but git still knows who touched each file: a theme/JavaScript file whose newest commit is neither a toolkit
 # commit ("step:" subject or a "Changed-By: toolkit" trailer) nor the first commit of the repository was changed by the app's own team, so it counts as EDITED.
 # A field run (GF) took 35 own SCSS files as "unknown", accepted the update and got a 4-file skeleton back.
-STEPSUBJ = re.compile(r"^step:")
-
-
 def authored(app, mod):
     """-> (status, lines): 'edited' (an own commit is the newest of some file) | 'unedited' (PROVEN: every file's newest commit is a
     "step:" install commit, the toolkit put it there) | 'unproven' (no own commit, but some file's newest is the first commit or a
@@ -398,6 +395,10 @@ def authored(app, mod):
         files = {f for f in git(app, "ls-files", "-z", "--", *dirs).split("\0") if f and not OSJUNK.search(f)}
         if not files:
             raise Unknown("no tracked file under the module's folders")
+        # an untracked file has no commit at all: nothing shows the toolkit put it there (the next step commit would sweep it in)
+        untracked = sorted(f for f in git(app, "ls-files", "-z", "--others", "--exclude-standard", "--", *dirs).split("\0") if f and not OSJUNK.search(f))
+        # only THIS module's own step commit proves an install: another module's step commit (`git add -A .`) also sweeps in this module's own files
+        stepsubj = re.compile(rf"^step: {re.escape(mod)} \S+ \(stepupdate")
         first = set(git(app, "rev-list", "--max-parents=0", "HEAD").split())
         # every toolkit commit (replay:, repair:, rung start, toolkit:, build:, step:) carries the trailer "Changed-By: toolkit":
         # it is not the app's own work, whatever its subject says (review of the GF-55 fix)
@@ -408,15 +409,19 @@ def authored(app, mod):
                 cur = ln[1:].split("\x02", 1)
             elif cur and ln in files and ln not in last:
                 last[ln] = cur
-        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and sha not in toolkit and not STEPSUBJ.match(subj))
+        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and sha not in toolkit and not stepsubj.match(subj))
         if own:
             return "edited", [f"FILES-EDITED {f} (newest change is the app's own commit {last[f][0][:7]}, not a step)" for f in own]
         # the pipeline's own first commit ("original": everything as delivered, own SCSS included) and replay: commits (the app's
         # own theme patches re-applied) are not own commits, but they prove nothing either: only a step: install commit does
-        unproven = sorted(f for f in files if not (f in last and STEPSUBJ.match(last[f][1])))
-        if unproven:
-            return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(unproven)} of {len(files)} files were last "
-                                f"committed by the first commit or a non-install toolkit commit (e.g. {unproven[0]}): git cannot show they are not the app's own"]
+        unproven = sorted(f for f in files if not (f in last and stepsubj.match(last[f][1])))
+        if unproven or untracked:
+            if unproven:
+                return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(unproven)} of {len(files)} files were last "
+                                    f"committed by the first commit or a non-install toolkit commit (e.g. {unproven[0]}): git cannot show they are not the app's own"
+                                    + (f"; {len(untracked)} more are untracked" if untracked else "")]
+            return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(untracked)} file(s) under its folders are untracked "
+                                f"(e.g. {untracked[0]}): no commit shows the toolkit put them there"]
         return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files, all last installed by a step: commit)"]
     except Unknown as e:
         return "unknown", [f"FILES-UNKNOWN {mod}: {e}"]

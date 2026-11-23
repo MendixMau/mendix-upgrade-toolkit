@@ -3108,6 +3108,13 @@ rm -rf $S/skelroot; cp -R $TH/skel $S/skelroot; cp $TH/skel.plan $S/skelroot.pla
 rm -rf $S/skel; cp -R $TH/skel $S/skel
 ctl themefiles-authored-all-step-installed-pass 0 '^no file of Administration has an own commit as its newest \([0-9]+ files, all last installed by a step: commit\)' '!FILES-EDITED' '!git cannot show' -- python3 $B/themefiles.py authored $TH/skel Administration
 ctl themefiles-authored-root-commit-only-catch 3 'files were last committed by the first commit or a non-install toolkit commit' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skelroot Administration
+# review of GF-55 (2): an untracked file has no commit, and another module's step: commit (git add -A .) sweeps this module's own file in:
+# neither proves the toolkit installed it, so authored exits 3 (unproven), not 0
+rm -rf $S/skunt $S/skoth; cp -R $TH/skel $S/skunt; cp -R $TH/skel $S/skoth
+echo '$own-untracked: 1;' > $S/skunt/themesource/administration/web/_own.scss
+(cd $S/skoth && echo '// own edit' >> themesource/administration/web/_part5.scss && git -c user.email=c@c -c user.name=ctl commit -qam "step: Other 1.0.0 (stepupdate, content 9)" -m "Changed-By: toolkit")
+ctl themefiles-authored-untracked-unproven-catch 3 '1 file\(s\) under its folders are untracked \(e\.g\. themesource/administration/web/_own\.scss\)' '!all last installed by a step' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skunt Administration
+ctl themefiles-authored-other-module-step-unproven-catch 3 'files were last committed by the first commit or a non-install toolkit commit \(e\.g\. themesource/administration/web/_part5\.scss\)' '!all last installed by a step' '!FILES-EDITED' -- python3 $B/themefiles.py authored $S/skoth Administration
 # review of GF-55: with every file tracked and each one's newest commit a step: install commit (git proved the toolkit put them there:
 # authored exit 0) a big drop is a package restructure, not a dead end: no FILES-DROP stop. When git could not prove that (files
 # untracked, authored exit 2; or the newest commit is the pipeline's first "original" commit or a replay commit, authored exit 3)
