@@ -377,6 +377,71 @@ def history(app, mod, mpr, installed=None, limit=300):
         return "unknown", [f"FILES-UNKNOWN {mod}: {e}"], []
 
 
+# ---------------------------------------------------------------------------------------------- authored (GF-55)
+# Producer: stepupdate.sh runs it after `history` said FILES-UNKNOWN. A package that cannot be compared proves nothing
+# either way, but git still knows who touched each file: a theme/JavaScript file whose newest commit is neither a toolkit
+# commit ("step:" subject or a "Changed-By: toolkit" trailer) nor the first commit of the repository was changed by the app's own team, so it counts as EDITED.
+# A field run (GF) took 35 own SCSS files as "unknown", accepted the update and got a 4-file skeleton back.
+def authored(app, mod):
+    """-> (status, lines): 'edited' (an own commit is the newest of some file) | 'unedited' (PROVEN: every file's newest commit is a
+    "step:" install commit, the toolkit put it there) | 'unproven' (no own commit, but some file's newest is the first commit or a
+    replay/repair commit: git cannot tell the app's own work from package files there) | 'unknown' (git cannot say)."""
+    try:
+        if subprocess.run(["git", "-C", app, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode != 0:
+            raise Unknown("not a git work tree")
+        dirs = [d for d in module_dirs(app, mod) if not d.startswith("javasource/")]
+        if not dirs:
+            raise Unknown("no themesource/javascriptsource folder of the module in the work tree")
+        files = {f for f in git(app, "ls-files", "-z", "--", *dirs).split("\0") if f and not OSJUNK.search(f)}
+        if not files:
+            raise Unknown("no tracked file under the module's folders")
+        # an untracked file has no commit at all: nothing shows the toolkit put it there (the next step commit would sweep it in)
+        untracked = sorted(f for f in git(app, "ls-files", "-z", "--others", "--exclude-standard", "--", *dirs).split("\0") if f and not OSJUNK.search(f))
+        # only THIS module's own step commit proves an install: another module's step commit (`git add -A .`) also sweeps in this module's own files
+        stepsubj = re.compile(rf"^step: {re.escape(mod)} \S+ \(stepupdate")
+        first = set(git(app, "rev-list", "--max-parents=0", "HEAD").split())
+        # every toolkit commit (replay:, repair:, rung start, toolkit:, build:, step:) carries the trailer "Changed-By: toolkit":
+        # it is not the app's own work, whatever its subject says (review of the GF-55 fix)
+        toolkit = set(git(app, "log", "--format=%H", "--grep=^Changed-By: toolkit$", "HEAD").split())
+        last, cur = {}, None
+        for ln in git(app, "log", "--format=\x01%H\x02%s", "--name-only", "--", *dirs).splitlines():
+            if ln.startswith("\x01"):
+                cur = ln[1:].split("\x02", 1)
+            elif cur and ln in files and ln not in last:
+                last[ln] = cur
+        own = sorted(f for f, (sha, subj) in last.items() if sha not in first and sha not in toolkit and not stepsubj.match(subj))
+        if own:
+            return "edited", [f"FILES-EDITED {f} (newest change is the app's own commit {last[f][0][:7]}, not a step)" for f in own]
+        # the pipeline's own first commit ("original": everything as delivered, own SCSS included) and replay: commits (the app's
+        # own theme patches re-applied) are not own commits, but they prove nothing either: only a step: install commit does
+        unproven = sorted(f for f in files if not (f in last and stepsubj.match(last[f][1])))
+        if unproven or untracked:
+            if unproven:
+                return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(unproven)} of {len(files)} files were last "
+                                    f"committed by the first commit or a non-install toolkit commit (e.g. {unproven[0]}): git cannot show they are not the app's own"
+                                    + (f"; {len(untracked)} more are untracked" if untracked else "")]
+            return "unproven", [f"no file of {mod} has an own commit as its newest, but {len(untracked)} file(s) under its folders are untracked "
+                                f"(e.g. {untracked[0]}): no commit shows the toolkit put them there"]
+        return "unedited", [f"no file of {mod} has an own commit as its newest ({len(files)} files, all last installed by a step: commit)"]
+    except Unknown as e:
+        return "unknown", [f"FILES-UNKNOWN {mod}: {e}"]
+
+
+def javalogic(path):
+    """'<logic rows> <deleted package files>' over the java rows of a files.json (GF-37). A deleted package file holds
+    no user code: the update restores it and nothing is lost. Unreadable input counts as one logic row (safe side)."""
+    try:
+        data = json.load(open(path))
+        rows = []
+        for x in data if isinstance(data, list) else []:
+            rows += (x.get("files") or []) if isinstance(x, dict) and "files" in x else [x]
+        java = [r for r in rows if isinstance(r, dict) and (r.get("kind") == "java" or str(r.get("path", "")).startswith("javasource/"))]
+    except Exception:
+        return "1 0"
+    gone = [r for r in java if r.get("change") == "REMOVED"]
+    return f"{len(java) - len(gone)} {len(gone)}"
+
+
 def main():
     a = sys.argv[1:]
     if a and a[0] == "history":
@@ -389,7 +454,15 @@ def main():
         print("\n".join(lines))
         if o.json:
             json.dump(rows, open(o.json, "w"), indent=1)
-        sys.exit({"unedited": 0, "edited": 1, "unknown": 2}[status])
+        sys.exit({"unedited": 0, "edited": 1, "unknown": 2, "unproven": 3}[status])
+    if len(a) == 3 and a[0] == "authored":
+        status, lines = authored(a[1], a[2])
+        print("\n".join(lines))
+        sys.exit({"unedited": 0, "edited": 1, "unknown": 2, "unproven": 3}[status])
+    if len(a) == 2 and a[0] == "javalogic":
+        print(javalogic(a[1])); sys.exit(0)
+    if len(a) == 3 and a[0] == "count":
+        print(len(app_files(a[1], a[2]))); sys.exit(0)
     if len(a) < 4 or a[0] not in ("report", "snapshot", "replay"):
         print(__doc__); sys.exit(2)
     cmd, app, mod, x = a[:4]
