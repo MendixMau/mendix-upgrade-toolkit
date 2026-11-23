@@ -51,7 +51,7 @@ Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says 
    (it holds the toolkit in `upgrade-toolkit/`, the release-note brain in `company-brain-test/brain/`, and the
    unattended pipeline in `pipeline/`).
 2. Read `upgrade-toolkit/SETUP.md`, then run its one command:
-   `bash upgrade-toolkit/bin/setup-container.sh ~/run1 <old version> <target version>` and `source ~/run1/upg-env.sh`.
+   `bash upgrade-toolkit/bin/setup-container.sh ~/run1 <old version> <target version>` and `source ~/run1/env.sh`.
    Find the old version with `upgrade-toolkit/bin/mxversion.py` on the app's .mpr.
    `MENDIX_PAT` must already be set in the environment; if it is not, stop and tell me.
 3. Put the app under `~/run1/app` as its own git repo.

@@ -4039,6 +4039,7 @@ case ${FAKE_CURL:-} in
 esac
 printf 'PK\003\004fake-jar' > "$out"
 EOF
+printf '#!/bin/sh\n[ "${FAKE_JAVA:-}" != fail ] || { echo "Error: Could not find or load main class org.antlr.v4.Tool" >&2; exit 1; }\necho "ANTLR Parser Generator  Version 4.13.2"\n' > $SC/bin/java   # GF-3: the java the jar smoke test runs
 printf '#!/bin/sh\necho "argv: $*" >> %s/mxcli.log; read -r t; echo "stdin: $t" >> %s/mxcli.log; mkdir -p "$HOME/.mxcli"; echo "{}" > "$HOME/.mxcli/auth.json"\n' $SC $SC > $SC/bin/mxcli
 printf '#!/bin/sh\ncase "$*" in *install*rsync*) printf "#!/bin/sh\\nexit 0\\n" > %s/rsync; chmod +x %s/rsync;; esac\nexit 0\n' $SC/bin2 $SC/bin2 > $SC/bin2/apt-get
 printf '#!/bin/sh\necho "E: Unable to locate package rsync" >&2; exit 100\n' > $SC/bin3/apt-get
@@ -4129,9 +4130,9 @@ rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
 ctl setup-check-no-rsync-catch 1 'NOT READY: rsync missing' '!done: source' -- setup home-nr PATH=$SC/bin3:$NR UPG_PYTHON=$T/py-ok UPG_SETUP_STEPS=host,check
-ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
-ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
-ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
+ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
+ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
+ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
 # S1-S3 (Apple Silicon / laptop): setup-container.sh through stubbed uname (Darwin/arm64), docker, make, npm and npx; no real
 # Docker or Mac. S1 mxcli is cross-built GOOS=linux GOARCH=amd64 and a Mac's own mxcli is never replaced; S2 every docker
 # pull/build in step 4 carries --platform linux/amd64; S3 no /opt/pw-browsers = install Chromium (or a NEXT-STEP line
@@ -4139,7 +4140,8 @@ ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/h
 MAC=$T/mac; mkdir -p $MAC
 printf '#!/bin/sh\ncase "$1" in -m) echo ${FAKE_ARCH:-arm64};; *) echo ${FAKE_UNAME:-Darwin};; esac\n' > $MAC/uname
 printf '#!/bin/sh\necho "$*" >> "$HOME/docker.log"\ncase "$1 $2" in "image inspect") exit 1;; esac\nexit 0\n' > $MAC/docker
-printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
+cp $SC/bin/java $MAC/java
+printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\n[ -n "$d" ] || exit 0\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
 # MXCLI_REF: the source is fetched at the ref (never HEAD) by git, which is stubbed here; the stub make prints the VERSION it was given
 printf '#!/bin/sh\necho "git $*" >> "$HOME/git.log"\nexit 0\n' > $MAC/git
 printf '#!/bin/sh\nmkdir -p node_modules/playwright\n' > $MAC/npm
@@ -4176,6 +4178,43 @@ ctl setup-rsync-before-mxcli-apt-once-pass 0 '^apt-get update -q$' '^apt-get ins
 printf '#!/bin/sh\n' > $MR/rsync; chmod +x $MR/rsync
 ctl setup-rsync-present-no-apt-pass 0 '!rsync installed' -- mrsetup mr-has UPG_SETUP_STEPS=mxcli
 ctl setup-rsync-present-no-apt-log-pass 1 -- test -e $SC/mr-has/apt.log
+# GF-1: the old-style link is ~/Mendix/mendix-upgrade-toolkit; ~/Mendix/mxcli-project-toolkit (the build toolkit's clone) is never
+# touched, and an existing other checkout at the link path is warned about, not replaced
+mkdir -p $SC/gf1a/Mendix/mxcli-project-toolkit $SC/gf1b/Mendix/mendix-upgrade-toolkit
+ctl setup-gf1-link-own-name-pass 0 'toolkit at ' '!WARNING' -- setup gf1a UPG_SETUP_STEPS=link
+ctl setup-gf1-link-made-pass 0 '^same$' -- sh -c "[ \"\$(readlink -f $SC/gf1a/Mendix/mendix-upgrade-toolkit)\" = \"\$(readlink -f $B/../..)\" ] && echo same"
+ctl setup-gf1-build-toolkit-path-untouched-pass 0 '^none$' -- sh -c "ls -A $SC/gf1a/Mendix/mxcli-project-toolkit | grep . || echo none"
+ctl setup-gf1-link-other-checkout-catch 0 'WARNING: .*mendix-upgrade-toolkit is not this repo' 'left alone' -- setup gf1b UPG_SETUP_STEPS=link
+ctl setup-gf1-link-other-checkout-kept-pass 0 '^dir$' -- sh -c "[ -d $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && [ ! -L $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && echo dir"
+# GF-3: the jar is smoke-tested with the java on PATH; a java that cannot read it stops setup and says what to set
+ctl setup-gf3-antlr-java-cannot-read-catch 2 'cannot read .*antlr4-4\.13\.2-complete\.jar' 'Set JAVA_HOME to a host JDK' '!antlr jar present' -- setup gf3a PATH=$SC/bin:$NR FAKE_JAVA=fail UPG_SETUP_STEPS=antlr
+ctl setup-gf3-antlr-java-reads-pass 0 'antlr jar placed|antlr jar present' '!JAVA_HOME' -- setup gf3b PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
+# GF-4: the make prerequisites (a `go run` generator) run natively; only the final build carries GOOS/GOARCH
+ctl setup-gf4-prereqs-native-catch 0 '^GOOS= GOARCH= grammar sync-all completions$' -- cat $SC/mac-own/make.log
+ctl setup-gf4-build-cross-only-catch 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=' -- cat $SC/mac-own/make.log
+ctl setup-gf4-one-cross-call-pass 0 '^1$' -- sh -c "grep -c 'GOOS=linux' $SC/mac-own/make.log"
+# GF-5: one env file; setup-container.sh keeps what is outside its block (cloud/setup.sh's lines), never doubles its own, and
+# upg-env.sh only sources it; cloud/setup.sh keeps the block when it rewrites env.sh
+mkdir -p $SC/run-gf5; printf '# from cloud setup.sh\nexport KEEP_ME=1\n' > $SC/run-gf5/env.sh
+gf5() { env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-gf5 11.6.3 > /dev/null; }
+ctl setup-gf5-one-env-file-catch 0 '^export KEEP_ME=1$' '^export UPG_ROOT=.*/run-gf5 UPG_TOOLS=' -- sh -c "$(declare -f gf5); SC=$SC B=$B; gf5; cat $SC/run-gf5/env.sh"
+ctl setup-gf5-rerun-no-double-pass 0 '^1$' -- sh -c "$(declare -f gf5); SC=$SC B=$B; gf5; gf5; grep -c '^# >>> setup-container.sh' $SC/run-gf5/env.sh"
+ctl setup-gf5-upg-env-sources-pass 0 "^\\. \"$SC/run-gf5/env\\.sh\"\$" -- cat $SC/run-gf5/upg-env.sh
+mkdir -p $SC/run-gf5c; printf '# >>> setup-container.sh (x) >>>\nexport KEEP_BLOCK=1\n# <<< setup-container.sh <<<\n' > $SC/run-gf5c/env.sh
+ctl cloudsetup-gf5-envsh-keeps-block-catch 0 '^export KEEP_BLOCK=1$' '^export TK=' -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $SC/run-gf5c --source 9.24.10.18073 --target 10.24.28.129343 --only envsh > /dev/null; cat $SC/run-gf5c/env.sh"
+# GF-6, GF-7: dockerhost.sh on Apple Silicon (stub uname and docker): Docker Desktop passes when an amd64 container shows Rosetta;
+# otherwise it stops with both ways out, the VM size, and the command that puts the docker context back; setup stops there too
+DHB=$T/dhb; mkdir -p $DHB
+printf '#!/bin/sh\ncase "$1" in -sm) echo Darwin arm64;; -m) echo arm64;; *) echo Darwin;; esac\n' > $DHB/uname
+printf '#!/bin/sh\ncase "$1 $2" in "image inspect") exit ${FAKE_IMG:-0};; "context inspect") echo unix:///nonexistent/docker.sock;; "context show") echo desktop-linux;; run*) exit ${FAKE_RUN:-1};; esac\nexit 0\n' > $DHB/docker
+chmod +x $DHB/*
+ctl dockerhost-gf6-desktop-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=0 bash $B/dockerhost.sh
+ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' 'Use Rosetta for x86_64/amd64 emulation' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
+ctl dockerhost-gf6-no-image-no-probe-pass 1 'no running container VM with Rosetta' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
+ctl dockerhost-gf7-context-back-catch 1 'colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60' 'docker context use desktop-linux' 'export DOCKER_HOST=unix://' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
+ctl dockerhost-not-arm-mac-quiet-pass 0 '^$' -- env -u DOCKER_HOST PATH=$NR HOME=$SC/dhhome bash $B/dockerhost.sh
+ctl setup-gf6-docker-step-stops-catch 2 'NOT READY: dockerhost: no running container VM with Rosetta' -- env HOME=$SC/gf6a PATH=$DHB:$NR FAKE_RUN=1 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6a 11.6.3
+ctl setup-gf6-docker-step-rosetta-pass 0 'docker ' '!NOT READY' -- env HOME=$SC/gf6b PATH=$DHB:$NR FAKE_RUN=0 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6b 11.6.3
 rm -f $MR/rsync
 mkdir -p $SC/tc-home
 ctl toolcheck-host-chromium-warn-catch 0 'WARNING, no Chromium for Playwright .*cd ~/mendix-playwright && npx --yes playwright@1\.56\.1 install chromium' 'host OK' '!REFUSED' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/nopw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
@@ -7445,16 +7484,21 @@ ctl gate-changes-unlabelled-keeps-rungs-pass 0 '\| 1 \| build \| PASS \|' '!\| F
 ctl gate-changes-no-repo-pass 0 'Overall: \*\*PASS\*\*' '!Changes:' -- gcase chno
 # DV-3: which brain was found is one line from brainpath.py --describe, at triage and in the gate summary
 BPH=$T/bph; mkdir -p $BPH/empty
-BPD() { env -u UPG_BRAIN HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix
-ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
+BPD() { env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix; the brain this repo ships is skipped (the GF-10 controls use it)
+ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none, this repo none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
 ctl brainpath-describe-upg-brain-pass 0 "^brain: $RB \(from UPG_BRAIN\)\$" '!none found' -- env HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-describe-bad-upg-brain-catch 0 '^brain: none found \(looked: UPG_BRAIN /nowhere/x has no baseline/versions tables' -- env HOME="$BPH/empty" UPG_BRAIN=/nowhere/x python3 $B/brainpath.py --describe
 mkdir -p $BPH/h2/.config/upgrade-toolkit; echo "UPG_BRAIN=$RB" > $BPH/h2/.config/upgrade-toolkit/local.env
 ctl brainpath-describe-local-env-pass 0 "^brain: $RB \(from local\.env\)\$" -- env -u UPG_BRAIN HOME="$BPH/h2" python3 $B/brainpath.py --describe
 mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
-ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
-gbr() ( export HOME="$BPH/empty"; unset UPG_BRAIN; gcase "$@" )
+ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
+# GF-10: without UPG_BRAIN and with no brain under ~/Mendix, the brain this repo ships is found
+ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from this repo\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
+ctl brainpath-gf10-shipped-plain-pass 0 '/company-brain-test/brain$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
+ctl brainpath-gf10-upg-brain-first-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
+ctl brainpath-gf10-home-brain-first-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $B/brainpath.py --describe
+gbr() ( export HOME="$BPH/empty" UPG_BRAIN_SHIPPED=0; unset UPG_BRAIN; gcase "$@" )
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
@@ -8224,7 +8268,8 @@ arcase() { # arcase NAME EXITCODE [VAR=VALUE...]: a new work folder (golden gate
   [ -z "${AR_LOG:-}" ] || cp "$AR_LOG" $AR/$n/FIELD-RUNS.md
   [ -z "${AR_APP:-}" ] || printf '%s\n' "$AR_APP" > $AR/$n/work/state/app-code
   [ -z "${AR_NJ:-}" ] || printf '# NEEDS JUDGMENT: step gate, exit 12\n' > $AR/$n/work/NEEDS-JUDGMENT.md
-  env ${1:+"$@"} UPG_FIELD_RUNS=$AR/$n/FIELD-RUNS.md bash -c "set -Eeu; trap 'exit 4' ERR; . $RP/fn.sh; APPS_UP=(); B=$B; WORK=$AR/$n/work; TK=$RP/tk; STEP=gate; DRY=0; trap cleanup EXIT; exit $ec"; echo "gate-rc=$?"
+  local lg=UPG_FIELD_RUNS=$AR/$n/FIELD-RUNS.md; [ -z "${AR_DEFLOG:-}" ] || lg=AR_DEFLOG_DEFAULT=1   # AR_DEFLOG: the pipeline's own default log (GF-53)
+  env -u UPG_FIELD_RUNS ${1:+"$@"} $lg bash -c "set -Eeu; trap 'exit 4' ERR; . $RP/fn.sh; APPS_UP=(); B=$B; WORK=$AR/$n/work; TK=$RP/tk; STEP=gate; DRY=0; trap cleanup EXIT; exit $ec"; echo "gate-rc=$?"
 }
 arshow() { echo "summary-run-log=$(grep -c '^Run log: no row added' $AR/$1/work/gate-summary.md)"; echo "nj=$(cat $AR/$1/work/NEEDS-JUDGMENT.md 2> /dev/null | grep -c '^## Run log not added')"; echo "rows=$(cat $AR/$1/FIELD-RUNS.md 2> /dev/null | grep -c '^| 2')"; }
 # ok: the row carries timing, the Time: line is stamped, the commit hint is printed
@@ -8233,6 +8278,14 @@ ctl pipeline-autorunlog-ok-row-pass 0 '^\| 20261022075034 \| PR \| pr-type \| .*
 # the older name and the state file stand in when UPG_APP_CODE is unset
 ctl pipeline-autorunlog-app-name-fallback-pass 0 'gate-rc=0' '^runlog: row added' -- arcase oldname 0 UPG_APP_NAME=PR
 AR_APP=PR ctl pipeline-autorunlog-state-file-pass 0 'gate-rc=0' '^runlog: row added' -- arcase state 0
+# GF-53: the default log is the run folder's; the toolkit checkout is written only on UPG_FIELD_RUNS=toolkit
+mkdir -p $RP/tk
+AR_DEFLOG=1 ctl pipeline-gf53-default-run-folder-catch 0 'gate-rc=0' "^runlog: row added to $AR/gf53/work/FIELD-RUNS\\.md \\(the run folder; the toolkit checkout was not touched\\)" -- arcase gf53 0 UPG_APP_CODE=PR UPG_APP_TYPE=pr-type
+ctl pipeline-gf53-row-in-run-folder-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $AR/gf53/work/FIELD-RUNS.md
+ctl pipeline-gf53-toolkit-untouched-catch 1 -- test -e $RP/tk/FIELD-RUNS.md
+AR_DEFLOG=1 ctl pipeline-gf53-opt-in-toolkit-pass 0 'gate-rc=0' "^runlog: row added to $RP/tk/FIELD-RUNS\\.md\\. Commit FIELD-RUNS\\.md" -- arcase gf53b 0 UPG_APP_CODE=PR UPG_APP_TYPE=pr-type UPG_FIELD_RUNS=toolkit
+ctl pipeline-gf53-opt-in-row-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $RP/tk/FIELD-RUNS.md
+rm -f $RP/tk/FIELD-RUNS.md
 ctl pipeline-autorunlog-state-file-row-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $AR/state/FIELD-RUNS.md
 # refusals: duplicate (exit 3), customer name (exit 4), no app code name (exit 2): reason shown, gate exit code unchanged
 AR_LOG=$FX/runlog/old-12col-log.md ctl pipeline-autorunlog-duplicate-refused-catch 0 'gate-rc=0' '!gate-rc=3' '^WARN +runlog: no row added \(runlog\.py exit 3\): the run id is already in the log' -- arcase dup 0 UPG_APP_CODE=PR
@@ -8757,7 +8810,7 @@ ctl pipeline-assoc-replayed-pass 0 '!NOT replayed' -- bash -c "WORK=$AU DRY=0; n
 # MXCLI_REF: both setup scripts build the pinned ref (never HEAD) and stamp it
 ctl setup-mxcli-ref-default-catch 0 'mxcli: mxcli version 78bdfa5 \(MXCLI_REF=78bdfa51a2e0a84b971093ebd7b6b82e7596c950\)' '!WARNING' -- macsetup ref1 FAKE_UNAME=Linux UPG_SETUP_STEPS=mxcli
 ctl setup-mxcli-ref-fetched-pass 0 '^fetch -q --depth 1 origin 78bdfa51a2e0a84b971093ebd7b6b82e7596c950$' '^checkout -q -f --detach FETCH_HEAD$' '!clone' '!origin HEAD' -- sh -c "sed 's/^git -C [^ ]* //' $SC/ref1/git.log"
-ctl setup-mxcli-ref-stamped-pass 0 '^GOOS=linux GOARCH=amd64 build VERSION=78bdfa5 BUILD_DIR=' -- cat $SC/ref1/make.log
+ctl setup-mxcli-ref-stamped-pass 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=78bdfa5 BUILD_DIR=' -- cat $SC/ref1/make.log
 ctl setup-mxcli-ref-env-catch 0 'mxcli: mxcli version v0\.27\.1 \(MXCLI_REF=v0\.27\.1\)' -- macsetup ref2 FAKE_UNAME=Linux MXCLI_REF=v0.27.1 UPG_SETUP_STEPS=mxcli
 ctl setup-mxcli-ref-env-fetched-pass 0 'origin v0\.27\.1$' '!v0\.28\.0' -- sh -c "grep fetch $SC/ref2/git.log"
 # an earlier build of another ref in the run folder is rebuilt; a binary somebody put there is kept and warned about
@@ -9717,7 +9770,7 @@ ctl skill-widget-xml-lesson-catch 0 'package XML' 'removing it removes' 'GM-19' 
 # GM-39: the R4 (Deep Link) row of replacements.tsv, the card triage prints, names the role trap, UrlPrefix (no mxcli syntax, by hand) and the /p/ to /link/ move.
 ctl replacements-r4-card-three-items-catch 0 '^role trap$' '^UrlPrefix$' '^p-to-link$' '!MISSING' -- sh -c 'r=$(grep -P "^R4\t" "$1/playbooks/replacements.tsv"); for k in "role trap:allowed roles" "UrlPrefix:UrlPrefix: mxcli has no syntax for it" "p-to-link:/p/ to /link/.*breaks bookmarks"; do if printf "%s" "$r" | grep -Eq "${k#*:}"; then echo "${k%%:*}"; else echo "MISSING ${k%%:*}"; fi; done' _ "$TK"
 ctl docs-toolkit-path-from-skill-folder-pass 0 'TK. = the folder that holds this SKILL\.md' 'B=\$TK/bin' -- sh -c "cd $TK && grep -h 'Paths:' SKILL.md steps/triage.md"
-ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mxcli-project-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
+ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mendix-upgrade-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-changes-nothing-pass 0 '^nothing$' -- sh -c "ls -A $DV1 | grep -vx nopw | grep . || echo nothing"
 ctl setup-plan-follows-variables-pass 0 "$DV1/src2" -- env HOME=$DV1/h MXCLI_SRC=$DV1/src2 bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-no-args-refused-pass 2 'run folder' -- bash $B/setup-container.sh --plan

@@ -136,11 +136,11 @@ rung whether the app can be judged, what the customer must supply, and the best 
 ## Run log and timing
 
 The pipeline writes `$WORK/state/timing.tsv` (one row per attempt of a step: start, end, exit code) and, at the end of the gate
-step, calls `bin/runlog.py --work $WORK` itself: one row in `FIELD-RUNS.md` with "run time (machine)" and "person wait" next to
+step, calls `bin/runlog.py --work $WORK` itself: one row in `$WORK/FIELD-RUNS.md` (the run folder; `UPG_FIELD_RUNS=toolkit` writes the toolkit checkout's own log instead) with "run time (machine)" and "person wait" next to
 the verdict, and a `Time:` line in `gate-summary.md`. Set `UPG_APP_CODE` and `UPG_APP_TYPE` (code names) before the run. A refusal
 (duplicate run id, customer name, no app code name) never fails the run: read the `Run log:` line in `gate-summary.md` or the
-information section in `NEEDS-JUDGMENT.md` and fix the cause. **FIELD-RUNS.md still needs committing through a toolkit PR**
-(explicit paths, `git commit -- <paths>`); the pipeline prints the reminder. Details: [SETUP.md](SETUP.md), [steps/report.md](steps/report.md).
+information section in `NEEDS-JUDGMENT.md` and fix the cause. **A FIELD-RUNS.md kept in the toolkit still needs committing through a toolkit PR**
+(explicit paths, `git commit -- <paths>`); the pipeline prints the reminder then. Details: [SETUP.md](SETUP.md), [steps/report.md](steps/report.md).
 
 ## Harvest the learnings
 

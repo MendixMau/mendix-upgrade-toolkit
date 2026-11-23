@@ -6,24 +6,40 @@ Who can use it: anyone with this repo and a Mendix account. Nothing else private
 
 | need | why | where it comes from |
 |---|---|---|
-| this repo, cloned anywhere | every path in SKILL.md starts at `TK`, the folder that holds SKILL.md | `git clone`; no fixed location (setup-container.sh still makes an old-style link under `~/Mendix` for run folders from before; `setup-container.sh --plan` lists it) |
+| this repo, cloned anywhere | every path in SKILL.md starts at `TK`, the folder that holds SKILL.md | `git clone`; no fixed location (setup-container.sh still makes an old-style link `~/Mendix/mendix-upgrade-toolkit` for run folders from before, and warns when that path is another checkout; it never touches `~/Mendix/mxcli-project-toolkit`, where the separate build toolkit lives; `setup-container.sh --plan` lists it) |
 | `MENDIX_PAT` (a Mendix personal access token, Marketplace scope) | module updates and template downloads | Mendix Portal, user settings. Keep it in the environment, never in a file or a command line in a log |
-| Docker | mxbuild, mx check, app start, Postgres run in containers | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below) |
+| Docker | mxbuild, mx check, app start, Postgres run in containers (Apple Silicon: amd64 must run through Rosetta, see below) | images: eclipse-temurin 11/21, postgres:16 (pulled), mig-mx10/e5-mx9 (built from `bin/docker/`; e5-mx9-mono for Mendix 9 below 9.20, see below) |
 | mxcli | Marketplace updates, model reads, diffs | public repo `mendixlabs/mxcli`, built from source at `MXCLI_REF` (default the commit `78bdfa5`; see "The mxcli version" below), or a release binary at `tools/mxcli-linux` |
 | mxbuild + runtime per Mendix version on the path | build and run old and new app | `cdn.mendix.com/runtime/` (public) |
 | python3 with pymongo, bcrypt; node with Playwright; zsh | the scripts | pip / npm / apt |
 
 Not needed: `MendixMau/mxcli-project-toolkit` (the journey engine is vendored in `vendor/e2e`; set `TOOLKIT_E2E` to
 use a live clone instead). The release-note "brain" is in this repo (`company-brain-test/brain/baseline/versions`);
-`UPG_BRAIN` points elsewhere. Optional and not shipped: an upgrade scanner (`UPG_SCANNER`, its folder with `scripts/scan.py`); without it the
+`UPG_BRAIN` points elsewhere (without it `brainpath.py` falls back to that shipped folder). Optional and not shipped: an upgrade scanner (`UPG_SCANNER`, its folder with `scripts/scan.py`); without it the
 scanner rows are INVALID, said as such.
 
 ## One command
 
 ```
 MENDIX_PAT=... bash upgrade-toolkit/bin/setup-container.sh ~/run1 <old full version> <new full version> [...]
-source ~/run1/upg-env.sh
+source ~/run1/env.sh
 ```
+
+**Which script, which env file.** `bin/setup-container.sh` is for a laptop and any Linux box; `bin/cloud/setup.sh` is for a Claude Code
+cloud container (it also links toolsets under `~/.mxcli`). Both write the one file `<run>/env.sh`, the one the pipeline sources, and
+each keeps the other's lines when it rewrites it; `upg-env.sh` is only a line that sources `env.sh`. A laptop uses `setup-container.sh`
+and `source <run>/env.sh`.
+
+**Apple Silicon.** The Linux mxcli and mxbuild are amd64. Under qemu the Go mxcli crashes at random (all 10 module updates exit 2 in the
+cold test that found it), so `bin/dockerhost.sh` refuses any Docker whose amd64 containers do not run through Rosetta, and setup runs it in
+step 3 and stops there, before it pulls images. Two Dockers pass: Docker Desktop with "Use Rosetta for x86_64/amd64 emulation on Apple
+Silicon" ticked (Settings, General; an amd64 container then shows `/proc/sys/fs/binfmt_misc/rosetta` or a "VirtualApple" cpu; this probe is
+ASSUMED from that documented behaviour, not yet run on a Mac by this toolkit), or a colima VM with Rosetta:
+`colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60` (mxbuild and the runtime of two Mendix versions plus
+Postgres). `colima start` switches the machine's docker context to `colima-upgrade`; run `docker context use <the previous one>` right
+after, and give the pipeline the VM through `export DOCKER_HOST=unix://$HOME/.colima/upgrade/docker.sock` so other Docker users on the
+laptop are not moved. The java for the ANTLR step must be a host JDK: setup smoke-tests the jar with `java -cp <jar> org.antlr.v4.Tool`
+and, when the java on PATH is a wrapper that runs Java elsewhere, stops and says to set `JAVA_HOME`.
 
 Re-runnable. Versions are full CDN names (`10.24.26.123458`; Mendix 11 may be three-part, `11.15.0`). It handles the
 cloud-container traps (dockerd not running, Docker Hub 429, GitHub release downloads blocked, the agent proxy CA). Then
@@ -43,8 +59,8 @@ you put at `tools/mxcli-linux` yourself is kept and warned about. Build recipe (
 git init mxcli && cd mxcli && git remote add origin https://github.com/mendixlabs/mxcli
 git fetch --depth 1 origin 78bdfa51a2e0a84b971093ebd7b6b82e7596c950 && git checkout --detach FETCH_HEAD   # a tag, branch or FULL commit id
 make -C mdl/grammar generate                       # the checkout ships no generated parser (needs ANTLR 4.13.2, a Java runtime)
-make sync-all completions
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=78bdfa5" ./cmd/mxcli
+make sync-all completions                         # natively: these `go run` a generator that must run on this host
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build   # only this final build is cross-built (GOOS/GOARCH on the whole make breaks a Mac) -trimpath -ldflags "-s -w -X main.Version=78bdfa5" ./cmd/mxcli
 ```
 
 `make build VERSION=78bdfa5 BUILD_DIR=<dir>` does all of it (its prerequisites are `grammar sync-all completions`, checked on the v0.28.0
@@ -82,7 +98,7 @@ are not affected. The recipe, all committed, no binary:
 
 ## The run log and step timing (automatic)
 
-At the end of the gate step the pipeline appends one row to `FIELD-RUNS.md` by itself (`bin/runlog.py --work $WORK`). Set the
+At the end of the gate step the pipeline appends one row to `$WORK/FIELD-RUNS.md` by itself (`bin/runlog.py --work $WORK`). Set the
 code names before the run: `UPG_APP_CODE` (the app's code name; `UPG_APP_NAME` still works), `UPG_APP_TYPE` (a short type, e.g.
 `purchase request`) and, only when the gate's own run id is not what you want, `UPG_RUN_ID`. Or write them once into the run:
 `echo CODE > $WORK/state/app-code` and `echo "type text" > $WORK/state/app-type`. Without an app code name the row is refused.
@@ -90,9 +106,10 @@ code names before the run: `UPG_APP_CODE` (the app's code name; `UPG_APP_NAME` s
 - **It never fails the run.** If runlog refuses (the run id is already in the log, exit 3; a customer name, exit 4; no app code
   name, exit 2) the reason is printed, written as a `Run log:` line in `gate-summary.md` and as an information section in
   `NEEDS-JUDGMENT.md`; the exit code and the verdict stay as they were. Fix the cause, then run the command in that section.
-- **FIELD-RUNS.md still needs committing.** The row is written into the toolkit checkout the run uses; it reaches the toolkit
-  only through a PR: `git commit -- FIELD-RUNS.md ...` with explicit paths, then a toolkit PR. The pipeline prints this hint
-  after the row is added.
+- **The row goes into the run folder, not the toolkit checkout (GF-53).** `$WORK/FIELD-RUNS.md` by default; a read-only or
+  shared toolkit checkout is never written. To collect rows in the toolkit's own log, set `UPG_FIELD_RUNS=toolkit` (or a path)
+  before the gate; that file reaches the toolkit only through a PR: `git commit -- FIELD-RUNS.md ...` with explicit paths, then a
+  toolkit PR. The pipeline prints this hint after a row is added there.
 - **Step timing.** Every attempt of every step adds a row to `$WORK/state/timing.tsv` (step, start UTC, end UTC, exit code;
   appended, never rewritten, a resumed step gets a new row). `gate-summary.md` gets one `Time:` line from it, and FIELD-RUNS.md
   two columns: `run time (machine)` (the sum of the rows) and `person wait` (from a stop for a person, exit 10 to 15 or any
