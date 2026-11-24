@@ -2096,13 +2096,13 @@ elif [ -n "$only" ] && ! printf '%s\n' smoke-users-spec-defaults-pass smoke-user
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then
   skip smoke-users-spec-defaults-pass "no running mig-pg or no python bcrypt"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 && docker exec mig-pg createdb -U mendix fx_ctl_gm30 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30 -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_gm30_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30_$CTLDB -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
   ctl smoke-users-spec-defaults-pass 0 'smoke user smoke_clerk -> role Clerk \(Spec\.Staff\)' 'smoke user smoke_old -> role Old' '!ERROR' \
-    -- python3 $B/smoke_users.py fx_ctl_gm30 --entity Spec.Staff --apply
+    -- python3 $B/smoke_users.py fx_ctl_gm30_$CTLDB --entity Spec.Staff --apply
   ctl smoke-users-spec-defaults-row-pass 0 '^row f\|t\|0\|North\|$' '^acct Smoke Clerk\|t\|f$' '^stamp 1$' '^old f\|t\|f$' \
-    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30 -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff where id <> 900" -c "select 'stamp ' || count(*) from spec\$staff where id <> 900 and stamp is null" -c "select 'old ' || concat_ws('|', isactive, notify, opted) from spec\$staff where id = 900" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 > /dev/null
+    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30_$CTLDB -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff where id <> 900" -c "select 'stamp ' || count(*) from spec\$staff where id <> 900 and stamp is null" -c "select 'old ' || concat_ws('|', isactive, notify, opted) from spec\$staff where id = 900" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30_$CTLDB > /dev/null
 fi
 if [ $fast = 1 ]; then skip smoke-users-per-role-pass "--fast"
 elif [ -n "$only" ] && ! printf '%s\n' smoke-users-per-role-pass smoke-users-shared-roles-catch smoke-users-sole-target-pass | grep -Eq "$only"; then :
