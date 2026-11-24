@@ -5,10 +5,10 @@ n=0
 for f in *.md; do
   [ "$f" = INDEX.md ] && continue
   n=$((n + 1))
-  c=$(grep -o "]($f)" INDEX.md | wc -l)
+  c=$(grep -o "]($f)" INDEX.md | wc -l | tr -d " ")
   [ "$c" = 1 ] || echo "$f listed $c times"
 done
-l=$(grep -o '](.*\.md)' INDEX.md | wc -l)
+l=$(grep -o "](.*\.md)" INDEX.md | wc -l | tr -d " ")
 [ "$l" = "$n" ] || echo "INDEX links $l, notes $n"
 for t in $(grep -o '](.*\.md)' INDEX.md | sed 's/^](//; s/)$//'); do [ -f "$t" ] || echo "$t: not a note"; done
-echo "notes=$n links=same"
+[ "$l" = "$n" ] && echo "notes=$n links=same" || echo "notes=$n links=$l"

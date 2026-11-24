@@ -323,7 +323,9 @@ rerun_cmd() { # the command that resumes at the current step: the run's own --fr
 }
 nj_brain_notes() { # nj_brain_notes < STOP-TEXT: the company brain's notes that match a stop (path + title, top 3), read only; nothing without a brain
   [ "$DRY" != 1 ] || return 0
-  local q; q="$STEP $(grep -E '^(## |question: )' 2> /dev/null | head -n 40 | tr '\n' ' ')"
+  local st=$STEP   # a step word every stop shares ("update" pulls in OQL UPDATE notes) says nothing about this stop
+  case $st in update|triage|heal|repair|gate|build|test|fetch|plan) st= ;; esac
+  local q; q="$st $({ grep -E '^(#{2,3} |question: )' 2> /dev/null || true; } | head -n 40 | tr '\n' ' ')"
   python3 "$B/brainnotes.py" --stop "$q" 2> /dev/null || true
 }
 nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code

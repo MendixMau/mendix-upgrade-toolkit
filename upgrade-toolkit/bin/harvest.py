@@ -369,8 +369,9 @@ def main():
             brain = None
     # drafts never land inside the toolkit checkout (the shipped brain is read for its notes, never written)
     in_toolkit = bool(brain) and TK.parent.resolve() in (brain.resolve(), *brain.resolve().parents)
+    no_internal = False
     if brain and not (brain / "internal").is_dir():
-        print(f"harvest: {brain} has no internal/ folder, brain lookup skipped")
+        no_internal = True
         brain = None
     f = harvest(work, brain)
     new = sum(g["status"] == "new" for g in f["fixes"])
@@ -389,6 +390,8 @@ def main():
                 print(f"  brain: {brain} is the brain shipped in the toolkit (read only): the draft goes to {target}")
             ok = write(target / f"{a.date}-{a.code}-upgrade.md", scrub(bd, work), deny, "brain")
             rc, wrote = (rc, wrote + 1) if ok else (1, wrote)
+        elif no_internal:
+            print("  brain: the brain has no internal/ folder, so the lookup was skipped and no brain draft was written")
         elif not brain:
             print("  brain: not configured (set UPG_BRAIN or --brain), no brain drafts")
     if wrote:

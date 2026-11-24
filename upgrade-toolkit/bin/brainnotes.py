@@ -9,6 +9,7 @@ the PDFBox case by hand while the brain already had the note.
 Search, no model: every note's title, frontmatter keywords and body are scored against the query words (idf weighted;
 title x3, keywords x2, body x1), plain-word stems ("layouts" = "layout"). The brain is found by brainpath.py and only read.
 No brain on this machine: prints nothing, exit 0 (the toolkit runs without it).
+A brain set with UPG_BRAIN that has no baseline/versions/ tables is not a brain to brainpath.py: it gets no notes (and no stop line).
 
   brainnotes.py "query text" [-k 3] [--brain DIR] [--json]    top notes: score, path under the brain, title
   brainnotes.py --stop "query text" [-k 3] [--brain DIR]       the lines a person-facing stop prints (below)

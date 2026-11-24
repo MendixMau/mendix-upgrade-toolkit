@@ -8038,6 +8038,14 @@ ctl brainnotes-stop-shipped-found-catch 0 '^brain notes:$' '^  - internal/upgrad
 mkdir -p $BPH/fakebin; printf '#!/bin/sh\nexit 0\n' > $BPH/fakebin/docker; chmod +x $BPH/fakebin/docker   # preflight asks `docker info`
 ctl pipeline-stop-brain-notes-catch 0 'needs judgment \(exit 13\)' '^brain notes:$' '^  - internal/upgrade/module-plan-order\.md - Write the module plan before the update step' -- bash -c "rm -rf $NJ/wbn; PATH=$BPH/fakebin:\$PATH MXCLI= UPG_BRAIN=$BNB bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wbn --from update --only update; cat $NJ/wbn/NEEDS-JUDGMENT.md"
 ctl pipeline-stop-no-brain-unchanged-pass 0 'needs judgment \(exit 13\)' '^# NEEDS JUDGMENT: step update, exit 13$' '!brain notes' -- bash -c "rm -rf $NJ/wnb; PATH=$BPH/fakebin:\$PATH MXCLI= HOME=$BPH/empty UPG_BRAIN= UPG_BRAIN_SHIPPED=0 bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wnb --from update --only update; cat $NJ/wnb/NEEDS-JUDGMENT.md"
+# park_finish under set -Eeuo pipefail: a parked item with no `question:` line and no `## ` heading (parked.py writes `### `) made the
+# note query's grep exit 1 and the run end rc=4 with no NEEDS-JUDGMENT.md; it must still exit 12 and write it
+PF=$T/parkfin; mkdir -p $PF/w/parked
+printf '<!-- park exit 12 step update -->\n### Release impact: one open row\n\nRow 1 is still open.\n' > $PF/w/parked/update.md
+{ for fn in nj_brain_notes park_finish; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh; done
+  printf '%s\n' 'parked_any() { return 0; }' 'rerun_cmd() { echo rerun; }' 'cockpit_regen() { :; }' 'brief_say() { :; }' 'say() { echo "$*"; }' \
+    'set -Eeuo pipefail; trap "exit 4" ERR; DRY=0; STEP=""; STEPS=(update); WORK=$PF_WORK; park_finish'; } > $PF/fn.sh
+ctl pipeline-park-finish-no-question-line-catch 0 'rc=12' '^STOP    auto: 1 parked item' 'nj=present' -- sh -c "PF_WORK=$PF/w B=$B HOME=$BPH/empty UPG_BRAIN=$BNB bash $PF/fn.sh; echo rc=\$?; [ -s $PF/w/NEEDS-JUDGMENT.md ] && echo nj=present || echo nj=absent"
 # the release-impact page lists the notes under the open rows (row 1 of the evidence fixture stays open)
 ctl reln-brain-notes-open-row-catch 0 '^## Brain notes for the open rows \(1 of 1\)$' '^- row 1 \(10\.1\.0\): brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - ' -- sh -c "python3 $B/release_impact.py --brain $BNB --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn.md > /dev/null; cat $RI/bn.md; python3 $B/release_impact.py --check $RI/bn.md | tail -1"
 ctl reln-brain-notes-no-notes-silent-pass 0 '!Brain notes' -- sh -c "python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn2.md > /dev/null; cat $RI/bn2.md"
@@ -10348,7 +10356,12 @@ ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/ru
 # a brain inside the toolkit checkout is read, never written: its drafts go to <work>/learnings/brain
 cp -R $HV/run $HV/run-sh; cp -R $HV/run $HV/run-home; mkdir -p $HV/home/Mendix/x-brain/baseline/versions $HV/home/Mendix/x-brain/internal/upgrade
 : > $HV/home/Mendix/x-brain/baseline/versions/studio-pro-upgrade-11.md; cp $HV/brain/internal/upgrade/mx-logger.md $HV/home/Mendix/x-brain/internal/upgrade/
-ctl harvest-toolkit-brain-draft-to-work-catch 0 '^  brain: .* is the brain shipped in the toolkit \(read only\)' "learnings/brain/2026-01-03-HV1-upgrade\\.md" '^NOT-IN-BRAIN$' -- sh -c "env -u UPG_BRAIN python3 -I $B/harvest.py --code HV1 --brain $FX/brain-notes --date 2026-01-03 --work $HV/run-sh --inbox $HV/tk-sh --to brain; [ -d $FX/brain-notes/inbox ] && echo WROTE-INTO-BRAIN || echo NOT-IN-BRAIN"
+# a stand-in toolkit checkout under $T (a copy of the bin and the brain fixture): a red run must not leave an inbox/ in the real checkout
+mkdir -p $HV/ftk/upgrade-toolkit; cp -R $B $HV/ftk/upgrade-toolkit/bin; cp -R $FX/brain-notes $HV/ftk/brain-copy
+ctl harvest-toolkit-brain-draft-to-work-catch 0 '^  brain: .* is the brain shipped in the toolkit \(read only\)' "learnings/brain/2026-01-03-HV1-upgrade\\.md" '^NOT-IN-BRAIN$' -- sh -c "env -u UPG_BRAIN python3 -I $HV/ftk/upgrade-toolkit/bin/harvest.py --code HV1 --brain $HV/ftk/brain-copy --date 2026-01-03 --work $HV/run-sh --inbox $HV/tk-sh --to brain; [ -d $HV/ftk/brain-copy/inbox ] && echo WROTE-INTO-BRAIN || echo NOT-IN-BRAIN"
+# a brain without internal/: the first `harvest:` line stays the summary (feedback_report.py shows the first one), the skip note follows, no path
+mkdir -p $HV/brain-noint/baseline; cp -R $HV/run $HV/run-noint
+ctl harvest-no-internal-summary-first-catch 0 '^harvest: 3 agent fixes' '^  brain: the brain has no internal/ folder' '!^harvest: .*no internal' '!brain-noint' -- sh -c "python3 -I $B/harvest.py --code HV1 --brain $HV/brain-noint --date 2026-01-05 --work $HV/run-noint --inbox $HV/tk-noint --to brain 2>&1"
 ctl harvest-brainpath-default-pass 0 "x-brain/inbox/2026-01-04-HV1-upgrade\\.md" '!not configured' -- sh -c "env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$HV/home python3 -I $B/harvest.py --code HV1 --date 2026-01-04 --work $HV/run-home --inbox $HV/tk-home --to brain"
 # feedback_report.py (cold WM1): harvest ran only when a person remembered steps/report.md 3c, so a stopped run taught the
 # toolkit nothing. Every exit now harvests into $WORK/learnings and writes FEEDBACK-REPORT.md with an issue summary
