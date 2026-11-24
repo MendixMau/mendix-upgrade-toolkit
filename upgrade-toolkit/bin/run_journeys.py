@@ -1100,14 +1100,18 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     down = lambda side, jids: not ok(side, jids) and any(side.get(j, {}).get("app_down") for j in jids)
     # GF-50: a journey the cap deferred never ran: not a defect and not a pass, counted on its own like app_down
     dfr = lambda side, jids: not ok(side, jids) and not down(side, jids) and any(side.get(j, {}).get("deferred") for j in jids)
+    # SW-15: a journey not walked because its first step failed identically on others before it: not run, not a defect, not a pass
+    blk = lambda side, jids: not ok(side, jids) and not down(side, jids) and not dfr(side, jids) and any(side.get(j, {}).get("blocked_by_entry") for j in jids)
     G = len(units)
     B = sum(1 for u in units.values() if ok(base, u))
     X = sum(1 for u in units.values() if down(base, u))   # AD-1: not run, the app was down: no defect, no pass
     Y = sum(1 for u in units.values() if dfr(base, u))   # deferred by the cap on the baseline: not run
-    D = G - B - X - Y
+    Z = sum(1 for u in units.values() if blk(base, u))   # blocked at the entry step on the baseline: not walked
+    D = G - B - X - Y - Z
     N = sum(1 for u in units.values() if ok(js, u)) if compare else None
     XN = sum(1 for u in units.values() if down(js, u)) if compare else 0
     YN = sum(1 for u in units.values() if dfr(js, u)) if compare else 0
+    ZN = sum(1 for u in units.values() if blk(js, u)) if compare else 0
     R = sum(1 for u in units.values() if any(js.get(j, {}).get("compare") == "REGRESSION" for j in u)) if compare else None
     nr = lambda x: "-" if x is None else x
     if acts is not None:
@@ -1126,9 +1130,9 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         Am = A - len(apart & set(acts)) - len(set(oos) - apart)   # PR-P4: the destructive actions are counted on their own line
         cov = f"{B}/{Am}" + (f" ({100 * B // Am}%)" if Am else "")
         line = (f"actions {A} found · {G} generated ({tt}) · {B} pass on baseline ({D} defect"
-                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "") + (f", {Z} not run: entry step broken" if Z else "")
                 + f") · {nr(N)} pass on new"
-                + (f" ({XN} not run: app went down)" if XN else "") + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage {cov}")
+                + (f" ({XN} not run: app went down)" if XN else "") + (f" ({YN} not run: deferred by the cap)" if YN else "") + (f" ({ZN} not run: entry step broken)" if ZN else "") + f" · {nr(R)} regression · coverage {cov}")
         if impacted is not None:   # AD-2: the triage-pointed actions, the deep end of the test
             iu = [u for i, u in units.items() if i in impacted]
             line += (f" · impacted {len(impacted)} ({len(iu)} walked, {sum(1 for u in iu if ok(base, u))} pass on baseline"
@@ -1145,10 +1149,10 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         A = T = None
         why = f"no denominator: {waive}" if waive else "no actions.json: coverage unknown"
         line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect"
-                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "") + (f", {Z} not run: entry step broken" if Z else "")
                 + f") · {nr(N)} pass on new" + (f" ({XN} not run: app went down)" if XN else "")
-                + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage ? ({why})")
-    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "Y": Y, "YN": YN, "defects": {}, "invalid": invalid,
+                + (f" ({YN} not run: deferred by the cap)" if YN else "") + (f" ({ZN} not run: entry step broken)" if ZN else "") + f" · {nr(R)} regression · coverage ? ({why})")
+    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "Y": Y, "YN": YN, "Z": Z, "ZN": ZN, "defects": {}, "invalid": invalid,
            "out_of_scope": len(oos) if acts is not None and oos else 0}
     if not compare:
         return out
@@ -1158,6 +1162,10 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     if Y or YN:   # GF-50: never a PASS for a journey that did not run
         invalid.append(f"not measured: {max(Y, YN)} journeys not run: deferred by the cap (INVALID \"deferred\" in summary.json); "
                        "run again with --resume and no --max to walk them")
+    if Z or ZN:   # SW-15: never a pass, never a defect; says where it broke
+        invalid.append(f"not measured: {max(Z, ZN)} journeys BLOCKED-BY-ENTRY, not walked ({Z} on the baseline, {ZN} on new): their first step failed the same way on "
+                       f"{ENTRY_PROBE_K} journeys before them and passed on none (INVALID \"blocked_by_entry\" in summary.json); fix that step and run again, "
+                       "or run with --no-entry-probe to walk them" + ("; on new it passed on the old app: likely a regression" if ZN and not Z else ""))
     if acts is None and not waive:
         invalid.append("coverage unknown: no --actions (actions.json, bin/action_inventory.py) and no --no-actions REASON")
     if not (base_set or {}).get("sha256"):
@@ -1170,16 +1178,16 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     if G == 0:
         invalid.append("instrument not measuring: no journey " + ("names an action of actions.json (generate with gen_journeys.py "
                        "--actions, or link a hand-written journey with \"covers\")" if acts is not None else "was walked"))
-    elif G - Y and D / (G - Y) > DEFECT_MAX:
-        invalid.append(f"instrument not measuring: {D} of {G - Y} {'actions' if acts is not None else 'journeys'} fail on the "
-                       f"baseline ({100 * D // (G - Y)}% > {int(DEFECT_MAX * 100)}%)")
+    elif G - Y - Z and D / (G - Y - Z) > DEFECT_MAX:
+        invalid.append(f"instrument not measuring: {D} of {G - Y - Z} {'actions' if acts is not None else 'journeys'} fail on the "
+                       f"baseline ({100 * D // (G - Y - Z)}% > {int(DEFECT_MAX * 100)}%)")
     import fnmatch
     # every walked journey, linked to an action or not. The destructive tier (PR-P4) is counted apart but is judged the
     # same way: a destructive journey that did not PASS on the old app needs the same checked evidence, else it kept the
     # tag "BASELINE DEFECT (before FAIL)" with no evidence and sat in FAIL although the old app failed it too.
     for j in sorted(set(links) | {d for d in dest if d in base}):
-        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down") or base.get(j, {}).get("deferred"):
-            continue   # AD-1 / GF-50: not run is not a defect; it is listed as not run
+        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down") or base.get(j, {}).get("deferred") or base.get(j, {}).get("blocked_by_entry"):
+            continue   # AD-1 / GF-50 / SW-15: not run is not a defect; it is listed as not run
         hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
         if hit is None:
             out["defects"][j] = (None, "no evidence")
@@ -1396,6 +1404,43 @@ CHUNK_DEFAULT = 25     # journeys per runner process: summary.json is written af
 DEFAULT_SECONDS = 80   # seconds per journey when no earlier run measured one (GF-50 field run: 573 journeys, about 80 s each)
 
 
+ENTRY_PROBE_K = 3      # SW-15 ASSUMED: this many journeys of one role fail the SAME way at the SAME first step and none passes it: the others that start with that step are not walked
+ENTRY_MIN_GROUP = 10   # SW-15 ASSUMED: a wave with at least this many journeys sharing one first step is walked in small leading batches until that entry is proven or broken
+
+
+def entry_key(d):
+    """The entry step of a journey: its first step without the counter. Journeys with the same key start the same way."""
+    st = d.get("steps") or []
+    if not st or not isinstance(st[0], dict):
+        return None
+    return json.dumps({k: v for k, v in st[0].items() if k != "n"}, sort_keys=True)
+
+
+def entry_note(state, jid, w, ek):
+    """SW-15: fold one walked journey into state[ek] = {fail, ok, sigs, probes, first}: did its first step pass, and if not, how."""
+    if ek is None or not w or not w.get("steps"):
+        return
+    st = state.setdefault(ek, {"fail": 0, "ok": 0, "sigs": set(), "probes": [], "first": None})
+    bad = [c for c in w["steps"][0].get("checks", []) if c.get("verdict") != "PASS"]
+    if not bad:
+        st["ok"] += 1
+        return
+    st["fail"] += 1
+    st["sigs"].add(tuple(sorted({f"{c.get('verdict')} {c.get('name')}" for c in bad})))
+    st["probes"].append(jid)
+    if st["first"] is None:
+        st["first"] = f"{bad[0].get('verdict')} {bad[0].get('name')} {bad[0].get('detail', '')}".strip()[:200]
+
+
+def entry_broken(st):
+    return st["fail"] >= ENTRY_PROBE_K and st["ok"] == 0 and len(st["sigs"]) == 1
+
+
+def entry_suspect(state):
+    """Some first step has failed on every journey that tried it, but not yet ENTRY_PROBE_K times: keep the next batch small."""
+    return any(0 < st["fail"] < ENTRY_PROBE_K and st["ok"] == 0 and len(st["sigs"]) == 1 for st in state.values())
+
+
 def write_summary(out, summary):
     """summary.json written whole or not at all: a stop between two writes leaves the last complete file (GF-50: 93 journeys
     walked and lost because the file was only written at the end)."""
@@ -1572,6 +1617,9 @@ def main():
                          "batch starts after M minutes; what was not run is deferred as with --max" % DEFAULT_SECONDS)
     ap.add_argument("--chunk", type=int, default=CHUNK_DEFAULT, metavar="N",
                     help="journeys per runner process; summary.json is written after each (default %d)" % CHUNK_DEFAULT)
+    ap.add_argument("--no-entry-probe", action="store_true",
+                    help="SW-15: walk every journey even when the same first step failed identically on %d before it "
+                         "(default: the rest that start with that step are listed INVALID BLOCKED-BY-ENTRY, not walked)" % ENTRY_PROBE_K)
     ap.add_argument("--impact", help="impact.json (triage): the coverage line counts the impacted actions apart "
                                      "(default: impact.json next to the journeys folder)")
     ap.add_argument("--compare", help="the same journey set on the old app: work folder, label folder or summary.json (gate)")
@@ -1749,7 +1797,38 @@ def main():
             prog = journeys_progress.Progress(a.label, sum(len(w[3]) for w in waves), os.environ.get("UPG_PROGRESS_FILE") or str(out / "progress.json"),
                                               os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
             prog.start()
-        for key, role, role_dir, files in waves:
+        probing = not (a.no_entry_probe or a.positive_control or a.only or harness)   # SW-15: an explicit --only is a recheck: walked as asked
+        estate, eblocked, walk_s, walk_n = {}, {}, 0.0, 0
+        queue = collections.deque(waves)
+        while queue:
+            key, role, role_dir, files = queue.popleft()
+            if probing:   # SW-15: journeys behind a first step that already failed identically on ENTRY_PROBE_K are not walked
+                st_k = estate.setdefault(key, {})
+                rest = []
+                for f in files:
+                    d = read_journey(f)
+                    ek = entry_key(d)
+                    if ek is not None and ek in st_k and entry_broken(st_k[ek]):
+                        ev = st_k[ek]
+                        g = eblocked.setdefault((key, ek), {"role": key, "step": (d["steps"][0].get("name") or "step 1"), "probes": ev["probes"][:ENTRY_PROBE_K],
+                                                            "failure": ev["first"], "blocked": []})
+                        g["blocked"].append(d["id"])
+                        summary["journeys"][d["id"]] = {"role": role, "verdict": "INVALID", "blocked_by_entry": {k: g[k] for k in ("step", "probes", "failure")},
+                            "why": f"BLOCKED-BY-ENTRY: not walked: its first step \"{g['step']}\" failed the same way on {len(g['probes'])} journeys of this role "
+                                   f"({', '.join(g['probes'])}) and passed on none: {g['failure']}; fix that step, or run with --no-entry-probe to walk it anyway"}
+                    else:
+                        rest.append(f)
+                if len(rest) != len(files):
+                    if prog:
+                        prog.total = max(prog.base, prog.total - (len(files) - len(rest)))
+                    files = rest
+                    if not files:
+                        continue
+                big = collections.Counter(entry_key(read_journey(f)) for f in files)
+                big.pop(None, None)
+                if len(files) > ENTRY_PROBE_K and (entry_suspect(st_k) or (key not in chunk_no and max(big.values(), default=0) >= ENTRY_MIN_GROUP)):
+                    queue.appendleft((key, role, role_dir, files[ENTRY_PROBE_K:]))   # a small batch first: same order, same wave, a login more
+                    files = files[:ENTRY_PROBE_K]
             first_chunk = key not in chunk_no
             chunk_no[key] = chunk_no.get(key, 0) + 1
             if not a.positive_control and not a.rejudge:   # GF-50: what is walked so far is on disk before the next batch starts
@@ -1816,11 +1895,13 @@ def main():
                 log_mark = runtime_log_mark(a)   # GF-17: this attempt's sign-in starts here; earlier lines belong to earlier roles
                 if art.exists():
                     shutil.rmtree(art)
+                t_walk = time.time()
                 if prog:
                     p = types.SimpleNamespace()
                     p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
                 else:
                     p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
+                t_walk = time.time() - t_walk
                 (out / f"{key}{sfx}{csfx}.log" if not tries else out / f"{key}{sfx}{csfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
@@ -1880,6 +1961,9 @@ def main():
                     if seed:
                         summary["journeys"][jid]["why"] = seed[0]["detail"]
                     continue
+                if probing:
+                    entry_note(estate[key], jid, w, entry_key(read_journey(f)))
+                    walk_s += t_walk / max(1, len(walked)); walk_n += 1
                 checks = [c for s in w["steps"] for c in s["checks"]]
                 failed = [f"{c['verdict']} {c['name']} {c['detail']}".strip() for c in checks if c["verdict"] != "PASS"]
                 # a journey whose last step never ran is not a PASS even if every recorded check passed
@@ -1903,6 +1987,16 @@ def main():
                 print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
         if prog:
             prog.finish(prog.base)
+        if eblocked:   # SW-15: what was not walked, why, and what that saved; the journeys themselves are INVALID BLOCKED-BY-ENTRY above
+            nb = sum(len(g["blocked"]) for g in eblocked.values())
+            each = (walk_s / walk_n) if walk_n else sec   # measured on this run's walked journeys, else the pace / default
+            summary["entry_probe"] = {"k": ENTRY_PROBE_K, "blocked": nb, "seconds_each": round(each), "saved_min": round(nb * each / 60),
+                                      "measured": bool(walk_n),
+                                      "groups": [{"role": g["role"], "step": g["step"], "probes": g["probes"], "failure": g["failure"],
+                                                  "blocked": len(g["blocked"])} for g in eblocked.values()]}
+            for g in eblocked.values():
+                print(f"entry: {len(g['blocked'])} journeys of {g['role']} BLOCKED-BY-ENTRY (not walked): first step \"{g['step']}\" failed the same way on "
+                      f"{', '.join(g['probes'])} and passed on none ({g['failure']})", file=sys.stderr)
         # a hand-written journey may close plan items: "closes": ["menu:Wizard", ...] (E7-3)
         for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
             d = read_journey(f)
@@ -1971,6 +2065,8 @@ def main():
                 s["compare"] = "REGRESSION"
             elif b is None:
                 s["compare"] = "NOT IN BASELINE (run it on the old app too)"
+            elif before.get(j, {}).get("blocked_by_entry"):   # SW-15: the old app was never walked on it; neither a regression nor a baseline defect
+                s["compare"] = "BASELINE NOT WALKED (blocked at its entry step on the old app)"
             else:
                 s["compare"] = f"BASELINE DEFECT (before {b})"
         # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
@@ -2073,6 +2169,11 @@ def main():
     print(f"== {a.label} (:{a.port})" + (f" compared with {a.compare}" if a.compare else ""))
     if summary.get("data_backend"):
         print(f"  data {summary['data_backend'][:200]}")
+    ep = summary.get("entry_probe")
+    if ep:   # SW-15: the walk that did not happen, in minutes, next to the count that was not walked
+        print(f"  entry probe: {ep['blocked']} journeys BLOCKED-BY-ENTRY, not walked (INVALID, not a pass): time saved about {ep['saved_min']} min "
+              f"({ep['blocked']} x {ep['seconds_each']} s each, {'measured on this run' if ep.get('measured') else 'default pace, nothing walked to measure'}); "
+              f"{len(ep['groups'])} broken entry step(s): " + "; ".join(f"{g['role']} \"{g['step']}\" ({g['blocked']})" for g in ep["groups"]))
     if summary.get("park"):   # PR-F33: the fixture's own line, so a park that walked nothing is seen, not inferred
         pk = summary["park"]
         print(f"  park {pk['walks']} ("

@@ -242,6 +242,22 @@ too, not run on the new one"), counted in the headline, never a FAIL. A first-pa
 create the rows a later one needs. `UPG_JOURNEYS_ALL=1` walks every journey. The cockpit's Test tab lists every journey
 with its old and its new verdict.
 
+### A broken entry step is probed once, not walked 400 times (SW-15)
+
+On a field run 424 of 495 journeys failed at the same first step on the old app (a card container that never rendered) and
+all of them were walked, about 2 h 15 per side. `run_journeys.py` now compares each journey's **first step** (its actions,
+checks and name, without the counter) inside one role's wave. When `ENTRY_PROBE_K` (3, ASSUMED) journeys have failed that step
+the same way and **none** has passed it, the journeys that start with the same step are not walked: each is listed
+`INVALID` with `blocked_by_entry` in summary.json and `BLOCKED-BY-ENTRY: not walked: ...` naming the step, the probe journeys
+and the failure. They are not passes, not FAILs and not baseline defects; the coverage line counts them apart ("N not run: entry
+step broken") and the rung is INVALID until the step is fixed (or `--no-entry-probe` walks them anyway). A wave with
+`ENTRY_MIN_GROUP` (10, ASSUMED) or more journeys on one first step is walked in batches of 3 until the entry is proven or
+broken; set order is kept. An explicit `--only` (a recheck) is always walked. The report prints `entry probe: ... time saved
+about N min` (measured seconds per walked journey on this run). Compare: if only the old app's entry is broken, the new app is
+walked in full and its journeys read "BASELINE NOT WALKED" when they fail (neither a regression nor a defect); if only the new
+app's entry is broken, the rung says INVALID with "likely a regression". Limit: only the first step is shared-probed, and a
+baseline defect evidenced with `--baseline-evidence` needs the baseline walked with `--no-entry-probe`.
+
 ## Action inventory (E2E-8): the denominator, from the old model
 
 ```
