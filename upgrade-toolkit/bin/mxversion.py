@@ -12,6 +12,8 @@ cannot be reproduced. Every step records the full string.
                   tarball extracts to <dir>/11.12.2/runtime, a 3-part folder name, the full version is read from the jar)
   app.mpr / dir   _MetaData._ProductVersion
   app.mda         model/metadata.json RuntimeVersion, else the version in the model file name
+  x.mpk           a Marketplace module package (zip holding project.mpr): the Studio Pro version that built it (GM-17;
+                  planbuild.py drops a plan line whose package was built before 10.21 on a target of 11)
   x.mxmodule      add-on module (a zip holding project.mpr): the Studio Pro version that BUILT it (T2-2). Mendix 11
                   refuses one built before 10.21 (CE1893) and a vendor binary cannot be reopened.
 --short prints major.minor.patch. Exit 0, or 2 when no version is found.
@@ -62,7 +64,7 @@ def below(v, major, minor):
 
 
 def version(p):
-    if p.endswith(".mxmodule"):
+    if p.endswith((".mxmodule", ".mpk")):
         return mxmodule_version(p)
     if os.path.isdir(p):
         for rel in ("runtime/bundles/com.mendix.public-api.jar", "runtime/launcher/runtimelauncher.jar",

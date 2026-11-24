@@ -1,0 +1,3 @@
+# synthetic version rules (GM-41 controls): module DataWidgets needs 3.0.0 or later when the target is 11.0 or later
+id	pattern	deprecated_in	removed_in	replacement	detect	applies_on_jump	effort	risk	unchecked	source	verified
+V1	DataWidgets below 3.0.0 on an 11 target	-	-	update DataWidgets to 3.0.0 or later before the 11 build	modver:DataWidgets:<3.0.0	->11.0	S	build break on 11	-	synthetic control	UNVERIFIED (synthetic)

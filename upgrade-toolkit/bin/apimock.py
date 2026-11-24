@@ -9,7 +9,7 @@ itself, answers with bodies of the mapped shape, and logs every request. The old
 stand-in (pass both models), so their journeys see the same answers.
 
   apimock.py inventory <model> [<model> ...] [--exclude SYSTEM[=glob,...]] [--classify FILE] [--recorded DIR] [--json FILE]
-  apimock.py serve <model> [<model> ...] --state DIR [--port 8790 (env UPG_APIMOCK_PORT)] [--bind ADDR] [--public-host HOST]
+  apimock.py serve <model> [<model> ...] --state DIR [--port 9290+PORT_OFF (env UPG_APIMOCK_PORT)] [--bind ADDR] [--public-host HOST]
              [--exclude ...] [--classify FILE] [--recorded DIR] [--background]
   apimock.py stop --state DIR
   apimock.py check --state DIR [--exclude-systems Teamcenter,...]            the gate's "apis" rung
@@ -133,6 +133,15 @@ CALL_TYPES = ("Microflows$SendRestRequestAction", "Microflows$RestOperationCallA
 FLOWS = ("Microflows$Microflow", "Microflows$Rule")
 EXIT_INVALID, EXIT_EXCEPT = 3, 4
 REAL_TEST = "test this call in the customer's test environment before go-live"
+
+
+def default_port():
+    """The stand-in's port: UPG_APIMOCK_PORT, else 9290 + PORT_OFF. It was a fixed 8790 (steps/heal.md said 9290): the admin port
+    of a run with PORT_OFF=700 is 8090+700=8790, so the heal step's stand-in and the app's admin API fought for one port
+    ("healold could not start: port 8790 in use"). App and admin ports sit in 8080-8999; 9290+ is clear of both."""
+    if os.environ.get("UPG_APIMOCK_PORT"):
+        return int(os.environ["UPG_APIMOCK_PORT"])
+    return 9290 + int(os.environ.get("PORT_OFF") or 0)
 
 
 def die(msg):
@@ -1370,7 +1379,7 @@ def main():
             p.add_argument("--json")
         else:
             p.add_argument("--state", required=True)
-            p.add_argument("--port", type=int, default=int(os.environ.get("UPG_APIMOCK_PORT", 8790)))
+            p.add_argument("--port", type=int, default=default_port())
             p.add_argument("--bind", default=None, help="address to listen on (default 127.0.0.1; 0.0.0.0 when "
                            "--public-host is given, so an app container can reach it, B4T2-5)")
             p.add_argument("--public-host", help="host the app reaches the stand-in on (default: --bind)")

@@ -27,6 +27,11 @@ minw() { W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/cockpit/stops/$1.md" "
 mkstop() { W=$T/min/work; mkdir -p "$W"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""
   eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; eval "$1"
   { printf '# NEEDS JUDGMENT: step update, exit 13\n\nrun folder: x\nwork: x\nsource 10.24.0.1 -> target 11.12.5\nRule: ...\n\n    pipeline --from update\n'; cat "$NJ_TMP"; } > "$W/NEEDS-JUDGMENT.md"; }
+# parkw [running-step]: a work folder with markers written by the real nj_park, no header file
+parkw() { chkw "${1:-}"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""; WORK=$W; STEP=gate; DRY=0; interview_auto() { return 0; }; say() { :; }
+  eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p;/^nj_park() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"
+  nj_meta info; nj_add 12 "Release impact needs a look" "x"; nj_park; nj_meta info; nj_add 13 "Kept modules" "y"; nj_park; rm -f "$NJ_TMP"
+  ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p'; }
 cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc -l | tr -d ' ')"; }
 # a copy of a real unattended run (fixtures/cockpit/chk-unattended: plan with 19 choices taken at the recommendation, two modules held):
 # chkw [running-step]: the markers of a run that finished everything up to the new app's page walk, optionally with a step running
@@ -220,7 +225,7 @@ PY
   p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
             python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
   # run DVS: the widget-drop stop through the pipeline's own widget_drop_stop (bin/widgetfix.py), the page, the chat line and the answer
-  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
+  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice|dvs-stop-flush) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
             mods=$F/modules-dvs.json; [ "$case_" != dvs-stop-nofit ] || { mods=$T/mods.json; sed 's/2\.30\.6/2.32.4/' "$F/modules-dvs.json" > "$mods"; }
             mkdvs() { mkstop 'eval "$(sed -n "/^nj_writes() /p;/^widget_drop_stop() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; nj_file() { :; }
               export WORK=$W APP=x TARGET=10.24.0 UPG_CACHE=$F UPG_WIDGETFIX_MODULES=$mods UPG_WIDGETFIX_VERSIONS=$F/versions-116540.txt; widget_drop_stop'; }
@@ -231,6 +236,10 @@ PY
               dvs-stop-update) python3 "$B/decisions.py" pending --work "$W" | grep -- '--choice'
                   dec add --item stop:update:1 --choice update --by Ana --source page >/dev/null; dec apply | tail -1; cat "$W/plan.txt"
                   awk '$1 ~ /^[0-9]+$/ {print "stepupdate reads: cid=" $1 " ver=" $2 " module=" $3}' "$W/plan.txt" ;;
+              dvs-stop-flush) secs=$(sed -n '/^## /,$p' "$W/NEEDS-JUDGMENT.md"); cp "$W/widgetdrop.json" "$W/plan.txt" "$T/min/"; W=$T/lb/work; mkdir -p "$W"; cp "$T/min/widgetdrop.json" "$T/min/plan.txt" "$W/"
+                  njrun update 13 "$secs"; njrun update 13 "$secs"; echo "rows: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')"
+                  python3 "$B/decisions.py" pending --work "$W" | grep -o -- '--item stop:[^ ]*' | sort -u
+                  dec add --item stop:update:1.2 --choice update --by Ana --source page >/dev/null; dec apply >/dev/null; grep -c '^116540 2.32.4 DataWidgets # \[item:stop:update:1\.2\]' "$W/plan.txt" ;;
               dvs-stop-twice) dec add --item stop:update:1 --choice accept --by Ana --source page >/dev/null; dec apply >/dev/null; echo "ack: $(cut -c1-40 "$W/widgetdrop-ack.txt")"
                   rm -f "$W/NEEDS-JUDGMENT.md"; echo "asked after the run went on: $(python3 "$B/decisions.py" pending --work "$W" | grep -c 'stop:update:1')"
                   rm -f "$W/widgetdrop-ack.txt"; mkdvs; echo "asked by the next stop with the same id: $(python3 "$B/decisions.py" pending --work "$W" | grep -c -- '--item stop:update:1')"
@@ -289,8 +298,23 @@ PY
             mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
             sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
             ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
+  # auto mode parks items and the run goes on: the page must say how many wait and where, never "Nothing needed" (WTD, round 4)
+  parked-idle) chkw; mkdir -p "$W/parked"; printf '# NEEDS JUDGMENT: 3 parked item(s) (Interview mode: auto), answer them in one round\n\nThe run went on past each of these.\n' > "$W/NEEDS-JUDGMENT.md"
+            printf '<!-- park exit 12 step gate -->\n## a (exit 12)\n<!-- park exit 13 step gate -->\n## b (exit 13)\n' > "$W/parked/gate.md"
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  # markers only, no NEEDS-JUDGMENT.md header: the live-run path, written by the pipeline's own nj_park (two rounds, two markers)
+  parked-markers) parkw ;;
+  # a rerun in progress: answered parked files of later steps are still there (only the step that reruns deletes its own), so it must not say "waits"
+  parked-rerun) parkw gate ;;
+  parked-none) chkw; ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-build-failed) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; rm -f "$W/NEEDS-JUDGMENT.md"   # GF-46: the build ran and failed (last timing row exit 1, no stop file)
+            printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t1\n' >> "$W/state/timing.tsv"; ck >/dev/null
+            echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "stale words: $(cnt 'The build has not run yet' "$T/out.html")" ;;
+  chk-build-judgment-stop) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## The disk is full, so the step cannot go on (exit 10)\n\nowner: person\nquestion: The disk is full, so the step cannot go on. What should we do?\nwhy: Only you know what else lives on this disk.\noption: free|Free space, then rerun|Delete old runs.\n\nbody\n' > "$W/NEEDS-JUDGMENT.md"
+            printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t10\n' >> "$W/state/timing.tsv"; ck >/dev/null
+            echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "waiting headline: $(cnt 'Stopped at build, waiting for you' "$T/out.html")" ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
             python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -315,6 +339,37 @@ PY
   rung2-own-gate) r2w; printf 'Overall: **INVALID** (exit 2): 1 PASS.\nProgress: 1 of 3 checks closed (33%%). 2 with REGRESSIONS to fix, 0 need a decision, 1 not measured yet.\n' > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   rung2-no-first-gate) r2w; rm -f "$W/../gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   charset) chkw; ck >/dev/null; echo "metas: $(grep -c '<meta charset="utf-8">' "$T/out.html")"; head -c 120 "$T/out.html" | head -2 ;;
+  # DV-13: the sign-off card lists the rows the "n choices were assumed" count is made of (one list, one count)
+  assumed-list-d-only|assumed-list-mixed|assumed-list-many)
+    if [ "$case_" = assumed-list-d-only ]; then
+      python3 - "$W/PROPOSAL.md" <<'PY'
+import re, sys
+t = open(sys.argv[1]).read()
+a = t.index("## 3."); b = t.index("## 4.")
+open(sys.argv[1], "w").write(t[:a] + "## 3. Needs your decision before we start\n\n" + t[b:])
+PY
+      rm -f "$W/DECISIONS.md"
+      printf '# Agent decisions\n\n| # | Decision | Choice | Why |\n|---|---|---|---|\n| D7 (agent) | Dropped the <b>unused</b> export job | Removed with mxcli | Nothing calls it. |\n' > "$W/AGENT-DECISIONS.md"
+    elif [ "$case_" = assumed-list-many ]; then
+      for n in 3 4 5 6 7 8; do echo "| D$n (agent) | Extra decision $n | Chose $n | Because. |" >> "$W/AGENT-DECISIONS.md"; done
+    fi
+    ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+m = re.search(r'id="assumed-list">(.*?)</div>', h, re.S)
+box = m.group(1) if m else ""
+li = [html.unescape(re.sub(r"<[^>]+>", "", x)) for x in re.findall(r"<li>(.*?)</li>", box, re.S)]
+meta = re.search(r'"meta": "(\d+) choices? w(?:as|ere) assumed by the agent', h)
+head = html.unescape(re.sub(r"<[^>]+>", "", re.search(r"<b>(.*?)</b>", box).group(1))) if m else "none"
+print("card heading:", head)
+for x in li: print("listed:", x)
+rows = [x for x in li if re.match(r"^(D|P-|S-)\d*", x)]
+named = len([x for x in li if not x.startswith("+") and not re.match(r"^\+\d+", x)])
+more = next((int(re.match(r"\+(\d+)", x).group(1)) for x in li if re.match(r"\+\d+", x)), 0)
+print("count in brief:", meta.group(1) if meta else "none", "| listed + more:", named + more)
+print("raw tag escaped:", "<b>unused</b>" not in box)
+PY
+    ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
@@ -352,6 +407,12 @@ decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "s
 decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
 PY
             ;;
+  # run SITS: a plan choice's recommended key is the placeholder "rec"; the chat line must also say what is recommended
+  pending-rec-says-what) dec pending | grep -- '--item P-2 ' ;;
+  # run SITS: a later stop at the same step must not reuse the first stop's ids (state/stops.tsv holds one row per stop)
+  stop-ids-first|stop-ids-later) mkstop 'nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module|Before the build." "accept|Accept the loss|Create the ack file."; nj_add 13 "Decision" "x"'
+            mkdir -p "$W/state"; printf 'update\t13\t111\n' > "$W/state/stops.tsv"; [ "$case_" != stop-ids-later ] || printf 'update\t13\t222\n' >> "$W/state/stops.tsv"
+            dec pending | grep -o -- '--item stop:[^ ]*' ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
@@ -398,7 +459,7 @@ PY
          echo "rows: $(grep -o '"id": "stop:basewalk:[0-9]"' "$T/out.html" | sort -u | paste -sd ' ' -)"
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
-         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar' "$T/out.html")" ;;
   stopped-ok) # the widgetroute stop in the standard nj_meta shape ($WRSTOP holds the work folder with the NEEDS-JUDGMENT.md widgetroute.py wrote): reader-worded
          # options, the recommended one, the lines each answer writes; an answer applies them (decisions.py apply)
          W=$WRSTOP; [ -f "$W/NEEDS-JUDGMENT.md" ] || { echo "no stop file in WRSTOP"; exit 2; }
@@ -718,7 +779,13 @@ PY
             python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "rows Oldmod: $(cnt 'module Oldmod' "$T/out.html")" ;;
   check-running) sleep 300 & sp=$!; mkdir -p "$W/state" "$W/logs"; printf 'update\t%s\t%s\n' "$(date +%s)" "$sp" > "$W/state/running"
             printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
-            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar' "$T/out.html")"
             python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
+  plan-wait-bar) # exit 14: the plan waits for sign-off. A normal wait for answers: amber and "paused", never the red "stopped" of a failure
+            printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null
+            echo "bar: $(grep -o '<div class="stopbar[a-z ]*"' "$T/out.html" | head -1)"
+            echo "text: $(grep -o '<div class="stopbar[^>]*><b>[^<]*' "$T/out.html" | head -1 | sed 's/.*<b>//')"
+            echo "red stopped: $(cnt 'The run stopped' "$T/out.html")" ;;
   *) echo "unknown case $case_"; exit 2 ;;
 esac

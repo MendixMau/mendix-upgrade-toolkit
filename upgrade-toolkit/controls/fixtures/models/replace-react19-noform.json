@@ -1,0 +1,6 @@
+{"from": "replace-react19.json", "ops": [
+ ["set", "modules/0/pages/0/widgets", [
+  {"id": "Lazy.widget.LazyPlaceholder", "name": "lazy1", "props": {"caption": "x"}},
+  {"id": "Lazy.widget.LazyPlaceholder", "name": "lazy2", "props": {"caption": "y"}}]],
+ ["set", "widget_packages", {
+  "Lazy.mpk": {"ids": ["Lazy.widget.LazyPlaceholder"], "version": "1.0.0", "js": "ReactDOM.findDOMNode(this)"}}]]}

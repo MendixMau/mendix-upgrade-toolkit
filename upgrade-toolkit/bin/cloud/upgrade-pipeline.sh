@@ -30,7 +30,8 @@
 # Judgment stops write $WORK/NEEDS-JUDGMENT.md. Exit codes:
 #    0 gate PASS, nothing left for a person
 #    2 usage / version-path error
-#    3 missing tool or setup (run bin/cloud/setup.sh), or an mxcli of another version than the run's (bin/mxcli_pin.sh)
+#    3 missing tool or setup (run bin/cloud/setup.sh), an mxcli of another version than the run's (bin/mxcli_pin.sh), or the app dir
+#      is not a working git tree at a step start (bin/apptree.sh, GM-10)
 #    4 a fixed step failed unexpectedly (see the log named in the message)
 #   10 mx check / mxbuild / quick start errors after convert+update: repair needed (steps/repair.md)
 #   11 journeys INVALID or FAIL on the old app or the new one: fix the journey or write the todo (steps/journeys.md)
@@ -49,6 +50,15 @@
 # and the chat share it); after every step, and when a step stops, it regenerates $WORK/COCKPIT.html (bin/cockpitpage.py).
 # Hidden options for rung 2 (set by this script): --db NAME --old-mda PATH --seed-from DB
 set -Eeuo pipefail
+
+# GF-8 (a field run): macOS ships bash 3.2, where `"${arr[@]}"` of an empty array under `set -u` is an unbound-variable error and
+# the run died mid-triage. Refuse before anything runs. UPG_ASSUME_BASH=M.N stands in for the running version (controls only).
+_bv=${UPG_ASSUME_BASH:-${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}}
+if [ "${_bv%%.*}" -lt 4 ] || { [ "${_bv%%.*}" = 4 ] && [ "${_bv#*.}" -lt 4 ]; }; then
+  echo "upgrade-pipeline.sh: bash $_bv is too old (macOS ships 3.2; the pipeline needs bash 4.4 or newer). Install it with: brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\" (add that line to ~/.zshrc), open a new terminal and check that 'bash --version' says 5.x" >&2
+  exit 3
+fi
+unset _bv
 
 ARGS_ORIG=("$@")
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
@@ -100,6 +110,12 @@ if [ "$COCKPIT" = 1 ]; then   # step-free: regenerate the cockpit page and stop
   exec python3 "$TK/bin/cockpitpage.py" --work "$WORK" --out "$WORK/COCKPIT.html"
 fi
 [ -n "$SOURCE" ] || usage_die "--source is required"
+# FR-3: Mendix 10 converts no 9.x project below 9.24 ("the version '9.12.1.42381' of the mpr file is not supported"), and the ladder plans no
+# 9.24 rung: before this check a 9.12 source ran triage, baseline and basewalk (about 15 minutes) before the convert refused it. It sits
+# before the --to ladder so a 9.12 source is refused, not first told to fetch a 10.24 toolset it could not use.
+if [[ "$SOURCE" =~ ^9\.([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -lt 24 ] && [[ "${TO:-$TARGET}" =~ ^([0-9]+)\. ]] && [ "${BASH_REMATCH[1]}" -ge 10 ]; then
+  usage_die "$SOURCE is below 9.24: Mendix 10 cannot convert it (playbooks/9-to-10.md: 9.x must be on 9.24 first). Open it in Studio Pro 9.24 (or convert it with a 9.24 mxbuild) and give the 9.24 version as --source; this run is refused now so nothing is built first"
+fi
 # --to: the version ladder. The pipeline picks the route from the start version: 9.x and 10.x below 10.24 go through 10.24
 # (--via, else the newest mxbuild-10.24.* toolset in UPG_TOOLS) before 11; anything else is one rung.
 if [ -n "$TO" ]; then
@@ -285,9 +301,9 @@ gate_open_nj_meta() { # gate_open_nj_meta REGRESSIONS [NEED_A_DECISION NOT_MEASU
     GATE_OPEN_TITLE="No regression was found; open rows could not be measured or need a yes or no (exit $rc, gate-summary.md)"
     local what="Some checks could not be measured or still need a yes or no."
     [ -z "${2:-}${3:-}" ] || what="${3:-0} checks could not be measured yet and ${2:-0} still need a yes or no."
-    nj_meta person "No regression was found. $what What should we do?" "handoff" "handoff|Hand the open lists to the owner|Nothing is broken for your users; the owner measures or accepts each open row in writing (steps/gate.md)." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended." "repair|Repair a cause, then rerun the final check|Only if an open row turns out to be a real defect."
+    nj_meta person "No regression was found. $what What should we do?" "handoff" "handoff|Hand the open lists to the owner|Nothing is broken for your users; the owner measures or accepts each open row in writing (steps/gate.md)." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended." "repair|Repair a cause, then rerun the final check|Only if an open row turns out to be a real defect. A repair that changes the model (.mpr, javasource) needs the rerun from the build step (--from build): the final check judges the last build, and refuses a build older than the model."
   else
-    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."
+    nj_meta person "The final check has open failures. What should we do?" "repair" "repair|Repair the cause, then rerun the gate|A real defect is fixed or handed off, never accepted. After a model change rerun with --from build, not --from diff: the gate judges the last build and refuses one older than the model." "accept|Accept a row in writing, with a reason|Allow files in steps/gate.md; only for a change that is intended."
   fi
 }
 rerun_cmd() { # the command that resumes at the current step: the run's own --from is dropped so the hint carries exactly one
@@ -381,7 +397,79 @@ stepcheck_stop() {
   nj_meta info; nj_file 13 "A module update added model errors; the step was undone before it was committed (steps/upgrade.md, steps/repair.md)" "$WORK/stepupdate-$1.out" 14 '^(   NEW|STOP|   stepcheck)'
   nj_meta person "$q" "$r" "${opts[@]}"; nj_writes "${ws[@]}"
   nj_add 13 "Decision" "${body%$'\n'}"
+  # FR-7: auto mode parks a stop nothing later depends on; this one is not parked, and the person asks why it differs
+  if interview_auto; then nj_meta info; nj_add 13 "Why the run stopped here in auto mode" "Interview mode auto parks only stops that no later step builds on. Every step after the updates (routes, replays, repair rows, the build) works on the model this step leaves, so the module update cannot be left open and decided at the end: answer it, then rerun."; fi
   nj_flush
+}
+
+# widgetskew_stop: the decision of the WIDGET-SKEW stop (field run RKT: it offered update / restore / accept with nothing
+# recommended, and `update` could not succeed: the kept module had been kept for a data finding only approved.txt clears).
+# The recommendation follows why the module was kept: a data finding (idcheck, approved.txt) = accept (update needs the data
+# approval first); local file edits (steps/repair.md row 32: often OS junk) or a network failure = update; a package no
+# Studio Pro here can import = accept; an owner's --skip or anything else = accept.
+# Reads $WORK/widgetskew.out (the module the styles belong to) and $APP/.stepupdate/kept.txt ("<module> <why it was kept>").
+widgetskew_stop() {
+  local mods mod reason what="" cls="" c rec upd body q ack="$WORK/widgetskew-ack.txt"
+  mods=$(sed -nE 's/^WIDGET-SKEW .* ships with ([^ ]+) [^ ;]+;.*/\1/p' "$WORK/widgetskew.out" 2> /dev/null | awk '!s[$0]++' | paste -sd, - | sed 's/,/, /g' || true)
+  for mod in ${mods//,/}; do
+    reason=$(awk -v m="$mod" '$1 == m { if (NF > 1) { sub(/^[^ ]+ +/, ""); print }; exit }' "$APP/.stepupdate/kept.txt" 2> /dev/null || true)
+    if printf '%s' "$reason" | grep -Eqi '^idcheck|approved\.txt|persistence'; then c=data
+      what="$what$mod was kept because updating it would remove or change data the app stores. "
+    elif printf '%s' "$reason" | grep -Eqi 'theme/javascript file edits'; then c=files
+      what="$what$mod was kept because it has local theme/javascript file edits. "
+    elif printf '%s' "$reason" | grep -Eqi 'FILES-EDITED javasource'; then c=javasrc
+      what="$what$mod was kept because it has local Java code edits (real logic). "
+    elif printf '%s' "$reason" | grep -Eqi 'local edits refuse'; then c=model
+      what="$what$mod was kept because it has local model edits (real changes). "
+    elif printf '%s' "$reason" | grep -Eqi 'NETWORK'; then c=net
+      what="$what$mod was not updated because the network failed, not because anything was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'skipped by --skip'; then c=skip
+      what="$what$mod was left out on request (--skip); nothing was refused. "
+    elif printf '%s' "$reason" | grep -Eqi 'made before 10\.21'; then c=pre
+      what="$what$mod has no importable target package here (it was made before Studio Pro 10.21, and Mendix 11 cannot import it). "
+    elif printf '%s' "$reason" | grep -Eqi 'made before'; then c=old
+      what="$what$mod has no importable target package (it was made for an older Studio Pro). "
+    else c=other; what="$what$mod was kept (${reason:-the reason was not recorded}). "; fi
+    # one class for the whole stop: the earliest in this list wins, so every refusal (and a --skip, and an unknown
+    # reason) outranks files/net: `update` is recommended only when nothing in the stop refused it
+    for k in data javasrc model pre old skip other files net; do
+      if [ "$k" = "$c" ] || [ "$k" = "$cls" ]; then cls=$k; break; fi
+    done
+  done
+  [ -n "$cls" ] || cls=other
+  [ -n "$mods" ] || mods="the kept module"
+  case "$cls" in
+    data) rec=accept
+      upd="Needs a data approval first: the update cannot go through until the owner approves, in $WORK/approved.txt, the data it removes or changes. That is a separate decision after this one."
+      body="Recommended: accept the skew. The app still builds and no data changes; the only cost is that grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}Updating it is not a quick fix: $upd Restoring the old widget is not recommended, because pages already saved with the new widget can then stop building. To accept, create $ack with the reason." ;;
+    files) rec=update
+      upd="Look at the local edits first: they are often only OS junk (.DS_Store), which does not need keeping. Then update the module with --force-ui <module> (stepupdate saves the edits it overwrites), or through a one-line plan (<content id> <version> <module>) with bin/stepupdate.sh."
+      body="Recommended: update the kept module. ${what}Such edits are often only OS junk, and a field app was left with 23 unstyled grid pages by accepting the skew. $upd To accept the skew instead, create $ack with the reason." ;;
+    javasrc) rec=accept
+      upd="The local Java code edits are real logic and the update would overwrite them: update with --port-java <module> (it saves the old Java under .stepupdate/saved/<module> and prints a PORT-JAVA line per file), then port the listed Java files by hand."
+      body="Recommended: accept the skew. ${what}Updating it means running the update with --port-java <module> and then porting the listed Java files by hand, which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    model) rec=accept
+      upd="The local model edits are real changes and the update refuses them: keep the module at the installed version, or run the update and port the edits by hand AFTER it. If stepupdate reports the edits are UI only (pages, layouts, snippets), --force-ui <module> is its remedy: it saves the edits and replays them after the update."
+      body="Recommended: accept the skew. ${what}Updating it means running the update and then porting those edits to the new version by hand (or, if they are UI only, using --force-ui <module>), which is real work. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    net) rec=update
+      upd="Rerun the module update (--from the kept module): nothing refused it, the network failed."
+      body="Recommended: update the kept module. ${what}Rerunning the update is the fix. To accept the skew instead, create $ack with the reason." ;;
+    skip) rec=accept
+      upd="Nothing refused it; take it off --skip and rerun the update."
+      body="Recommended: accept the skew, since the owner left $mods out on purpose. ${what}If the grids matter more, take it off --skip and update. To accept, create $ack with the reason." ;;
+    pre) rec=accept
+      upd="Not possible here: Mendix 11 cannot import this package. The update belongs in plan-pre.txt, before the convert (steps/triage.md)."
+      body="Recommended: accept the skew. ${what}The update belongs in plan-pre.txt, before the convert, so it cannot be done at this point. Until then grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    old) rec=accept
+      upd="Not possible: the target package cannot be imported here (it was made for an older Studio Pro), or take a later version of the module."
+      body="Recommended: accept the skew. ${what}No update to this version can cure it (or take a later version of the module), and putting the old widget back can leave pages that no longer build. Grids may look unstyled, and the screens check lists each page it touches. To accept, create $ack with the reason." ;;
+    *) rec=accept
+      upd="The update repeats the step that was refused earlier, so the reason it was kept has to be settled first."
+      body="Recommended: accept the skew. The app still builds and no data changes; grids may look unstyled until $mods is updated, and the screens check lists each page it touches. ${what}To accept, create $ack with the reason." ;;
+  esac
+  q="A module update replaced a widget whose styles stay with a kept module. What should we do?"
+  nj_meta person "$q" "$rec" "update|Update the kept module|$upd" "restore|Put the old widget back|The old widget package returns; pages already saved with the new widget can then stop building." "accept|Accept the skew|The app builds and its data is untouched; grids may look unstyled until $mods is updated. Create $ack."
+  nj_add 13 "Decision" "$body"
 }
 
 # decisions.json (page + chat) -> the files the steps read; the cockpit page from the run's files. Neither can fail a step.
@@ -456,6 +544,25 @@ fresh_name() { # fresh_name BASE: a database name no earlier snapshot, walk or p
   echo "$n"
 }
 copy_db() { must docker exec "$PGC" createdb -U mendix -T "$1" "$2"; }
+# FR-6: --seed-from copies into the working database X. A rerun after an environment stop found X already there ("createdb:
+# database already exists"). Only a copy this run made is dropped: seed_copy stamps it with the run folder (like the frozen
+# one); an X without that stamp may be the person's, so it is refused with the name and the exact command, never dropped.
+# a quote in the run path is doubled: it must not end the SQL string (q, not an inline pattern: bash 3.2 reads quotes in a quoted ${//} pattern differently)
+db_stamp() { local q=\'; must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $1 IS 'upgrade-toolkit run ${RUNP//$q/$q$q}'"; }
+seed_copy() { # seed_copy SRC DST
+  local owner
+  [ "$1" != "$2" ] || die4 "--seed-from $1 is the working database itself: give a different source database"
+  if db_exists "$2"; then
+    owner=$(docker exec "$PGC" psql -U mendix -tAc "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname='$2'" 2> /dev/null || true)
+    if [ "$owner" = "upgrade-toolkit run $RUNP" ]; then
+      note "dropping $2: the seed copy of $1 an earlier attempt of this run made (stamped with this run folder)"
+      must docker exec "$PGC" dropdb -U mendix "$2"
+    else
+      die4 "database $2 already exists and this run did not stamp it, so it is not proven to be the toolkit's scratch copy of $1 (it may be yours). If it is a leftover, drop it and rerun: docker exec $PGC dropdb -U mendix $2   (or pick another name with --db)"
+    fi
+  fi
+  copy_db "$1" "$2"; db_stamp "$2"
+}
 mark_used() { must python3 "$B/snapshot.py" --ledger "$WORK/db-ledger.txt" --mark-used "$1" --use "$2"; }
 psql_str() { echo "docker exec -i $PGC psql -U mendix -d $1"; }
 
@@ -483,14 +590,31 @@ json.dump(ov, open(sys.argv[-1], "w"), indent=1)' "${src[@]}" "$WORK/state/const
   fi
 }
 infra_rc() { # infra_rc RC NAME: runapp.py exit 3 is an environment fault (F21: a taken port), never a judgment
-  [ "$1" != 3 ] || { echo "upgrade-pipeline.sh: $2 could not start: environment fault, see runapp INFRA line in $LOG" >&2; exit 3; }
+  [ "$1" != 3 ] || {
+    # FR-6: say what the INFRA line says (which port, which container, the command), not only where to find it
+    echo "upgrade-pipeline.sh: $2 could not start: environment fault: $(grep -h 'runapp: INFRA' "$LOG" 2> /dev/null | tail -n 1 | sed 's/^runapp: INFRA //') (log: $LOG)" >&2; exit 3; }
+}
+first_err() { # first_err FILE: the first CRITICAL line, else the first ERROR/Exception line (at most 200 characters), or nothing
+  [ -s "$1" ] || return 0
+  local l
+  l=$(grep -a -m1 'CRITICAL' "$1" 2> /dev/null || true)
+  [ -n "$l" ] || l=$(grep -a -m1 -E 'ERROR|Exception' "$1" 2> /dev/null || true)
+  printf '%s\n' "$l" | cut -c1-200
 }
 app_up() { # app_up NAME MDA FULLVER DB  -> 0 started
-  local rc=0
+  local rc=0 e n0=0
   runenv
+  [ ! -f "$LOG" ] || n0=$(wc -l < "$LOG" | tr -d ' ')
   x env "${RUNENV[@]}" python3 "$B/runapp.py" start "$1" "$2" "$3" "$4" || rc=$?
   infra_rc "$rc" "$1"
-  [ "$rc" != 0 ] || APPS_UP+=("$1")
+  # a start that failed says why in the first line a person reads (lane B, DVS: exit 4 named only a log path).
+  # Only when THIS start saved the runtime log: runapp.py prints one of these two markers into $LOG just when it does (save_log).
+  if [ "$rc" != 0 ] && [ "$DRY" != 1 ] && [ -f "$LOG" ] &&
+    tail -n +"$((n0 + 1))" "$LOG" | grep -aqE '^runapp: (NOT started;|admin API did not come up;)'; then
+    e=$(first_err "$WORK/logs/runtime-$1.log")
+    [ -z "$e" ] || echo "upgrade-pipeline.sh: $1 did not start; first error in $WORK/logs/runtime-$1.log: $e" >&2
+  fi
+  [ "$rc" != 0 ] || { APPS_UP+=("$1"); export UPG_RUNTIME_LOG_CMD="docker logs ${UPG_NAME:-mig}-$1"; }   # GF-17: smokewalk.js and run_journeys.py quote the home-microflow error from it
   return "$rc"
 }
 app_down() {
@@ -527,6 +651,18 @@ timing_close() { # timing_close EXITCODE
 # rung 2 localedits: modules rung 1 updated carry content id 0 in the MPR, so rung 2's localedits printed UNKNOWN ("give
 # --cid Module=<id>") for each one and the run stopped for a hand-written localedits.args (cold CMM, 7 modules). The content
 # ids are in rung 1's plan.txt: add a --cid=Module=ID line for each plan module the args file does not name yet.
+# localedits_args FILE: the words of FILE, one per output line. A line is split into words, so `--cid Administration=23513`
+# (the form steps/triage.md and the stop text show) reaches localedits.py as two arguments; `--cid=Administration=23513`
+# (the form rung2_cids writes) stays one. Before: the whole line was one argv word and localedits.py exited 2 ("unrecognized
+# arguments: --cid Administration=23513"), seen on a Marketplace sample (field run ERRH). Blank lines and lines starting with # (after indent) are skipped.
+localedits_args() {
+  local l w
+  [ -f "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "${l#"${l%%[![:space:]]*}"}" in ''|\#*) continue ;; esac
+    IFS=$' \t\n' read -r -a w <<< "$l"; [ "${#w[@]}" -eq 0 ] || printf '%s\n' "${w[@]}"
+  done < "$1"
+}
 rung2_cids() { # rung2_cids PLAN ARGSFILE
   [ -f "$1" ] || return 0
   local cid ver mod
@@ -561,12 +697,24 @@ cleanup() {
   local a rc=$? st=${TIMING_STEP:-${STEP:-}}
   [ "$rc" != 0 ] || st=""
   timing_close "$rc" || true   # the step that is stopping (exit 4, a judgment stop, an error) gets its row with its own exit code
-  # exit 4 (a failed step; after timing_close, which ends "running") writes no stop file: the page must still say the run is not working (MTA: page "agent is working", brief "waiting")
-  if [ "$rc" = 4 ] && [ ! -f "$WORK/NEEDS-JUDGMENT.md" ] && declare -F cockpit_regen > /dev/null; then cockpit_regen || true; fi
+  # exit 4 (a failed step) and exit 3 (an environment fault: disk full, docker down, mxcli pin) write no stop file: the page must still say
+  # the run is not working (MTA: page "agent is working", brief "waiting"; exit 3 stopped the same way and left the last in-step page).
+  # After timing_close, which ends "running". Exit 2 (usage) and a run with no work folder yet have no page to refresh.
+  if [ "$rc" != 0 ] && [ "$rc" -lt 10 ] && [ "$rc" != 2 ] && [ -d "${WORK:-/nonexistent}/state" ] && [ ! -f "${WORK:-}/NEEDS-JUDGMENT.md" ] \
+     && declare -F cockpit_regen > /dev/null; then
+    # the exact command that resumes the failed step (rung 2 carries its env prefix and --work): the page and the brief quote it, so a
+    # reader holding the ladder command is not sent to rerun rung 1; cockpitpage.failed_step ignores it unless the last timing row is this step
+    printf '%s\t%s\n' "$st" "$(rerun_cmd)" > "$WORK/state/failed-rerun.txt" 2> /dev/null || true
+    cockpit_regen || true
+    # the brief at exit 4 too (issue 30: it was printed at judgment stops only, so a failed step ended on one error line and no "what next")
+    [ "$rc" != 4 ] || ! declare -F brief_say > /dev/null || brief_say || true
+  fi
   # run log (bin/runlog.py): a gate step that stops for judgment still leaves its row; the exit code stays the step's own
   if [ "${STEP:-}" = gate ] && [ "${DRY:-0}" != 1 ] && [ -z "${RUNLOG_DONE:-}" ]; then record_runlog || true; fi
   for a in "${APPS_UP[@]:-}"; do [ -z "$a" ] || { runenv; env "${RUNENV[@]}" python3 "$B/runapp.py" stop "$a" > /dev/null 2>&1 || true; }; done
   feedback_finish "$rc" "$st" || true
+  # no `return "$rc"` here: under set -E a non-zero return from the EXIT trap fires the ERR trap and turns every stop into exit 4.
+  # bash 4.4+ (refused below that, GF-8) keeps the run's exit status itself.
 }
 trap cleanup EXIT
 
@@ -592,6 +740,27 @@ heavy() { # heavy LABEL VER tool args...: a mx/mxbuild call under the heavy lock
   "$B/heavy-lock.sh" "$label" "$(mxw "$ver")" "$ver" "$@"
 }
 mxcli_run() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then "$MXCLI" "$@"; else "$B/mxcli-container.sh" "$@"; fi; }
+# GM-8 / NR2-7: the original is a git ARCHIVE of the .mpr and its mprcontents/, never `git show rev:App.mpr`: on an MPR v2 app the bare
+# .mpr has no units, and impact_map, crosscalls --own, action_inventory and journey_scope would read nothing. mprcontents/ lands
+# beside original.mpr ($WORK/mprcontents), where mprmodel.py looks for it.
+write_original() { # write_original REV
+  local rev=$1 base tmp paths
+  base=$(basename "$MPR"); tmp="$WORK/.original.tmp"
+  rm -rf "$tmp" "$WORK/mprcontents"; mkdir -p "$tmp"
+  paths=("$base"); [ -z "$(git_app ls-tree "$rev" -- mprcontents 2> /dev/null)" ] || paths+=(mprcontents)
+  git_app archive "$rev" -- "${paths[@]}" | tar -x -C "$tmp" || { rm -rf "$tmp"; return 1; }
+  [ ! -d "$tmp/mprcontents" ] || mv "$tmp/mprcontents" "$WORK/mprcontents"
+  mv -f "$tmp/$base" "$WORK/original.mpr"; rm -rf "$tmp"
+}
+# GF-9: .git is a FILE in a git worktree, so `[ -d .git ]` was false there and the pipeline ran git init. The app has its own git when
+# its repo's top level is the app folder itself (a plain subfolder of a bigger repo still gets its own, as before).
+app_has_own_git() {
+  local top; top=$(git -C "$APP" rev-parse --show-toplevel 2> /dev/null) || return 1
+  [ "$(cd "$top" && pwd -P)" = "$(cd "$APP" && pwd -P)" ]
+}
+# GF-28 / GF-33: "original" is the newest commit the pipeline itself made with subject `original` or `original: ...`, never the repo's
+# first commit (an app with history: that is years old). Prints nothing when there is none.
+original_rev() { git_app log --format='%H %s' 2> /dev/null | awk '{h=$1; sub(/^[^ ]+ ?/, "")} !f && ($0 == "original" || $0 ~ /^original: /) {f=1; r=h} END {if (f) print r}'; }   # reads the whole log: an early exit would SIGPIPE git under pipefail
 git_app() { git -C "$APP" -c user.name="upgrade-pipeline" -c user.email="upgrade-pipeline@localhost" "$@"; }
 # The step scripts (stepupdate.sh, convertpre.py, jardedupe.py, ...) commit with plain git: on a machine with no git identity
 # that failed ("Author identity unknown", cold CMM: stepupdate post-convert, exit 4). They get the pipeline's identity then.
@@ -615,8 +784,11 @@ commit_app() { # commit_app "subject" KIND RULE: commit all changes in the app r
   # carries the trailers Changed-By: toolkit and Upgrade-Change: KIND RULE (trust.md section 3; bin/changelog.py reads them), and
   # Upgrade-Step: S-n when the step records know a step for that kind (steps.py trailer; UPG_STEPS_WORK is the work folder, exported below)
   [ "$DRY" = 1 ] && { say "+ git -C $APP commit -am '$1' (Upgrade-Change: $2 $3)"; return 0; }
-  git_app add -A > /dev/null
-  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1
+  storage_ok "commit '$1'" || return 1   # GF-42: never commit a storage-format change (undone; the caller decides, convert stops)
+  # callers run commit_app under `||`, which switches errexit and the ERR trap off in here: a real git failure must die by hand,
+  # so that `return 1` above means a storage refusal and nothing else
+  git_app add -A > /dev/null || die4 "git add failed for '$1' (not a storage refusal), see $LOG"
+  git_app diff --cached --quiet || git_app commit -q -m "$1" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: %s %s' "$2" "$3"; t=$(python3 "$B/steps.py" trailer --kind "$2" 2> /dev/null); [ -z "$t" ] || printf '\n%s' "$t")" >> "$LOG" 2>&1 || die4 "git commit '$1' failed (not a storage refusal), see $LOG"
 }
 resolve_app() {
   if [ -f "$WORK/state/app-dir" ]; then APP=$(cat "$WORK/state/app-dir")
@@ -657,6 +829,27 @@ smoke_mf() {
   if [ "${UPG_SMOKE_MICROFLOWS:-}" = 1 ] || grep -q '"landed": *"microflow ran"' "$WORK/smoke-before.json" 2> /dev/null ||
     grep -q '"kind": *"microflow"' "$WORK/plan.json" 2> /dev/null; then echo --microflows; fi
 }
+# GF-17: the user entity the smoke users are made as. UPG_SMOKE_ENTITY (Module.Entity) wins, else the first line of
+# $WORK/smoke-entity.txt; neither -> smoke_users.py reads the model itself (Account specialization, else the System.User
+# specialization with rows). Printed as `--entity X` for word splitting: smoke_users.py refuses anything but Module.Entity.
+smoke_entity_args() {
+  local e=${UPG_SMOKE_ENTITY:-}
+  [ -n "$e" ] || e=$(head -n1 "$WORK/smoke-entity.txt" 2> /dev/null | tr -d ' \r\t') || true
+  [ -z "$e" ] || echo "--entity $e"
+}
+# GF-21: the roles that get a smoke user are the roles of the smoke-walk plan AND the roles the impact map makes journeys
+# for (roles_all PLAN IMPACT): two sources gave "no test user for this role" for the ones only the impact map knew.
+roles_all() {
+  python3 -I -c '
+import json, sys, os
+p = json.load(open(sys.argv[1])); out = [r["role"] for r in p.get("roles", []) if r.get("role") and r["role"] != p.get("guest_role")]
+guest = p.get("guest_role")
+if len(sys.argv) > 2 and os.path.isfile(sys.argv[2]):
+    m = json.load(open(sys.argv[2])); guest = guest or (m.get("user_roles") or {}).get("guest")
+    for r in (m.get("roles") or {}):
+        if r and r != guest and r not in out: out.append(r)
+print(",".join(out))' "$1" "${2:-}"
+}
 user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
   UARGS=(); local r
   IFS=',' read -ra _rl <<< "$1"
@@ -682,7 +875,8 @@ X_FROZEN="${X}_frozen"
 # CMM: rerun --from baseline --db upg_cmm_demo, then a resume without --db would have run update on upg_run_*).
 [ "$DRY" = 1 ] || { [ -s "$WORK/state/db-prefix" ] && [ "$(head -n1 "$WORK/state/db-prefix")" = "$X" ]; } ||
   { mkdir -p "$WORK/state" && echo "$X" > "$WORK/state/db-prefix"; }
-frozen_stamp() { must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $X_FROZEN IS 'upgrade-toolkit run $RUNP'"; }
+# same doubling as db_stamp; the owner reads below compare the UNdoubled string Postgres stores
+frozen_stamp() { local q=\'; must docker exec "$PGC" psql -U mendix -qc "COMMENT ON DATABASE $X_FROZEN IS 'upgrade-toolkit run ${RUNP//$q/$q$q}'"; }
 frozen_owner() { # refuse a frozen database that another run made: its comment names another run folder, or it has none and
   # this run's ledger never used a copy of it (a run from before the stamp adopts its own one here)
   local own
@@ -700,7 +894,14 @@ preflight() {
   [ "$ONLY" != propose ] || toolfree=1
   for t in docker zsh git python3 node; do [ "$toolfree" = 1 ] && [ "$t" = docker ] && continue; need_tool "$t"; done
   [ -z "$APP_ZIP" ] || need_tool unzip
-  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then docker info > /dev/null 2>&1 || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }; fi
+  # GF-34: a hung `docker info` (a Docker CLI plugin that never answers) stalled a run 22 minutes with an empty log. Say what is waited on,
+  # bound the probe (UPG_DOCKER_PROBE_SECS, default 30), and name the likely cause when it times out.
+  if [ "$DRY" != 1 ] && [ "$toolfree" = 0 ]; then
+    say "waiting on: docker info (at most ${UPG_DOCKER_PROBE_SECS:-30} s)"
+    local drc=0; bash "$B/bounded.sh" "${UPG_DOCKER_PROBE_SECS:-30}" docker info > /dev/null 2>&1 || drc=$?
+    [ "$drc" != 124 ] || { echo "upgrade-pipeline.sh: 'docker info' did not answer in ${UPG_DOCKER_PROBE_SECS:-30} s: the docker CLI hangs. A Docker CLI plugin is the usual cause: try DOCKER_CONFIG=<a folder without cli-plugins> (mkdir -p ~/.docker-bare && DOCKER_CONFIG=~/.docker-bare), or restart Docker Desktop, then rerun" >&2; exit 3; }
+    [ "$drc" = 0 ] || { echo "upgrade-pipeline.sh: docker daemon not running (setup.sh step docker); after a container restart run bin/cloud/resume.sh <run folder>, which restarts dockerd and the cockpit server and relaunches the pipeline" >&2; exit 3; }
+  fi
   [ "$toolfree" = 0 ] || return 0
   need_path "$UPG_TOOLS/mxbuild-$SOURCE" "source mxbuild toolset"
   need_path "$UPG_TOOLS/mxbuild-$TARGET" "target mxbuild toolset"
@@ -752,26 +953,51 @@ step_fetch() {
   fi
   [ "$DRY" = 1 ] || printf '%s\n' "$APP" > "$WORK/state/app-dir"
   resolve_app
-  if [ "$DRY" != 1 ] && [ ! -d "$APP/.git" ]; then
+  if [ "$DRY" != 1 ] && ! app_has_own_git; then
     must git -C "$APP" init -q
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before ANY git add -A, so .classpath/.project/*.launch are never committed
     git_app add -A > /dev/null
     git_app commit -q -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1
+    mkdir -p "$WORK/state"; git_app rev-parse HEAD > "$WORK/state/original-rev" 2> /dev/null || rm -f "$WORK/state/original-rev"   # a fresh repo: an older run's hash must not survive
   elif [ "$DRY" != 1 ]; then
+    local gi_before; gi_before=$(git_app status --porcelain -- .gitignore)   # FR-1: the person's own .gitignore change, if any, is seen BEFORE we touch it
     ensure_gitignore
     must python3 "$B/buildout.py" exclude "$APP"   # DV-6: before the commit_app calls below (git add -A)
-    if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start; fi
+    # FR-1: an app that already has its own git and a tracked .gitignore got the tool folders appended above, and the clean-tree
+    # check below then refused the run at the very first step ("has uncommitted changes") over a file the toolkit itself had
+    # just edited. Commit that one path (never `add -A`: the person's own changes are not ours to commit).
+    # Only when .gitignore was clean before: a .gitignore the person had already changed stays uncommitted and the check below reports it.
+    if [ -z "$gi_before" ] && [ -n "$(git_app status --porcelain -- .gitignore)" ]; then
+      git_app add -- .gitignore > /dev/null
+      git_app commit -q -m "toolkit: ignore tool folders" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config gitignore-tool-folders')" -- .gitignore >> "$LOG" 2>&1 || true
+    fi
+    if [ -n "$OLD_MDA" ]; then commit_app "rung start $SOURCE" config rung-start || die4 "the rung-start commit was refused (storage format changed); undone, see $LOG"; fi
     [ -z "$(git_app status --porcelain)" ] || die4 "$APP has uncommitted changes: commit or discard them first (steps/baseline.md needs a clean tree)"
+    # GF-28: an app with its own history gets an empty "original" commit at the run start, so original.mpr is the model this run
+    # started from and never the repo's first commit. Not on a rung run (the rung start commit is the mark). The hash goes to
+    # $WORK/state/original-rev: a rerun of this run reuses it, a fresh run makes its own marker and never an older pushed one.
+    if [ -z "$OLD_MDA" ]; then
+      mkdir -p "$WORK/state"
+      orig_rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true)
+      if [ -z "$orig_rev" ] || ! git_app cat-file -e "$orig_rev^{commit}" 2> /dev/null; then
+        git_app commit -q --allow-empty -m "original" -m "$(printf 'Changed-By: toolkit\nUpgrade-Change: config run-start')" >> "$LOG" 2>&1 || true
+        orig_rev=$(git_app rev-parse HEAD 2> /dev/null || true)
+        [ -z "$orig_rev" ] || { printf '%s\n' "$orig_rev" > "$WORK/state/original-rev"; note "ASSUMED: added an empty 'original' commit to the app's branch to mark the run start (original.mpr is read from it); drop it with git rebase/reset when the branch is not meant to carry it"; }
+      fi
+    fi
   else say "+ git init + commit original (when $APP has no .git)"; fi
   if [ "$DRY" != 1 ]; then
     local rev
-    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(git_app rev-list --max-parents=0 HEAD | tail -n 1); fi
-    git_app show "$rev:$(basename "$MPR")" > "$WORK/original.mpr"
+    if [ -n "$OLD_MDA" ]; then rev=HEAD; else rev=$(cat "$WORK/state/original-rev" 2> /dev/null || true); { [ -n "$rev" ] && git_app cat-file -e "$rev^{commit}" 2> /dev/null; } || rev=$(original_rev); [ -n "$rev" ] || rev=HEAD; fi
+    write_original "$rev" || die4 "could not write $WORK/original.mpr from $rev (git archive failed)"
     local v
     v=$(project_version "$APP")
     if [[ "$v" != *"$SOURCE"* ]]; then
-      echo "upgrade-pipeline.sh: the project is version '${v:-unknown}', not --source $SOURCE" >&2; exit 2
+      echo "upgrade-pipeline.sh: the project is version '${v:-unknown}', not --source $SOURCE" >&2
+      # FR-4: say which toolset to fetch: the app's own full version, then rerun with --source of it
+      [ -z "$v" ] || echo "  fetch the mxbuild and runtime toolset of exactly $v, then rerun with --source $v:  bash $B/cloud/setup.sh --run-dir $RUN --source $v --target $TARGET${TARGET2:+ --target2 $TARGET2} --only toolsets,mxlinks" >&2
+      exit 2
     fi
     if [ -n "$(find "$APP" -maxdepth 2 \( -name 'data-snapshot.zip' -o -name '*.script' \) -print -quit)" ]; then
       todo_hsql_replay
@@ -810,10 +1036,39 @@ seed_demo() {
   return 0
 }
 
+# GM-38: the two facts that close a Java removal row on "target build green, symbols gone from the final javasource".
+# Prints "--final-dir DIR --build-log LOG", one word per line, only when this run's target build log ($WORK/build-$TARGET.log, written by
+# step_build for this $WORK and $TARGET) AND the project folder it built ($MPR's folder, the run's $APP) both exist; otherwise
+# nothing, and release_impact.py is called as before a build. Same-run is not proved here: release_impact.py refuses a log
+# older than the newest .java or .mpr of the folder (a rerun after the app was rewound reads as "not the build of that tree").
+ri_build_args() {
+  local log="$WORK/build-$TARGET.log"
+  [ -f "$log" ] && [ -f "$MPR" ] || return 0
+  printf '%s\n' --final-dir "$(dirname "$MPR")" --build-log "$log"
+}
+# GM-38: right after a green target build, close the open java-actions removal rows of the EXISTING release-impact.md whose
+# symbols are gone from the final javasource (release_impact.py --close-proved: same rule and staleness check as --auto
+# --final-dir, no facts, brain or rows regenerated, no entry replaced, no other triage output touched). Same conditions as
+# ri_build_args (this run's log and project folder exist). Never fails the step: a failure warns, the rows stay open.
+close_proved_rows() {
+  [ "$DRY" != 1 ] && [ -f "$WORK/release-impact.md" ] || return 0
+  local args=() rib rc=0
+  while IFS= read -r rib; do args+=("$rib"); done < <(ri_build_args)
+  [ "${#args[@]}" -gt 0 ] || return 0
+  xo "$WORK/release-impact-close.out" python3 "$B/release_impact.py" --close-proved "$WORK/release-impact.md" "${args[@]}" || rc=$?
+  if [ "$rc" != 0 ]; then note "release_impact.py --close-proved exit $rc: Java removal rows stay open, see $WORK/release-impact-close.out"
+  else note "$(tail -n 1 "$WORK/release-impact-close.out" 2> /dev/null)"; fi
+  return 0
+}
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
-# Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) has no script: exit 13 when absent.
+# Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) is picked by bin/modplan.py, run by the agent after review: exit 13 when absent.
 step_triage() {
   local rc
+  # GF-15: a rerun appended to state/notes.txt, so the first attempt's "no module-jumps.txt" read as current. This run's triage
+  # notes replace the earlier attempt's (other steps' notes stay).
+  if [ "$DRY" != 1 ] && [ -f "$WORK/state/notes.txt" ]; then
+    grep -v '^triage: ' "$WORK/state/notes.txt" > "$WORK/state/notes.txt.new" || true; mv "$WORK/state/notes.txt.new" "$WORK/state/notes.txt"
+  fi
   if [ "$DRY" = 1 ]; then say "+ mxversion.py app + toolsets > $WORK/versions.txt"; else
     { printf 'app: %s\n' "$(project_version "$MPR")"; printf 'toolset %s: %s\n' "$SOURCE" "$(project_version "$UPG_TOOLS/mxbuild-$SOURCE")"
       printf 'toolset %s: %s\n' "$TARGET" "$(project_version "$UPG_TOOLS/mxbuild-$TARGET")"; } > "$WORK/versions.txt"
@@ -830,9 +1085,27 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
     fi
   fi
   must mxcli_run -p "$MPR" -c "REFRESH CATALOG FULL"
+  # mxcli marketplace diff finds its toolchain at ~/.mxcli/mxbuild/<ver>; a run over shared toolsets never ran setup.sh (GA1: 16 of 16 UNKNOWN)
+  [ "$DRY" = 1 ] || bash "$B/mxbuild_link.sh" "$UPG_TOOLS" "$SOURCE" ${TARGET:+"$TARGET"} ${TARGET2:+"$TARGET2"} ${VIA:+"$VIA"} 2>&1 | while IFS= read -r l; do note "$l"; done
   local le=() a
-  if [ -f "$WORK/localedits.args" ]; then while IFS= read -r a; do [ -z "$a" ] || le+=("$a"); done < "$WORK/localedits.args"; fi
-  rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
+  while IFS= read -r a; do le+=("$a"); done < <(localedits_args "$WORK/localedits.args")
+  # GM-11: the element contents (microflows, pages, layouts) are compared only through `mxcli marketplace diff`. Pass it when an
+  # mxcli runs here and the model is Mendix 10+ (mx below 10 has no module-import); otherwise localedits.py prints
+  # "element contents NOT compared" itself, never a bare "unchanged". UPG_TRIAGE_MXCLI_DIFF=0 opts out (about 1 to 2 min per module).
+  local pv; pv=$(project_version "$MPR")
+  if [ "${UPG_TRIAGE_MXCLI_DIFF:-1}" != 0 ] && [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ] && [ "${pv%%.*}" -ge 10 ] 2> /dev/null; then le+=(--mxcli-diff); fi
+  # GA1: "rerun --from triage" after the module plan stop repeated all of localedits (about 15 minutes of mxcli diff): reuse it while
+  # the model, the args and the mxcli build are the same (bin/localedits_cache.sh; UPG_LOCALEDITS_FRESH=1 redoes it)
+  if [ "$DRY" != 1 ] && rc=$(bash "$B/localedits_cache.sh" check "$APP" "$WORK" "${le[@]}"); then
+    say "localedits: reused the earlier result (same model, args and mxcli; UPG_LOCALEDITS_FRESH=1 redoes it)"
+    note "localedits reused from the earlier run"
+    # an UNKNOWN can also come from the environment (DNS, a proxy 407, a missing toolchain): say how to redo it once that is fixed
+    [ "$rc" != 2 ] || say "localedits: the reused result has UNKNOWN modules; if their cause was the network or this machine and is fixed now, UPG_LOCALEDITS_FRESH=1 redoes it"
+  else
+    [ "$DRY" = 1 ] || rm -f "$WORK/localedits.md" "$WORK/localedits.json"  # a dry run deletes nothing; a run that dies before its report must not leave an older one to be cached under exit 2
+    rc=0; xo "$WORK/localedits.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits.md" --json "$WORK/localedits.json" "${le[@]}" || rc=$?
+    [ "$DRY" = 1 ] || bash "$B/localedits_cache.sh" save "$APP" "$WORK" "$rc" "${le[@]}"
+  fi
   [ "$rc" -le 2 ] || die4 "localedits.py failed (exit $rc), see $WORK/localedits.out"
   [ "$rc" = 0 ] || note "localedits exit $rc (1 = RED local edits, 2 = some module UNKNOWN): never read as 'no edits'; stepupdate refuses edited modules and keeps them"
   # BT-6: a renamed or republished Marketplace module is outside every version plan; name it (playbooks/module-renames.tsv)
@@ -861,6 +1134,9 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   rc=0; xo "$WORK/jarclash-before.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash-before.md" || rc=$?
   # impact map of the old app alone (always-on journey set, steps/journeys.md)
   must python3 "$B/impact_map.py" "$WORK/original.mpr" "$WORK/original.mpr" --out "$WORK/impact-base.json"
+  # DV-3: which company brain this run uses (or that none was found), once, from the same script the gate summary asks
+  if [ "$DRY" = 1 ]; then say "+ brainpath.py --describe"; else
+    python3 "$B/brainpath.py" --describe 2>&1 | tee "$WORK/brain.txt" || say "brain: not reported (brainpath.py failed)"; fi
   # release impact (V31-RI): needs the module jumps, which come from the plan. --auto with the app's own model and javasource
   # closes the rows the app cannot hit; --evidence: a row stays open only when the app's own modules use what it names, and the
   # environment rows become one go-live checklist (cold test: 190 open rows). The production database and OS come from
@@ -873,6 +1149,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   [ -z "${UPG_DB_VENDOR:-}" ] || riauto+=(--db-vendor "$UPG_DB_VENDOR")
   [ -z "${UPG_DB_VERSION:-}" ] || riauto+=(--db-version "$UPG_DB_VERSION")
   [ -z "${UPG_RUNTIME_OS:-}" ] || riauto+=(--runtime-os "$UPG_RUNTIME_OS")
+  local rib; while IFS= read -r rib; do riauto+=("$rib"); done < <(ri_build_args)   # GM-38: after a target build only (a rerun, --only triage); nothing before one
   xo "$WORK/release-impact.out" python3 "$B/release_impact.py" "${riargs[@]}" "${riauto[@]}" || rc=$?
   if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then   # the facts could not be counted: the rows without auto, all open
     note "release_impact.py --auto exit $rc (facts not counted from $MPR): rows written without auto, see $WORK/release-impact.out"
@@ -883,16 +1160,70 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
-    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "No script picks module target versions (steps/triage.md item 3: newest version whose min Mendix fits the target, from the brain's modules-index.md and \`mxcli marketplace versions <content id>\`).
-Write \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, cross-module association targets (idcheck --xmod) LAST. An empty plan (comments only) is allowed and means no module updates.
-Write \`$WORK/module-jumps.txt\`: \`<Module> <installed> -> <target>\` lines for the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (one \`--cid Module=ID\` or \`--proxy Module=VER\` argument per line), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
+    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
+The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
+\`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (\`--cid Module=ID\` or \`--proxy Module=VER\` arguments; each line is split into words, so \`--cid Module=ID\` on one line works), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40
-    nj_meta info; nj_file 13 "cross-module association targets (update last)" "$WORK/xmod.txt" 20
+    nj_meta info; nj_file 13 "cross-module association targets (last, unless an owner is on the plan too: then before the owner, planorder.py --write)" "$WORK/xmod.txt" 20
     nj_flush
   fi
   kept_java_check
   charts11_check
+  kept_vendor_check triage
+  kept_style_check triage
   nj_flush
+}
+
+kept_vendor_check() { # GM-15: does a KEPT module's themesource still find the mixins, variables and files it uses in the planned packages?
+  # kept_vendor_check triage|update. keptvendor.py exit: 0 judged and none missing, 1 MISSING, 3 NOT CHECKED (package not cached or
+  # unreadable: never clean), 2 input error. The kept list is .stepupdate/kept.txt, written by the update step: a first triage has none,
+  # so it says "not measured" (never "clean") and the update step runs this again once the list exists. Only a triage MISSING stops (nj
+  # item, code 13; GF-56: own styling items are also in the proposal hash, see proposal.py main); NOT CHECKED, input errors and the update-step call are notes: the package may simply not be cached yet.
+  local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" pf="$WORK/keptvendor-plan.txt"
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptvendor.py" "$APP" --kept-file "$kf" --own --plan-file "$pf" --json "$WORK/keptvendor.json"; return 0; fi
+  # GF-56: the app's own styling is read too (--own), so a first triage with no kept.txt still measures it before the sign-off
+  local kopt=(--kept-file "$kf")
+  [ -s "$kf" ] || kopt=(--kept '')
+  [ -f "$WORK/plan.txt" ] || { note "keptvendor NOT MEASURED: no $WORK/plan.txt to check the app's own and kept themesources against"; return 0; }
+  # awk 1 adds the missing final newline of the first file: with cat, its last line and the first of the next became one line.
+  # plan-pre.txt comes FIRST: keptvendor.py keeps the LAST version of a module, and plan.txt (the final target) must win over the
+  # older pre-convert version of the same module (GF-56 review: Atlas_Core 10 to 11 was judged against the pre-convert package)
+  awk 1 "$WORK/plan-pre.txt" "$WORK/plan.txt" > "$pf" 2> /dev/null || awk 1 "$WORK/plan.txt" > "$pf"
+  xo "$WORK/keptvendor.out" python3 "$B/keptvendor.py" "$APP" "${kopt[@]}" --own --plan-file "$pf" --json "$WORK/keptvendor.json" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "keptvendor MISSING (exit 1): a kept or own themesource (theme/ included) uses a mixin, variable or file a planned package removed; fix that SCSS or hold the package, see $WORK/keptvendor.out"
+       if [ "$mode" = triage ]; then
+         nj_meta info; nj_file 13 "A kept or own module's styling uses something a planned package removes (GM-15, GF-56: the theme compile would fail; fix that SCSS or hold the package)" "$WORK/keptvendor.out" 20 '^MISSING'
+       fi ;;
+    3) note "keptvendor NOT CHECKED (exit 3): target package not cached or unreadable, so some kept SCSS uses are NOT measured (never read as clean), see $WORK/keptvendor.out" ;;
+    *) note "keptvendor exit $rc: kept themesources NOT measured, see $WORK/keptvendor.out" ;;
+  esac
+}
+
+kept_style_check() { # MC-11: does a KEPT module's themesource carry rules on platform widgets (.widget-*, .mx-listview ...) the plan updates?
+  # kept_style_check triage|update. keptstyle.py exit: 0 none, 1 RISK hits, 2 input error. RISK hits are visual risks, never a stop (no nj
+  # item, no new stop code): the widget markup changes with its major and only a screenshot shows it. They reach the screens rung as a
+  # line in $WORK/screen-causes.txt (gate.sh passes it to shotdiff --causes): a pixel-only REVIEW of any page then names the kept module(s)
+  # as the likely cause. The cause names no page: the screens rung shoots the pages the walk reaches, not a list this step can extend.
+  # Runs in triage (a rerun has kept.txt) and again after the update step, which is the first point a first run has the final kept list.
+  local mode=${1:-triage} rc=0 kf="$APP/.stepupdate/kept.txt" cf="$WORK/screen-causes.txt" mods
+  if [ "$DRY" = 1 ]; then x python3 "$B/keptstyle.py" "$APP" --kept-file "$kf" --json "$WORK/keptstyle.json"; return 0; fi
+  # a rerun that cannot measure must not leave an earlier run's cause naming kept modules (the [gridlayout] line stays)
+  clear_cause() { rm -f "$WORK/keptstyle.json"; [ ! -f "$cf" ] || { grep -v '\[keptstyle\]' "$cf" > "$cf.tmp" 2> /dev/null || true; mv "$cf.tmp" "$cf"; }; return 0; }   # grep -v exits 1 on an empty result: never let set -e see it
+  if [ ! -s "$kf" ]; then
+    clear_cause
+    [ "$mode" != triage ] || note "keptstyle NOT MEASURED: no $kf yet (the update step writes the kept list); kept themesources are scanned for platform widget selectors after it"
+    return 0
+  fi
+  xo "$WORK/keptstyle.out" python3 "$B/keptstyle.py" "$APP" --kept-file "$kf" --json "$WORK/keptstyle.json" || rc=$?
+  case "$rc" in
+    0) clear_cause ;;
+    1) mods=$(sed -n 's/^RISK \([^ ]*\) .*/\1/p' "$WORK/keptstyle.out" | sort -u | paste -sd, -)
+       note "keptstyle RISK (exit 1): kept module(s) $mods style platform widgets; a visual risk, not a stop: read a screenshot of a page with that widget (screens rung REVIEW names this cause), see $WORK/keptstyle.out"
+       { [ ! -f "$cf" ] || grep -v '\[keptstyle\]' "$cf" || true; echo "* # kept module(s) $mods style platform widgets (keptstyle RISK, MC-11): look at a page with that widget [keptstyle]"; } > "$cf.tmp" && mv "$cf.tmp" "$cf" ;;
+    *) clear_cause; note "keptstyle exit $rc: kept themesources' platform widget selectors NOT measured (never read as clean), see $WORK/keptstyle.out" ;;
+  esac
 }
 
 kept_java_check() { # a plan that keeps a module whose Java calls Runtime API that Mendix 11 removed: javac fails at the build
@@ -911,7 +1242,7 @@ kept_java_check() { # a plan that keeps a module whose Java calls Runtime API th
     [ -z "$f" ] || hits+="$m: $(printf '%s\n' "$f" | wc -l | tr -d ' ') file(s), e.g. $(printf '%s\n' "$f" | head -2 | tr '\n' ' ')"$'\n'
   done
   [ -n "$hits" ] || return 0
-  nj_add 13 "Kept module calls Java API Mendix $TARGET removed (javac will fail at the build)" "Not on the plan, and their Java calls Core.retrieveXPathQuery*, Core.isSubClassOf or com.mendix.core.conf.RuntimeVersion (playbooks/10-to-11.md: update those modules, do not edit their code):
+  nj_meta agent; nj_add 13 "Kept module calls Java API Mendix $TARGET removed (javac will fail at the build)" "Not on the plan, and their Java calls Core.retrieveXPathQuery*, Core.isSubClassOf or com.mendix.core.conf.RuntimeVersion (playbooks/10-to-11.md: update those modules, do not edit their code):
 
 $hits
 Put each Marketplace module on $WORK/plan.txt (newest version for $TARGET); a module with no 11 release or an own module is ported as a repair (playbooks/10-to-11.md row 11): name it in $WORK/java-port.txt, one per line."
@@ -932,7 +1263,7 @@ charts11_check() { # Charts 3.x widgets on an 11 target: the build stops on them
   # (widget_routes) and asks its own one OK at the end, so this early stop stands down; it stays only when no route can be read (exit 2).
   rc=0; xo "$WORK/widgetroute-triage.txt" python3 "$B/repair/widgetroute.py" "$APP" --target "$TARGET" --approved "$WORK/widget-routes-approved.txt" || rc=$?
   [ "$rc" -ge 2 ] || return 0
-  nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
+  nj_meta agent; nj_add 13 "Charts 3.x widgets on a Mendix $TARGET target: the build stops on them after convert and update" "$(grep -E '^(DEPRECATED-11|  module )' "$WORK/missing_deps-triage.txt" | cut -c1-400)
 
 They build, but fail at runtime on Mendix 11 (T7-29). Route per module: the app's own pages get the Charts 6.x widgets
 (playbooks/widgets.md) on the 10.24 rung; a Marketplace module's own demo pages go with that module (update it on the
@@ -953,9 +1284,18 @@ modcase_fix() { # modcase_fix BUILD_LOG
 
 # baseline: build old, start on a fresh DB, seed, freeze, endpoint probe, snapshot, controls.
 # Scripts: heavy-lock.sh + mx9/mx10.sh mxbuild, runapp.py, seed_pg.py, snapshot.py, diff.py
+ports_gate() { # ports_gate NAME: GF-14: both host ports (8080+PORT_OFF app, 8090+PORT_OFF admin) free before a build or a start that needs them
+  [ "$DRY" != 1 ] || return 0
+  local rc=0
+  runenv
+  x env "${RUNENV[@]}" python3 "$B/runapp.py" ports "$1" || rc=$?
+  infra_rc "$rc" "$1"
+}
 step_baseline() {
   local old rc=0 base probe keep line p code
   old=$(mda_old)
+  # GF-14: a taken port used to show only after the 190 s build of the old app; check it first (the run's own old app is not a holder)
+  if [ -z "$OLD_MDA" ] && ! db_exists "$X_FROZEN"; then ports_gate old; fi
   # DV-6: idempotent again here, because a run resumed (--from/--only baseline) on an app whose run start predates the exclude never passed it
   x python3 "$B/buildout.py" exclude "$APP" || note "buildout.py exclude failed: .classpath, .project, *.launch may show as dirty (DV-6)"
   if [ -z "$OLD_MDA" ] && [ ! -f "$old" ]; then
@@ -963,7 +1303,7 @@ step_baseline() {
     # LDMS: a publisher SCSS import with the wrong letter case (components/ for Components/) fails the theme compile of the OLD app on
     # Linux too, and repair row 11 only ran for the new one: fix it before the old build, one commit
     x python3 "$B/repair/scsscase.py" "$APP" || note "scsscase.py failed on the old app: the theme compile may fail"
-    commit_app "linux: SCSS import case fix (old app)" repair repair-row-11
+    commit_app "linux: SCSS import case fix (old app)" repair repair-row-11 || note "SCSS case fix refused and undone (storage format)"
     x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
     if [ "$rc" != 0 ] && modcase_fix "$LOG"; then   # LDMS: add-on cache folder case on Linux (repair row 34): link, build once more
       rc=0; x heavy build-old "$SOURCE" mxbuild --target=package -o "$old" "$MPR" || rc=$?
@@ -973,19 +1313,40 @@ step_baseline() {
       nj_meta agent; nj_file 10 "OLD app does not build (exit $rc)" "$LOG" 20 '^ERROR at|ERROR|error'
       nj_flush
     fi
-    commit_app "build: regenerated stubs" config build-stubs
+    commit_app "build: regenerated stubs" config build-stubs || note "stub commit refused and undone (storage format)"
   fi
   if db_exists "$X_FROZEN"; then
     frozen_owner
     note "reusing existing frozen database $X_FROZEN"
   else
-    if [ -n "$SEED_FROM" ]; then copy_db "$SEED_FROM" "$X"; fi
+    if [ -n "$SEED_FROM" ]; then seed_copy "$SEED_FROM" "$X"; fi
     app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start on $X (log: $LOG, $WORK/logs/runtime-old.log)"
     app_down old
     if [ -z "$SEED_FROM" ]; then
       seed_demo || must python3 "$B/seed_pg.py" --psql "$(psql_str "$X")" --per-entity 5
       app_up old "$old" "$SOURCE" "$X" || die4 "old app did not start after the seed (log: $LOG)"
       app_down old
+    fi
+    # GM-A5: the baseline is frozen only from a CLEAN start: read the old app's start log first (bin/startcheck.py).
+    # UNCLEAN (after-startup unfinished or failed, never started) and INVALID (log missing or unreadable) stop as a judgment item:
+    # a log nobody read proves nothing. A plain ERROR outside after-startup is CLEAN-WITH-ERRORS: noted, listed in
+    # $WORK/start-errors-old.txt, not a stop. Accept a known benign line with $WORK/startup-allow.txt (fnmatch, "# reason").
+    local sc_rc=0 sc_allow=()
+    [ ! -s "$WORK/startup-allow.txt" ] || sc_allow=(--allow "$WORK/startup-allow.txt")
+    if [ "$DRY" != 1 ]; then
+      python3 "$B/startcheck.py" "$WORK/logs/runtime-old.log" --list "$WORK/start-errors-old.txt" ${sc_allow[@]+"${sc_allow[@]}"} > "$WORK/startcheck-old.txt" 2>&1 || sc_rc=$?
+      if [ "$sc_rc" != 0 ]; then
+        note "baseline NOT frozen: $(head -1 "$WORK/startcheck-old.txt")"
+        nj_meta agent "The old app did not start cleanly (startcheck exit $sc_rc), so $X_FROZEN is not frozen. Fix the cause, or accept a known benign line?" "fix the cause; or add a pattern to $WORK/startup-allow.txt (ERROR Node: message*  # reason), then rerun"
+        nj_file 10 "Old app did not start cleanly" "$WORK/startcheck-old.txt"
+        nj_flush
+      fi
+      if grep -q '^ERROR line' "$WORK/start-errors-old.txt" 2> /dev/null; then
+        note "old app start log has $(grep -c '^ERROR line' "$WORK/start-errors-old.txt") ERROR line(s) outside after-startup (baseline frozen anyway, listed in $WORK/start-errors-old.txt)"
+      fi
+      if grep -q '^line .*accepted:' "$WORK/start-errors-old.txt" 2> /dev/null; then
+        note "old app start log: $(grep -c '^line .*accepted:' "$WORK/start-errors-old.txt") ERROR line(s) accepted by startup-allow.txt (listed in $WORK/start-errors-old.txt)"
+      fi
     fi
     copy_db "$X" "$X_FROZEN"; frozen_stamp
   fi
@@ -1036,7 +1397,7 @@ step_basewalk() {
   local old roles rc=0 db
   old=$(mda_old)
   must python3 "$B/smokewalk_gen.py" "$APP" -o "$WORK/plan.json"
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan.json" "$WORK/impact-base.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   [ -n "$roles" ] || { nj_meta agent; nj_add 11 "No user roles in the smoke-walk plan" "plan.json has no non-guest role: nothing can log in. $WORK/plan.json"; nj_flush; }
   [ "$DRY" = 1 ] || write_users "$roles" "$WORK/users.json"
@@ -1045,7 +1406,7 @@ step_basewalk() {
   db=$(fresh_name "${X}_smoke_walk")
   copy_db "$X_FROZEN" "$db"
   app_up oldwalk "$old" "$SOURCE" "$db" || die4 "old app did not start for the smoke walk (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   rc=0; x node "$B/smokewalk.js" --plan "$WORK/plan.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --out "$WORK/smoke-before.json" --shots "$WORK/smoke-before-shots" || rc=$?
   app_down oldwalk
@@ -1071,7 +1432,7 @@ step_basewalk() {
   db=$(fresh_name "${X}_smoke_jbase")
   copy_db "$X_FROZEN" "$db"
   app_up oldj "$old" "$SOURCE" "$db" || die4 "old app did not start for the journeys (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   rc=0; xo "$WORK/journeys-base.out" python3 "$B/run_journeys.py" "$WORK/journeys-base" --label before --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-base" --pause 50 ${ev[@]+"${ev[@]}"} || rc=$?
   app_down oldj
@@ -1151,12 +1512,53 @@ replacement_report() {
   case "$rc" in
     0) ;;
     1) note "replacement_check.py: $(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) for ${TARGET2:-$TARGET} (open in the proposal), see $WORK/replacements.md" ;;
+    2) note "replacement_check.py exit 2: the app could not be read or an extra rule table failed ($(grep -cE '^HIT ' "$WORK/replacements.out" 2> /dev/null || true) HIT row(s) printed for ${TARGET2:-$TARGET}), see $WORK/replacements.out" ;;
     *) note "replacement_check.py exit $rc, see $WORK/replacements.out" ;;
+  esac
+}
+
+# GM-12: the target packages of the planned updates are read for calls into modules the app does not have; proposal.py
+# makes each one a section-3 item "needs module X". Run at propose (plan.txt exists then), fresh each time: the plan may change.
+absent_modules_report() {
+  local pf=(--plan-file "$WORK/plan.txt")
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")   # the pre-convert updates are planned and checked too
+  [ "$DRY" != 1 ] || { say "+ absentmods.py $WORK/original.mpr ${pf[*]} --json $WORK/absentmods.json"; return 0; }
+  [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
+  local rc=0
+  rm -f "$WORK/absentmods.json"   # a failed or crashed rerun must not leave an earlier run's answer for proposal.py
+  xo "$WORK/absentmods.out" python3 "$B/absentmods.py" "$WORK/original.mpr" "${pf[@]}" --json "$WORK/absentmods.json" || rc=$?
+  # a Python traceback also exits 1: it is NEEDS only when the output has a NEEDS line
+  if [ "$rc" = 1 ] && ! grep -q '^NEEDS ' "$WORK/absentmods.out" 2> /dev/null; then rc=9; fi
+  case "$rc" in
+    0) ;;
+    1) note "absentmods.py: $(grep -c '^NEEDS ' "$WORK/absentmods.out" 2> /dev/null || true) absent module(s) a planned update calls (section 3 of the proposal), see $WORK/absentmods.out" ;;
+    3) note "absentmods.py: a planned update's package is not in the cache: NOT CHECKED, not clean, see $WORK/absentmods.out" ;;
+    *) note "absentmods.py failed (exit $rc, no NEEDS line): calls into absent modules NOT CHECKED, see $WORK/absentmods.out" ;;
+  esac
+}
+
+# GF-39: own documents that call something a planned package no longer has (CE1613 after the update) are a section-3 item BEFORE the
+# sign-off. The update step ran this too late (a field run met 21 CE1613 for a dropped admin-option microflow). Fresh each time.
+own_gone_report() {
+  local pf=()
+  [ ! -f "$WORK/plan-pre.txt" ] || pf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+  pf+=(--plan-file "$WORK/plan.txt")
+  [ "$DRY" != 1 ] || { say "+ crosscalls.py $WORK/original.mpr --kept '' --own ${pf[*]} > $WORK/owngone.out"; return 0; }
+  [ -f "$WORK/plan.txt" ] && [ -e "$WORK/original.mpr" ] || return 0
+  local rc=0
+  rm -f "$WORK/owngone.out"
+  xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${pf[@]}" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) note "crosscalls --own: own modules use $(grep -c '^  GONE' "$WORK/owngone.out" 2> /dev/null || true) target(s) the plan versions drop (section 3 of the proposal), see $WORK/owngone.out" ;;
+    *) note "crosscalls --own exit $rc: own modules NOT checked against the plan versions, see $WORK/owngone.out" ;;
   esac
 }
 
 step_propose() {
   local rc=0
+  absent_modules_report
+  own_gone_report
   # a run whose triage predates the report
   [ -s "$WORK/dojo-react.md" ] || dojo_report
   [ -s "$WORK/replacements.md" ] || replacement_report
@@ -1225,7 +1627,7 @@ step_convert() {
   rc=0; xo "$WORK/convertcheck.out" python3 "$B/convertcheck.py" "$WORK/convert-$TARGET.log" "$APP" --target "$TARGET" || rc=$?
   [ "$DRY" = 1 ] || cat "$WORK/convertcheck.out" >> "$LOG"
   [ "$rc" = 0 ] || die4 "NOT CONVERTED to $TARGET (convertcheck exit $rc): see $WORK/convertcheck.out and $WORK/convert-$TARGET.log. A 10.x below 10.24 must take the 10.24 rung first"
-  commit_app "convert $TARGET" convert mx-convert
+  commit_app "convert $TARGET" convert mx-convert || die4 "convert $TARGET changed the MPR storage format (MPR v2 became a single-file v1 .mpr): the change was undone, so $APP is still the unconverted model and nothing was committed. See $LOG; run the convert on a copy by hand and tell the toolkit owner"
   rc=0; xo "$WORK/localedits-post-convert.out" python3 "$B/localedits.py" "$APP" --md "$WORK/localedits-post-convert.md" --json "$WORK/localedits-post-convert.json" || rc=$?
 }
 
@@ -1233,6 +1635,21 @@ step_convert() {
 run_stepupdate() { # run_stepupdate PLAN label
   local plan=$1 rc=0 cmd="${UPG_UPDATE_CMD:-}"
   if [ "$DRY" != 1 ] && ! grep -qvE '^[[:space:]]*(#|$)' "$plan"; then note "$2 plan $plan has no module lines: no module updates"; return 0; fi
+  # WK-6 (WKS and ERRH field runs): on a ladder a plan runs on one rung. A pick whose min Mendix is above the project's
+  # version (the 11 picks at 10.24, or the 10.24 picks before the convert at 10.21) kept every module with no cause named.
+  if [ "$DRY" != 1 ] && [ -d "$WORK/modvers" ]; then
+    local rf rfv; rfv=$(project_version "$APP")
+    if [ -z "$rfv" ]; then if [ "$2" = pre-convert ]; then rfv=$SOURCE; else rfv=$TARGET; fi; fi   # an unreadable MPR: the rung's own version
+    if [ -n "$rfv" ]; then
+      local rfrom=update; [ "$2" = pre-convert ] && rfrom=convert   # plan-pre.txt runs inside step_convert
+      rf=0; python3 "$B/rungfit.py" "$plan" --at "$rfv" --modvers "$WORK/modvers" > "$WORK/rungfit-$2.out" 2>&1 || rf=$?
+      if [ "$rf" = 1 ]; then
+        nj_meta agent; nj_add 13 "Module plan has picks that need a newer Mendix than this rung ($2, project $rfv)" "$(grep '^MISFIT' "$WORK/rungfit-$2.out") Plan each rung with its own target (steps/triage.md item 3): plan-pre.txt = picks that install at the SOURCE version, plan.txt = picks for the version the project has after the convert; the picks for the next rung go in that rung's plan. Rewrite $plan, then rerun --from $rfrom."
+        nj_flush
+      fi
+      tail -n 1 "$WORK/rungfit-$2.out" | while IFS= read -r l; do note "$l"; done
+    fi
+  fi
   [ -f "$WORK/approved.txt" ] || { [ "$DRY" = 1 ] || printf '# accepted step-idcheck findings: <pattern> # reason\n' > "$WORK/approved.txt"; }
   # an MPR name with a space broke the unquoted {mpr} in T1, T4, T8: quote it
   if [ -n "$cmd" ] && [[ "$cmd" != *"'{mpr}'"* ]] && [[ "$cmd" != *'"{mpr}"'* ]]; then cmd=${cmd//\{mpr\}/\'\{mpr\}\'}; fi
@@ -1360,7 +1777,7 @@ replay_edits() { # replay_edits [pre]: pre = only modules the post-convert plan 
       continue
     fi
     [ ! -f "$WORK/replay-held.txt" ] || { grep -v "^$mod exit " "$WORK/replay-held.txt" > "$WORK/replay-held.txt.n" || true; mv "$WORK/replay-held.txt.n" "$WORK/replay-held.txt"; }
-    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod"
+    commit_app "replay: $mod${UPG_PHASE:+ ($UPG_PHASE)}" replay "replay-$mod" || { note "replay of $mod refused and undone (storage format): the local edits of $mod are NOT in the model"; continue; }
     note "replayed the local edits of $mod from $f"
   done
 }
@@ -1446,19 +1863,24 @@ step_update() {
     fi
   fi
   # a rerun starts as the first run did: an earlier routing's force-ui lines would force modules before they are routed
-  [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" | tee -a "$LOG" > /dev/null || true; }
+  [ "$DRY" = 1 ] || { python3 "$B/editroute.py" reset --work "$WORK" --app "$APP" | tee -a "$LOG" > /dev/null || true; }
   # own modules that use a document the plan version drops get CE1613 after the update; say which before it (cold CMM:
   # Administration 4.5.0 has no UserRole_Select or RetrieveTimeZones, two own employee pages used them)
   if [ "$DRY" != 1 ]; then
-    local orc=0
-    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt" || orc=$?
+    local orc=0 opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    xo "$WORK/owngone.out" python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}" || orc=$?
     if grep -q '^  GONE' "$WORK/owngone.out" 2> /dev/null; then
       note "own modules use $(grep -c '^  GONE' "$WORK/owngone.out") target(s) the plan versions drop: CE1613 after the update, see $WORK/owngone.out (steps/repair.md row 28)"
     elif [ "$orc" = 2 ]; then
       note "crosscalls --own exit 2: own modules not checked against the plan versions, see $WORK/owngone.out"
     fi
   else
-    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own --plan-file "$WORK/plan.txt"
+    local opf=()
+    [ ! -f "$WORK/plan-pre.txt" ] || opf+=(--plan-file "$WORK/plan-pre.txt")   # pre-convert plan FIRST: crosscalls keeps the last version of a module (plan.txt = where it ends); same files in triage and update, so owngone.out never changes under a signature
+    opf+=(--plan-file "$WORK/plan.txt")
+    x python3 "$B/crosscalls.py" "$WORK/original.mpr" --kept '' --own "${opf[@]}"
   fi
   run_stepupdate "$WORK/plan.txt" post-convert
   route_kept
@@ -1473,6 +1895,8 @@ step_update() {
   if [ "$DRY" != 1 ]; then
     # a stale kept.txt from an earlier pass parked a module updated since (cold WM1: Email_Connector, on 6.4.4 by then)
     if [ -s "$APP/.stepupdate/kept.txt" ]; then cp "$APP/.stepupdate/kept.txt" "$WORK/kept.txt"; else rm -f "$WORK/kept.txt"; fi
+    kept_vendor_check update
+    kept_style_check update
     local rc=0
     xo "$WORK/jarclash.out" python3 "$B/repair/jarclash.py" "$APP" --md "$WORK/jarclash.md" || rc=$?
     [ "$rc" = 0 ] || note "jarclash after the updates exit $rc: classes in two jars, see $WORK/jarclash.md (clashes listed in jarclash-before.md are older than the upgrade)"
@@ -1482,7 +1906,7 @@ step_update() {
     xo "$WORK/widgetskew.out" python3 "$B/widgetskew.py" "$APP" --plan "$WORK/plan.txt" || rc=$?
     if [ "$rc" = 1 ] && [ ! -f "$WORK/widgetskew-ack.txt" ]; then
       nj_meta info; nj_file 13 "A module update replaced a widget whose styles stay with a kept module (steps/repair.md row 32)" "$WORK/widgetskew.out" 10 '^WIDGET-SKEW'
-      nj_meta person "A module update replaced a widget whose styles stay with a kept module. What should we do?" "" "update|Update the kept module|One-line stepupdate plan." "restore|Put the old widget back|The old widget package returns." "accept|Accept the skew|Create widgetskew-ack.txt."; nj_add 13 "Decision" "Update the kept module (stepupdate with a one-line plan), or put the old widget back; to accept the skew, create $WORK/widgetskew-ack.txt."
+      widgetskew_stop
       nj_park
     fi
     # a module update brought pages saved with a newer widget than the installed package: update-widgets (row 5) would
@@ -1542,14 +1966,34 @@ mxcheck() { # writes $WORK/check-N.log, sets CHECK_LOG
   fi
 }
 has_code() { grep -q "\[$1\]" "$CHECK_LOG" 2> /dev/null; }
+# GF-42: MPR v2 (Git, mprcontents/*.mxunit) must stay v2. bin/mprstorage.sh compares the work tree with HEAD; a collapse is undone
+mpr_v2() { [ -n "$(find "$APP/mprcontents" -name '*.mxunit' -print -quit 2> /dev/null)" ]; }
+storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes the work tree and returns 1
+  local msg
+  msg=$(bash "$B/mprstorage.sh" guard "$APP" 2> /dev/null) && return 0
+  [ -n "$msg" ] || return 0
+  note "$1: $msg"; say "        REFUSED $1: $msg"
+  git_app checkout -q -- . ; git_app clean -fdq; return 1
+}
+mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
+update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
+  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR"
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+}
+try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
+  if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP
+  else try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+}
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
   local subj=$1 rule=$2 codes=$3 prev rc=0; shift 3
   prev=$CHECK_LOG
   x "$@" || { note "fixer '$subj' failed (exit $?): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  # GF-42: a repair tool that rewrote MPR v2 as v1 lowers the error count too; the format is checked before the errors are
+  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then CHECK_LOG=$prev; return 0; fi
   mxcheck
   [ "$DRY" = 1 ] && return 0
   python3 "$B/checkdiff.py" "$prev" "$CHECK_LOG" --fixed "$codes" >> "$LOG" 2>&1 || rc=$?
-  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule"; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
+  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { CHECK_LOG=$prev; return 0; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
   else note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
 }
 # row 37 (cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents): every
@@ -1566,7 +2010,7 @@ widgetroute_pass() { # widgetroute_pass replace|wrap|remove
     --done "$WORK/widgetroute-done.new" --mdl "$WORK/widgetroute.mdl" || rc=$?
   [ "$rc" -le 1 ] || return "$rc"
   if [ "$1" = remove ]; then [ ! -s "$WORK/widgetroute.mdl" ] || mxcli_run exec "$WORK/widgetroute.mdl" -p "$MPR"
-  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  else update_widgets; fi
 }
 widgetroute_undo() { # the person picked B on the one-OK list: revert what the test build did for it, once
   local ok="$WORK/widget-routes-approved.txt" done="$WORK/widgetroute-done.txt" h subj pat
@@ -1578,7 +2022,7 @@ widgetroute_undo() { # the person picked B on the one-OK list: revert what the t
     for h in $(git_app log --format='%H %s' | awk -v s="repair: $subj" 'index($0, " " s) && / \(widgetroute\)$/ {print $1}'); do
       git_app revert --no-commit "$h" > /dev/null 2>&1 || { note "widgetroute: could not revert $h, see git -C $APP status"; git_app revert --abort > /dev/null 2>&1; return 0; }
     done
-    commit_app "repair: undone on the person's B ($subj, widgetroute)" repair repair-widgetroute
+    commit_app "repair: undone on the person's B ($subj, widgetroute)" repair repair-widgetroute || { note "widgetroute: the undo of $subj was refused (storage format)"; return 0; }
     if [ "$subj" = "deprecated widgets" ]; then sed -i.bak -E '/^(REPLACED|APPROXIMATED) /d' "$done"; else sed -i.bak '/^REMOVED-MODULE /d' "$done"; fi
     rm -f "$done.bak"; note "widgetroute: B picked, '$subj' undone"
   done
@@ -1635,7 +2079,7 @@ step_build() {
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/java-port-done.txt" ]; then
     local pjl; pjl=$(cat "$WORK"/stepupdate-*.out 2> /dev/null | grep -E '^ *PORT-JAVA ' | sed 's/^ *//' | sort -u || true)
     if [ -n "$pjl" ]; then
-      nj_add 13 "Local Java edits to port by hand before the build" "The update replaced these files; the old edited copy is under the path shown. Port each edit onto the new file, commit it in the app, then write $WORK/java-port-done.txt (one line per file: what was ported) and rerun.
+      nj_meta agent; nj_add 13 "Local Java edits to port by hand before the build" "The update replaced these files; the old edited copy is under the path shown. Port each edit onto the new file, commit it in the app, then write $WORK/java-port-done.txt (one line per file: what was ported) and rerun.
 
 $pjl"
       nj_flush
@@ -1670,7 +2114,7 @@ $pjl"
   # stay (WM1: pdfbox 2.0.24 next to vendorlib 3.0.7, javac failed in CommunityCommons Misc.java:643)
   rc=0; x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git || rc=$?
   x python3 "$B/repair/jardedupe.py" "$APP" --updated-from-git --apply || true
-  commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3
+  commit_app "repair: sync java dependencies, jardedupe" repair repair-row-2-3 || note "jardedupe commit refused and undone (storage format)"
   # module roles an update ADDED, mapped by name (WM1: Atlas_Core 4's language selector needs Atlas_Core.User; unmapped,
   # every page on an Atlas layout failed "for security reasons" while mx check stayed clean). Guest role: never granted.
   if [ -f "$WORK/original.mpr" ]; then
@@ -1679,7 +2123,7 @@ $pjl"
     if [ "$DRY" != 1 ] && [ -s "$WORK/modroles.mdl" ]; then
       rc=0; xo "$WORK/modroles-exec.out" mxcli_run exec "$WORK/modroles.mdl" -p "$MPR" || rc=$?
       [ "$rc" = 0 ] || note "modroles: exec failed (exit $rc), see $WORK/modroles-exec.out"
-      commit_app "repair: map module roles the updates added" repair repair-modroles
+      commit_app "repair: map module roles the updates added" repair repair-modroles || note "modroles commit refused and undone (storage format)"
     fi
     [ "$DRY" = 1 ] || note "$(tail -1 "$WORK/modroles.txt") (see $WORK/modroles.txt)"
   fi
@@ -1707,16 +2151,16 @@ $pjl"
   fi
   [ "$DRY" != 1 ] || widget_routes
   # row 5, row 6
-  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  if [ "$DRY" = 1 ] || has_code CE0463; then try_fix "update-widgets" repair-row-5 CE0463 update_widgets; fi
   if [ "$DRY" = 1 ] || has_code CE6087; then
-    try_fix "design properties" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP
+    try_dprops "design properties"
   fi
   # row 36: an app theme rule written for the Data Widgets 2 markup (display: block !important on .widget-datagrid .table)
   # overrides the Data Widgets 3 grid: every cell its own row, while mx check, build and smoke pass (cold 9.24 -> 10.24).
   # Theme only, so no mx check round: its own commit, the SAY line to the person, and a screen cause for the screens rung
   rc=0; xo "$WORK/gridlayout.out" python3 "$B/repair/gridlayout.py" "$APP" --causes "$WORK/screen-causes.txt" || rc=$?
   if [ "$DRY" != 1 ] && grep -q '^FIXED' "$WORK/gridlayout.out" 2> /dev/null; then
-    commit_app "repair: data grid 2 layout (old theme rule commented out)" repair repair-row-36
+    commit_app "repair: data grid 2 layout (old theme rule commented out)" repair repair-row-36 || note "grid layout commit refused and undone (storage format)"
     say "        repair: $(sed -n 's/^SAY //p' "$WORK/gridlayout.out")"
   elif [ "$rc" != 0 ]; then note "gridlayout exit $rc (see $WORK/gridlayout.out): not repaired"; fi
   # all fixed rows done: where do we stand
@@ -1727,8 +2171,8 @@ $pjl"
     local brnd=0 bprev
     while [ "$brnd" -lt "${UPG_BUILD_ROUNDS:-2}" ] && [ "$n" != 0 ]; do
       brnd=$((brnd + 1)); bprev=$n
-      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
-      if has_code CE6087; then try_fix "design properties (round $((brnd + 1)))" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxw "$TARGET")" "$TARGET" mx rename-design-properties APP; fi
+      if has_code CE0463; then try_fix "update-widgets (round $((brnd + 1)))" repair-row-5 CE0463 update_widgets; fi
+      if has_code CE6087; then try_dprops "design properties (round $((brnd + 1)))"; fi
       mxcheck; n=$(open_errors "$CHECK_LOG")
       if [ "$n" -ge "$bprev" ]; then note "build loop round $((brnd + 1)): $bprev -> $n errors, no progress: stop"; break; fi
       note "build loop round $((brnd + 1)): $bprev -> $n errors"
@@ -1754,11 +2198,14 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   n=0; [ "$DRY" = 1 ] || n=$(grep -c '^ERROR at' "$WORK/build-$TARGET.log" 2> /dev/null || true)
   # the stubs come from the model, built or not: committed before a stop too. Cold rfq rung 2: a javac stop left 18 stub files
   # uncommitted, and the rerun from update died in stepupdate ("uncommitted changes; commit or stash first", exit 4)
-  commit_app "build: regenerated stubs" config build-stubs
+  commit_app "build: regenerated stubs" config build-stubs || note "stub commit refused and undone (storage format)"
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
     nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
     nj_meta info; nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
+    # issue 33: the image the build ran in (UPG_IMAGE10 left in env.sh once built 10.24 on JDK 11: "release version 21 not supported")
+    grep -m1 '^mx10.sh: mxbuild image ' "$WORK/build-$TARGET.log" > "$WORK/build-image.txt" 2> /dev/null || true
+    [ ! -s "$WORK/build-image.txt" ] || { nj_meta info; nj_add 10 "Build image" "$(sed 's/^mx10.sh: mxbuild image /The build ran in the image /' "$WORK/build-image.txt") (UPG_IMAGE10 overrides the default; a JDK 11 image for a 10.24 or newer build fails with \"release version 21 not supported\")"; }
     # cold CMM: a userlib fat jar's older Netty hid the class MendixSSO 10.6.2 needs; name the jar, not only the error
     if grep -q 'error: cannot find symbol' "$WORK/build-$TARGET.log" 2> /dev/null; then
       xo "$WORK/javacjar.out" python3 "$B/repair/javacjar.py" "$APP" "$WORK/build-$TARGET.log" || true
@@ -1768,6 +2215,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
     fi
     nj_flush
   fi
+  if [ "$DRY" != 1 ] && [ "$rc" = 0 ] && [ "$n" = 0 ] && [ -f "$(mda_new)" ]; then close_proved_rows; fi   # GM-38: a green build only
   # quick start (mandatory before the gate)
   local q
   q=$(fresh_name "${X}_quick"); copy_db "$X_FROZEN" "$q"
@@ -1801,12 +2249,12 @@ step_afterwalk() {
   local roles rc=0 db
   must python3 "$B/impact_map.py" "$WORK/original.mpr" "$MPR" --out "$WORK/impact.json" --md "$WORK/impact.md"
   must python3 "$B/smokewalk_gen.py" "$APP" -o "$WORK/plan-new.json"
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   user_args "$roles"
   db=$(fresh_name "${X}_smoke_new"); copy_db "$X_FROZEN" "$db"
   app_up newwalk "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the smoke walk" "$WORK/logs/runtime-newwalk.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   x node "$B/smokewalk.js" --plan "$WORK/plan-new.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --compare "$WORK/smoke-before.json" --out "$WORK/smoke-after.json" --shots "$WORK/smoke-after-shots" || rc=$?
   app_down newwalk
@@ -1841,7 +2289,7 @@ journeys_resume() { # journeys_resume NAME MDA FULLVER DB OUTFILE RC -- run_jour
 step_journeys() {
   local roles rc=0 db create=() old
   old=$(mda_old)
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   # PR-F36: a rerun writes journeys-*.out and e2e-*/ in place; keep the previous run's evidence first (pipe-30 -> 31)
   [ "$DRY" = 1 ] || must bash "$B/archive_journeys.sh" "$WORK"
@@ -1879,7 +2327,7 @@ step_journeys() {
   db=$(fresh_name "${X}_smoke_jold"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up oldjp "$old" "$SOURCE" "$db" || die4 "old app did not start for before-picked (log: $LOG)"
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   local jb=(python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --port "$APP_PORT" --psql "$(psql_str "$db")"
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"})
@@ -1891,7 +2339,7 @@ step_journeys() {
   db=$(fresh_name "${X}_smoke_jnew"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up newjp "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the journeys" "$WORK/logs/runtime-newjp.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   local sa=() ev=()
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
@@ -1963,13 +2411,13 @@ heal_standin_start() { # the same stand-in for the old and the new app (apimock.
   [ ! -f "$WORK/apimock-classify.txt" ] || cls=(--classify "$WORK/apimock-classify.txt")
   [ ! -d "$WORK/apimock-recorded" ] || cls+=(--recorded "$WORK/apimock-recorded")   # recorded bodies for the stand-in (apimock.py header)
   x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true
-  must python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
+  must env PORT_OFF="$PORT_OFF" python3 "$B/apimock.py" serve "$WORK/original.mpr" "$MPR" --state "$WORK/apimock" --public-host host.docker.internal --background ${cls[@]+"${cls[@]}"}
   : > "$WORK/state/heal-standin"
 }
 heal_standin_stop() { rm -f "$WORK/state/heal-standin"; x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true; }
 heal_gen() { # the journeys again, with --standin: an action whose only todo is an external call gets a journey
   local roles act=() create=() rc=0 SC=()
-  roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ ! -s "$WORK/actions.json" ] || { act=(--actions "$WORK/actions.json"); scope_run; }
   [ ! -f "$WORK/create-spec.json" ] || create=(--create "$WORK/create-spec.json")
   must python3 "$B/gen_journeys.py" "$WORK/impact.json" ${act[@]+"${act[@]}"} --out-dir "$WORK/journeys" --roles-with-users "$roles" --users "$WORK/users.json" --data-rung ${create[@]+"${create[@]}"} --standin ${SC[@]+"${SC[@]}"}
@@ -1980,21 +2428,21 @@ heal_gen() { # the journeys again, with --standin: an action whose only todo is 
 }
 heal_run_journeys() { # heal_run_journeys IDS_CSV BASE_DB: those journeys on the old app, then the new app (--compare), then merge
   local ids=$1 base=$2 roles db rc=0 act=() sa=() ev=()
-  roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ ! -s "$WORK/actions.json" ] || act=(--actions "$WORK/actions.json")
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
   [ ! -f "$WORK/baseline-evidence.txt" ] || ev=(--baseline-evidence "$WORK/baseline-evidence.txt")
   rm -rf "$WORK/e2e-heal-old" "$WORK/e2e-heal-new"
   db=$(fresh_name "${X}_smoke_jheal_old"); copy_db "$base" "$db"; fixture_db "$db"
   app_up healold "$(mda_old)" "$SOURCE" "$db" || die4 "old app did not start for the heal rerun (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   rc=0; xo "$WORK/heal-journeys-old.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --only "$ids" --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-heal-old" --pause 50 ${act[@]+"${act[@]}"} || rc=$?
   app_down healold; mark_used "$db" heal; heal_drop "$db"
   db=$(fresh_name "${X}_smoke_jheal_new"); copy_db "$base" "$db"; fixture_db "$db"
   app_up healnew "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the heal rerun" "$WORK/logs/runtime-healnew.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   rc=0; xo "$WORK/heal-journeys-new.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label after --only "$ids" --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-heal-new" --pause 50 ${act[@]+"${act[@]}"} \
@@ -2120,7 +2568,7 @@ apidirect_side() { # apidirect_side SIDE VER MDA: build the throwaway copy, run 
   [ "$rc" = 0 ] || { note "apidirect: the $side test build failed (exit $rc, $AD/build-$side.log)"; return 1; }
   db=$(fresh_name "${X}_smoke_apid_$side"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up "apid$side" "$mda" "$ver" "$db" || { note "apidirect: the $side test app did not start"; heal_drop "$db"; return 1; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$role" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$role" --sole-target --apply
   fixture_users_db "$db"
   base=$(cat "$WORK/apimock/ready" 2> /dev/null | sed 's#//[^:/]*:#//localhost:#')
   rc=0; xo "$AD/drive-$side.out" python3 "$B/apidirect.py" drive "$AD/calls-$side.json" --side "$side" --app-url "http://localhost:$APP_PORT" \
@@ -2194,6 +2642,9 @@ step_diff() {
   # the apis rung: the stand-in's own check of what was requested (apimock.py check)
   if [ -f "$WORK/apimock/inventory.json" ]; then kv+=("APIMOCK=$WORK/apimock"); only="$only,apis"; fi
   [ ! -f "$WORK/apidirect/direct.json" ] || kv+=("APIDIRECT=$WORK/apidirect")
+  # the release rung (steps/gate.md 10): triage wrote release-impact.md; without the key the rung reads "not selected" and the
+  # grade stays INVALID although every row is closed (ORG, TLT). Selected here only to be judged; an open row still stops at step gate
+  if [ -f "$WORK/release-impact.md" ]; then kv+=("RELEASE_IMPACT=$WORK/release-impact.md"); only="$only,release"; fi
   kv+=("BEFORE_JSON=$WORK/before.json" "AFTER_JSON=$WORK/after.json" "OLD_LOG=$WORK/logs/runtime-oldbase.log" "NEW_LOG=$WORK/logs/runtime-newafter.log" "SMOKE_BEFORE_SHOTS=$WORK/smoke-before-shots" "SMOKE_LOGIN_PATH=$(login_path)")
   # PRC-8: the journeys stage ran just before; judge its stored results again (gate.sh JOURNEYS_REJUDGE: no app, nothing
   # written) so the gate's Progress line counts the rung instead of "journeys: not measured yet" (Purchase Request run 4)
@@ -2205,6 +2656,13 @@ step_diff() {
     [ ! -f "$WORK/effect-accept.txt" ] || kv+=("JOURNEY_EFFECT_ACCEPT=$WORK/effect-accept.txt")   # the journeys rung's effect REVIEWs had no written-accept path
     only="$only,journeys"
   fi
+  # GF-52: a rerun of the diff step alone (--only diff) selects the rungs the gate itself lists, not just the ones whose stored
+  # inputs happen to be here: release and journeys read "not selected (--only ...)" otherwise, which says nothing about what is missing.
+  # Selected, an unconfigured rung says "not configured (no RELEASE_IMPACT given)"; that row is named in the notes, not a stop (unsel).
+  local unsel=""
+  if [ -n "${ONLY:-}" ]; then
+    local ur; for ur in release journeys; do case ",$only," in *",$ur,"*) ;; *) only="$only,$ur"; unsel="$unsel $ur";; esac; done
+  fi
   # PRC-4: the change ledger (gate.sh `Changes:` line) reads the app's git repo; the app is not always under $WORK/app
   # (Purchase Request run 4: the line never printed). Only a repo is named, like gate.sh's own $WORK/app default.
   [ ! -e "${APP:-/nonexistent}/.git" ] || kv+=("APP_REPO=$APP")
@@ -2214,7 +2672,9 @@ step_diff() {
   xo "$WORK/gate.out" bash "$B/gate.sh" "${ga[@]}" || rc=$?
   [ "$DRY" != 1 ] || return 0
   # --only leaves smoke/journeys/release NOT RUN, which gate.sh counts as exit 2: judge the selected rungs' own rows
-  bad=$(grep -E "^\| [0-9]+ \| (${only//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
+  local ob=${only//,release/}   # release is judged and stopped at step gate (release_impact.py --check), not here
+  local ur; for ur in $unsel; do ob=${ob//,$ur/}; done   # GF-52: a rung selected only to be named is not a stop here
+  bad=$(grep -E "^\| [0-9]+ \| (${ob//,/|}) \| (FAIL|INVALID|NOT RUN) " "$WORK/gate-summary.md" 2> /dev/null || true)
   if [ "$rc" = 1 ] || [ -n "$bad" ] || { [ "$rc" != 0 ] && [ "$rc" != 2 ]; } || [ ! -f "$WORK/gate-summary.md" ]; then
     gate_open_nj_meta $(sed -n 's/.* \([0-9][0-9]*\) with REGRESSIONS to fix, \([0-9][0-9]*\) need a decision, \([0-9][0-9]*\) not measured yet.*/\1 \2 \3/p' "$WORK/gate-summary.md" 2> /dev/null | head -1); nj_file 12 "$GATE_OPEN_TITLE" "$WORK/gate-summary.md" 40 'FAIL|REVIEW|INVALID|NOT RUN'
   fi
@@ -2352,6 +2812,10 @@ run_step() { # run_step NAME
   if [ "$DRY" != 1 ] && [ -f "$WORK/state/$STEP.done" ] && [ "$ONLY" != "$STEP" ]; then
     printf '%-10s %s\n' "$STEP" "skipped (done $(cat "$WORK/state/$STEP.done"))"; return 0
   fi
+  # GM-10: the app's git tree is checked at the start of every step after fetch (a worktree whose main clone was deleted mid-run)
+  if [ "$STEP" != fetch ] && [ "$DRY" != 1 ] && [ -d "${APP:-}" ] && ! bash "$B/apptree.sh" "$APP"; then
+    echo "upgrade-pipeline.sh: STOP before step '$STEP': the app's git tree is not usable (exit 3). Fix it, then rerun (finished steps are skipped)." >&2; exit 3
+  fi
   mxcli_pin "$STEP"
   [ "$DRY" = 1 ] || { : > "$NJ_TMP"; rm -f "$WORK/parked/$STEP.md"; }   # a step that runs again parks afresh
   NJ_CODE=0
@@ -2413,7 +2877,24 @@ from_guard() {
   [ "${#opt[@]}" = 0 ] || echo "from      --from $FROM skips ${opt[*]} (not done, optional)"
 }
 
+# ORG (issue 35): `--from update` on the LADDER command (the one with --to or --target2) restarts rung 1, but once rung 2 has converted the
+# app folder to the final version rung 1's mx 10.24 check refuses it ("version 11.x of the mpr file is not supported", exit 10) after
+# minutes of work. The rung-2 stop's own rerun line (rung2/NEEDS-JUDGMENT.md) carries --work <work>/rung2; refuse here and name it.
+ladder_from_guard() {
+  [ -n "$FROM" ] && [ -z "$ONLY" ] && [ -n "$TARGET2" ] && [ "$(basename "$WORK")" != rung2 ] || return 0
+  [ -f "$WORK/rung2/state/convert.done" ] && [ -n "$APP_DIR_ARG" ] || return 0
+  local mpr ver
+  mpr=$(ls "$APP_DIR_ARG"/*.mpr 2> /dev/null | head -1); [ -n "$mpr" ] || return 0
+  ver=$(python3 -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("select _ProductVersion from _MetaData").fetchone()[0])' "$mpr" 2> /dev/null) || return 0
+  case "$ver" in "$TARGET2"|"$TARGET2".*) ;; *) return 0 ;; esac
+  echo "upgrade-pipeline.sh: --from $FROM refused on the ladder command: rung 2 has already converted $APP_DIR_ARG to $ver, and rung 1 ($SOURCE -> $TARGET) cannot run on it. Nothing was changed." >&2
+  echo "  To resume rung 2: use the rerun line in $WORK/rung2/NEEDS-JUDGMENT.md (it carries --work $WORK/rung2 and the rung-2 --from)." >&2
+  echo "  To redo rung 1: tag a backup (git -C $APP_DIR_ARG tag backup/<name>), git reset --hard to the convert commit, then rerun." >&2
+  exit 2
+}
+
 main() {
+  ladder_from_guard
   from_guard
   preflight
   resolve_app
