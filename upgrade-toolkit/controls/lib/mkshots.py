@@ -21,6 +21,8 @@ OUT/rank-old, rank-new, rank-tone-old, rank-tone-new: a tone-only change beside 
 OUT/tex-old, tex-f30, tex-f25, tex-f50: a light low-contrast texture (spread ~10) under a backdrop of factor 0.3 / 0.25 / 0.5
 OUT/tex-gone: the same texture replaced by a flat page of the same mean (content really gone)
 OUT/onechart-old, onechart-new: the page with one of its three charts removed (~6.7% of the page)
+OUT/band4-old/-new, band28-old/-new: the reflow block moved right, 4.8 % / 28.6 % fewer cells gained than lost (GF-54 r3 band pins)
+OUT/banner-old/-new: one of three charts removed (lost ~6.7 %) and an unrelated striped banner added below (gained 6.4 %, 4 % under the lost share globally, none on the lost rows)
 OUT/jr-old, jr-new: ONE journey, step1 tone-only, step2 content vanished (GF-54, run_journeys picks the worse screen)
 """
 import os, struct, sys, zlib
@@ -155,6 +157,21 @@ def reflow_pairs(out, sd):
     block(d, 20, 440, 230, 270, 5)          # ... and gains a wider block below
     png(f"{out}/listtable-old/{sd}/listtable-Administrator-step1.png", c)
     png(f"{out}/listtable-new/{sd}/listtable-Administrator-step1.png", d)
+    # GF-54 r3 band pins: the same block moved right; band4 gains 4.8 % fewer cells than it lost, band28 28.6 % fewer
+    for tag, x1, y1 in (("band4", 440, 290), ("band28", 400, 300)):
+        e = page(charts=False)
+        block(e, 300, x1, 90, y1, 6)
+        png(f"{out}/{tag}-old/{sd}/{tag}-Administrator-step1.png", a)
+        png(f"{out}/{tag}-new/{sd}/{tag}-Administrator-step1.png", e)
+    # one of three charts gone, and an unrelated striped banner (20 px full width plus a short second line) added below the chart row
+    one, two = page(), page()
+    for y in range(90, 301):
+        for x in range(20, 161):
+            two[y][x] = 245
+    block(two, 0, W, 320, 340, 4)
+    block(two, 0, 150, 340, 350, 4)             # a banner with a short second line
+    png(f"{out}/banner-old/{sd}/banner-Administrator-step1.png", one)
+    png(f"{out}/banner-new/{sd}/banner-Administrator-step1.png", two)
 
 
 def main():

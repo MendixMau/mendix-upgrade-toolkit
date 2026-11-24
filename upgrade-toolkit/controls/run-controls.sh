@@ -3712,6 +3712,12 @@ ctl shotdiff-one-chart-removed-catch 1 '^REVIEW +shots-Administrator/dashboard.*
 ctl shotdiff-reflow-moved-not-lost-pass 1 '^REVIEW +shots-Administrator/reflow.*CONTENT MOVED\?' '!CONTENT LOST' '!content lost\)' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new
 ctl shotdiff-reflow-json-moved-pass 1 '"severity": "moved"' '!content-lost' -- bash -c "python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new --json $T/reflow.json >/dev/null; r=\$?; cat $T/reflow.json; exit \$r"
 ctl shotdiff-list-for-table-still-lost-catch 1 '^REVIEW +shots-Administrator/listtable.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/listtable-old $SH/listtable-new
+# GF-54 r3: the moved rule counts only gained cells on the rows of the lost content (+-1 row): the same chart removal with an
+# unrelated banner added below stays CONTENT LOST (the global shares, 6.7 % lost / 5.2 % gained, used to read MOVED)
+ctl shotdiff-removed-plus-unrelated-banner-catch 1 '^REVIEW +shots-Administrator/banner.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/banner-old $SH/banner-new
+# the band itself: 4.8 % apart is a reflow (MOVED_BAND=0.0 turns this red), 28.6 % apart is a loss (MOVED_BAND=0.30 turns this red)
+ctl shotdiff-moved-band-4pct-moved-pass 1 '^REVIEW +shots-Administrator/band4.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/band4-old $SH/band4-new
+ctl shotdiff-moved-band-28pct-lost-catch 1 '^REVIEW +shots-Administrator/band28.*CONTENT LOST' '!CONTENT MOVED' -- python3 $B/shotdiff.py $SH/band28-old $SH/band28-new
 ctl shotdiff-counts-line-content-lost-catch 1 '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/rank-old $SH/rank-new
 ctl shotdiff-counts-line-tone-only-pass 1 '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
 ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old $SH/same

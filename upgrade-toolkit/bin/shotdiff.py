@@ -71,12 +71,18 @@ structure (spread above twice the flat level) and is flat now, unless the whole 
 brightness change multiplies the grey values, so the spread shrinks by the same factor as the mean (a light texture of
 spread 10 under a backdrop of factor 0.3 has spread 3). A cell whose new spread is within half of (old spread x
 new mean / old mean) is a tone change, not lost; real content disappearing leaves the spread near 0 whatever the mean
-did. A reflow is not a loss: when the share of cells that went from flat to structured is within MOVED_BAND (15%, ASSUMED) of the
-lost share, the same amount of content appeared elsewhere, so the detail starts "CONTENT MOVED? (...)" and the row
-carries "severity": "moved"; it stays a REVIEW (exit 1) but is not counted in "(N content lost)" or ranked first. Field:
-6 layout-only pairs measured gained 22-25% against lost 22-24% (moved); a table rendered as a list measured 7.6% gained
-against 5.4% lost (29% apart, still CONTENT LOST). A darker replacement with a faint leftover spread (2-4) can escape
-scaled() and read as moved or tone, never as lost: a miss, not a false alarm.
+did. "CONTENT MOVED?" is a question, not a finding: when the cells that went from flat to structured ON THE ROWS OF THE LOST
+CONTENT (the lost rows, one grid row either side) are within MOVED_BAND (15%, ASSUMED) of the lost share, about as much
+content appeared where the lost content was, so the detail starts "CONTENT MOVED? (...)" and the row carries
+"severity": "moved"; it stays a REVIEW (exit 1) but is not counted in "(N content lost)" or ranked first. It does not
+prove a reflow: the same shares also read this way when a widget was swapped for a different one in the same place,
+and it never says that nothing is missing. Open both images. Field: 6 layout-only pairs measured gained 22-25% against
+lost 22-24% (moved); a table rendered as a list measured 7.6% gained against 5.4% lost (29% apart, still CONTENT LOST).
+Gained content on other rows (a banner, a feedback button, a language selector added elsewhere) does not offset a loss:
+a removed chart plus an unrelated banner below stays CONTENT LOST. Known misses, both quiet: a block that moved to
+other rows (down the page) is not matched and reads CONTENT LOST, a false alarm; and a widget replaced in place by
+something of the same size reads CONTENT MOVED?, so a real loss can hide behind that question mark. A darker replacement
+with a faint leftover spread (2-4) can escape scaled() and read as moved or tone, never as lost.
 Honest limits: LOST_SEVERE is a field-calibrated guess, not a derived number (one field page that lost a card
 grid, a badge and a chart measured 17%; removing one of three charts on the control page measures about 6.7%, which
 is why it is 5% and not the earlier 8%); a page that only moved a widget also loses cells at its old place. Which
@@ -95,6 +101,7 @@ PIN = re.compile(r"^(?P<pat>.*?)(?:\s+@mask:(?P<mask>\S+))?(?:\s+@sha256:(?P<sha
 MASK_MAX = 0.25        # B4T2-17: a masked pin may leave at most this share of the image unpinned
 GRID_W = 48            # cells across; rows follow the aspect ratio
 TOL_MEAN, TOL_SPREAD, FLAT = 14.0, 10.0, 4.0
+MOVED_ROWS = 1         # GF-54 r3: grid rows around the lost rows in which gained cells count toward a reflow (cells are ~10 px)
 MOVED_BAND = 0.15      # GF-54 r2: gained and lost shares within this fraction of the larger = a reflow (content moved, not gone); ASSUMED (field: 4 % apart = reflow, 29 % apart = real loss)
 LOST_SEVERE = 0.05     # GF-54: lost share at which a REVIEW is ranked above a tone change (floor --lost 0.03; field case 0.17, one chart of three ~0.067; a guess)
 
@@ -286,7 +293,7 @@ def compare(old, new):
     nw, nh, ng = cells(new)
     rows = min(len(og), len(ng))
     changed = lost = gained = total = 0
-    lr, lc = [], []
+    lr, lc, gr = [], [], []
     for r in range(rows):
         for c in range(GRID_W):
             (om, osd), (nm, nsd) = og[r][c], ng[r][c]
@@ -298,11 +305,16 @@ def compare(old, new):
                 lr.append(r); lc.append(c)
             elif osd <= FLAT and nsd > FLAT * 2:   # GF-54: flat before, structured now (the mirror of lost)
                 gained += 1
+                gr.append(r)
     extra = abs(len(og) - len(ng)) * GRID_W   # rows on one side only count as changed
     total += extra; changed += extra
+    # GF-54 r3: a reflow puts the content back on the same rows (or the lost box spans the page); gained cells on rows
+    # well away from the lost rows (a banner or button added elsewhere) are not the lost content coming back
+    near = sum(1 for r in gr if lr and min(lr) - MOVED_ROWS <= r <= max(lr) + MOVED_ROWS)
     return {"old_size": [ow, oh], "new_size": [nw, nh], "changed": round(changed / total, 4) if total else 1.0,
             "lost": round(lost / total, 4) if total else 0.0,
             "gained": round(gained / total, 4) if total else 0.0,
+            "gained_near": round(near / total, 4) if total else 0.0,
             "lost_box": [round(100 * min(lc) / GRID_W), round(100 * (max(lc) + 1) / GRID_W),
                          round(100 * min(lr) / rows), round(100 * (max(lr) + 1) / rows)] if lr else None}
 
@@ -508,11 +520,11 @@ def run(ro, rn, threshold=0.06, lost=0.03, accept=()):
         else:
             severe = m["lost"] >= LOST_SEVERE and m["lost"] > lost and m.get("lost_box")
             detail = "; ".join(why)
-            moved = bool(severe) and abs(m["gained"] - m["lost"]) <= MOVED_BAND * max(m["gained"], m["lost"])
+            moved = bool(severe) and abs(m["gained_near"] - m["lost"]) <= MOVED_BAND * max(m["gained_near"], m["lost"])
             if severe:
                 bx = m["lost_box"]
-                detail = (f"CONTENT MOVED? (x {bx[0]}-{bx[1]}%, y {bx[2]}-{bx[3]}% of the page; {m['gained']:.0%} gained as "
-                          f"{m['lost']:.0%} was lost, a reflow: open both images to check nothing is missing): " if moved else
+                detail = (f"CONTENT MOVED? (x {bx[0]}-{bx[1]}%, y {bx[2]}-{bx[3]}% of the page; {m['gained_near']:.0%} gained as "
+                          f"{m['lost']:.0%} was lost on the same rows; not proof of a reflow, open both images and check nothing is missing): " if moved else
                           f"CONTENT LOST (x {bx[0]}-{bx[1]}%, y {bx[2]}-{bx[3]}% of the page): ") + detail
             judge("REVIEW", detail, True)
             if severe and row["verdict"] == "REVIEW":
