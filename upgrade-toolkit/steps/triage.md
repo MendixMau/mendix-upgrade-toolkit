@@ -2,23 +2,30 @@
 
 Goal: know the version path, the module plan and the traps before anything changes.
 
-Paths: `B=~/Mendix/mxcli-project-toolkit/upgrade-toolkit/bin`,
+Paths: `B=$TK/bin` (`TK` = the folder that holds SKILL.md, see there),
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
 with version tables; the scripts find it the same way).
+Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <path> (from ...)` or
+`brain: none found (looked: ...)`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).
    Write them into `$W/versions.txt`. mxcli and the container wrappers refuse a near match.
    Then `python3 $B/appshape.py app/` (BT-2): exit 1 means a module-only template (no navigation home page, no theme): there is no
    old app to freeze, the pipeline stops here with exit 13 and "needs a host app" (`UPG_ALLOW_MODULE_ONLY=1` goes on anyway).
-2. Target = latest released LTS, newest patch (SKILL rule LTS-1; 11.12 as of 2026-10, read the LTS/MTS page to confirm). Grep the chosen patch's release notes for "do not upgrade to this version" and take the patch it names instead (NR2-1: 11.12.5 told you to use 11.12.6). Then mark the run start so convertmade.sh does not take the 2014 Team Server root as the start (NR2-13): `git -C app commit --allow-empty -m "original: run start"` before any step.
+2. Target = latest released LTS, newest patch (SKILL rule LTS-1; 11.12 as of 2026-11, read the LTS/MTS page to confirm). Grep the chosen patch's release notes for "do not upgrade to this version" and take the patch it names instead (NR2-1: the 11.12.5 notes named a later patch to take instead). Then mark the run start so convertmade.sh does not take the 2014 Team Server root as the start (NR2-13): `git -C app commit --allow-empty -m "original: run start"` before any step.
    A source already on a newer non-LTS 11.x is parked. Read that patch's breaking changes and known issues into `$W/versions.txt`. Version path (SKILL rules) and the playbook: 9.x to 10.x [9-to-10](../playbooks/9-to-10.md), 10.24 to 11
    [10-to-11](../playbooks/10-to-11.md), 11.x to a newer 11.y [11-to-11](../playbooks/11-to-11.md). Edited Marketplace modules: [edited-modules](../playbooks/edited-modules.md).
 3. Modules: `mxcli -p app.mpr -c "REFRESH CATALOG FULL"`, then the module list with content id and installed version
    (localedits.py prints both). Then `python3 $B/renamed_modules.py $W/localedits.json` (BT-6; the pipeline writes `$W/renamed.md`): a module the Marketplace renamed or republished (DataGrid to DataWidgets, ApprontoLicenser to Emixa Licenser; data in `playbooks/module-renames.tsv`, matched by content id) is NOT a version update: leave it out of plan.txt; the proposal makes it a decision item. For each module: target version per rung from `$BR/baseline/versions/modules-index.md`
    and `modules/<module>.md`; the index has no per-target selection, so take the newest version whose min Mendix is
-   not above the target from `mxcli marketplace versions <content id>` (E6-5). "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
+   not above the target from `mxcli marketplace versions <content id>` (E6-5). `python3 $B/modplan.py $W/localedits.json --target <target>
+   --app app/ --out $W/plan.txt --jumps $W/module-jumps.txt` does exactly that (GA-4): PICK / CURRENT / STRANDED / SKIP (renamed) /
+   NOT PICKED per module (never green by absence: exit 3), nothing written while one is NOT PICKED unless `--allow-unresolved`; each module's version table is cached in `$W/modvers/versions-<cid>.txt` (output says `(cached)`; delete the file to refetch), the target of a cross-module association before its owner (planorder.py's rule), a module that provides a widget another planned module's pages use before that module (read from the cached packages, `--cache`; the `widget order:` line says how many were read; without `--no-fetch` modplan downloads the planned packages it does not find in the cache, and a widget pair can override `--last`),
+   `--last A,B` to force the end, `--skip A,B` to leave modules out. For a 10.x source run it twice with the SOURCE-rung target
+   for `plan-pre.txt` and the final target for `plan.txt`; a module whose two picks are the same version goes in `plan-pre.txt` only. The pipeline does
+   not run it (the plan is a decision, exit 13 until the agent has written it); the rest of this item still applies to its output. "Min Mendix" in that table does not mean importable: packages made before 9.18 fail
    `mx module-import` on 10.x ("open it in 9.18 to 9.24 first", exit 117); see the 9-to-10 playbook. Five packages in
    E5b and one in E4 were pre-9.18 (NanoflowCommons 2.1.0 was made with 9.6.0). stepupdate.sh recognises the refusal:
    for the installed version it retries with `--no-baseline`, for a pre-9.18 TARGET it skips the line and keeps the
@@ -36,7 +43,26 @@ with version tables; the scripts find it the same way).
    before Studio Pro 10.21 ("range from 10.21.0 to 10.24.99", exit 117), and that includes the INSTALLED baseline
    package stepupdate re-imports first (Purchase Request: the refusals named 9.24 to 10.17, the installed versions,
    not the targets). Split each module: its newest version that installs on 10.24 goes to `$W/plan-pre.txt`; the
-   version that needs 11 stays in `$W/plan.txt`, and post-convert it then has a 10.21+ baseline. The pipeline stops before the convert when a 10.x to 11 run has no plan-pre.txt (F13).
+   version that needs 11 stays in `$W/plan.txt`, and post-convert it then has a 10.21+ baseline. The pipeline stops before the convert when a 10.x to 11 run has no plan-pre.txt (F13). On a ladder each plan runs on ONE rung (a source below 10.24: plan-pre.txt at the source version, plan.txt at 10.24 after the convert; the 11 picks are the next rung's plan): `rungfit.py` stops the update step when a line needs a newer Mendix than the project has (WK-6).
+   BUILD VERSION CHECK (GM-17): "min Mendix" is not the build version (BizzomateDevTools 2.0.2 / 3.0.0 were planned and
+   refused only mid-batch). On a target of 11, once plan.txt exists: `python3 $B/planbuild.py $W/plan.txt --target <target>`
+   reads the Studio Pro version that built each line's package (cached `<id>-<version>.mpk`, downloaded when missing)
+   and prints KEEP / DROPPED (built before 10.21: it cannot be imported on 11; move it to plan-pre.txt or leave the
+   module out; `--write` comments the line out) / NOT CHECKED (package unavailable: say so in the proposal, never
+   treat it as a pass). stepupdate's run-time SKIP stays as the backstop.
+   ABSENT MODULES (GM-12): a new version can call a module the app does not have (NotificationProducer 4.1.0 calls
+   MxTokenModule: 31 CE1613 at the build, after the update had run). With plan.txt: `python3 $B/absentmods.py app/
+   --plan-file $W/plan.txt --json $W/absentmods.json` reads each planned package's project.mpr from the cache
+   (`<content id>-<version>.mpk`, the planbuild.py / crosscalls.py cache; never downloaded here) and prints `NEEDS <Module>:
+   called by <P> ...` for each module its documents refer to that is not in the app, not in the plan, not System, not an
+   add-on. Exit 0 = none, 1 = NEEDS (a section-3 item "needs module X": install it and put it on the plan, or hold the
+   caller), 3 = a package not cached (NOT CHECKED, listed as not measured in the proposal, never clean), 2 = input error.
+   On a 10.x to 11 run give `--plan-file` twice (`$W/plan-pre.txt` and `$W/plan.txt`): modules of both are planned and the
+   updates of both are checked; the pipeline passes plan-pre.txt when it exists. Only reference fields (REF_KEYS: not XPath,
+   expression text or widget properties) are scanned, and module names match exactly, so a renamed module or a case
+   difference can give a false NEEDS.
+   The pipeline runs it at propose and `proposal.py` reads `$W/absentmods.json`. The build-time stop
+   (`repair/missing_module_stop.py`) stays as the backstop.
    ADD-ON modules (`modules/*.mxmodule`, a vendor binary; not in the catalog, so mxcli, localedits, stepupdate and
    the module list do not see them, T2-2): `python3 $B/test_inventory.py app/` lists each with the Studio Pro version
    that built it (`mxversion.py modules/<x>.mxmodule` for one file); `missing_deps.py` says "ADD-ON (.mxmodule, built
@@ -54,6 +80,8 @@ with version tables; the scripts find it the same way).
    (MxModelReflection is the usual one); their update drops associations other modules own. The exception (PV-2): a
    target goes BEFORE a planned module that owns an association into it, because the owner's import restores it;
    `python3 $B/planorder.py app/ $W/plan.txt` lists each pair in the wrong order and `--write` reorders the plan.
+   So LAST holds for a target with no planned owner; with a planned owner the target goes before that owner and the two rules agree (`modplan.py --app` applies only the pair rule; use `--last` for the rest).
+   Own callers of dropped targets (GF-39): the pipeline also runs `crosscalls.py app/ --kept '' --own --plan-file $W/plan.txt` at propose (`$W/owngone.out`); `proposal.py` makes each planned module with GONE rows a section-3 item before the sign-off.
    Callers of the OLD API (T5-15, T5F-4): a module that stays kept (stranded, edited, refused) keeps calling the API it
    was built against. Once the plan and the kept/stranded list exist: `python3 $B/crosscalls.py app/ --kept <A,B> --planned <C,D>`
    (or `--kept-file .stepupdate/kept.txt --plan-file $W/plan.txt`; `--kept ''` when nothing stays). A `CAP <P> at <newest
@@ -61,11 +89,22 @@ with version tables; the scripts find it the same way).
    AWSAuthentication 4.x broke at javac, Administration on MendixSSO at mx check (CE0117). Rerun it whenever the plan changes.
    crosscalls judges kept callers against the plan; the reverse (an updated module that needs what a kept one lacks, T6R-7)
    is checked after the steps by `keptdeps.py` (steps/upgrade.md, step 1).
+   Caps while another module is installed (GM-14): `python3 $B/atlascap.py $W/localedits.json $W/plan.txt --app app/` reads
+   `playbooks/module-caps.tsv`; with PlatformDesignSystem installed it holds Atlas_Core at 3.19.0 (Atlas 3.20+ `@extend .col-<bp>-3`
+   needs the PDS grid: mx check and idcheck pass, only the mxbuild theme compile fails). `CAP` (exit 1) = `--write` the plan, then
+   rerun to exit 0. The row is marked `check` (boundary not verified): say so in the proposal. `--app` also finds an internal PDS module. A CONFLICT line (WorkflowCommons 4.3+ needs Atlas 4) means the owner decides; `--write` then changes nothing. A theme compile after each theme step is still wanted.
    Theme of kept modules (MC-11): a kept module's themesource styling can hit platform widgets the plan updates (a rule on
    `.widget-datagrid`, `.mx-listview` and so on): the markup changes with the widget major, the model check and the build see
    nothing. `python3 $B/keptstyle.py app/ --kept <A,B>` (or `--kept-file .stepupdate/kept.txt`) prints `RISK <Module>
    <file>:<line> <selector>` per hit (exit 1 = REVIEW). Treat each module with hits as a visual risk: add a page that
    shows the widget to the screens step and read the screenshot. Rerun it whenever the kept list changes.
+   The pipeline runs it itself (`kept_style_check`): in triage when `.stepupdate/kept.txt` exists (a first triage notes "NOT MEASURED") and again after the update step; output `$W/keptstyle.out`, `$W/keptstyle.json`. RISK hits are a note, never a stop: they add a `[keptstyle]` line to `$W/screen-causes.txt`, so a pixel-only screens REVIEW names the kept module(s) as a likely cause (shotdiff `--causes`). The screens rung is not given a page list, so which page shows the widget is still for the person to find; an exit 2 is a note, not clean.
+   The same kept themesource can also use a mixin, variable or file a planned package removes (GM-15: PlatformDesignSystem 45
+   dropped `dark-theme`): `python3 $B/keptvendor.py app/ --kept-file .stepupdate/kept.txt --plan-file $W/plan.txt` reads every
+   `@include`, `$var` and `@use`/`@import` of each kept themesource and checks it against the cached target `.mpk` of each planned
+   module (own theme and the kept file itself count as definitions). `MISSING` (exit 1) = fix the kept SCSS or hold the package;
+   `NOT CHECKED` (exit 3) = the target package is not in the cache: say so in the proposal, never read it as clean.
+   The pipeline runs it itself (`kept_vendor_check`): in triage and again after the update step, always with `--own` (GF-56: the app's own `theme/` and non-Marketplace themesource modules are judged like kept ones, so a first triage with no `kept.txt` still measures them; PDS 45 dropped four mixins the team's own styling used); output `$W/keptvendor.out`. A triage `MISSING` stops with an item (text: fix that SCSS, kept or the app's own, or hold the package); `NOT CHECKED` is a note. `proposal.py` reads `$W/keptvendor.json`: one section-3 item per planned package with MISSING uses (kind, name, file:line; options: fix the kept SCSS, or hold the package: it stays at its installed version), and a package it could not read under "not measured" in section 5, never clean; no file, no item. Items for a kept module are not in the plan hash (the update step writes them, like `kept.txt`); items for the app's OWN styling (`own: true` in the json, GF-56) exist at triage, before the sign-off, so they are in the hash and the signer sees them; a kept item appears only after it, so it is not in the hash and a signed proposal stays signed; a kept item is recorded ASSUMED in DECISIONS.md and its step is assumed, not approved (the signer did not see it), never CONFIRMED or approved in their name. keptstyle is still run by hand, and the proposal does not list it.
 5. Local edits in Marketplace modules, BEFORE any update:
    `python3 $B/localedits.py app/ --md $W/localedits.md --json $W/localedits.json`
    - RED = data-bearing local edit (added attribute or association, changed storage): a stop rule (SKILL).
@@ -78,6 +117,12 @@ with version tables; the scripts find it the same way).
      version>` (probe `mxcli marketplace versions <id>`); lines then say "compared with" that version, and a
      difference is drift OR edit, decide per line. A proxy a major version away says so: expect much drift (E5b-5,
      E4-1, E4-6). `--mxcli-diff` does not follow `--proxy` (mxcli has no base-version option, E4-8).
+   - Triage passes `--mxcli-diff` itself (`bin/cloud/upgrade-pipeline.sh`) when an mxcli runs and the model is Mendix 10 or newer:
+     it compares microflow, page and layout contents and costs about 1 to 2 minutes per Marketplace module. `UPG_TRIAGE_MXCLI_DIFF=0`
+     turns it off (a big app, a quick look): every module line then says `element contents NOT compared`, and "domain model
+     unchanged" says nothing about contents. A 9.x model or no mxcli gives the same label (GM-11). Constant defaults and jar
+     dependencies are compared offline either way (`conf` rows, exit 1); `jar dependencies not verified` means no
+     ModuleSettings unit was read, which is not "no jars".
    - Layers it compares offline: domain model (RED), pages, layouts and snippets (`ui` lines: added, deleted, page
      layout changed, E5b-19), and logic documents present on one side only (`logic` lines: microflows, nanoflows,
      rules, Java and JavaScript actions, scheduled events, E5b-28). A changed validation rule on a persistent
@@ -104,6 +149,10 @@ with version tables; the scripts find it the same way).
    `grep -rl "topic: upgrade" $BR/internal | grep -v -e '/_snapshot-' -e '/_prefix' | xargs grep -l "versions:.*<major.minor>"`
    Frontmatter `applies_to` says what kind of note it is; `versions` says where it is valid. A note outside its range
    is a hint, not a fact. Read titles first; open only the notes for modules on your plan.
+   Version rules ("module X needs >= Y on target Z") are not read by hand: the brain owner keeps them as rows in
+   `$BR/baseline/upgrade-rules.tsv` (or `$UPG_RULES`, colon separated), and step 10's `replacement_check.py` reads that file
+   without a flag and prints each as a `V` row (HIT = open). Row format and grammar: the header of `bin/replacement_check.py`
+   (`--rules`). No such file = say so in the plan; the notes above stay a manual read. GM-41.
 8. Test inventory for step 2: `python3 $B/test_inventory.py app/ --md $W/test-inventory.md --endpoints $W/endpoints.txt`
    (after a FULL catalog build). It counts jars from the files and groups duplicates by artifact, inside userlib too
    (commons-lang3 3.12 and 3.14 in E5b): those are "present BEFORE the upgrade", so they are not blamed on it (E5b-4).
@@ -127,8 +176,10 @@ with version tables; the scripts find it the same way).
    The impact map of this step is also the deep layer of the test: the journeys run prints how many of the impacted
    actions are walked and pass (`impacted I (W walked, ...)`, journeys.md "Test layers"). An impacted action with no
    click path is the first testability item, ahead of the rest.
+9a. Orphan javasource action files (GM-29): `python3 $B/repair/orphan_javasource.py app/` lists `javasource/<module>/actions/*.java` that extend `CustomJavaAction`/`UserAction` but have no Java action document in the model (the Mendix 11 build fails on the removed base class). Exit 1 = ORPHAN lines plus a `git rm` PROPOSE line: put them on the proposal as a decision item, delete only after a person agrees (the tool never deletes). Exit 2 = UNKNOWN (model unreadable): nothing is judged, fix the read and rerun. Helper classes that are not action classes are never listed.
 9. mxcli writes a `.claude/` folder into the app; stepupdate.sh puts it in .gitignore (E5b-17). Check
-   `git -C app status` is clean before step 2.
+   `python3 $B/buildout.py check app/` before step 2 (exit 0 = clean apart from the baseline build output it names:
+   `.classpath`, `.project`, `<name>.launch` and `theme-cache/**`, listed ACCEPTED; any other dirty path is OTHER, exit 1: DV-6).
 10. Release impact (required, V31-RI): the brain holds the official Studio Pro and Marketplace release notes; read
    them for every version jump, never pick a module version without its notes (E6 and E7 did; E5b looked for a Java
    11 error the 10.x table explains). Write the module jumps as `<Module> <installed> -> <target>` lines (or a copy of
@@ -145,6 +196,7 @@ with version tables; the scripts find it the same way).
    module on the plan and read the rows of the jump, improvements included, before you fix the target version. Each
    row gets `handled: <evidence path or commit>` or `not relevant: <reason>` in its last column as the run goes on;
    a rerun keeps those entries. The gate needs `release_impact.py --check $W/release-impact.md` clean.
+   GM-38: a Java removal row the original Java still names closes right after a green target build, in a normal full run: step_build runs `python3 $B/release_impact.py --close-proved $W/release-impact.md --final-dir <app> --build-log $W/build-<target>.log` (only when both exist; the log must be newer than the app's .java and .mpr). It re-evaluates only that rule on the existing rows: an empty-entry row whose symbols are gone from the final javasource gets `handled (auto): java-removal-proved-by-build`; every `handled:` entry, every other row and every other triage output stays as it was, and a failure only warns. A triage rerun after a build (`--only triage`) passes the same args to `release_impact.py --auto`, but it reruns the whole of step_triage against the converted app (jarclash-before, versions.txt, localedits, facts rewritten), so prefer the step_build call. The gate runs `--check` only; it closes nothing.
    Exit 2 with `rows for <to> not in brain (newest <x>)`: the brain table is older than the target; read the
    release notes of the versions above `<x>` on docs.mendix.com and fill that Not covered row (T1-8, T2-19, T7-6);
    refreshing the brain's table is the brain owner's data update (T2F-1), not something to patch here. An entry that no
@@ -169,8 +221,25 @@ with version tables; the scripts find it the same way).
    grep rules use it, citing what they read: a java-actions removal whose `affected` items are all Java symbols found
    nowhere in `javasource` (proxies excluded) or in a userlib jar (`java-symbol-absent`), and a Marketplace module's
    "library upgraded to x" requirement row whose libraries no Java outside that module's own folder imports
-   (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). Without `project_dir` (a hand facts
+   (`module-library-bump`; jar copies stay jardedupe's, `steps/repair.md` row 3). GM-38: a java-actions removal whose symbols the original Java still names closes as `handled (auto):
+   java-removal-proved-by-build` when `--final-dir <repaired project>` and `--build-log <the gate's BUILD_LOG>` are given
+   and both hold: the build log shows `BUILD SUCCEEDED` with 0 `ERROR at` lines, and no symbol occurs in the final
+   `javasource` (proxies excluded). The row cites the build file and the scope grepped. A red, unreadable or missing
+   build, or a symbol still present, leaves the row open and `auto cannot use: java-removal-proved-by-build: ...` says why. The log must also be newer than the
+   newest `.java` under the final `javasource` and than the final `.mpr` (an older log is refused: `build log older than final
+   javasource/mpr`). The build proves the code compiled, not that it linked or ran. Assumption: the log and the final dir come
+   from the same run. Not wired yet: `bin/cloud/upgrade-pipeline.sh` and the gate-time triage do not pass `--final-dir` and
+   `--build-log`, so the caller must supply them and the rule closes nothing in a run until it is wired. Without `project_dir` (a hand facts
    file) both stay open: run `--facts-from-mpr` on the real project, or add `"project_dir": "app"` by hand.
+   Only real decisions reach a person (cold test: 190 open rows drowned the owner): the pipeline adds `--auto --evidence`
+   with the app's mpr. A row the rules leave open stays open only when the app's own modules use what it names
+   (a class, setting or element name found in their model or code, a feature with a document there; the evidence is
+   cited under "Open rows: what to do"). Rows about the deployment environment (database, Java, OS, browser, cloud, build
+   host) are `later (auto): go-live-env` and one "Go-live environment checklist (N items)", with the run's database as the
+   TEST environment: a person confirms production once before go-live. The rest are `not relevant (auto): not-used` with
+   what was searched; a deprecation the app uses is `deprecated-still-works` (a backlog note). `--check` counts open rows
+   only. The brain is whatever brainpath.py finds; with no brain the run says "no brain version tables" and exits 2, it
+   never closes rows without one.
    Replacements (B6): release impact keys on version windows, so a deprecated module kept at its version (DeepLink,
    MendixSSO) or a deprecated feature in use (Document Templates, legacy scheduled events, mx.logger) gives no row. The
    pipeline runs `python3 $B/replacement_check.py app/ --to <last rung's full ver> --out $W/replacements.md` at triage
@@ -226,6 +295,7 @@ with version tables; the scripts find it the same way).
    can't move (no React path found) or not researched, plus legacy core widgets, Marketplace modules not React-ready and Dojo JavaScript. On an 11.x target
    it is ADVISORY (exit 0): put its open items in the report as the plan for the React switch. On 12 or above it is
    BLOCKING (exit 1). A "not researched" package gets a researched row in the table (cite the source), never a guess.
+   Before any widget is removed or replaced (delete, can move, R35/R36 swaps), read its `removing it removes:` note (SKILL.md, package XML rule).
    Every auto entry reads `not relevant (auto): <rule>: <fact>`; read them, and replace one with
    your own entry where the fact is wrong for that row (a rerun never overwrites a human entry). Rows about a
    feature the app uses stay open: a breaking, removal or runtime row needs a scan (grep the model for the
@@ -242,6 +312,16 @@ with version tables; the scripts find it the same way).
    installed module versions of both projects, paired by content id (a renamed module such as DataGrid to
    DataWidgets keeps its id), so modules kept, installed by missing_deps or held back are what really happened
    (T1-31). Hand plan lines take a content id as an extra field: `DataGrid 1.3.2 -> 3.11.7 116540` (T1-9, T8-6).
+   File documents (GM-42): Mendix 11.0 refuses to start while a file document from before Mendix 5.12 is still present in the data
+   (Mendix 10.24 logs a warning, release notes 10.24.0 and 11.0.0). `--facts-from-mpr` counts the entities that specialise
+   System.FileDocument or System.Image (`file_documents`); when there are any, that 11.0.0 row stays open (also under
+   `--evidence`; 0 closes it by the fact), and the proposal raises a BLOCKER item: ask which databases the environments run on and
+   check each one for pre-5.12 file documents before the convert, starting on 10.x until the migration finishes. The model cannot
+   see an environment's database. The proposal item carries the count a field run (GF-49) checked on a copy of a real database:
+   `select count(*) from "system$filedocument" where __uuid__ is null` (Postgres syntax; it counts rows with no uuid, it does not filter `hascontents`; those rows are the ones 11 refuses); run it on each
+   environment's database, a count above 0 is a go-live item for that environment. On 10.24 or later a copy of each database started once shows the runtime's warning in the log. Nothing here is
+   checked on the seeded database: `seed_pg.py` seeds no FileDocument rows, and the readiness data rung says "file storage not
+   exercised" for it.
 11. Packages that make an entity non-persistent in the target version (Atlas_Web_Content 3.7.0 LoginContext, E4-19):
    no triage tool yet; read the release notes of every module on the plan for "non-persistent" and "removed entity",
    and expect the step idcheck REVIEW line.
@@ -277,5 +357,5 @@ with version tables; the scripts find it the same way).
    surfaced only at the gate. A rung that blocks stays INVALID however well the upgrade goes; do not start step 2
    promising PASS. Baseline item 9 runs it again on what the baseline measured.
 
-Output: `$W/versions.txt`, `$W/plan.txt` (stepupdate format: `<content id> <version> <Module>` per line, targets last),
+Output: `$W/versions.txt`, `$W/plan.txt` (stepupdate format: `<content id> <version> <Module>` per line, a cross-module association target before its owner: last, unless an owner is on the plan too, then before the owner, planorder.py --write),
 `$W/localedits.md`, `$W/release-impact.md` (required), `$W/replacements.md`, `$W/dojo-react.md`, `$W/stranded.md`, `$W/jarclash-before.md`, `$W/readiness.md`, scanner result plus scancover verdict, the playbook to follow.

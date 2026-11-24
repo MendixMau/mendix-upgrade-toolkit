@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
+import argparse, collections, json, os, re, shlex, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -328,6 +328,29 @@ PATCHES = [
      "      && !/login\\.html|\\/login(\\b|\\/|$)/.test(page.url())\n"
      "      && await page.locator(cfg.readySelectors.join(', ')).evaluateAll((els) => els.some((e) => e.getClientRects().length > 0)).catch(() => false)) {",
      "helpers.js"),
+    # SITS: a login page that folds the local form under "Show alternative login" (an SSO starter app): the password input
+    # is in the DOM, never visible, so the engine waited 15 s, found no form and every journey FAILed on a healthy app.
+    # Same text test as bin/loginreveal.js (the scratch engine copy cannot require it).
+    ("loginOnce: click 'Show alternative login' when the form is folded away (SITS)",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(800).catch(() => {});\n"
+     "  if (!(await page.locator('#passwordInput, input[type=password]').first().isVisible().catch(() => false))) {\n"
+     "    const ALT = /^(?![\\s\\S]*\\bhide\\b)[\\s\\S]*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
+     "    const links = page.locator('.alt-login, a, button, [role=button]').filter({ hasText: ALT });\n"
+     "    for (let i = 0, n = Math.min(await links.count().catch(() => 0), 6); i < n; i++) {\n"
+     "      if (!(await links.nth(i).isVisible().catch(() => false))) continue;\n"
+     "      await links.nth(i).click({ timeout: 2000 }).catch(() => {});\n"
+     "      if (await page.locator('#passwordInput, input[type=password]').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) break;\n"
+     "    }\n"
+     "  }\n"
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "helpers.js"),
     ("loginOnce: wait until no password input is visible (T8-9)",
      "    const ready = document.querySelector(sel);\n    return !onLogin && !!ready;",
      "    const ready = document.querySelector(sel);\n"
@@ -375,7 +398,7 @@ def copy_engine(eng):
     eng.mkdir(parents=True, exist_ok=True)
     for f in ENGINE:
         shutil.copy2(TOOLKIT_E2E / f, eng / f)
-    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "pgdata.js", "pgmap.py"):
+    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "loginreveal.js", "pgdata.js", "pgmap.py"):
         shutil.copy2(HERE / f, eng / f)
     shutil.copy2(HERE.parent / "playbooks" / "widget-render.tsv", eng / "widget-render.tsv")
     texts = {}
@@ -875,7 +898,7 @@ def check_no_signout(j, entry, refs):
         from mprmodel import Model
         import impact_map
         hits = impact_map.any_sign_out(Model.load(mp))
-    except Exception as e:
+    except (SystemExit, Exception) as e:
         return False, f"NO-SIGNOUT: model {mp} not readable ({e})"
     if hits:
         w, by, d = hits[0]
@@ -976,7 +999,7 @@ def check_unreachable(j, entry, refs, acts_file, acts):
             from mprmodel import Model
             mm = Model.load(mp)
             callers = mm.callers_index()
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             return False, f"UNREACHABLE: model={mp}: not readable ({e})"
         seen_d, todo_d = [], list(x.get("via_pages") or [x.get("host")])
         while todo_d and len(seen_d) < 2000:   # the readable caller chain, walked as action_inventory.py orphans() does
@@ -1075,12 +1098,16 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     base = before if compare else js
     ok = lambda side, jids: all(side.get(j, {}).get("verdict") == "PASS" for j in jids)
     down = lambda side, jids: not ok(side, jids) and any(side.get(j, {}).get("app_down") for j in jids)
+    # GF-50: a journey the cap deferred never ran: not a defect and not a pass, counted on its own like app_down
+    dfr = lambda side, jids: not ok(side, jids) and not down(side, jids) and any(side.get(j, {}).get("deferred") for j in jids)
     G = len(units)
     B = sum(1 for u in units.values() if ok(base, u))
     X = sum(1 for u in units.values() if down(base, u))   # AD-1: not run, the app was down: no defect, no pass
-    D = G - B - X
+    Y = sum(1 for u in units.values() if dfr(base, u))   # deferred by the cap on the baseline: not run
+    D = G - B - X - Y
     N = sum(1 for u in units.values() if ok(js, u)) if compare else None
     XN = sum(1 for u in units.values() if down(js, u)) if compare else 0
+    YN = sum(1 for u in units.values() if dfr(js, u)) if compare else 0
     R = sum(1 for u in units.values() if any(js.get(j, {}).get("compare") == "REGRESSION" for j in u)) if compare else None
     nr = lambda x: "-" if x is None else x
     if acts is not None:
@@ -1099,8 +1126,9 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
         Am = A - len(apart & set(acts)) - len(set(oos) - apart)   # PR-P4: the destructive actions are counted on their own line
         cov = f"{B}/{Am}" + (f" ({100 * B // Am}%)" if Am else "")
         line = (f"actions {A} found · {G} generated ({tt}) · {B} pass on baseline ({D} defect"
-                + (f", {X} not run: app went down" if X else "") + f") · {nr(N)} pass on new"
-                + (f" ({XN} not run: app went down)" if XN else "") + f" · {nr(R)} regression · coverage {cov}")
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + f") · {nr(N)} pass on new"
+                + (f" ({XN} not run: app went down)" if XN else "") + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage {cov}")
         if impacted is not None:   # AD-2: the triage-pointed actions, the deep end of the test
             iu = [u for i, u in units.items() if i in impacted]
             line += (f" · impacted {len(impacted)} ({len(iu)} walked, {sum(1 for u in iu if ok(base, u))} pass on baseline"
@@ -1116,15 +1144,20 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     else:
         A = T = None
         why = f"no denominator: {waive}" if waive else "no actions.json: coverage unknown"
-        line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect) · {nr(N)} pass on new · "
-                f"{nr(R)} regression · coverage ? ({why})")
-    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "defects": {}, "invalid": invalid,
+        line = (f"actions ? found · {G} journeys (todo unknown) · {B} pass on baseline ({D} defect"
+                + (f", {X} not run: app went down" if X else "") + (f", {Y} not run: deferred by the cap" if Y else "")
+                + f") · {nr(N)} pass on new" + (f" ({XN} not run: app went down)" if XN else "")
+                + (f" ({YN} not run: deferred by the cap)" if YN else "") + f" · {nr(R)} regression · coverage ? ({why})")
+    out = {"line": line, "A": A, "G": G, "T": T, "B": B, "D": D, "N": N, "R": R, "X": X, "XN": XN, "Y": Y, "YN": YN, "defects": {}, "invalid": invalid,
            "out_of_scope": len(oos) if acts is not None and oos else 0}
     if not compare:
         return out
     if X or XN:   # AD-1: a run the app did not finish is never a verdict
         invalid.append(f"not finished: the app went down ({X} actions not run on the baseline, {XN} on new); "
                        "restart it on the same database and run again with --resume")
+    if Y or YN:   # GF-50: never a PASS for a journey that did not run
+        invalid.append(f"not measured: {max(Y, YN)} journeys not run: deferred by the cap (INVALID \"deferred\" in summary.json); "
+                       "run again with --resume and no --max to walk them")
     if acts is None and not waive:
         invalid.append("coverage unknown: no --actions (actions.json, bin/action_inventory.py) and no --no-actions REASON")
     if not (base_set or {}).get("sha256"):
@@ -1137,16 +1170,16 @@ def coverage(js, before, cur_set, base_set, acts, waive, evidence, compare, skip
     if G == 0:
         invalid.append("instrument not measuring: no journey " + ("names an action of actions.json (generate with gen_journeys.py "
                        "--actions, or link a hand-written journey with \"covers\")" if acts is not None else "was walked"))
-    elif D / G > DEFECT_MAX:
-        invalid.append(f"instrument not measuring: {D} of {G} {'actions' if acts is not None else 'journeys'} fail on the "
-                       f"baseline ({100 * D // G}% > {int(DEFECT_MAX * 100)}%)")
+    elif G - Y and D / (G - Y) > DEFECT_MAX:
+        invalid.append(f"instrument not measuring: {D} of {G - Y} {'actions' if acts is not None else 'journeys'} fail on the "
+                       f"baseline ({100 * D // (G - Y)}% > {int(DEFECT_MAX * 100)}%)")
     import fnmatch
     # every walked journey, linked to an action or not. The destructive tier (PR-P4) is counted apart but is judged the
     # same way: a destructive journey that did not PASS on the old app needs the same checked evidence, else it kept the
     # tag "BASELINE DEFECT (before FAIL)" with no evidence and sat in FAIL although the old app failed it too.
     for j in sorted(set(links) | {d for d in dest if d in base}):
-        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down"):
-            continue   # AD-1: not run is not a defect; it is listed as not run
+        if base.get(j, {}).get("verdict") == "PASS" or base.get(j, {}).get("app_down") or base.get(j, {}).get("deferred"):
+            continue   # AD-1 / GF-50: not run is not a defect; it is listed as not run
         hit = next((r for r in evidence if r[1] in EVIDENCE and fnmatch.fnmatch(j, r[0])), None)
         if hit is None:
             out["defects"][j] = (None, "no evidence")
@@ -1169,6 +1202,53 @@ def session_cap_refused(findings_path):
         return False
     login = next((r for r in F.get("results", []) if r.get("rung") == "ui" and r.get("name") == "login"), None)
     return bool(login and login.get("verdict") == "INVALID" and "concurrent-session cap" in (login.get("detail") or ""))
+
+
+HOME_ERR_RE = re.compile(r"(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)", re.I)
+
+
+def runtime_log_lines(a):
+    """GF-17: the app's runtime log as lines: --runtime-log FILE, else the output of $UPG_RUNTIME_LOG_CMD (the pipeline sets it
+    to `docker logs <app container>` for the app it started). [] when neither answers. The log only grows, so the line count
+    taken before a sign-in (runtime_log_mark) marks where THIS role's lines begin."""
+    try:
+        if getattr(a, "runtime_log", None):
+            return open(a.runtime_log, errors="replace").read().splitlines()
+        cmd = os.environ.get("UPG_RUNTIME_LOG_CMD")
+        if cmd:
+            p = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)   # one stream, in written order: a line-count mark is only valid on that
+            return p.stdout.splitlines()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return []
+
+
+def runtime_log_mark(a):
+    return len(runtime_log_lines(a))
+
+
+def runtime_log_since(a, mark):
+    """Only the lines written after `mark`: an earlier role's error line is never this role's cause."""
+    return "\n".join(runtime_log_lines(a)[mark:])[-300000:]
+
+
+def login_cause(detail, log_text):
+    """GF-17: the engine words a refused sign-in as the trial-licence session cap (measured once, 2026-08-18). When the
+    runtime log is at hand and has no session-limit line, that cause is wrong: say what the log says instead (the last
+    ERROR line naming a microflow or an exception: the home microflow failing for this user), or that it shows nothing.
+    Without a log the engine's text stays, as before."""
+    if "concurrent-session cap" not in (detail or "") or not log_text:
+        return detail
+    if "Maximum number of sessions" in log_text:
+        return detail
+    errs = [l.strip() for l in log_text.splitlines() if HOME_ERR_RE.search(l)]
+    if errs:
+        return ('login faulted: the sign-in post worked but the app refused the session. Not a credential failure and not '
+                'the licence session cap (the runtime log has no session-limit line). The runtime log says: "'
+                + errs[-1][:300] + '". The home microflow most likely failed for this user: check the entity the smoke user '
+                'was made as (UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt, smoke_users.py --entity).')
+    return ('login faulted: the app refused the session, and the runtime log has neither a session-limit line nor an error '
+            'line, so it is not the licence cap. Read the runtime log around the sign-in.')
 
 
 def session_wait(a):
@@ -1312,6 +1392,56 @@ def data_waves(jdir, gen_dir, only=None, skip=()):
     return first + later + last + destr
 
 
+CHUNK_DEFAULT = 25     # journeys per runner process: summary.json is written after each one (GF-50)
+DEFAULT_SECONDS = 80   # seconds per journey when no earlier run measured one (GF-50 field run: 573 journeys, about 80 s each)
+
+
+def write_summary(out, summary):
+    """summary.json written whole or not at all: a stop between two writes leaves the last complete file (GF-50: 93 journeys
+    walked and lost because the file was only written at the end)."""
+    tmp = Path(out) / "summary.json.tmp"
+    tmp.write_text(json.dumps(summary, indent=2) + "\n")
+    os.replace(tmp, Path(out) / "summary.json")
+
+
+def chunk_waves(waves, n):
+    """Each wave cut into runs of at most n journeys, same key and order, so the shots folder and the order are unchanged."""
+    out = []
+    for key, role, role_dir, files in waves:
+        for i in range(0, len(files), n):
+            out.append((key, role, role_dir, files[i:i + n]))
+    return out
+
+
+def journey_tier(d, impacted):
+    """0 impact-picked (a menu journey of a changed page, or the journey of an impacted action), 1 always-on, 2 the rest."""
+    req = [r for r in (d.get("requirement") or []) if isinstance(r, str)]
+    if any(r.startswith("impact:") for r in req):
+        return 0
+    if impacted and any(r.startswith("action:") and r.split(":", 1)[1] in impacted for r in req):
+        return 0
+    if ALWAYS_ON.match(d.get("id", "")) or any(r.startswith("always-on") for r in req) or str(d.get("_why", "")).startswith("always-on"):
+        return 1
+    return 2
+
+
+def cap_waves(waves, cap, impacted):
+    """Keep the first `cap` journeys by (tier, set order), drop the rest from their waves. Returns (waves, kept, dropped) where
+    dropped is [(id, role, tier)]; the wave order of what is kept does not change."""
+    items = []
+    for wi, (key, role, rd, files) in enumerate(waves):
+        for f in files:
+            items.append((journey_tier(read_journey(f), impacted), len(items), wi, f, role))
+    keep = {x[3] for x in sorted(items)[:max(cap, 0)]}
+    dropped = [(read_journey(x[3])["id"], x[4], x[0]) for x in items if x[3] not in keep]
+    kept = [(key, role, rd, [f for f in files if f in keep]) for key, role, rd, files in waves]
+    tiers = [0, 0, 0]
+    for x in items:
+        if x[3] in keep:
+            tiers[x[0]] += 1
+    return [w for w in kept if w[3]], tiers, dropped
+
+
 ASSIGN_CTE = """t AS (SELECT t.id, min(tu."system$userid") AS uid FROM "system$workflowusertask" t
   JOIN "system$workflowusertask_targetusers" tu ON tu."system$workflowusertaskid" = t.id
   WHERE t.state = 'InProgress' AND NOT EXISTS (SELECT 1 FROM "system$workflowusertask_assignees" x
@@ -1433,6 +1563,15 @@ def main():
     ap.add_argument("--resume", action="store_true",
                     help="AD-1: run again only the journeys the last run of this label could not run because the app went "
                          "down (summary.json app_down), and merge them into that summary.json (exit 75 = still some left)")
+    ap.add_argument("--max", type=int, dest="max_n", metavar="N",
+                    help="GF-50: run at most N journeys: impact-picked first, then always-on, then the rest; the others are "
+                         "listed INVALID \"deferred\" in summary.json and a printed line names how many (nothing is dropped silently); "
+                         "--resume without --max runs the deferred ones")
+    ap.add_argument("--budget-min", type=float, dest="budget_min", metavar="M",
+                    help="GF-50: a time budget: the cap is M minutes at the measured (else %ds) seconds per journey, and no new "
+                         "batch starts after M minutes; what was not run is deferred as with --max" % DEFAULT_SECONDS)
+    ap.add_argument("--chunk", type=int, default=CHUNK_DEFAULT, metavar="N",
+                    help="journeys per runner process; summary.json is written after each (default %d)" % CHUNK_DEFAULT)
     ap.add_argument("--impact", help="impact.json (triage): the coverage line counts the impacted actions apart "
                                      "(default: impact.json next to the journeys folder)")
     ap.add_argument("--compare", help="the same journey set on the old app: work folder, label folder or summary.json (gate)")
@@ -1464,6 +1603,8 @@ def main():
     ap.add_argument("--login-path", default="/login.html",
                     help="where the engine signs in (default /login.html, as smokewalk.js; T7-10, T8-9). '/' only for an "
                          "app whose anonymous home renders the standard login form itself")
+    ap.add_argument("--runtime-log", metavar="FILE", help="the app's runtime log: a refused sign-in is explained from it (GF-17); "
+                    "default: the output of $UPG_RUNTIME_LOG_CMD, which the pipeline sets")
     ap.add_argument("--patch-engine", metavar="DIR",
                     help="only copy and patch the engine into DIR, print the patch report (exit 1 if one did not apply)")
     a = ap.parse_args()
@@ -1497,6 +1638,7 @@ def main():
             print(f"run_journeys: journey file {e}: INVALID, nothing was run (fix or remove the file, then run again; "
                   "a removed journey changes the set: before-picked again)", file=sys.stderr)
             sys.exit(2)
+    deferred_n = 0
     if a.rejudge:  # judge an existing run again (new --compare / --shot-accept); runs nothing, writes nothing
         out = Path(a.work).expanduser().resolve() / a.label
         summary = json.load(open(out / "summary.json"))
@@ -1521,9 +1663,13 @@ def main():
             if not (out / "summary.json").exists():
                 ap.error(f"--resume: no {out / 'summary.json'} to continue")
             prev = json.load(open(out / "summary.json"))
-            left = {j for j, s in prev["journeys"].items() if s.get("app_down")}
+            capped = a.max_n is not None or a.budget_min is not None   # the pipeline's own --resume keeps its cap: it must not undo it
+            left = {j for j, s in prev["journeys"].items() if s.get("app_down") or (s.get("deferred") and not capped)}
+            # GF-50: a run stopped before it finished (killed, reboot) wrote summary.json after each batch; the journeys it never
+            # reached are not in it at all, and they are what --resume runs
+            left |= {read_journey(f)["id"] for w in data_waves(Path(a.gen_dir) / "journeys", a.gen_dir) for f in w[3]} - set(prev["journeys"])
             only = (only & left) if only else left
-            print(f"resume: {len(only)} journeys the app could not run last time", file=sys.stderr)
+            print(f"resume: {len(only)} journeys not run last time (app went down, deferred by a cap, or never reached)", file=sys.stderr)
 
         backend, pgenv = data_backend(a.psql, eng)
         summary = {"label": a.label, "port": a.port, "login_path": a.login_path, "engine_patches": patches,
@@ -1551,7 +1697,51 @@ def main():
                                         "why": f"not run on the new app: it {bv}ed on the old app too (--skip-baseline-fail)"}
         if skip:
             print(f"skip: {len(skip)} journeys failed on the old app and feed no later one: not run on the new app", file=sys.stderr)
-        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, skip)
+        # GF-50: cap parity. A journey the old app deferred (a cap) is deferred here too, whatever this run's own cap: the two sides
+        # must hold the same set, or a verdict is compared against a journey the old app never walked.
+        parity = {}
+        if cmp_summary and not prev and not only and not a.positive_control:
+            old_j = json.load(open(cmp_summary)).get("journeys", {})
+            for f in (sorted(jdir.glob("*/*.journey.json")) if jdir.is_dir() else []):
+                jid = read_journey(f)["id"]
+                if old_j.get(jid, {}).get("deferred") and jid not in skip:
+                    parity[jid] = f.parent.name
+                    summary["journeys"][jid] = {"role": f.parent.name, "verdict": "INVALID", "deferred": True,
+                                                "why": "not run: the old app did not run it either (deferred by its cap), so the same journeys are compared; "
+                                                       "run both sides without a cap, or --resume the old app first"}
+        if parity:
+            print(f"parity: {len(parity)} journeys deferred on the old app are deferred here too (the same set on each side)", file=sys.stderr)
+        waves = [] if prev and not only else data_waves(jdir, a.gen_dir, only, {**skip, **parity})
+        total_j = sum(len(w[3]) for w in waves)
+        sec = None
+        if a.budget_min is not None or total_j:
+            try:
+                import journeys_progress as _jp
+                sec = _jp.pace_of(os.environ.get("UPG_PACE_FILE") or "")
+            except Exception:
+                sec = None
+        sec = sec or DEFAULT_SECONDS
+        cap = a.max_n
+        if a.budget_min is not None:
+            bcap = max(1, int(a.budget_min * 60 / sec))
+            cap = bcap if cap is None else min(cap, bcap)
+        deadline = time.time() + a.budget_min * 60 if a.budget_min is not None else None
+        if cap is not None and total_j > cap and not a.positive_control and waves:
+            imp_set = impacted_actions(a.impact or str(Path(a.gen_dir).parent / "impact.json"), acts) if acts else None
+            waves, tiers, dropped = cap_waves(waves, cap, imp_set)
+            for jid, rl, t in dropped:
+                summary["journeys"][jid] = {"role": rl, "verdict": "INVALID", "deferred": True,
+                                            "why": f"not run: the cap of {cap} journeys (--max / --budget-min) left it out (tier {t}: "
+                                                   f"{['impact-picked', 'always-on', 'rest'][t]}); run --resume without --max, or with a larger --max on a fresh run"}
+            deferred_n = len(dropped)
+            summary["cap"] = {"max": cap, "of": total_j, "run": total_j - deferred_n, "deferred": deferred_n,
+                              "run_by_tier": dict(zip(["impact-picked", "always-on", "rest"], tiers)), "seconds_each": round(sec)}
+            print(f"cap: running {total_j - deferred_n} of {total_j} journeys (impact-picked {tiers[0]}, always-on {tiers[1]}, rest {tiers[2]}); "
+                  f"{deferred_n} deferred, NOT run (INVALID \"deferred\" in summary.json)", file=sys.stderr)
+        deferred_n += len(parity)
+        if not a.positive_control and not harness:
+            waves = chunk_waves(waves, max(1, a.chunk))
+        started_keys, chunk_no = set(), {}
         # issue 26 (SNOW, 435 user paths): a progress line while the runner walks them, and the expected duration before the first; said only, no verdict
         prog = None
         if not a.positive_control and waves:
@@ -1560,10 +1750,21 @@ def main():
                                               os.environ.get("UPG_PROGRESS_LOG"), os.environ.get("UPG_PACE_FILE"))
             prog.start()
         for key, role, role_dir, files in waves:
+            first_chunk = key not in chunk_no
+            chunk_no[key] = chunk_no.get(key, 0) + 1
+            if not a.positive_control and not a.rejudge:   # GF-50: what is walked so far is on disk before the next batch starts
+                summary["partial"] = True
+                write_summary(out, summary)
+            if deadline and time.time() > deadline:
+                for f in files:
+                    summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "deferred": True,
+                        "why": f"not run: the time budget of {a.budget_min:g} min (--budget-min) ran out; run --resume without --budget-min"}
+                deferred_n += len(files)
+                continue
             prior_dirty = dirty
             if DESTR_WAVE in key and files:
                 dirty = f"{read_journey(files[0])['id']} ({destructive_scope(read_journey(files[0]))})"
-            if data_wave(key) and not harness and not a.positive_control and park_specs(a.gen_dir):
+            if first_chunk and data_wave(key) and not harness and not a.positive_control and park_specs(a.gen_dir):
                 if parked is None:   # PR-F33: once, before the first second-pass role: tasks wait at each stage
                     parked = park(a, jdir, users, eng, pgenv, out, run_id)
                     summary["park"] = parked
@@ -1589,6 +1790,7 @@ def main():
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "no test user for role"}
                 continue
+            csfx = f".c{chunk_no[key]}" if chunk_no[key] > 1 else ""
             run = out / f"run-{key}"
             if run.exists():
                 shutil.rmtree(run)
@@ -1611,6 +1813,7 @@ def main():
             # --session-retries times. The retries are written to summary.json (session_retries) and stay visible.
             tries = 0
             while True:
+                log_mark = runtime_log_mark(a)   # GF-17: this attempt's sign-in starts here; earlier lines belong to earlier roles
                 if art.exists():
                     shutil.rmtree(art)
                 if prog:
@@ -1618,7 +1821,7 @@ def main():
                     p.returncode, p.stdout, p.stderr = journeys_progress.walk(cmd, env, str(eng), prog, str(out))
                 else:
                     p = subprocess.run(cmd, env=env, cwd=str(eng), capture_output=True, text=True)
-                (out / f"{key}{sfx}.log" if not tries else out / f"{key}{sfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
+                (out / f"{key}{sfx}{csfx}.log" if not tries else out / f"{key}{sfx}{csfx}.retry{tries}.log").write_text(p.stdout + "\n--- stderr\n" + p.stderr)
                 if tries >= a.session_retries or not session_cap_refused(fj):
                     break
                 tries += 1
@@ -1636,15 +1839,17 @@ def main():
                 for f in files:
                     summary["journeys"][read_journey(f)["id"]] = {"role": role, "verdict": "INVALID", "why": "runner did not run"}
                 continue
-            shutil.copy2(fj, out / f"{key}{sfx}-{name}")
+            shutil.copy2(fj, out / f"{key}{sfx}{csfx}-{name}")
             shots = out / f"shots-{key}"
-            if shots.exists() and not prev:   # a resume adds to the shots of the journeys that did run
+            if shots.exists() and not prev and first_chunk:   # a resume adds to the shots of the journeys that did run; a later batch of the same wave adds too
                 shutil.rmtree(shots)
             shutil.copytree(art, shots, ignore=shutil.ignore_patterns("*.json"), dirs_exist_ok=True)
             F = json.load(open(fj))
             login = next((r for r in F["results"] if r["rung"] == "ui" and r["name"] == "login"), None)
             # PR-P4: a login that FAILs after a destructive journey ran on this same database is not a finding about this
             # role: the journey may have deleted its account (identity), its data or the seed. CONTAMINATED, never FAIL
+            if login:
+                login = dict(login, detail=login_cause(login.get("detail"), runtime_log_since(a, log_mark)))   # GF-17, after the session-cap retries above
             lword, lverdict, lwhy = login_outcome(login, prior_dirty)
             summary["roles"][key] = {"exit": p.returncode, "user": cred["user"], "login": lword,
                                       "login_detail": login["detail"] if login else ""}
@@ -1756,7 +1961,8 @@ def main():
         import apimock
         nc_lines = apimock.mark_journeys(summary["journeys"], a.apimock_log, apimock.systems_arg(a.exclude_systems))
     if a.compare:
-        before = json.load(open(cmp_summary)).get("journeys", {})
+        before_all_cmp = json.load(open(cmp_summary))
+        before = before_all_cmp.get("journeys", {})
         for j, s in summary["journeys"].items():
             b = before.get(j, {}).get("verdict")
             if s["verdict"] != "FAIL":  # INVALID stays INVALID: it says nothing about the upgrade
@@ -1767,6 +1973,14 @@ def main():
                 s["compare"] = "NOT IN BASELINE (run it on the old app too)"
             else:
                 s["compare"] = f"BASELINE DEFECT (before {b})"
+        # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
+        # visitor sees; both PASS, so no verdict flips: say it (a note, not a failure)
+        before_roles = before_all_cmp.get("roles", {})
+        summary["login_changes"] = [{"role": r, "before": before_roles[r].get("login_detail", ""), "after": s.get("login_detail", "")}
+                                    for r, s in summary["roles"].items()
+                                    if r in before_roles and s.get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail") != s.get("login_detail")]
         if not a.positive_control:  # T1-26 / T4-17: the screens line is printed (and stored) even when all pairs PASS
             import shotdiff
             rows = screen_compare(cmp_dir, out, summary["journeys"], a.shot_accept)
@@ -1849,7 +2063,13 @@ def main():
     downs = sorted(j for j, s in summary["journeys"].items() if s.get("app_down"))
     summary["app_down"] = len(downs)
     if not a.rejudge:
-        (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        summary.pop("partial", None)
+        if deferred_n and not summary.get("cap"):   # the time budget ran out mid-run
+            summary["cap"] = {"budget_min": a.budget_min, "deferred": deferred_n}
+        write_summary(out, summary)
+    if deferred_n:
+        print(f"deferred: {deferred_n} journeys NOT run (cap or time budget): INVALID \"deferred\" in summary.json; "
+              f"--resume (no --max / --budget-min) runs them", file=sys.stderr)
     print(f"== {a.label} (:{a.port})" + (f" compared with {a.compare}" if a.compare else ""))
     if summary.get("data_backend"):
         print(f"  data {summary['data_backend'][:200]}")
@@ -1862,6 +2082,8 @@ def main():
         print(f"  role {r:24} login {s['login']:7} {s.get('login_detail', '')[:60]}" + (f"  control {s['control']}" if "control" in s else ""))
         for e in s.get("data_errors", []):
             print(f"    data: {e[:160]}")
+    for c in summary.get("login_changes", []):
+        print(f"  NOTE anonymous role {c['role']}: the visitor's home changed, before \"{c['before']}\", now \"{c['after']}\" (not a failure; look at it)")
     scoped = collections.Counter(s["scope_class"] for s in summary["journeys"].values() if s.get("scope_class"))
     for k, n in sorted(scoped.items()):   # one line per class, the rows are in summary.json
         print(f"  INFO    out of scope ({k}): {n} actions listed, no journey, never INVALID (plan.json out_of_scope, scope.json)")

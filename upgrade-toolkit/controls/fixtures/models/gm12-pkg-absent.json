@@ -1,0 +1,5 @@
+{"modules": [
+  {"name": "NotifProd", "appstore": [4444, "4.1.0"],
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Send", "refs": {"Microflow": ["MxTokenModule.ACT_Token", "MxTokenModule.ACT_Refresh"], "Page": ["MxTokenModule.Login"]}},
+            {"type": "Microflows$Microflow", "name": "ACT_Excluded", "excluded": true, "refs": {"Microflow": ["GhostMod.ACT_Never"]}}]}
+ ]}

@@ -190,3 +190,5 @@ item here. Open is 0. New findings start as open and get an end state in the nex
 - Item 5: native-only actions leave the web denominator: **decided** (user, 12 Oct). They are still listed by name.
 - Item 7: Starter Kit 7.0 is exempted like Teamcenter: **decided** (user, 12 Oct). Exempt rungs are named in the report.
 - Brain split: keep the brain in one repo for now: **decided** (user, 12 Oct).
+
+- Open (from PR #112, GM-10): the `bin/apptree.sh` call in `run_step` of `bin/cloud/upgrade-pipeline.sh` has no control yet (reaching it needs docker and the full toolchain); the stepupdate calls are controlled.

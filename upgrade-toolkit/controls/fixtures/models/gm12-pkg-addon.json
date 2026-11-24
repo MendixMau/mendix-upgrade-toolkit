@@ -1,0 +1,4 @@
+{"modules": [
+  {"name": "NotifProd", "appstore": [4444, "4.1.0"],
+   "docs": [{"type": "Microflows$Microflow", "name": "ACT_Send", "refs": {"Microflow": ["AddonMod.ACT_A", "System.ACT_B"]}}]}
+ ]}

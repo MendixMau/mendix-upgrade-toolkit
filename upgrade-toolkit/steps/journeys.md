@@ -122,7 +122,7 @@ counted as INFO UNPROVEN: they stay INVALID in the gate, but they are not contro
 
 create-spec.json, once per app: `{"role", "nav": {"group", "item", "nth"?}, "newButton", "fields": [{"widget", "value", "attr"}],
 "saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. A reference selector is a field
-`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). Without it create-and-save stays a todo,
+`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). The same field also drives a Radio buttons group (`match` = the radio's own label, else the first enabled radio). Without it create-and-save stays a todo,
 which is INVALID, never covered. `textPresent` is the saved value as the grid shows it, `textAbsent` the validation
 messages: a ready selector alone was satisfied by the grid BEHIND a popup whose save was refused (E4-14, E5b-12), and
 gen_journeys warns when the spec has no textPresent. Put `${RUN_ID}` in the field value and in textPresent: it is
@@ -131,7 +131,9 @@ unique per run, so a reused database cannot satisfy the check with a row from an
 "Data" below), since no runapp runtime answers `mxcli oql --direct` (E5b-11). Name the attribute each field writes
 (`"attr": "Alias"`): with `--data-rung` every such field adds an own-row check, `COUNT(*) FROM <entity> WHERE <attr> =
 '<value with ${RUN_ID}>'` = 1, so the row judged is this run's row and not one an earlier run left (E2E-9); without any
-`attr` gen_journeys warns that only +1 is checked.
+`attr` gen_journeys warns that only +1 is checked. A form that edits a singleton (the page retrieves the one row, else creates it) never adds a row: put
+`"delta": 0` in the create spec (default 1) and the data rung asks for no change in the count; the own-row check on `attr` then
+carries the proof that the save landed, so `"delta": 0` without a field that has `attr` is refused (RM-2).
 
 ## At the gate (new app, on a copy of X_frozen)
 
@@ -538,6 +540,22 @@ Never write `create*`, `update*`, `revise*`, `set*`, `delete*`, workflow or BOM 
 or default action (TC-2). Direct calls (probes, proof lookups) all go through one allowlist client that refuses
 anything not on the READ list. One account runs one session at a time (TC-6): do not run connector journeys in
 parallel roles on the same account (use `--pause`, and no parallel gate runs).
+
+## Long runs: checkpoints, a cap, the estimate (GF-50)
+
+- `summary.json` is written (whole or not at all) before each batch of `--chunk N` journeys (default 25), so a run that is stopped
+  (killed, rebooted, disk full) keeps every batch it finished. `--resume` then runs the journeys the file does not hold, plus any
+  `app_down` one.
+- The proposal's testing plan prints an `estimate:` line (journeys in scope x seconds each, measured from `state/journeys-pace.tsv`
+  else 80 s) before anything runs. `--max N` and/or `--budget-min M` (pipeline: `UPG_JOURNEYS_MAX`, `UPG_JOURNEYS_BUDGET_MIN`) cap
+  it: impact-picked journeys first, then always-on, then the rest. The others are INVALID with `deferred: true` in `summary.json`
+  and the run prints `cap: running S of T journeys ...; D deferred, NOT run`. Deferred is INVALID (not measured), never a PASS and
+  never a FAIL. `--resume` with no cap runs them. The new app is capped to the old app's run set: a journey the old app deferred is
+  deferred on the new one too (`parity:` line), so both sides compare the same journeys.
+- A pipeline rerun of `--from journeys` starts the journeys fresh (it walks everything again). To keep the journeys already walked,
+  run `run_journeys.py --resume` on the same `--work` and `--label` instead.
+- A journey app left running by a stopped run: the pipeline's EXIT trap stops every app it started, and `runapp.py start` removes
+  a container of its own name first, so the next run does not meet it. A kill -9 of the pipeline itself skips the trap: `docker rm -f <UPG_NAME>-oldjp`.
 
 ## Stop rules
 
