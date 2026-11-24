@@ -4794,7 +4794,7 @@ ISO="import json,sys; j=json.load(open(sys.argv[1])); s=j['steps'][0]; [print(a[
 ctl impact-iconnav-blank-caption-catch 0 "^visible \[\] signout None$" -- python3 -c "import json; r=json.load(open('$IN/impact.json'))['roles']['Desk']; print('visible', r['menu_visible'], 'signout', r['sign_out_item'])"
 ctl gen-journeys-iconnav-signout-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' '^from layout of Shop.Home, menu widget navigationTree3$' '!^nav' -- python3 -c "$ISO" $IN/gen/journeys/Desk/sign-out.journey.json
 ctl gen-journeys-iconnav-old-impact-catch 0 '^click navigationTree3-2 Sign out$' '^absent None$' -- python3 -c "$ISO" $IN/gen-old/journeys/Desk/sign-out.journey.json
-# cold pdm: every role-menu item " ": impact menu journeys navigated by caption to the first " " (all the same page), and two
+# a field run: every role-menu item " ": impact menu journeys navigated by caption to the first " " (all the same page), and two
 # icon items shared one candidate id. impact_map gives a blank-caption item its position (menu_nth), the nav verb clicks it
 MJ="import sys; sys.path.insert(0,'$B'); import gen_journeys as G; j,t=G.menu_journey(eval(sys.argv[1]),'Desk',None); print(j['steps'][0]['actions'][0] if j else ('TODO', t['reasons'], t['why']))"
 ctl impact-menu-icon-position-catch 0 "^\[\('A.P1', 0\), \('A.P2', None\), \('A.P3', 1\), \('A.P4', 2\)\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I; print([(i['target'], n) for i, n in I.menu_positions({'menu': [{'path': [' '], 'target': 'A.P1'}, {'path': ['Orders'], 'target': 'A.P2'}, {'path': [' '], 'target': 'A.P3'}, {'path': ['G', ' '], 'target': 'A.P4'}]})])"
@@ -4811,6 +4811,23 @@ ef = I.EntryFinder(m, types.SimpleNamespace(of_doc=lambda q: may.get(q, set())),
 e = {r: x['menu_nth'] for x in ef.entries('M.C') for r in x['roles']}
 print('admin M.C', e['Admin'], 'clerk M.C', e['Clerk'])"
 # a role that sees every item keeps the all-items position (the per-role count changes nothing when nothing is hidden)
+# two icon items both changed: each is its own candidate (id carries the target), so Clerk (who cannot see M.A) clicks #1 and asserts M.C,
+# not "#1 = M.A" merged with M.C (review of #93: one candidate 'menu:  #1' with roles {Clerk, Admin}, target M.A)
+ctl impact-menu-icon-candidate-id-catch 0 "^M.A Admin 0\$" "^M.C Admin 1\$" "^M.C Clerk 0\$" "^3 candidates\$" -- python3 -c "
+import sys, types; sys.path.insert(0,'$B'); import impact_map as I
+web = {'menu': [{'path': [' '], 'target': 'M.A'}, {'path': ['Orders'], 'target': 'M.B'}, {'path': [' '], 'target': 'M.C'}]}
+may = {'M.A': {'Admin'}, 'M.B': {'Admin', 'Clerk'}, 'M.C': {'Admin', 'Clerk'}}
+I.flow_tree = lambda *a, **k: set()
+I.login_facts = lambda *a, **k: {'docs': []}
+m = types.SimpleNamespace(docs={q: types.SimpleNamespace(type='Forms\$Page', data={}) for q in may}, callers_index=lambda: {},
+    page_roles=lambda q: [], after_startup=lambda: {}, of_type=lambda t: [], navigation=lambda: {'Web': web})
+roles = types.SimpleNamespace(of_doc=lambda q: may.get(q, set()), all=['Admin', 'Clerk'], guest=None)
+ch = [{'kind': 'document', 'qn': q, 'module': 'M', 'severity': 'high', 'detail': 'x', 'doc_type': 'Forms\$Page'} for q in ('M.A', 'M.C')]
+cs = [c for c in I.candidates(m, m, ch, roles, {}, web)[0] if c['kind'] == 'menu']
+for c in cs:
+    for r in sorted(c['roles']):
+        print(c['target'], r, c['menu_nth'])
+print(len(cs), 'candidates')"
 ctl actions-entries-icon-nth-all-visible-pass 0 '^Clerk M\.A 0 #1$' '^Clerk M\.C 1 #2$' -- python3 -c "
 import sys, types; sys.path.insert(0, '$B'); import action_inventory as A
 m = types.SimpleNamespace(docs={'M.A': 1, 'M.C': 1}, navigation=lambda: {'Web': {'kind': 'Responsive', 'menu': [
@@ -6548,7 +6565,7 @@ for cap, name in ((' ', 'blank'), ('Home', 'named')):
   ctl gen-journeys-blank-caption-menu-skip-catch 0 "'act-Shop\.Home\.btnA' \['icon-menu'\]" -- python3 -c "import json; [print(repr(s['id']), s['reasons']) for s in json.load(open('$SC/icm-gen-blank/plan.json'))['skipped']]"
   ctl gen-journeys-named-menu-entry-kept-pass 0 '^1 journeys,' -- cat $SC/icm-named.out
   ctl gen-journeys-all-skipped-plan-written-catch 0 '^0 journeys, .* 11 skipped' '!Traceback' -- cat $SC/icm-blank.out
-  # cold pdm: an icon item now carries its position among same-caption items (menu_nth, as in the impact map) and the
+  # a field run: an icon item now carries its position among same-caption items (menu_nth, as in the impact map) and the
   # action journey clicks it by position (#65) instead of skipping; a blank GROUP above an item still has no handle
   python3 -c "
 import json

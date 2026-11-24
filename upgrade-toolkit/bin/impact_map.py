@@ -750,7 +750,7 @@ def tree_refs_constants(m, tree):
 def menu_positions(web, visible=None):
     """(menu item, nth) per item of a navigation profile's menu, in model order. nth is set only for an item whose own
     caption is blank (icon only): its position among the items with that same caption, the handle the nav verb clicks
-    by (helpers.navTo, #65), since the tree renders every item as a[title] in this order. Cold pdm: every role-menu item
+    by (helpers.navTo, #65), since the tree renders every item as a[title] in this order. A field run: every role-menu item
     was " ", so all impact menu journeys navigated to the first one, and two icon items shared one candidate id.
     visible: a predicate on an item. The tree a role sees holds only its visible items, so the position is counted over
     those; a hidden item is neither counted nor yielded (a role with the first icon item hidden must click #1, not #2)."""
@@ -1303,8 +1303,8 @@ def candidates(old, new, changes, roles, rfacts, web):
                 ents = [e for e in ents if e["kind"] not in ("page", "client_microflow")] + fb[:2]
             for e in ents:
                 if e["kind"] == "menu":
-                    nth = e.get("menu_nth")   # an icon-only item: its position keeps it apart from the other blank ones
-                    cid = "menu:" + " > ".join(e["menu"]) + ("" if nth is None else f" #{nth + 1}")
+                    nth = e.get("menu_nth")   # an icon-only item: its position (per role) and its target keep it apart from the other blank ones
+                    cid = "menu:" + " > ".join(e["menu"]) + ("" if nth is None else f" #{nth + 1} {e['target']}")
                     cand(cid, "menu", f"Open {' > '.join(e['menu'])} and use it", e["roles"], why, ch["severity"],
                          menu=e["menu"], target=e["target"], via=e["via"], **({} if nth is None else {"menu_nth": nth}))
                 elif e["kind"] == "home":

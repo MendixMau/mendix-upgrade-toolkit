@@ -741,7 +741,7 @@ def menu_journey(cand, role, model, old=None):
     item = cand.get("menu")
     if not item:
         return None, None
-    # an icon-only item (blank caption, cold pdm: every role-menu item " ") is found by its position among the items with
+    # an icon-only item (blank caption, seen in a field run: every role-menu item " ") is found by its position among the items with
     # that caption (impact_map menu_nth); a blank group above it has no such handle: the group is opened by caption
     nth = cand.get("menu_nth")
     if any(not (c or "").strip() for c in item[:-1]) or (not (item[-1] or "").strip() and nth is None):
@@ -1100,7 +1100,7 @@ class ActionGen:
             return ["profile"], f"the path enters through navigation profile {e.get('profile') or '?'}: the engine runs the Responsive profile"
         # a blank caption (" ", cold run 4: every item of the role menu) is as icon-only as an empty one; the nav verb
         # looked for item " " and the journey failed on both apps as a baseline defect, not as this skip. An icon item
-        # with its position (menu_nth, cold pdm) is clicked by position (#65); a blank group above it is not
+        # with its position (menu_nth, field run) is clicked by position (#65); a blank group above it is not
         m = e.get("menu") or [None]
         if e.get("via") == "menu" and not all((c or "").strip() for c in m[:-1]):
             return ["icon-menu"], "the path starts under a menu group without a caption (icon only): the nav verb opens groups by caption"
