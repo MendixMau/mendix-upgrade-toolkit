@@ -314,7 +314,7 @@ cmd_rung() {
         grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG" "$bapp");;
     idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md" --json "$G/idcheck.json");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
-    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); idcheck_json_args; CMD+=(--md "$G/diff.md");;
+    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); CMD+=(--restart "$V_WORK/restart.json"); idcheck_json_args; CMD+=(--md "$G/diff.md");;
     rest) CMD=("$PY" "$B/restcontract.py" "$V_REST_BEFORE" "$V_REST_AFTER");;
     logdiff) CMD=("$PY" "$B/logdiff.py" "$V_OLD_LOG" "$V_NEW_LOG"); opt --allow "$V_LOG_ALLOW"; CMD+=(--md "$G/logdiff.md");;
     smoke)
@@ -347,7 +347,7 @@ show_cmd() { local s; s=$(printf '%q ' "${CMD[@]}"); mask "${s% }"; }
 PASSSTAR='(PASS\* [1-9]|[1-9][0-9]* PASS\*)'
 oneline() { # the rung's own summary line(s): its counts, else the last line
   local f=$1 l
-  l=$( { grep -m1 '^bar: ' "$f" 2>/dev/null; grep -E -m4 '^(verdict|layout: [0-9]+ pages|apis [0-9]+ found|requests seen: [0-9]+|direct API test: |findings|pairs|journeys|actions [0-9?]|coverage: |screens|steps|auto:|release-impact check|INVALID [0-9]+ \| FAIL|.*FAIL [0-9]+ \||constcheck|logdiff|BUILD)' "$f" 2>/dev/null; } | tr '\n' ';' | sed 's/;$//')
+  l=$( { grep -m1 '^bar: ' "$f" 2>/dev/null; grep -E -m4 '^(verdict|start noise|layout: [0-9]+ pages|apis [0-9]+ found|requests seen: [0-9]+|direct API test: |findings|pairs|journeys|actions [0-9?]|coverage: |screens|steps|auto:|release-impact check|INVALID [0-9]+ \| FAIL|.*FAIL [0-9]+ \||constcheck|logdiff|BUILD)' "$f" 2>/dev/null; } | tr '\n' ';' | sed 's/;$//')
   [ -n "$l" ] || l=$(grep -v '^[[:space:]]*$' "$f" 2>/dev/null | tail -1)
   printf '%s' "${l:-no output}" | cut -c1-200
 }

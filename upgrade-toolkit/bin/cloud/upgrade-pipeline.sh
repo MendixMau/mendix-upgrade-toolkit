@@ -1382,7 +1382,22 @@ step_baseline() {
   # controls (steps/baseline.md item 4)
   rc=0; x python3 "$B/diff.py" "$WORK/before.json" "$WORK/before.json" || rc=$?
   [ "$rc" = 0 ] || die4 "control failed: diff before vs before is not clean (exit $rc): the instrument is broken, log: $LOG"
+  baseline_twin
   todo_mutant_control
+}
+# GF-51: the restart control belongs to the baseline, not to heal: a run with no heal, or whose journeys never ran, had no restart.json,
+# so diff.py could not tell start noise from a regression. It must not fail the baseline (the control is a measurement, and the gate
+# says "start noise not measured" without it), so a failed twin is a note and the twin app is stopped.
+baseline_twin() {
+  [ "$DRY" != 1 ] || { say "+ restart control: heal_twin (second start of the old app, restart.json, twin-old.md)"; return 0; }
+  local rc=0
+  ( heal_twin ) || rc=$?
+  if [ "$rc" != 0 ]; then
+    app_down oldtwin
+    # a failed twin can leave a restart.json of an earlier run: it would be read as THIS baseline's control, so it goes
+    rm -f "$WORK/restart.json" "$WORK/twin-old.md"
+    note "restart control did not complete (exit $rc, log: $LOG): the gate will say start noise not measured"
+  fi
 }
 
 # TODO (not automated): the mutant control needs a data-bearing table and column chosen from the schema and a value
@@ -2329,8 +2344,13 @@ step_journeys() {
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
   must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
+  # GF-50: a cap on the journeys: UPG_JOURNEYS_MAX=N and/or UPG_JOURNEYS_BUDGET_MIN=M. The new app is compared to the old run (--compare), and run_journeys.py defers there
+  # every journey the old app deferred (parity), so the same journeys are walked on each side
+  local cap=()
+  [ -z "${UPG_JOURNEYS_MAX:-}" ] || cap+=(--max "$UPG_JOURNEYS_MAX")
+  [ -z "${UPG_JOURNEYS_BUDGET_MIN:-}" ] || cap+=(--budget-min "$UPG_JOURNEYS_BUDGET_MIN")
   local jb=(python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --port "$APP_PORT" --psql "$(psql_str "$db")"
-    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"})
+    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"} ${cap[@]+"${cap[@]}"})
   rc=0; xo "$WORK/journeys-before-picked.out" "${jb[@]}" || rc=$?
   local r0=$rc; rc=0; journeys_resume oldjp "$old" "$SOURCE" "$db" "$WORK/journeys-before-picked.out" "$r0" -- "${jb[@]}" || rc=$?
   app_down oldjp
@@ -2347,7 +2367,7 @@ step_journeys() {
   # WM1 2026-11-17: a journey that failed on the old app and feeds no later one is listed SKIPPED, not walked again (UPG_JOURNEYS_ALL=1 walks all)
   [ "${UPG_JOURNEYS_ALL:-0}" = 1 ] || ev+=(--skip-baseline-fail)
   local ja=(python3 "$B/run_journeys.py" "$WORK/journeys" --label after --port "$APP_PORT" --psql "$(psql_str "$db")"
-    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-after" --pause 50 ${act[@]+"${act[@]}"}
+    --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-after" --pause 50 ${act[@]+"${act[@]}"} ${cap[@]+"${cap[@]}"}
     --compare "$WORK/e2e-before-picked" ${sa[@]+"${sa[@]}"} ${ev[@]+"${ev[@]}"})
   rc=0; xo "$WORK/journeys-after.out" "${ja[@]}" || rc=$?
   local r0=$rc; rc=0; journeys_resume newjp "$(mda_new)" "$TARGET" "$db" "$WORK/journeys-after.out" "$r0" -- "${ja[@]}" || rc=$?
@@ -2391,7 +2411,7 @@ heal_twin() { # the restart control (steps/baseline.md item 4, PV-7): a second s
   if [ -f "$WORK/twin-old.md" ] && [ "$WORK/twin-old.md" -nt "$WORK/before.json" ]; then return 0; fi
   local db rc=0 ep_args=()
   db=$(fresh_name "${X}_restart"); copy_db "$X_FROZEN" "$db"
-  app_up oldtwin "$(mda_old)" "$SOURCE" "$db" || die4 "old app did not start for the restart control (log: $LOG)"
+  app_up oldtwin "$(mda_old)" "$SOURCE" "$db" || { app_down oldtwin; heal_drop "$db"; die4 "old app did not start for the restart control (log: $LOG)"; }   # the copy is dropped on this exit too
   [ ! -s "$WORK/endpoints.txt" ] || ep_args=(--endpoints "$WORK/endpoints.txt")
   x python3 "$B/snapshot.py" --label restart --ledger "$WORK/db-ledger.txt" --psql "$(psql_str "$db")" \
     --app-url "http://localhost:$APP_PORT" ${ep_args[@]+"${ep_args[@]}"} --log-cmd "docker logs ${UPG_NAME:-mig}-oldtwin" \
