@@ -1,0 +1,3 @@
+{"modules": [{"name": "Administration", "appstore": [23513, "4.5.0"],
+   "pages": [{"name": "Account_NewEdit", "widgets": ["com.mendix.widget.web.combobox.Combobox"]},
+             {"name": "Old_Page", "excluded": true, "widgets": ["com.mendix.widget.web.never.Never"]}]}]}

@@ -11,7 +11,7 @@ Rules (each line of output names one):
   wait-no-ask      a row whose plan cell asks for an approval ("Not approved yet", "Needs your OK") while the plan is signed
                    and Blocked on you does not hold that item
   stop-no-ask      the red stop bar says the run waits for you, and Blocked on you is empty
-  stop-and-running the red stop bar and the "Running now" bar at the same time
+  stop-and-running the stop bar and the "Running now" bar at the same time
   ask-no-evidence  a plan question card that lists no element, file or finding behind it (evidence.py found nothing)
   count-mismatch   a Blocked on you card that "for you now" does not list while the run is stopped for a person
   keep-recommended a module card that recommends keeping the old version without a reason and an end date (an edit is no
@@ -37,7 +37,8 @@ def check(work):
     asks = cockpitmatrix.open_questions(model)
     ask_names = {re.sub(r"\s*\((module|widget|jar|java)\)$", "", i.get("title", "")) for i in asks}
     plan = cockpitpage.rd(os.path.join(work, "PROPOSAL.md")) or ""
-    in_plan = set(re.findall(r"\[(P-\d+)\]", plan))
+    plan_items = re.sub(r"(?ms)^## Agent notes\n.*?(?=^## |\Z)", "", plan)   # a note that says "see [P-3]" is not the plan naming P-3
+    in_plan = set(re.findall(r"\[(P-\d+)\]", plan_items))
     recs, _ = stp.load(work)
     for r in recs or []:
         decided = (r.get("approval") or {}).get("state") in ("approved", "rejected")   # a module the update kept after the sign-off
@@ -59,7 +60,7 @@ def check(work):
     if stopped and not asks and str(stopped.get("code")) in ("14", "15"):
         out.append("stop-no-ask the red bar says the plan waits for your answers, and Blocked on you is empty")
     if stopped and running:
-        out.append(f"stop-and-running the red stop bar (exit {stopped.get('code')}) shows while the run is running")
+        out.append(f"stop-and-running the stop bar (exit {stopped.get('code')}) shows while the run is running")
     if stopped:
         mine = [o for o in M["band"]["open"]["items"] if o["owner"] != "agent" and o["group"] != "At deploy"]
         miss = [i["title"] for i in asks if i["kind"] != "signoff" and not any(

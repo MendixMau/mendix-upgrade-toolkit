@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rolecheck.py: module roles that a module update ADDED and no user role holds (PLM-26, NR2-16), and mapped module roles
+"""rolecheck.py: module roles that a module update ADDED and no user role holds (APPD-26, NR2-16), and mapped module roles
 that no longer exist (MC-8, MC-9).
 
 Why: Atlas_Core 3.21 added the module roles Atlas_Core.User and Atlas_Core.Administrator. Nothing mapped them to a user

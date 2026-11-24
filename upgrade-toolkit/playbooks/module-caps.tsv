@@ -1,0 +1,7 @@
+# module-caps.tsv: a module that must not be planned above a version while another module is installed (GM-14).
+# Read by bin/atlascap.py (steps/triage.md item 4, after crosscalls.py). Columns: id, when_installed (module name in the
+# app), capped module, max version (inclusive), status, why, source. status "grounded" = the cap was proved on a run;
+# "check" = taken from the run's observation, the exact boundary is not verified (confirm with `mxcli marketplace versions`
+# and a build before relying on it). A cap holds a plan line back; it never downgrades an installed version.
+id	when_installed	capped	max_version	status	why	source
+C1	PlatformDesignSystem	Atlas_Core	3.19.0	check	Atlas_Core 3.20+ (3.22.0 and 4.6.0 seen) uses `@extend .col-<bp>-3`, which needs the PDS grid; mx check and idcheck pass, only the mxbuild theme compile fails. 3.19.0 is the version that built before the step. Whether a later 3.19.x exists, and which PDS version brings the grid, are not verified. WorkflowCommons 4.3+ needs Atlas 4: atlascap.py prints CONFLICT and leaves the plan alone	GM-14 (10.24.21 to 11.12.7 run, a PDS app)

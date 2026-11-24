@@ -190,7 +190,7 @@ def home_texts(model, qn, limit=2, lang="en_US"):
     (NOT_ON_SCREEN_KEY). The page Title counts only when a page title widget (on the page or its layout) or a popup
     layout's dialog header renders it.
     N1R2-3: "Type search text here..." (a text box placeholder) and "Home" (the page Title, no title widget on the
-    page) were asserted and both login journeys FAILed on the unchanged OLD Opcenter app."""
+    page) were asserted and both login journeys FAILed on the unchanged OLD App A app."""
     if model is None or not qn or qn not in model.docs:
         return []
     import impact_map as I
@@ -425,12 +425,13 @@ def mfa_journey(role, f, login, sign_out_path, reasons):
 
 def signout_journey(role, f, login):
     """Sign out from the role menu: the login page renders and the role menu is gone (E5b 6). A layout menu item with
-    an empty caption on its path (T2R3-4: the Opcenter icon-only user dropdown) is opened by clicking the rendered
+    an empty caption on its path (T2R3-4: the App A icon-only user dropdown) is opened by clicking the rendered
     item names in turn (sign_out_clicks: menuBar2-0, menuBar2-0-1), as the T2R3 hand journey did."""
     path, button, clicks = f.get("sign_out_item"), f.get("sign_out_button"), f.get("sign_out_clicks")
     if not path and not button and not clicks:
         return None
-    ready = f".mx-name-{login['button']}" if login.get("button") else "#loginButton,.mx-name-loginButton,input[type=password]"
+    # a login page that folds the local form under a "Show alternative login" link (SITS) has no visible button or password field
+    ready = f".mx-name-{login['button']}" if login.get("button") else "#loginButton,.mx-name-loginButton,input[type=password],a.alt-login"
     shown = f.get("menu_visible") or []
     if path:
         acts = [{"do": "nav", "group": path[0] if len(path) > 1 else None, "item": path[-1], "settleMs": 5000, "label": "Sign out"}]
@@ -462,8 +463,13 @@ def create_journey(spec, data_rung=False):
     acts += [{"do": "click", "widget": spec["newButton"], "label": "New"}]
     # a field with "do": "select" picks from a reference selector ({"match": caption} or {"first": true}); the rest fill
     # (cold test WM1: an Office needs its Time zone, a reference selector, before Save is accepted)
-    acts += [{"do": "select", "widget": f["widget"], **({"match": f["match"]} if f.get("match") else {"first": True})}
-             if f.get("do") == "select" else {"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
+    # "do": "combo" is the Combo box pluggable widget (journey-verbs.js combo); a field with no "do" fills and needs a value
+    for f in spec.get("fields", []):
+        if f.get("do") not in (None, "fill", "select", "combo") or (f.get("do") in (None, "fill") and "value" not in f):
+            raise SystemExit(f"create spec: field {f.get('widget')!r} needs \"do\": select (drop-down or reference selector), "
+                             f"combo (Combo box widget) or a \"value\" to fill; got do={f.get('do')!r}")
+    acts += [{"do": f["do"], "widget": f["widget"], **({"match": f["match"]} if f.get("match") else {"first": True})}
+             if f.get("do") in ("select", "combo") else {"do": "fill", "widget": f["widget"], "value": f["value"]} for f in spec.get("fields", [])]
     acts += [{"do": "click", "widget": spec["saveButton"], "label": "Save"}]
     ui = {"ready": spec.get("ready") or ".mx-page"}
     for k in ("textPresent", "textAbsent"):
@@ -471,11 +477,18 @@ def create_journey(spec, data_rung=False):
             ui[k] = spec[k]
     step = {"name": f"create and save one {spec['entity']}", "actions": acts, "ui": ui}
     if data_rung:
-        step["data"] = {"creates": spec["entity"], "delta": 1, "scope": {"newRowsBy": "id"}}
+        # RM-2: a form that edits a singleton (retrieve first, else create) never adds a row: the spec says "delta": 0
+        delta = spec.get("delta", 1)
+        if isinstance(delta, bool) or not isinstance(delta, int) or delta < 0:
+            sys.exit(f"create spec: \"delta\" must be a whole number of 0 or more (rows the save adds), got {delta!r}")
+        step["data"] = {"creates": spec["entity"], "delta": delta, "scope": {"newRowsBy": "id"}}
         # E2E-9: +1 says some row arrived; the own-row check says it is THIS run's row with the typed value
         own = [{"label": f"the run's own row: {f['attr']} = {f['value']}", "expect": 1,
                 "sql": f"SELECT COUNT(*) AS n FROM {spec['entity']} WHERE {f['attr']} = '{f['value']}'"}
                for f in spec.get("fields", []) if f.get("attr") and f.get("do") != "select"]
+        if delta == 0 and not own:
+            sys.exit("create spec: \"delta\": 0 needs a field with \"attr\" (not do: select): with no row added, "
+                     "the own-row check is the only proof the save landed")
         if own:
             step["data"]["oql"] = own
     j = journey("create-save", f"Core create-and-save: {spec['entity']}", spec["role"],
@@ -1413,13 +1426,13 @@ def main():
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import mprmodel
         model = mprmodel.Model.load(m["new"]) if m.get("new") else None
-    except Exception as e:  # journeys still generate; menu guards fall back to .mx-page
+    except (SystemExit, Exception) as e:  # journeys still generate; menu guards fall back to .mx-page
         print(f"note: new model not loaded ({e}); menu landing guards fall back to .mx-page", file=sys.stderr)
     old = None
     if model is not None and m.get("old") and m.get("old") != m.get("new"):
         try:  # before-picked runs on the OLD app: a guard must exist on both (E6-18)
             old = mprmodel.Model.load(m["old"])
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             print(f"note: old model not loaded ({e}); menu guards are checked against the new model only", file=sys.stderr)
     emitted_login = set()
     reach = None
@@ -1526,7 +1539,7 @@ def main():
             try:   # the model actions.json was read from (the OLD app): landing guards and tab steps come from it
                 import mprmodel
                 amodel = mprmodel.Model.load(apath)
-            except Exception as e:
+            except (SystemExit, Exception) as e:
                 print(f"note: actions model not loaded ({e}); action guards fall back to .mx-page", file=sys.stderr)
         if amodel is None:   # B4T2-11: say it, a journey without its tab step FAILs on a healthy app
             print(f"note: actions model {apath or '(none named)'} not loaded: tab steps NOT checked (a widget on a tab "

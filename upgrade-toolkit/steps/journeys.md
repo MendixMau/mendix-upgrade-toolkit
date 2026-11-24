@@ -30,7 +30,7 @@ Start every app used for journeys with `UPG_SESSION_TIMEOUT=30000` (runapp.py se
 ClusterManagerActionInterval): a trial runtime allows 6 sessions, guest sessions count, and a full cap shows up as
 "login form did not render".
 
-**SSO login pages (T2-7, N1-4).** If the deployment `login.html` redirects to an external IdP (Opcenter UMC `./auth/v1/login`),
+**SSO login pages (T2-7, N1-4).** If the deployment `login.html` redirects to an external IdP (App A UMC `./auth/v1/login`),
 journeys and smoke walks cannot sign in. `runapp.py` detects this (`--login-override auto`, the default; env
 `UPG_LOGIN_OVERRIDE`), replaces `web/login.html` with the app's own `login.old` / `login-stock.html` for old AND new alike (no stock page: left
 as it is and sign-in journeys are INVALID; the toolkit never invents a login form),
@@ -38,7 +38,7 @@ prints a `HARNESS CONDITION` line and writes `run/<name>/harness-login-override.
 app's own SSO sign-in is not exercised. A normal Mendix login page is never touched; `--login-override off` disables it,
 `--login-override <file>` forces a page. Do not hand-copy login pages over the deployment any more.
 
-**Windows-path harness files (T2R3-5, B4T2-13).** An add-on that builds a Windows path at runtime (EXFN_Authentication
+**Windows-path harness files (T2R3-5, B4T2-13).** An add-on that builds a Windows path at runtime (MFN_Authentication
 reads `run/<name>\model\metadata.json`) fails with FileNotFoundException on Linux. `runapp.py` creates that file for
 old AND new (`--harness-file auto`, the default; env `UPG_HARNESS_FILE`): a copy of the unpacked app's own
 `model/metadata.json`, removed and recreated on every start. It prints a `HARNESS FILE` line and writes
@@ -122,7 +122,7 @@ counted as INFO UNPROVEN: they stay INVALID in the gate, but they are not contro
 
 create-spec.json, once per app: `{"role", "nav": {"group", "item", "nth"?}, "newButton", "fields": [{"widget", "value", "attr"}],
 "saveButton", "entity", "ready", "textPresent": [...], "textAbsent": [...]}`. A reference selector is a field
-`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). Without it create-and-save stays a todo,
+`{"widget", "do": "select", "match": "<option caption>"}` (without `match`: its first option). The same field also drives a Radio buttons group (`match` = the radio's own label, else the first enabled radio). Without it create-and-save stays a todo,
 which is INVALID, never covered. `textPresent` is the saved value as the grid shows it, `textAbsent` the validation
 messages: a ready selector alone was satisfied by the grid BEHIND a popup whose save was refused (E4-14, E5b-12), and
 gen_journeys warns when the spec has no textPresent. Put `${RUN_ID}` in the field value and in textPresent: it is
@@ -131,7 +131,9 @@ unique per run, so a reused database cannot satisfy the check with a row from an
 "Data" below), since no runapp runtime answers `mxcli oql --direct` (E5b-11). Name the attribute each field writes
 (`"attr": "Alias"`): with `--data-rung` every such field adds an own-row check, `COUNT(*) FROM <entity> WHERE <attr> =
 '<value with ${RUN_ID}>'` = 1, so the row judged is this run's row and not one an earlier run left (E2E-9); without any
-`attr` gen_journeys warns that only +1 is checked.
+`attr` gen_journeys warns that only +1 is checked. A form that edits a singleton (the page retrieves the one row, else creates it) never adds a row: put
+`"delta": 0` in the create spec (default 1) and the data rung asks for no change in the count; the own-row check on `attr` then
+carries the proof that the save landed, so `"delta": 0` without a field that has `attr` is refused (RM-2).
 
 ## At the gate (new app, on a copy of X_frozen)
 
@@ -261,8 +263,8 @@ attribute types, and the todo reasons a generator cannot get past (`combobox`, `
   module opens gets "the click path is unknown, not absent". A model that cannot be read exits 1, never an empty list.
 - `no-click-path` is a finding to look at, not noise: on T1R2's model Vendor_Select is allowed to InvoiceProcessor only
   while its only opener sits on the PurchaseOrderCreator task page.
-- Field runs: T2 Opcenter EX Starter Kit 2.1.0 `actions 34 found` (the four HW14 cards with a path; create-spec.json's
-  newButton1/actionButton1 found, kind and path unknown behind the EXFN_Authentication add-on); Purchase Request 1.9.0
+- Field runs: T2 vendor starter-kit 2.1.0 `actions 34 found` (the four HW14 cards with a path; create-spec.json's
+  newButton1/actionButton1 found, kind and path unknown behind the MFN_Authentication add-on); Purchase Request 1.9.0
   (T1R2) `actions 196 found`, every one of the run's 12 todo pages accounted for; customer `actions 21 found`.
 - Proof: controls `action-inventory-*` on a golden captured from the real Starter Kit model (controls/lib/capture_units.py),
   and `field-action-inventory-customer-pass`.
@@ -348,7 +350,7 @@ alone still gives 7, and `--actions` adds 125.
 - Open: deletes (`_destructive`) remove the first row they are given, so a later journey of the same role can miss it;
   the run order inside a role folder is the file order. A flow that opens a page is guarded by `.mx-page` only. The
   `row` and `select first` verbs have not run on a live app yet.
-- Field runs (E2E-10), `actions.json` from action_inventory.py on the real models: T2 Opcenter EX Starter Kit 2.1.0
+- Field runs (E2E-10), `actions.json` from action_inventory.py on the real models: T2 vendor starter-kit 2.1.0
   34 found, 16 generated, 18 not (no-click-path 18, no-role 4; with T2R3's create-spec 16 + 2 override, 16 not); Purchase
   Request 1.9.0 196 found, 125 generated, 71 not (no-click-path 71, no-role 21); customer 21 found, 5 generated, 16 not
   (combobox 6, external-call 1, no-click-path 14, no-role 5). Every generated file parses and uses only verbs the
@@ -399,8 +401,8 @@ Every run of run_journeys.py prints, under `journeys:`, and stores in summary.js
   `u PASS* (unreachable in the OLD UI, evidence checked)` and the coverage line ` · u todo unreachable in the OLD UI
   (evidenced, PASS*)`; the denominator does not change (dead is not covered), and it is never PASS. A check that fails
   leaves the row INVALID with `[UNREACHABLE refused, evidence line i: <why>]`. The model alone is no proof when a
-  module is protected: on the Opcenter Starter Kit the inventory called ClientConfiguration_NewEdit unreachable while
-  the EXFN add-on opens ClientConfiguration_Overview, which leads to it (create-save walks it). Give the add-on's
+  module is protected: on the App A Starter Kit the inventory called ClientConfiguration_NewEdit unreachable while
+  the MFN add-on opens ClientConfiguration_Overview, which leads to it (create-save walks it). Give the add-on's
   .mpk / .mxmodule or unpacked folder; a search that cannot read it (compressed, wrong module) refuses.
 - Proof: controls `journeys-coverage-*` (each rule a catch and a pass), `journeys-headline-*`, `journeys-unreachable-*`,
   `gate-journey-actions-*`, `gate-journey-coverage-*`.
@@ -538,6 +540,22 @@ Never write `create*`, `update*`, `revise*`, `set*`, `delete*`, workflow or BOM 
 or default action (TC-2). Direct calls (probes, proof lookups) all go through one allowlist client that refuses
 anything not on the READ list. One account runs one session at a time (TC-6): do not run connector journeys in
 parallel roles on the same account (use `--pause`, and no parallel gate runs).
+
+## Long runs: checkpoints, a cap, the estimate (GF-50)
+
+- `summary.json` is written (whole or not at all) before each batch of `--chunk N` journeys (default 25), so a run that is stopped
+  (killed, rebooted, disk full) keeps every batch it finished. `--resume` then runs the journeys the file does not hold, plus any
+  `app_down` one.
+- The proposal's testing plan prints an `estimate:` line (journeys in scope x seconds each, measured from `state/journeys-pace.tsv`
+  else 80 s) before anything runs. `--max N` and/or `--budget-min M` (pipeline: `UPG_JOURNEYS_MAX`, `UPG_JOURNEYS_BUDGET_MIN`) cap
+  it: impact-picked journeys first, then always-on, then the rest. The others are INVALID with `deferred: true` in `summary.json`
+  and the run prints `cap: running S of T journeys ...; D deferred, NOT run`. Deferred is INVALID (not measured), never a PASS and
+  never a FAIL. `--resume` with no cap runs them. The new app is capped to the old app's run set: a journey the old app deferred is
+  deferred on the new one too (`parity:` line), so both sides compare the same journeys.
+- A pipeline rerun of `--from journeys` starts the journeys fresh (it walks everything again). To keep the journeys already walked,
+  run `run_journeys.py --resume` on the same `--work` and `--label` instead.
+- A journey app left running by a stopped run: the pipeline's EXIT trap stops every app it started, and `runapp.py start` removes
+  a container of its own name first, so the next run does not meet it. A kill -9 of the pipeline itself skips the trap: `docker rm -f <UPG_NAME>-oldjp`.
 
 ## Stop rules
 

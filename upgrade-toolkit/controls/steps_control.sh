@@ -3,7 +3,7 @@
 # Builds a throwaway work folder, runs one case and prints what it saw.
 set -u
 here=$(cd "$(dirname "$0")" && pwd); B=$(cd "$here/.." && pwd)/bin
-case_=$1; T=${TMPDIR:-/tmp}/steps-ctl.$$; trap 'rm -rf "$T"' EXIT
+case_=$1; T=${TMPDIR:-/tmp}; T=${T%/}/steps-ctl.$$; trap 'rm -rf "$T"' EXIT
 W=$T/work; mkdir -p "$W"
 st() { python3 "$B/steps.py" "$@" --work "$W"; }
 fieldof() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2], {"d": d}))' "$@"; }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """jarclash.py: find Java classes that two jars both carry, also when one copy hides inside another jar.
 
-Why: jardedupe.py and test_inventory.py compare jar FILE NAMES. Academy 10.18 to 11.15 (AC-6): CommunityCommons
+Why: jardedupe.py and test_inventory.py compare jar FILE NAMES. App C 10.18 to 11.15 (AC-6): CommunityCommons
 11.5.1 needs a newer PDF library, and the build broke on an old copy of it that no file name showed: it sat inside
 an unused 20 MB Markdown library (flexmark, 2021), and in PDFReader 1.0.0, a module with no newer version. The
 team removed old library files over several commits; the CLI run found them by trial. Classes are what the class

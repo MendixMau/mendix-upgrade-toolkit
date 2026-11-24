@@ -1,0 +1,16 @@
+{
+ "modules": [
+  {
+   "name": "FileMgr", "appstore": [90001, "1.0.0"],
+   "entities": [
+    {"name": "StoredFile", "persistent": true, "generalization": "System.FileDocument", "attributes": []}
+   ]
+  },
+  {
+   "name": "Shop",
+   "entities": [
+    {"name": "Order", "persistent": true, "attributes": [{"name": "Total", "type": "Decimal"}]}
+   ]
+  }
+ ]
+}

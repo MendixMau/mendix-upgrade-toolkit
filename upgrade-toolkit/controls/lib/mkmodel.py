@@ -3,7 +3,7 @@
 
 Synthetic on purpose: controls are committed, so fixtures hold Marketplace and System names only, never an app's own
 modules, values or secrets. The units have the fields the toolkit reads (same $Type names and shapes as a real MPR,
-captured from the E1/E5 projects), nothing more. A real-evidence control reads ~/upgrade-lab instead.
+captured from the E1/E5 projects), nothing more. A real-evidence control reads $HOME/field-lab (or UPG_LAB) instead.
 
   mkmodel.py spec.json <out dir>          writes <out dir>/App.mpr (+ widgets/*.mpk, javasource/... when specified)
 
@@ -39,6 +39,8 @@ Spec (all keys optional except modules):
    "widget_packages": {"Markdown.mpk": ["com.mendix.widget.web.markdown.Markdown"],
                        "Broken.mpk": {"ids": ["x.Y"], "defect": "crc" | "descriptor"},
                        "Old.mpk": {"ids": ["Old.widget.Old"], "dojo": true, "version": "1.2.0"}},
+   (modules also take "jars": [{"group", "artifact", "version"}] = a Projects$ModuleSettings unit, GM-11; the shape is ASSUMED
+    from the Mendix model SDK, no real capture was available)
    "files": {"javasource/x/actions/A.java": "...", "userlib/a-1.0.jar": ""}}
 GUIDs default to uuid5(name), so two specs that share an element share its GUID unless one overrides "guid".
 
@@ -150,7 +152,7 @@ def named(owner, ws):
 
 
 def cwidget(owner, i, w):
-    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN}}}. TEXT is a
+    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN} | {"form": QN} | {"widgets": N}}}. TEXT is a
     String property (PrimitiveValue), {"text"} a TranslatableString (Texts$Text), {"attr"} an Attribute: the Type's
     ObjectType declares each key, the Object's properties point at it (the shape of a 10.24 Any Chart unit)."""
     w = {"id": w} if isinstance(w, str) else w
@@ -160,13 +162,18 @@ def cwidget(owner, i, w):
     if w.get("props"):
         pts, ps = [], []
         for j, (key, v) in enumerate(w["props"].items()):
-            kind = "Attribute" if isinstance(v, dict) and "attr" in v else "TranslatableString" if isinstance(v, dict) else "String"
+            kind = ("Attribute" if isinstance(v, dict) and "attr" in v else "Form" if isinstance(v, dict) and "form" in v
+                    else "Widgets" if isinstance(v, dict) and "widgets" in v else "TranslatableString" if isinstance(v, dict) else "String")
             pt = {"$ID": gid(f"wpt:{k}.{key}"), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": key,
                   "ValueType": {"$ID": gid(f"wvt:{k}.{key}"), "$Type": "CustomWidgets$WidgetValueType", "Type": kind}}
             val = {"$ID": gid(f"wv:{k}.{key}"), "$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "",
                    "TranslatableValue": None, "AttributeRef": None}
             if kind == "String":
                 val["PrimitiveValue"] = v
+            elif kind == "Form":   # GM-19: the page a form property points at is WidgetValue.Form, a qualified name ("" = none)
+                val["Form"] = v["form"]
+            elif kind == "Widgets":   # GM-19: v["widgets"] child widgets, as a Widgets list
+                val["Widgets"] = lst({"$ID": gid(f"wc:{k}.{key}.{n}"), "$Type": "Forms$Text", "Name": f"text{n}"} for n in range(v["widgets"]))
             elif kind == "TranslatableString":
                 val["TranslatableValue"] = mtext(f"wv:{k}.{key}", v["text"])
             else:
@@ -265,11 +272,17 @@ def build(spec, out):
         if m.get("appstore"):
             mod["AppStorePackageId"], mod["AppStoreVersion"] = m["appstore"][0], m["appstore"][1]
         units.append((mid, root, mod))
-        if m.get("module_roles"):   # PLM-26: "module_roles": ["User", "Administrator"] = Security$ModuleSecurity of the module
+        if m.get("module_roles"):   # APPD-26: "module_roles": ["User", "Administrator"] = Security$ModuleSecurity of the module
             msid = gid(f"modsec:{mn}")
             units.append((msid, mid, {"$ID": msid, "$Type": "Security$ModuleSecurity",
                                       "ModuleRoles": lst([{"$ID": gid(f"mr:{mn}.{r}"), "$Type": "Security$ModuleRole", "Name": r}
                                                           for r in m["module_roles"]])}))
+        if m.get("jars") is not None:   # GM-11: "jars": [{"group": G, "artifact": A, "version": V}] = Projects$ModuleSettings JarDependencies
+            jsid = gid(f"modsettings:{mn}")
+            units.append((jsid, mid, {"$ID": jsid, "$Type": "Projects$ModuleSettings",
+                                      "JarDependencies": lst([{"$ID": gid(f"jd:{mn}.{j['group']}:{j['artifact']}"), "$Type": "Projects$JarDependency",
+                                                               "GroupId": j["group"], "ArtifactId": j["artifact"], "Version": j["version"],
+                                                               "IsIncluded": True} for j in m["jars"]])}))
         ents, eid = [], {}
         for e in m.get("entities", []):
             qn = f"{mn}.{e['name']}"
@@ -400,9 +413,9 @@ def build(spec, out):
         con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uid, cid, bson.encode(d)))
     con.commit(); con.close()
     for name, ids in (spec.get("widget_packages") or {}).items():
-        defect, dojo, ver, js = None, False, None, None
-        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source"}
-            ids, defect, dojo, ver, js = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js")
+        defect, dojo, ver, js, pprops = None, False, None, None, {}
+        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source", "props": {key: type}}
+            ids, defect, dojo, ver, js, pprops = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js"), ids.get("props") or {}
         os.makedirs(os.path.join(out, "widgets"), exist_ok=True)
         wp = os.path.join(out, "widgets", name)
         with zipfile.ZipFile(wp, "w") as z:
@@ -410,7 +423,8 @@ def build(spec, out):
                 z.writestr("package.xml", f'<?xml version="1.0"?>\n<package><clientModule name="p" version="{ver}"/></package>\n')
             for i, w in enumerate(ids):
                 plug = "" if dojo else ' pluginWidget="true"'  # a Dojo widget declares no pluginWidget
-                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}></widget>\n')
+                body = "".join(f'<property key="{k}" type="{t}"><caption>{k}</caption></property>' for k, t in pprops.items())
+                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}>' + (f"<properties>{body}</properties>" if body else "") + "</widget>\n")
             if js is not None:  # the widget's JavaScript bundle (NR2-24: replacement row R35 reads it)
                 z.writestr("widget.js", js)
         raw = bytearray(open(wp, "rb").read())

@@ -1,0 +1,2 @@
+{"modules": [{"name": "Administration", "entities": [{"name": "X", "attributes": [{"name": "Label"}]}]},
+             {"name": "WidgetProv", "entities": [{"name": "E", "attributes": [{"name": "Label"}]}], "cross": [{"name": "E_X", "parent": "E", "child": "Administration.X"}]}]}

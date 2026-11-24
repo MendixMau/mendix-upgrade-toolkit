@@ -18,6 +18,19 @@
 #   UPG_PYTHON replaces python3, UPG_PW_OPT replaces /opt/pw-browsers (controls).
 if [[ ${1:-} == --host ]]; then
   py=${UPG_PYTHON:-python3}; bad=()
+  # GF-8: the scripts are bash and need 4.4 or newer; macOS ships 3.2, where an empty array under set -u is an error and a run died
+  # mid-triage. The bash on PATH is the one `#!/usr/bin/env bash` and `bash script` use. UPG_ASSUME_BASH=M.N stands in (controls).
+  bv=${UPG_ASSUME_BASH:-$(bash -c 'echo ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}' 2>/dev/null)}
+  if [[ -n $bv ]] && (( ${bv%%.*} < 4 || (${bv%%.*} == 4 && ${bv#*.} < 4) )); then
+    echo "toolcheck: REFUSED, bash $bv is too old (macOS ships 3.2; the scripts need 4.4 or newer). Install it with: brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\" (add that line to ~/.zshrc), open a new terminal and check that 'bash --version' says 5.x" >&2
+    exit 2
+  fi
+  # GF-14: the app port (8080+PORT_OFF) and the admin port (8090+PORT_OFF) must be free before a run builds anything. Warning only:
+  # a resumed run may hold them itself; the baseline step names the holder and stops before its build (runapp.py ports).
+  for p in $(( 8080 + ${PORT_OFF:-0} )) $(( 8090 + ${PORT_OFF:-0} )); do
+    command -v python3 > /dev/null && python3 -c "import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 if s.connect_ex(('127.0.0.1', int(sys.argv[1]))) == 0 else 1)" $p > /dev/null 2>&1 \
+      && echo "toolcheck: WARNING, port $p is in use on this machine: the old app cannot start on it (name the holder: docker ps --filter publish=$p; or set PORT_OFF to use other ports)" >&2
+  done
   for m in bson:pymongo bcrypt:bcrypt; do
     $py -c "import ${m%%:*}" > /dev/null 2>&1 || bad+=(${m#*:})
   done
@@ -41,6 +54,14 @@ if [[ ${1:-} == --host ]]; then
   echo "toolcheck: host OK ($py has pymongo/bson and bcrypt$(command -v rsync > /dev/null && echo ', rsync present'))"
   exit 0
 fi
+# toolcheck.sh --runtime <runtime dir> (GM-1): runtimelauncher.jar must exist and open as a zip (a truncated runtime tar.gz extracted
+#   anyway showed a corrupt jar an hour into a run). REFUSED, exit 2, naming the jar and the fix. Also run on any toolset dir below:
+#   a runtimelauncher.jar found inside it that does not open is REFUSED too. UPG_PYTHON replaces python3.
+if [[ ${1:-} == --runtime ]]; then
+  [[ -d ${2:-} ]] || { echo "toolcheck: usage: toolcheck.sh --runtime <runtime dir>" >&2; exit 2; }
+  if out=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $2 2>&1); then echo "toolcheck: runtime OK ($2: runtimelauncher.jar opens)"; exit 0; fi
+  echo "toolcheck: REFUSED, runtime $2 is unusable: $out. Delete the folder and its dl/mendix-<full ver>.tar.gz and rerun bin/setup-container.sh" >&2; exit 2
+fi
 # toolcheck.sh --image [image]: report whether the image holds the three libs mx10.sh preloads for 11.x on Apple Silicon
 #   (M1: libuuid.so.1, libfreetype.so.6, libfontconfig.so.1 against the rc 139 segfaults of mxbuild 11.12.x under emulation).
 #   Information only, exit 0 (a missing lib is skipped by mx10.sh); exit 2 when the image cannot be run. Default image UPG_IMAGE10 / mig-mx10.
@@ -59,6 +80,12 @@ fi
 miss=()
 [[ -d $tb/modeler/runtemplates/deployment ]] || miss+=(modeler/runtemplates/deployment)
 [[ -d $tb/modeler/tools/node/node_modules ]] || miss+=(modeler/tools/node/node_modules)
+# GM-1: a runtimelauncher.jar inside the toolset must open as a zip (none inside is fine: only the runtime tarball has one)
+if ! command -v ${UPG_PYTHON:-python3} > /dev/null 2>&1; then
+  echo "toolcheck: WARNING, no ${UPG_PYTHON:-python3}: the runtimelauncher.jar check is skipped" >&2
+elif ! jout=$(${UPG_PYTHON:-python3} -I ${0:A:h}/zipcheck.py --find runtimelauncher.jar $tb 2>&1) && [[ $jout == *"is corrupt:"* ]]; then
+  echo "toolcheck: REFUSED, corrupt runtime in $tb: $jout. Delete the folder and its dl tarball and rerun bin/setup-container.sh" >&2; exit 2
+fi
 (( ${#miss} )) || exit 0
 msg="incomplete toolset ${tb}: missing ${(j:, :)miss}. mxbuild would fail late with dojo-web DirectoryNotFoundException (9.x, 10.12) or copyDeploymentArtifacts NoSuchFileException (10.24). Extract mxbuild-<full ver>.tar.gz again into a fresh folder."
 v=${${tb:A:t}#mxbuild-}; [[ $v == [0-9]*.[0-9]*.[0-9]*.[0-9]* ]] || v='<full ver>'

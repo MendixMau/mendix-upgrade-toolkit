@@ -222,11 +222,13 @@ def read_kept(path, gaps, choices=None, lines=None):
     for line in (lines if lines is not None else read_kept_lines(path)):
         src = "kept (snapshot)" if line.startswith("\x00") else "kept"
         line = line.lstrip("\x00")
-        if re.search(r"(?i)\bnewest\b", line):
+        m = re.search(r"skipped by --skip(?::\s*(.+))?$", line)   # first: a reason may say "newest" (2.4.0 is not the newest)
+        if not m and re.search(r"(?i)\bnewest\b", line):
             continue
-        if re.search(r"skipped by --skip", line):   # a plan choice, not a refusal (BACKLOG #77); RT-13: not a gap either
+        if m:   # a plan choice, not a refusal (BACKLOG #77); RT-13: not a gap either
+            why = f" (reason given: {m.group(1)})" if m.group(1) else ""
             choices.append({"source": "kept", "file": str(path), "text": f"kept line '{line}': skipped by choice, not "
-                            "refused; check the module is still at its old version (a later pass may have updated it)"})
+                            f"refused{why}; check the module is still at its old version (a later pass may have updated it)"})
             continue
         out.append({"source": src, "file": str(path), "subject": line.split()[0], "text": f"kept: {line}",
                     "data": bool(DATA_KEPT.search(line))})
@@ -517,7 +519,7 @@ def main():
         gates = sorted((g for g in W.glob("gate-*/gate-summary.md") if not g.parent.name.startswith("gate-remedy-")),
                        key=lambda p: p.stat().st_mtime)   # a remedy trial's gate (remedy_apply.sh) is not the run's gate
         gate = pick(a.gate, gates[-1] if gates else None)
-        if gate and Path(gate).is_dir():   # QI-5: a gate folder is accepted, its gate-summary.md is read
+        if gate and Path(gate).is_dir():   # APPE-5: a gate folder is accepted, its gate-summary.md is read
             if not (Path(gate) / "gate-summary.md").is_file():
                 raise TableError(f"--gate {gate} is a folder with no gate-summary.md")
             gate = str(Path(gate) / "gate-summary.md")
@@ -662,7 +664,7 @@ def main():
             print(f"GAP {g['source']}: {g['text'][:200]}")
         if len(gaps) > 20:
             print(f"GAP and {len(gaps) - 20} more (see the report)")
-    # QI-5: the default is remedy-cards.md, not remediation.md: steps and briefs write a merged REMEDIATION.md, and on a
+    # APPE-5: the default is remedy-cards.md, not remediation.md: steps and briefs write a merged REMEDIATION.md, and on a
     # case-insensitive disk (macOS) the two names are one file. The json keeps its name (remedy_apply.sh reads it).
     out = a.out or str(W / "remedy-cards.md")
     js = a.json or (str(Path(out).with_suffix(".json")) if a.out else str(W / "remediation.json"))

@@ -1,0 +1,2 @@
+2026-11-20 10:00:00 INFO - Runtime: started
+2026-11-20 10:01:02 ERROR - Core: Maximum number of sessions exceeded!

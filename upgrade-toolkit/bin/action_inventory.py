@@ -822,7 +822,7 @@ class Inventory:
     def may(self, role, p, tgt):
         """May role click p and land on tgt? Unknown (unreadable) flows do not block: the page check still applies.
         B5-1: a page a MICROFLOW shows needs no page access of its own -- the runtime opens it for whoever may run the
-        microflow (Kanban with Opcenter: KanbanBoard_Overview has no allowed roles; NAV_KanbanBoard_Overview, the
+        microflow (Kanban with App A: KanbanBoard_Overview has no allowed roles; NAV_KanbanBoard_Overview, the
         WarehouseWorker home, opens it). A nanoflow's show page is a client request and keeps the page check."""
         if role is None:
             return True

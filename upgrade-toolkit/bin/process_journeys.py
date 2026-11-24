@@ -656,7 +656,7 @@ def main():
         try:
             import mprmodel
             model = mprmodel.Model.load(apath)
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             print(f"note: actions model not loaded ({e})", file=sys.stderr)
     if model is None:   # PR-F30: say it, a step on a tab page not shown first FAILs on a healthy app
         print(f"note: actions model {apath or '(none named)'} not loaded: tab steps NOT added (a widget on a tab page "

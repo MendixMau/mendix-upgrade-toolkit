@@ -192,15 +192,25 @@ def main():
                + (" and has these settings." if fit["checked"] else "."))
     else:
         print(f"Q\t{q} What should we do?")
+        # only for packages really absent from a module list that was read (an unread list is [] and proves nothing)
+        missing = sorted(p for p in pk if not any(norm(m.get("name")) == norm(p) for m in mods)) if mods else []
+        pkg = (" and ".join(missing) if len(missing) <= 2 else f"{', '.join(missing[:2])} and {len(missing) - 2} more") if missing else ""
         if mod:
             reason = f"No newer {modname} fits Mendix {a.target or 'the target'} and has these settings, so no update brings them back."
+        elif missing:
+            reason = f"None of the installed modules ships {pkg}, so the toolkit cannot name an update."
+        elif pk and not mods:
+            reason = f"The installed module list could not be read, so the toolkit cannot tell which module ships {' and '.join(sorted(pk))} or name an update."
         elif pk:
-            reason = f"None of the installed modules ships {sorted(pk)[0]}, so the toolkit cannot name an update."
+            reason = f"The modules that ship {' and '.join(sorted(pk))} are installed, but these widgets come from more than one of them, so the toolkit cannot name one update."
         else:
             reason = "These widgets are not from a package the toolkit knows, so it cannot name an update."
         print(f"R\tnone:{reason} Only you know whether losing them matters.")
         print(f"O\taccept|Go on and lose them|Users notice it: {'; '.join(items)}. Your name is recorded with the answer; the build goes on.")
-        print("O\tfix|Update the widget yourself first|The run stays paused. Update the widget package (a newer widget or module version), then rerun from the update step.")
+        if not mod and missing:
+            print(f"O\tfix|Install {pkg} yourself first|The run stays paused. Install the missing widget module{'s' if len(missing) > 1 else ''}: for each, mxcli marketplace search \"<name>\", then mxcli marketplace download <id> --version <a version whose minimum Mendix fits {a.target or 'the target'}> -o <folder>/ and mxcli marketplace install --file <folder>/<file>.mpk, delete the .mpk, and rerun from the update step.")
+        else:
+            print("O\tfix|Update the widget yourself first|The run stays paused. Update the widget package (a newer widget or module version), then rerun from the update step.")
         why = reason
     print(f"W\taccept|widgetdrop-ack.txt|accepted: {'; '.join(items)}")
     print(f"B\tThe pages were saved with newer widgets than the installed ones. If the build goes on, users lose settings on {inst} widget{'s' if inst != 1 else ''}: {'; '.join(items)}.")

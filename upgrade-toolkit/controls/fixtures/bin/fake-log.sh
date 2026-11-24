@@ -12,7 +12,11 @@ if [[ "$args" == *" --force "* ]]; then
     dir=$(echo "$args" | sed -E 's/.* --save-edits ([^ ]+) .*/\1/'); mkdir -p "$dir"
     [ -z "${FAKE_SAVED:-}" ] || cp "$FAKE_SAVED"/* "$dir"/
   fi
-  if [ -n "${FAKE_FORCE:-}" ]; then cat "$FAKE_FORCE"; exit "${FAKE_FORCE_RC:-1}"; fi
+  if [ -n "${FAKE_FORCE:-}" ]; then
+    cat "$FAKE_FORCE"
+    [ "${FAKE_FORCE_RC:-1}" != 0 ] || [ -z "${FAKE_OK:-}" ] || cp "$FAKE_OK" "$mpr"   # a forced call that logs and succeeds
+    exit "${FAKE_FORCE_RC:-1}"
+  fi
   [ -z "${FAKE_OK:-}" ] || cp "$FAKE_OK" "$mpr"
   exit 0
 fi

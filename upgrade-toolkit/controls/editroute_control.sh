@@ -1,11 +1,14 @@
 #!/bin/bash
 # editroute_control.sh CASE: controls of bin/editroute.py (kept modules routed to an update) and the cockpitcheck keep-recommended
 # rule. A stub mxcli answers describe and refs, so no project or network is needed.
+#   unread-config  an unreadable module with a constant/jar edit is HELD, not forced (GM-11)
 #   plan     one kept module per route; prints the ROUTE lines and the files editroute writes
 #   collect  the replay files after the routed update: the app's change merged onto the new element, never the saved whole element
 #   score    did each route work: on the plan's version, held, or replay failed; one ledger line per module across runs
 #   brain    each route carries the company brain's notes for it, shown on the card; hit@k measured on a labelled set
 #   reset    a rerun of the update step drops an earlier routing's own lines (a person's stay) and moves its files aside
+#   reset-done    reset keeps the approvals of modules whose step commit exists (GF-36)
+#   reroute-stale the last update pass never ran the module: its old kept line is not "kept again" (GF-31)
 #   reroute  a routed update keeps a module for a second reason: routed again, routes add up; the same reason twice is a HOLD
 #   gate     cockpitcheck on a module card that recommends the old version, with and without an end date
 set -u
@@ -59,7 +62,8 @@ if a[0] == "describe":
         sys.exit(0)
     if kind == "association":   # only the original model still has it
         if "/orig/" in mpr and qn == "Other.A_B":
-            print(f"mdl 1;\ncreate or modify association {qn}\nfrom Other.X to Target.Y;")
+            # real DESCRIBE output ends a statement with a lone "/" line (GF-35); XABAD: an association mxcli check refuses
+            print(f"mdl 1;\ncreate or modify association {qn}\nfrom Other.X to Target.Y;" + ("\n-- BROKEN" if os.environ.get("XABAD") else "") + "\n/")
         sys.exit(0)
     acc = {"Accmod.Acct": {"ours": "grant read (Name, Emp_Acct) on entity Accmod.Acct to Accmod.User;",
                            "base": "grant read (Name) on entity Accmod.Acct to Accmod.User;"},
@@ -117,6 +121,16 @@ for m in Cosmo Realmod Uimod Unread Filesmod Vendmod Usedmod Target Javamod; do 
 case "${1:-}" in
   plan) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?"
         for f in route-plan.txt force-ui.txt accept-unsaved.txt approved.txt approved-step.txt; do sed "s/^/$f: /" "$W/$f"; done ;;
+  unread-config) # GM-11: the same unreadable module, but localedits shows a changed constant default: kept (HOLD), not forced as UNREAD
+        python3 - "$W/localedits.json" <<'PY'
+import json, sys
+rep = json.load(open(sys.argv[1]))
+for e in rep:
+    if e["name"] == "Unread":
+        e["config"] = [{"change": "CHANGED", "kind": "constant", "name": "Unread.K", "detail": "default '1' -> '2'"}]
+json.dump(rep, open(sys.argv[1], "w"))
+PY
+        python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?" ;;
   collect) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         mkdir -p "$W/saved-edits/Uimod" "$W/saved-edits/Target"
         for e in snippet-L1 constant-K snippet-Added snippet-Bad layout-Redir layout-Spare layout-UsedOwn page-NotRefused entity-Whole; do printf 'mdl 1;\n-- saved whole element %s\n' "$e" > "$W/saved-edits/Uimod/$e.mdl"; done
@@ -147,6 +161,18 @@ case "${1:-}" in
         python3 "$B/editroute.py" reset --work "$W"; echo "rc=$?"
         sed 's/^/force-ui.txt: /' "$W/force-ui.txt"; grep -c 'editroute' "$W/approved-step.txt" | sed 's/^/approved-step editroute lines: /'
         ls "$W" | sed 's/^/work: /' ;;
+  reset-done) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        git -C "$A" init -q; git -C "$A" commit -q --allow-empty -m "step: Vendmod 2.0.0 (stepupdate, idcheck PASS)"
+        python3 "$B/editroute.py" reset --work "$W" --app "$A"; echo "rc=$?"
+        sed 's/^/approved.txt: /' "$W/approved.txt"; sed 's/^/approved-step.txt: /' "$W/approved-step.txt"; sed 's/^/force-ui.txt: /' "$W/force-ui.txt" ;;
+  reroute-stale|reroute-ran) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        # the pass between ran other modules (ran.txt) but not Cosmo: its kept.txt line is the one the pass before left
+        printf 'Uimod\n' > "$S/ran.txt"; [ "$1" = reroute-ran ] && printf 'Cosmo\n' >> "$S/ran.txt"
+        printf 'Cosmo idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x\n' > "$S/kept.txt"
+        printf 'RED  REMOVED      association Other.C_D  (column/table dropped; intended?)\n' > "$S/step10-Cosmo.idcheck"; touch "$S/step10-Cosmo.log"
+        python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
+        python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt"; echo "rc=$?"
+        python3 -c "import json,sys; [print('routes:', x['module'], x['route']) for x in json.load(open(sys.argv[1])) if x['module']=='Cosmo']" "$W/edit-routes.json" ;;
   reroute) python3 "$B/editroute.py" plan --work "$W" --app "$A" --original "$T/orig/App.mpr" --plan "$W/plan.txt" > /dev/null
         # the routed update keeps Cosmo again, now for associations another module owns into it
         printf 'Cosmo idcheck REVIEW (persistence loss or removal: accept it in approved.txt with a reason, or keep), see x\n' > "$S/kept.txt"

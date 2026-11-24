@@ -18,8 +18,25 @@ Goal: reach the target version with every step proven not to change a runtime id
    (`git show --stat HEAD`) before going on, or revert the step and update the module with Studio Pro.
    `info MODULE_RECREATED` is the same with every element identity kept (WM1: mxcli's update copies the documents
    with new unit ids; 28 of 28 such lines had no GUID change): the data is safe, only the page diff remains.
+   Model check per step (GM-23 / A-1; the pipeline turns it on, `UPG_NO_STEPCHECK=1` off): after each update and BEFORE the
+   commit, `bin/stepcheck-run.sh` runs `mx check` and `bin/stepcheck.py` compares it with the check of the app as it stood
+   before the step. An error the step added undoes the step (nothing committed), writes `.stepupdate/stepcheck-stop.txt` and
+   stops with exit 4 as a NEEDS-JUDGMENT question in reader words: keep the module at the installed version (writes
+   `step-keep.txt`, the next run skips it), carry on and repair the errors in step 4 (writes `stepcheck-accepted.txt`, `<Module>
+   <CODES>`), or look first. `--unattended` does not keep the module on its own for this. A check that does not finish is
+   `STEPCHECK NOT RUN` (exit 1, in the summary): the step was committed on the data check alone, never "0 errors".
+   Cost: one full `mx check` per committed step, run under the heavy lock, so a long plan waits once per step; not yet measured on a
+   field run (no number is claimed here). Off switch: `UPG_NO_STEPCHECK=1` in the environment of the pipeline run; the steps then
+   commit on the data check alone and the build is where model errors first show.
+   Batch end (GM-24): with `--baseline`, `idcheck original -> now` runs when each batch ends over `approved.txt` only (not the
+   step-only acceptances) and prints `BATCH-IDCHECK` lines; the pipeline notes them and the total idcheck after the routes and
+   replays decides. Step mode also lists `READDED_NEW_GUID`: a step re-created an element under the original's name with a new
+   GUID (a drop accepted at one step, the owner's update re-adding it at the next: the data stays in the old GUID's table;
+   put the original GUID back with `restore_guid.py`). The net-zero auto-approval needs the GUID as well as the name.
    - approved.txt: one fnmatch pattern per line on the element or "FINDING kind name", then `# reason`. Only for
-     findings accepted in writing.
+     findings accepted in writing. A bare element name does not approve `READDED_NEW_GUID`; it is approved only by the
+     keyed form, e.g. `READDED_NEW_GUID attribute Mod.Entity.Attr # reason` (a bare name, such as the
+     lines editroute writes into approved-step.txt, would otherwise hide a GUID that came back different).
    - Local edits refusal ("Save them first: --save-edits"). stepupdate names the edited element kinds. UI only
      (pages, layouts, snippets, images): rerun with `--force-ui <Module>`; the edits are saved under
      `.stepupdate/saved-edits/<Module>` and the update is forced. Replay them from there after the step, then commit
@@ -60,7 +77,9 @@ Goal: reach the target version with every step proven not to change a runtime id
      regenerates them: the import set and the USER CODE / EXTRA CODE blocks; header, JSDoc and import order are not an
      edit (B4T2-3, B4N1-5), a changed line inside a block still is.
    - Resume without a new plan file: `--from <line number | Module>` starts there, `--skip Mod,Mod` leaves modules
-     out; both are logged (E4-7, E4-32).
+     out; both are logged (E4-7, E4-32). `--skip-reason Mod=why` (repeatable) puts the owner's reason on that module's
+     kept line (`Mod skipped by --skip: why`) and on the remedy CHOICE line; without it the line is unchanged. The pipeline
+     does not pass it (a step-keep.txt line holds the module only): give it when running stepupdate.sh by hand.
    - Unattended: `--unattended` applies the stop rule mechanically. A STOP (step idcheck finding, refusal, failed
      update) reverts the tree (tracked files restored, files the update created removed, untracked files from before
      kept), records the module in `.stepupdate/kept.txt` and continues. The summary line says
@@ -123,7 +142,7 @@ Goal: reach the target version with every step proven not to change a runtime id
    specified" (exit 2) on 10.24 (E4-17, E5b-15). Save the output (`... 2>&1 | tee $W/convert-<ver>.log`), then
    `python3 $B/convertcheck.py $W/convert-<ver>.log app/ --target <full ver> --json $W/convert-<ver>.json` (the json
    keeps the error, warning and deprecation counts for COMPARE, N1-11; repair.md "Counts per rung"). Never read mx convert's exit code or
-   "mx convert finished": both say success with 31 errors (E6) and on a refused source (Academy 10.18 to 11.15, AC-1,
+   "mx convert finished": both say success with 31 errors (E6) and on a refused source (App C 10.18 to 11.15, AC-1,
    AC-7). CONVERTED = the project file now carries the target version; its error count is the repair backlog for
    step 4, write it in the journal. NOT CONVERTED = stop; a 10.x below 10.24 going to 11 must take the 10.24 rung
    first. Commit the convert ALONE (subject "convert to <ver>"): nothing else staged, no tool files, no fix. Then
@@ -140,7 +159,7 @@ Goal: reach the target version with every step proven not to change a runtime id
    (the "original" commit checked out apart)> app/ --json $W/convert-mappings.json`. Exit 1 = REVIEW lines: a button
    inside a data view on a microflow, nanoflow or association now maps the PAGE PARAMETER, not the data view's object.
    Fix each in Studio Pro or MDL (map the data view object) before step 4 closes; the gate re-runs it.
-3. Post-convert module updates (plan: read the playbook rows of every module you target, not only `mxcli marketplace versions`; the newest WorkflowCommons needs Atlas 4, playbooks/10-to-11.md, QI-7): same runner with the target-version plan, plus `--localedits $W/localedits.json`. A module with no version between the
+3. Post-convert module updates (plan: read the playbook rows of every module you target, not only `mxcli marketplace versions`; the newest WorkflowCommons needs Atlas 4, playbooks/10-to-11.md, APPE-7): same runner with the target-version plan, plus `--localedits $W/localedits.json`. A module with no version between the
    pre- and post-convert ones needs only the post-convert update. The converter itself changes vendor modules
    (ExcelImporter, GoogleAuthenticator in E4), and the update then refuses them as local edits (E4-30). Those
    convert-made edits are expected. stepupdate checks it itself (bin/convertmade.sh): when the module's last
@@ -162,7 +181,7 @@ Goal: reach the target version with every step proven not to change a runtime id
    blocks of javasource/<module> with the installed package (.mpk cache); identical = convert-made metadata, forced;
    different or not comparable = LOGIC, keep (T5-9: MendixSSO 4.1.0 was kept with byte-identical code). Any other
    mix keeps the rule above. `--no-convert-made` turns all of these off.
-   After the post-convert updates: resync the Java dependencies (`mx update-widgets`/build resync; Academy went from 67
+   After the post-convert updates: resync the Java dependencies (`mx update-widgets`/build resync; App C went from 67
    to 48 files in vendorlib), then `python3 $B/repair/jarclash.py app/ --md $W/jarclash.md`.
    In a cloud container `mx sync-java-dependencies` usually cannot finish (B4T2-9, B4N1-6): it needs
    repository.mendix.com and, for the CycloneDX Gradle plugin, plugins.gradle.org through the egress proxy. Try it with
@@ -179,14 +198,14 @@ Goal: reach the target version with every step proven not to change a runtime id
    commit as updated (`--updated-from-git`, also for an earlier pass) and passes the plan's content ids (`--cid`), so a
    cached installed package (`UPG_CACHE/<id>-<version>.mpk`) shows whether that version still ships the jar. A hand rerun
    takes the same flags; without them such a jar stays `CONFLICT`. A CLASH is two jars
-   carrying the same classes: an old library copy left in userlib, inside an unused jar (Academy: pdfbox inside a
+   carrying the same classes: an old library copy left in userlib, inside an unused jar (App C: pdfbox inside a
    2021 Markdown library), or in a module that has no newer version (PDFReader 1.0.0). Remove the stale jar, or port
    the stranded module's Java to the new library (the team did both, AC-6). Clashes listed at triage were there
    before the upgrade; only new ones are the upgrade's.
 4. Edited modules (RED or logic lines in localedits) are not on the plan unless the edited-modules playbook route is
    taken.
 
-Check after every step: step idcheck exit 0. After the last step: `python3 $B/idcheck.py $W/original/<app>.mpr app/ --md $W/idcheck-total.md`
+Check after every step: step idcheck exit 0 and no new model error (the per-step `mx check` above). After the last step: `python3 $B/idcheck.py $W/original/<app>.mpr app/ --md $W/idcheck-total.md`
 for the written acceptance (the default output lists every finding; `--red-only` shows only the data-bearing ones).
 A module update can make an entity non-persistent (Atlas_Web_Content 3.7.0 LoginContext in E4, E4-19): the step
 idcheck lists it as REVIEW (removed or made non-persistent); accept it in writing or keep the module.

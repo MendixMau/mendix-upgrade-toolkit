@@ -4,10 +4,10 @@
 Why: a module that stays at its version (kept, stranded, held) keeps its own themesource styling. When the update plan
 moves a platform widget (Data Grid 2, Gallery, Combo box and so on) to a new major, the widget's markup and class names
 change, and a kept module's rule for the old class names either stops matching or restyles the new markup wrongly. The
-model check, build and smoke walk see none of it; only a screenshot does. Asset Console kept a module whose theme
+model check, build and smoke walk see none of it; only a screenshot does. App H kept a module whose theme
 styled the data grid, and the grid looked wrong only on the client.
 
-  keptstyle.py <app dir> --kept A,B   (or --kept-file .stepupdate/kept.txt)   [--json out.json]
+  keptstyle.py <app dir> --kept A,B   (or --kept-file .stepupdate/kept.txt: the first word of each line is the module)   [--json out.json]
 
 Scans themesource/<Module>/**/*.scss|css of each kept module (and the app's own theme/ folders when --kept lists
 `theme`) for selectors on platform widget classes: .widget-* (Data Grid 2, Gallery, Combo box, Pop-up menu, ...),
@@ -66,7 +66,9 @@ def main():
             raw = open(a.kept_file).read()
         except OSError as e:
             die("keptstyle: " + str(e))
-        kept = [x for x in re.split(r"[,\s]+", raw) if x and not x.startswith("#")]
+        # stepupdate's kept.txt is "<Module> <reason words>": the first word of each line is the module, never the reason
+        kept = [w for ln in raw.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
+                for w in ln.split()[0].split(",") if w]
     else:
         kept = [x for x in a.kept.split(",") if x.strip()]
     rows, mods = [], set()
