@@ -18,6 +18,10 @@ OUT/nrboth-old, OUT/nrboth-new: dashboard NOT-REACHED on both sides (T1-24, used
 OUT/runid-a, OUT/runid-b: the "empty" dashboard with a per-run id block at x 300-359, y 60-75 that differs
               between the two runs (B4T2-17); OUT/runid-moved: run b with the title changed too (outside the mask)
 OUT/rank-old, rank-new, rank-tone-old, rank-tone-new: a tone-only change beside a vanished-content change (GF-54)
+OUT/tex-old, tex-f30, tex-f25, tex-f50: a light low-contrast texture (spread ~10) under a backdrop of factor 0.3 / 0.25 / 0.5
+OUT/tex-gone: the same texture replaced by a flat page of the same mean (content really gone)
+OUT/onechart-old, onechart-new: the page with one of its three charts removed (~6.7% of the page)
+OUT/jr-old, jr-new: ONE journey, step1 tone-only, step2 content vanished (GF-54, run_journeys picks the worse screen)
 """
 import os, struct, sys, zlib
 
@@ -106,11 +110,38 @@ def rank_pairs(out, sd):
     png(f"{out}/rank-new/{sd}/zzz-vanish-Administrator-step1.png", page(charts=False))
 
 
+def texture():
+    """Light low-contrast texture: 4 px checker of 225 / 245 (mean 235, spread 10) over the whole page."""
+    return [[225 if ((x // 4) + (y // 4)) % 2 else 245 for x in range(W)] for y in range(H)]
+
+
+def texture_pairs(out, sd):
+    t = texture()
+    n = "tex-Administrator-step1.png"
+    png(f"{out}/tex-old/{sd}/{n}", t)
+    for tag, f in (("f30", 0.3), ("f25", 0.25), ("f50", 0.5)):
+        png(f"{out}/tex-{tag}/{sd}/{n}", [[int(v * f) for v in r] for r in t])
+    png(f"{out}/tex-gone/{sd}/{n}", [[235] * W for _ in range(H)])
+    one = page()
+    two = [list(r) for r in one]
+    for y in range(90, 301):                     # the first chart only (x 20-160): ~6.7% of the page
+        for x in range(20, 161):
+            two[y][x] = 245
+    png(f"{out}/onechart-old/{sd}/dashboard-Administrator-step1.png", one)
+    png(f"{out}/onechart-new/{sd}/dashboard-Administrator-step1.png", two)
+    dark = [[int(v * 0.4) for v in r] for r in page()]
+    png(f"{out}/jr-old/{sd}/j-Administrator-step1.png", page())
+    png(f"{out}/jr-old/{sd}/j-Administrator-step2.png", page())
+    png(f"{out}/jr-new/{sd}/j-Administrator-step1.png", dark)
+    png(f"{out}/jr-new/{sd}/j-Administrator-step2.png", page(charts=False))
+
+
 def main():
     out = sys.argv[1]
     sd = "shots-Administrator"
     text_pairs(out, sd)
     rank_pairs(out, sd)
+    texture_pairs(out, sd)
     login = page(charts=False)
     for v in ("old", "same", "empty", "missing", "notreach", "taller", "loading", "loadname"):
         png(f"{out}/{v}/{sd}/login-Administrator-step1.png", login)

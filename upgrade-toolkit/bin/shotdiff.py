@@ -61,14 +61,21 @@ doubled: changed 4.8 %, PASS). smokewalk.js and the journey engine save the page
 ids do not count) are compared as a multiset: any word lost, new, or shown more or fewer times is a REVIEW whatever the
 pixel share ("visible text changed: lost Status; new Select"). A pair without both files is judged on pixels only, as
 before, and says nothing about text. Accepting works as for any REVIEW.
-Content lost outranks a tone change (GF-54): a REVIEW whose lost share is at least LOST_SEVERE (8%; the review floor
---lost is 3%, a page that lost a card grid, a badge and a chart measured 17%, a colour-only change such as a modal
-backdrop measures 0% because it moves the grey level and leaves the spread alone) is still the word REVIEW with the
-same exit code and the same "N% of the page had content before and is empty now" text, so every caller that parses
-them is unchanged, but its detail starts "CONTENT LOST (x a-b%, y c-d% of the page): ...", the row carries
-"severity": "content-lost" in --json, and the report lists those pairs first, under a "CONTENT LOST:" line that
-precedes the pair list. Accepting such a pair works as for any REVIEW. Which widget is gone is not read from the
-pixels: the lost area names where to look; widgetrender.js needs a running app, so it is not wired in here.
+Content lost outranks a tone change (GF-54): a REVIEW whose lost share is at least LOST_SEVERE (5%; the review floor
+--lost is 3%) is still the word REVIEW with the same exit code and the same "N% of the page had content before and is
+empty now" text, so every caller that parses them is unchanged, but its detail starts "CONTENT LOST (x a-b%, y c-d% of
+the page): ...", the row carries "severity": "content-lost" in --json, the "screens:" count line ends "(N content
+lost)" (so the gate row and the cockpit say it too), and the report lists those pairs first, under a "CONTENT LOST:"
+line that precedes the pair list. Accepting such a pair works as for any REVIEW. A cell counts as lost when it had
+structure (spread above twice the flat level) and is flat now, unless the whole cell was only scaled: a backdrop or
+brightness change multiplies the grey values, so the spread shrinks by the same factor as the mean (a light texture of
+spread 10 under a backdrop of factor 0.3 has spread 3). A cell whose new spread is within half of (old spread x
+new mean / old mean) is a tone change, not lost; real content disappearing leaves the spread near 0 whatever the mean
+did. Honest limits: LOST_SEVERE is a field-calibrated guess, not a derived number (one field page that lost a card
+grid, a badge and a chart measured 17%; removing one of three charts on the control page measures about 6.7%, which
+is why it is 5% and not the earlier 8%); a page that only moved a widget also loses cells at its old place. Which
+widget is gone is not read from the pixels: the lost area names where to look; widgetrender.js needs a running app,
+so it is not wired in here.
 Exit: 0 = only PASS / PASS*, 1 = open REVIEW, 2 = INVALID.
 """
 import argparse, fnmatch, hashlib, json, os, re, struct, sys, zlib
@@ -82,7 +89,7 @@ PIN = re.compile(r"^(?P<pat>.*?)(?:\s+@mask:(?P<mask>\S+))?(?:\s+@sha256:(?P<sha
 MASK_MAX = 0.25        # B4T2-17: a masked pin may leave at most this share of the image unpinned
 GRID_W = 48            # cells across; rows follow the aspect ratio
 TOL_MEAN, TOL_SPREAD, FLAT = 14.0, 10.0, 4.0
-LOST_SEVERE = 0.08     # GF-54: lost share at which a REVIEW is ranked above a tone change (floor --lost 0.03; field case 0.17)
+LOST_SEVERE = 0.05     # GF-54: lost share at which a REVIEW is ranked above a tone change (floor --lost 0.03; field case 0.17, one chart of three ~0.067; a guess)
 
 
 def find_root(p):
@@ -257,6 +264,16 @@ def text_diff(old_png, new_png):
     return fmt(a - b), fmt(b - a)
 
 
+def scaled(om, osd, nm, nsd):
+    """GF-54: True when the cell was only toned: its spread shrank by about the factor its mean moved by (a darkening
+    backdrop multiplies every grey value, so a low-contrast texture of spread 10 at x0.3 has spread 3 and is still
+    there). Vanished content leaves the spread near 0 whatever the mean did."""
+    if om < 1:
+        return False
+    expect = osd * nm / om
+    return expect >= 1.0 and abs(nsd - expect) <= 0.5 * expect
+
+
 def compare(old, new):
     ow, oh, og = cells(old)
     nw, nh, ng = cells(new)
@@ -269,7 +286,7 @@ def compare(old, new):
             total += 1
             if abs(om - nm) > TOL_MEAN or abs(osd - nsd) > TOL_SPREAD:
                 changed += 1
-            if osd > FLAT * 2 and nsd <= FLAT:
+            if osd > FLAT * 2 and nsd <= FLAT and not scaled(om, osd, nm, nsd):
                 lost += 1
                 lr.append(r); lc.append(c)
     extra = abs(len(og) - len(ng)) * GRID_W   # rows on one side only count as changed
@@ -525,7 +542,8 @@ def counts_line(res):
     c = {k: sum(1 for r in res if r["verdict"] == k) for k in ("PASS", "PASS*", "REVIEW", "INVALID")}
     up = sum(1 for r in res if r.get("unpinned"))
     mk = sum(1 for r in res if r.get("masked"))
-    extra = [f"{up} unpinned accepts"] * bool(up) + [f"{mk} masked accepts"] * bool(mk)
+    cl = sum(1 for r in res if r.get("severity") == "content-lost")
+    extra = [f"{up} unpinned accepts"] * bool(up) + [f"{mk} masked accepts"] * bool(mk) + [f"{cl} content lost"] * bool(cl)
     return c, "screens: " + ", ".join(f"{v} {k}" for k, v in c.items()) + (f" ({', '.join(extra)})" if extra else "")
 
 
