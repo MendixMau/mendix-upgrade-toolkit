@@ -61,6 +61,14 @@ doubled: changed 4.8 %, PASS). smokewalk.js and the journey engine save the page
 ids do not count) are compared as a multiset: any word lost, new, or shown more or fewer times is a REVIEW whatever the
 pixel share ("visible text changed: lost Status; new Select"). A pair without both files is judged on pixels only, as
 before, and says nothing about text. Accepting works as for any REVIEW.
+Content lost outranks a tone change (GF-54): a REVIEW whose lost share is at least LOST_SEVERE (8%; the review floor
+--lost is 3%, a page that lost a card grid, a badge and a chart measured 17%, a colour-only change such as a modal
+backdrop measures 0% because it moves the grey level and leaves the spread alone) is still the word REVIEW with the
+same exit code and the same "N% of the page had content before and is empty now" text, so every caller that parses
+them is unchanged, but its detail starts "CONTENT LOST (x a-b%, y c-d% of the page): ...", the row carries
+"severity": "content-lost" in --json, and the report lists those pairs first, under a "CONTENT LOST:" line that
+precedes the pair list. Accepting such a pair works as for any REVIEW. Which widget is gone is not read from the
+pixels: the lost area names where to look; widgetrender.js needs a running app, so it is not wired in here.
 Exit: 0 = only PASS / PASS*, 1 = open REVIEW, 2 = INVALID.
 """
 import argparse, fnmatch, hashlib, json, os, re, struct, sys, zlib
@@ -74,6 +82,7 @@ PIN = re.compile(r"^(?P<pat>.*?)(?:\s+@mask:(?P<mask>\S+))?(?:\s+@sha256:(?P<sha
 MASK_MAX = 0.25        # B4T2-17: a masked pin may leave at most this share of the image unpinned
 GRID_W = 48            # cells across; rows follow the aspect ratio
 TOL_MEAN, TOL_SPREAD, FLAT = 14.0, 10.0, 4.0
+LOST_SEVERE = 0.08     # GF-54: lost share at which a REVIEW is ranked above a tone change (floor --lost 0.03; field case 0.17)
 
 
 def find_root(p):
@@ -253,6 +262,7 @@ def compare(old, new):
     nw, nh, ng = cells(new)
     rows = min(len(og), len(ng))
     changed = lost = total = 0
+    lr, lc = [], []
     for r in range(rows):
         for c in range(GRID_W):
             (om, osd), (nm, nsd) = og[r][c], ng[r][c]
@@ -261,10 +271,13 @@ def compare(old, new):
                 changed += 1
             if osd > FLAT * 2 and nsd <= FLAT:
                 lost += 1
+                lr.append(r); lc.append(c)
     extra = abs(len(og) - len(ng)) * GRID_W   # rows on one side only count as changed
     total += extra; changed += extra
     return {"old_size": [ow, oh], "new_size": [nw, nh], "changed": round(changed / total, 4) if total else 1.0,
-            "lost": round(lost / total, 4) if total else 0.0}
+            "lost": round(lost / total, 4) if total else 0.0,
+            "lost_box": [round(100 * min(lc) / GRID_W), round(100 * (max(lc) + 1) / GRID_W),
+                         round(100 * min(lr) / rows), round(100 * (max(lr) + 1) / rows)] if lr else None}
 
 
 def parse_mask(text):
@@ -466,7 +479,14 @@ def run(ro, rn, threshold=0.06, lost=0.03, accept=()):
             row.update(verdict="PASS", detail=f"changed {m['changed']:.1%}, lost {m['lost']:.1%}"
                                               + (", text same" if td is not None else ""))
         else:
-            judge("REVIEW", "; ".join(why), True)
+            severe = m["lost"] >= LOST_SEVERE and m["lost"] > lost and m.get("lost_box")
+            detail = "; ".join(why)
+            if severe:
+                bx = m["lost_box"]
+                detail = f"CONTENT LOST (x {bx[0]}-{bx[1]}%, y {bx[2]}-{bx[3]}% of the page): " + detail
+            judge("REVIEW", detail, True)
+            if severe and row["verdict"] == "REVIEW":
+                row["severity"] = "content-lost"
     return res
 
 
@@ -543,9 +563,14 @@ def main():
     if a.causes:
         add_causes(res, read_causes(a.causes))
     order = {"INVALID": 0, "REVIEW": 1, "PASS*": 2, "PASS": 3}
-    res.sort(key=lambda r: (order[r["verdict"]], r["pair"]))
+    res.sort(key=lambda r: (order[r["verdict"]], r.get("severity") != "content-lost", r["pair"]))
     counts = {k: sum(1 for r in res if r["verdict"] == k) for k in order}
     lines = [f"# shotdiff {ro} -> {rn}", "", f"pairs {len(res)}: " + " | ".join(f"{k} {v}" for k, v in counts.items()), ""]
+    cl = [r for r in res if r.get("severity") == "content-lost"]
+    if cl:
+        lines += [f"CONTENT LOST: {len(cl)} open pair(s) had content before and are empty now (listed first among the REVIEW "
+                  "pairs, ahead of any tone or layout change): " + ", ".join(r["pair"] for r in cl[:8])
+                  + (f" (+{len(cl) - 8} more)" if len(cl) > 8 else ""), ""]
     lines += [f"{r['verdict']:7} {r['pair']}  {r['detail']}" for r in res]
     lines += ["", counts_line(res)[1]]
     if any(r.get("unpinned") for r in res):

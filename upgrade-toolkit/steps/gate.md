@@ -110,7 +110,9 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: App A
    cite its `screens: N PASS, N PASS*, N REVIEW, N INVALID` line, printed on every compare (T1-26).
    PASS, or PASS* with a reason per accepted pair; REVIEW means open both images and decide: an expected change
    (new styling, a moved widget) goes into shot-accept.txt with the reason, anything else (an empty chart, missing
-   rows, a lost widget) is a regression to repair. "indicator on both sides, images equal" is a REVIEW too: the
+   rows, a lost widget) is a regression to repair; a REVIEW that starts "CONTENT LOST" (8% or more of the page had
+   content and is empty now, GF-54) is listed first and is the one to open first, a colour change never gets that word.
+   "indicator on both sides, images equal" is a REVIEW too: the
    progress-bar detector hit page content (a file-upload field, a card line) at the same place on two equal images
    (T5-18, T6-15). INVALID (a screenshot on one side only, a NEW step not reached, a -LOADING shot, a one-sided
    progress bar) blocks DONE and cannot be accepted: take the shot again. Two INVALIDs can be closed after a look:

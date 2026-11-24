@@ -3693,6 +3693,11 @@ ctl shotdiff-text-lost-catch 1 '^REVIEW +shots-Administrator/overview.*visible t
 ctl shotdiff-text-doubled-catch 1 '^REVIEW +shots-Administrator/overview.*visible text changed: new currently, of, showing, to' -- python3 $B/shotdiff.py $SH/textold $SH/textdup
 ctl shotdiff-text-same-pass 0 '^PASS +shots-Administrator/overview.*text same' '!^REVIEW' -- python3 $B/shotdiff.py $SH/textold $SH/textsame
 ctl shotdiff-text-one-side-pass 0 '^PASS +shots-Administrator/overview' '!text same' -- python3 $B/shotdiff.py $SH/textold $SH/textnone
+# GF-54: content that vanished outranks a colour/tone change. The tone page (aaa-) sorts first by name, so only the
+# ranking puts the vanished page (zzz-) on the first REVIEW line; a tone-only pair is still a plain REVIEW (same word, exit 1).
+ctl shotdiff-content-lost-ranks-first-catch 1 '^FIRST-REVIEW: REVIEW +shots-Administrator/zzz-vanish.*CONTENT LOST .*empty now' '^CONTENT LOST: 1 open pair\(s\).*zzz-vanish' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new > $T/rank.out; r=\$?; cat $T/rank.out; echo \"FIRST-REVIEW: \$(grep -m1 '^REVIEW' $T/rank.out)\"; exit \$r"
+ctl shotdiff-content-lost-json-catch 1 '"severity": "content-lost"' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new --json $T/rank.json >/dev/null; r=\$?; cat $T/rank.json; exit \$r"
+ctl shotdiff-tone-only-not-escalated-pass 1 '^REVIEW +shots-Administrator/aaa-tone.*100% of the page changed' '!CONTENT LOST' '!severity' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
 ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old $SH/same
 ctl shotdiff-missing-invalid 2 '^INVALID +shots-Administrator/dashboard.*no NEW screenshot' -- python3 $B/shotdiff.py $SH/old $SH/missing
 ctl shotdiff-notreached-invalid 2 '^INVALID .*NOT-REACHED' -- python3 $B/shotdiff.py $SH/old $SH/notreach

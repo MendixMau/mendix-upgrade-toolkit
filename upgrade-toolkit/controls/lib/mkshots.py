@@ -17,6 +17,7 @@ OUT/stuckeq-old/-new, stuckeq-newside-new, stuckeq-loading-new, stuckdiff-old/-n
 OUT/nrboth-old, OUT/nrboth-new: dashboard NOT-REACHED on both sides (T1-24, used to PASS)            -> INVALID BASELINE DEFECT
 OUT/runid-a, OUT/runid-b: the "empty" dashboard with a per-run id block at x 300-359, y 60-75 that differs
               between the two runs (B4T2-17); OUT/runid-moved: run b with the title changed too (outside the mask)
+OUT/rank-old, rank-new, rank-tone-old, rank-tone-new: a tone-only change beside a vanished-content change (GF-54)
 """
 import os, struct, sys, zlib
 
@@ -93,10 +94,23 @@ def text_pairs(out, sd):
     png(f"{out}/textnone/{sd}/overview-Administrator-step1.png", page())
 
 
+def rank_pairs(out, sd):
+    """GF-54: one folder pair holding a tone-only change and a vanished-content change. The tone page sorts first by
+    name (aaa-tone), so only a content-lost ranking puts zzz-vanish above it.
+    rank-old/rank-new: aaa-tone (every grey level darkened, a modal backdrop: changed ~100%, lost 0%) -> REVIEW, not
+    escalated; zzz-vanish (the charts gone) -> REVIEW, CONTENT LOST. rank-tone-old/-new: the tone page only."""
+    dark = [[int(v * 0.4) for v in r] for r in page()]
+    for v in ("rank-old", "rank-new", "rank-tone-old", "rank-tone-new"):
+        png(f"{out}/{v}/{sd}/aaa-tone-Administrator-step1.png", page() if v.endswith("old") else dark)
+    png(f"{out}/rank-old/{sd}/zzz-vanish-Administrator-step1.png", page())
+    png(f"{out}/rank-new/{sd}/zzz-vanish-Administrator-step1.png", page(charts=False))
+
+
 def main():
     out = sys.argv[1]
     sd = "shots-Administrator"
     text_pairs(out, sd)
+    rank_pairs(out, sd)
     login = page(charts=False)
     for v in ("old", "same", "empty", "missing", "notreach", "taller", "loading", "loadname"):
         png(f"{out}/{v}/{sd}/login-Administrator-step1.png", login)
