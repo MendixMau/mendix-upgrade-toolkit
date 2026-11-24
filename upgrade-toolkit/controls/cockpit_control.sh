@@ -27,6 +27,11 @@ minw() { W=$T/min/work; mkdir -p "$W"; cp "$here/fixtures/cockpit/stops/$1.md" "
 mkstop() { W=$T/min/work; mkdir -p "$W"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""
   eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"; eval "$1"
   { printf '# NEEDS JUDGMENT: step update, exit 13\n\nrun folder: x\nwork: x\nsource 10.24.0.1 -> target 11.12.5\nRule: ...\n\n    pipeline --from update\n'; cat "$NJ_TMP"; } > "$W/NEEDS-JUDGMENT.md"; }
+# parkw [running-step]: a work folder with markers written by the real nj_park, no header file
+parkw() { chkw "${1:-}"; NJ_TMP=$W/nj.tmp; : > "$NJ_TMP"; NJ_CODE=0; NJ_META=""; WORK=$W; STEP=gate; DRY=0; interview_auto() { return 0; }; say() { :; }
+  eval "$(sed -n '/^nj_meta() {/,/^}/p;/^nj_add() {/,/^}/p;/^nj_park() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh")"
+  nj_meta info; nj_add 12 "Release impact needs a look" "x"; nj_park; nj_meta info; nj_add 13 "Kept modules" "y"; nj_park; rm -f "$NJ_TMP"
+  ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p'; }
 cards() { echo "cards: $(grep -o 'data-q="q[0-9]*"' "$T/out.html" | sort -u | wc -l | tr -d ' ')"; }
 # a copy of a real unattended run (fixtures/cockpit/chk-unattended: plan with 19 choices taken at the recommendation, two modules held):
 # chkw [running-step]: the markers of a run that finished everything up to the new app's page walk, optionally with a step running
@@ -220,7 +225,7 @@ PY
   p7-term-person) mkstop 'nj_meta person "The update rerun finds replay commits already in the app. What should we do?" "" "rewind|Rewind the app to the convert commit|Tag a backup." "keep|Keep the replays|Create replay-keep.txt."; nj_add 12 "Decision" "x"'
             python3 "$B/brief.py" --work "$W" | sed -n '/^Do this/,/^Who/p;/^stop:/,/chat:/p' ;;
   # run DVS: the widget-drop stop through the pipeline's own widget_drop_stop (bin/widgetfix.py), the page, the chat line and the answer
-  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
+  dvs-stop|dvs-stop-update|dvs-stop-nofit|dvs-stop-twice|dvs-stop-flush) F=$here/fixtures/widgetfix; W=$T/min/work; rm -rf "$W"; mkdir -p "$W"; cp "$F/drops-dvs.json" "$W/widgetdrop.json"; echo "# plan" > "$W/plan.txt"
             mods=$F/modules-dvs.json; [ "$case_" != dvs-stop-nofit ] || { mods=$T/mods.json; sed 's/2\.30\.6/2.32.4/' "$F/modules-dvs.json" > "$mods"; }
             mkdvs() { mkstop 'eval "$(sed -n "/^nj_writes() /p;/^widget_drop_stop() {/,/^}/p" "$B/cloud/upgrade-pipeline.sh")"; nj_file() { :; }
               export WORK=$W APP=x TARGET=10.24.0 UPG_CACHE=$F UPG_WIDGETFIX_MODULES=$mods UPG_WIDGETFIX_VERSIONS=$F/versions-116540.txt; widget_drop_stop'; }
@@ -231,6 +236,10 @@ PY
               dvs-stop-update) python3 "$B/decisions.py" pending --work "$W" | grep -- '--choice'
                   dec add --item stop:update:1 --choice update --by Ana --source page >/dev/null; dec apply | tail -1; cat "$W/plan.txt"
                   awk '$1 ~ /^[0-9]+$/ {print "stepupdate reads: cid=" $1 " ver=" $2 " module=" $3}' "$W/plan.txt" ;;
+              dvs-stop-flush) secs=$(sed -n '/^## /,$p' "$W/NEEDS-JUDGMENT.md"); cp "$W/widgetdrop.json" "$W/plan.txt" "$T/min/"; W=$T/lb/work; mkdir -p "$W"; cp "$T/min/widgetdrop.json" "$T/min/plan.txt" "$W/"
+                  njrun update 13 "$secs"; njrun update 13 "$secs"; echo "rows: $(wc -l < "$W/state/stops.tsv" | tr -d ' ')"
+                  python3 "$B/decisions.py" pending --work "$W" | grep -o -- '--item stop:[^ ]*' | sort -u
+                  dec add --item stop:update:1.2 --choice update --by Ana --source page >/dev/null; dec apply >/dev/null; grep -c '^116540 2.32.4 DataWidgets # \[item:stop:update:1\.2\]' "$W/plan.txt" ;;
               dvs-stop-twice) dec add --item stop:update:1 --choice accept --by Ana --source page >/dev/null; dec apply >/dev/null; echo "ack: $(cut -c1-40 "$W/widgetdrop-ack.txt")"
                   rm -f "$W/NEEDS-JUDGMENT.md"; echo "asked after the run went on: $(python3 "$B/decisions.py" pending --work "$W" | grep -c 'stop:update:1')"
                   rm -f "$W/widgetdrop-ack.txt"; mkdvs; echo "asked by the next stop with the same id: $(python3 "$B/decisions.py" pending --work "$W" | grep -c -- '--item stop:update:1')"
@@ -289,8 +298,23 @@ PY
             mkstop 'mq=$(sed -n "s/^Q\t//p" "$T/p24/out.txt"); mr=$(sed -n "s/^R\t//p" "$T/p24/out.txt"); mapfile -t mo < <(sed -n "s/^O\t//p" "$T/p24/out.txt"); mb=$(sed -n "s/^B\t//p" "$T/p24/out.txt"); nj_meta person "$mq" "$mr" "${mo[@]}"; nj_add 13 "An updated module needs a module the app does not have (CE1613 after the update)" "$mb"'
             sed -n '/^## /,/^```/p' "$W/NEEDS-JUDGMENT.md" | cut -c1-110 | head -12
             ck >/dev/null && { brief_text | sed -n '/^Do this now/,/^Who/p'; grep -c 'data-q=' "$T/out.html" | sed 's/^/question cards: /'; } ;;
+  # auto mode parks items and the run goes on: the page must say how many wait and where, never "Nothing needed" (WTD, round 4)
+  parked-idle) chkw; mkdir -p "$W/parked"; printf '# NEEDS JUDGMENT: 3 parked item(s) (Interview mode: auto), answer them in one round\n\nThe run went on past each of these.\n' > "$W/NEEDS-JUDGMENT.md"
+            printf '<!-- park exit 12 step gate -->\n## a (exit 12)\n<!-- park exit 13 step gate -->\n## b (exit 13)\n' > "$W/parked/gate.md"
+            ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
+  # markers only, no NEEDS-JUDGMENT.md header: the live-run path, written by the pipeline's own nj_park (two rounds, two markers)
+  parked-markers) parkw ;;
+  # a rerun in progress: answered parked files of later steps are still there (only the step that reruns deletes its own), so it must not say "waits"
+  parked-rerun) parkw gate ;;
+  parked-none) chkw; ck >/dev/null && brief_text | sed -n '/^Do this now/,/^Who/p' ;;
   chk-idle) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   chk-stopped-test) chkw; printf '# NEEDS JUDGMENT: step journeys, exit 11\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from journeys\n## T (exit 11)\nowner: agent\nbody\n' > "$W/NEEDS-JUDGMENT.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
+  chk-build-failed) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; rm -f "$W/NEEDS-JUDGMENT.md"   # GF-46: the build ran and failed (last timing row exit 1, no stop file)
+            printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t1\n' >> "$W/state/timing.tsv"; ck >/dev/null
+            echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "stale words: $(cnt 'The build has not run yet' "$T/out.html")" ;;
+  chk-build-judgment-stop) chkw; rm -f "$W/state/after.done" "$W/state/build.done"; printf '# NEEDS JUDGMENT: step build, exit 10\n\nrun folder: x\nwork: x\nsource 10.6.3 -> target 10.24.0\n\n    pipeline --from build\n## The disk is full, so the step cannot go on (exit 10)\n\nowner: person\nquestion: The disk is full, so the step cannot go on. What should we do?\nwhy: Only you know what else lives on this disk.\noption: free|Free space, then rerun|Delete old runs.\n\nbody\n' > "$W/NEEDS-JUDGMENT.md"
+            printf 'build\t2026-11-18T12:00:00Z\t2026-11-18T12:01:00Z\t10\n' >> "$W/state/timing.tsv"; ck >/dev/null
+            echo "failed headline: $(cnt 'The build failed' "$T/out.html")"; echo "waiting headline: $(cnt 'Stopped at build, waiting for you' "$T/out.html")" ;;
   chk-chosen) chkw journeys; ck >/dev/null && brief_text | sed -n '/^Do this/,$p'
             python3 - "$T/out.html" <<'PY'
 import html, re, sys
@@ -315,6 +339,37 @@ PY
   rung2-own-gate) r2w; printf 'Overall: **INVALID** (exit 2): 1 PASS.\nProgress: 1 of 3 checks closed (33%%). 2 with REGRESSIONS to fix, 0 need a decision, 1 not measured yet.\n' > "$W/gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   rung2-no-first-gate) r2w; rm -f "$W/../gate-summary.md"; ck >/dev/null && brief_text | sed -n '/^Broken/,/^Do this/p' ;;
   charset) chkw; ck >/dev/null; echo "metas: $(grep -c '<meta charset="utf-8">' "$T/out.html")"; head -c 120 "$T/out.html" | head -2 ;;
+  # DV-13: the sign-off card lists the rows the "n choices were assumed" count is made of (one list, one count)
+  assumed-list-d-only|assumed-list-mixed|assumed-list-many)
+    if [ "$case_" = assumed-list-d-only ]; then
+      python3 - "$W/PROPOSAL.md" <<'PY'
+import re, sys
+t = open(sys.argv[1]).read()
+a = t.index("## 3."); b = t.index("## 4.")
+open(sys.argv[1], "w").write(t[:a] + "## 3. Needs your decision before we start\n\n" + t[b:])
+PY
+      rm -f "$W/DECISIONS.md"
+      printf '# Agent decisions\n\n| # | Decision | Choice | Why |\n|---|---|---|---|\n| D7 (agent) | Dropped the <b>unused</b> export job | Removed with mxcli | Nothing calls it. |\n' > "$W/AGENT-DECISIONS.md"
+    elif [ "$case_" = assumed-list-many ]; then
+      for n in 3 4 5 6 7 8; do echo "| D$n (agent) | Extra decision $n | Chose $n | Because. |" >> "$W/AGENT-DECISIONS.md"; done
+    fi
+    ck >/dev/null && python3 - "$T/out.html" <<'PY'
+import html, re, sys
+h = open(sys.argv[1]).read()
+m = re.search(r'id="assumed-list">(.*?)</div>', h, re.S)
+box = m.group(1) if m else ""
+li = [html.unescape(re.sub(r"<[^>]+>", "", x)) for x in re.findall(r"<li>(.*?)</li>", box, re.S)]
+meta = re.search(r'"meta": "(\d+) choices? w(?:as|ere) assumed by the agent', h)
+head = html.unescape(re.sub(r"<[^>]+>", "", re.search(r"<b>(.*?)</b>", box).group(1))) if m else "none"
+print("card heading:", head)
+for x in li: print("listed:", x)
+rows = [x for x in li if re.match(r"^(D|P-|S-)\d*", x)]
+named = len([x for x in li if not x.startswith("+") and not re.match(r"^\+\d+", x)])
+more = next((int(re.match(r"\+(\d+)", x).group(1)) for x in li if re.match(r"\+\d+", x)), 0)
+print("count in brief:", meta.group(1) if meta else "none", "| listed + more:", named + more)
+print("raw tag escaped:", "<b>unused</b>" not in box)
+PY
+    ;;
   render)   ck && cat "$T/out.html" ;;
   nodoc)    ck >/dev/null && head -c 400 "$T/out.html"; echo; ! grep -Eqi '<(!doctype|html|head|body)[ >]' "$T/out.html" && echo "no page skeleton tags" ;;
   nohard)   ck >/dev/null; ! grep -Eq 'HTMLSnippet|run2' "$T/out.html" && echo "no hard-coded run names" ;;
@@ -352,6 +407,12 @@ decisions.open_items = lambda w, model=None: [{"id": "stop:update:2", "kind": "s
 decisions.cmd_pending(argparse.Namespace(work=sys.argv[2], json=False))
 PY
             ;;
+  # run SITS: a plan choice's recommended key is the placeholder "rec"; the chat line must also say what is recommended
+  pending-rec-says-what) dec pending | grep -- '--item P-2 ' ;;
+  # run SITS: a later stop at the same step must not reuse the first stop's ids (state/stops.tsv holds one row per stop)
+  stop-ids-first|stop-ids-later) mkstop 'nj_meta person "Widget settings would be dropped. What should we do?" "update" "update|Update the module|Before the build." "accept|Accept the loss|Create the ack file."; nj_add 13 "Decision" "x"'
+            mkdir -p "$W/state"; printf 'update\t13\t111\n' > "$W/state/stops.tsv"; [ "$case_" != stop-ids-later ] || printf 'update\t13\t222\n' >> "$W/state/stops.tsv"
+            dec pending | grep -o -- '--item stop:[^ ]*' ;;
   pending-after) dec add --item P-2 --choice rec --by Ana --source chat >/dev/null; dec pending ;;
   signed-page) echo "{\"signoffs\":[{\"id\":\"u_1\",\"plan\":\"$HASH\",\"at\":\"2026-01-03T08:00:00Z\",\"source\":\"page\"}]}" > "$T/e.json"; echo '{"u_1":"Cleo"}' > "$T/n.json"
             dec import --json "$T/e.json" --names "$T/n.json" >/dev/null; dec apply >/dev/null; ck >/dev/null; python3 - "$T/out.html" <<'PY'
@@ -380,6 +441,15 @@ PY
          printf 'basewalk\t%s\t999999\n' "$(date +%s)" > "$W/state/running"; ck > /dev/null
          echo "dead pid: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")"
          rm "$W/state/running"; ck > /dev/null; echo "no file: hidden $(grep -c '<div class="nowrun" id="nowrun" hidden' "$T/out.html")" ;;
+  status-idle) # /status is never null: no .cockpit-work = idle/no-work-dir; a rung with no live step = idle/no-step-running; a running step keeps the old payload (no state key)
+         mkdir -p "$W/state" "$W/logs"; sv() { python3 "$B/cockpitserve.py" --dir "$T" --idle-exit 20 & sp=$!
+           for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/.cockpit-port" ] && break; sleep 0.3; done; curl -s "http://127.0.0.1:$(cat "$T/.cockpit-port")/status"; kill $sp; wait $sp 2> /dev/null; rm -f "$T/.cockpit-port"; }
+         js() { python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(sys.argv[2], "|", d.get("state","-"), d.get("reason","-"), "step=" + str(d.get("step","-")))' "$1" "$2"; }
+         rm -f "$T/.cockpit-work"; js "$(sv)" "no work file"
+         echo "$W" > "$T/.cockpit-work"; rm -f "$W/state/running"; js "$(sv)" "no step"
+         printf 'basewalk\t%s\t%s\n' "$(( $(date +%s) - 120 ))" "$$" > "$W/state/running"; js "$(sv)" "step running"
+         python3 "$B/cockpitpage.py" --work "$W" --out "$T/live.html" --standalone --live > /dev/null
+         echo "live page hides on idle: $(grep -c 'r.state==="idle"' "$T/live.html")" ;;
   stopped) # a judgment stop (cold test WM1): a red bar with each NEEDS-JUDGMENT.md section and the rerun command, one
          # needs-you row per section, and the matrix cell lists every section; no NEEDS-JUDGMENT.md = no bar
          printf '# NEEDS JUDGMENT: step basewalk, exit 11\n\nwork: %s\nRule: the items below are pending, not passed: ..., then rerun:\n\n    upgrade-pipeline.sh --work W --from basewalk\n\n## The smoke walk SKIPPED microflow steps (exit 11)\n\nRerun with UPG_SMOKE_MICROFLOWS=1.\n\n## Role Anonymous has no walk (exit 11)\n\nfile: x\n\n```\nAnonymous: none\n```\n' "$W" > "$W/NEEDS-JUDGMENT.md"; ck > /dev/null
@@ -389,7 +459,21 @@ PY
          echo "rows: $(grep -o '"id": "stop:basewalk:[0-9]"' "$T/out.html" | sort -u | paste -sd ' ' -)"
          echo "cell: $(grep -o '"l": "[0-9] decisions needed"' "$T/out.html" | head -1)"
          echo "state: $(grep -o '"state": {[^}]*}' "$T/out.html")"
-         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar"' "$T/out.html")" ;;
+         rm "$W/NEEDS-JUDGMENT.md"; ck > /dev/null; echo "no file: bars $(cnt -c 'class="stopbar' "$T/out.html")" ;;
+  stopped-ok) # the widgetroute stop in the standard nj_meta shape ($WRSTOP holds the work folder with the NEEDS-JUDGMENT.md widgetroute.py wrote): reader-worded
+         # options, the recommended one, the lines each answer writes; an answer applies them (decisions.py apply)
+         W=$WRSTOP; [ -f "$W/NEEDS-JUDGMENT.md" ] || { echo "no stop file in WRSTOP"; exit 2; }
+         python3 - "$B" "$W" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1])
+import cockpitpage as cp
+for it in cp.build_model(sys.argv[2])["items"]:
+    if it["id"].startswith("stop:"):
+        print("row:", it["id"], "| title:", it["title"], "| rec:", it["rec"], "| options:", " ".join(o["key"] for o in it["options"]),
+              "| writes:", [w for o in it["options"] for w in o.get("writes", [])], "|", " | ".join(f"{o['key']}: {o['label']} ({o['causes']})" for o in it["options"]),
+              "| problem:", it["problem"])
+PY
+         dec add --item stop:build:1 --choice ok --by Ana --source chat > /dev/null && dec add --item stop:build:2 --choice b --by Ana --source chat > /dev/null && dec apply > /dev/null
+         echo "approved: $(cat "$W/widget-routes-approved.txt")" ;;
   decide) # Blocked on you (cold test WM1): every open question is a sidebar row and a dialog with one button per option, the sign-off last; the local
          # server's POST /decide writes the same ledger as the page import, refuses bad answers and form posts, and a card
          # disappears once answered
@@ -423,6 +507,43 @@ PY
          touch "$W/.cockpit-seen"; STEP=build op "tab polling"
          sleep 3; STEP=build op "tab gone"; sleep 3; STEP=build UPG_COCKPIT_OPEN=0 op "off"
          kill "$(cat "$W/.cockpit-pid")" 2> /dev/null ;;
+  live-noopener) # DV-4: cockpit_live on a host with no browser opener (open/xdg-open absent, no display) still starts the server and says so
+         { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
+         . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs"; date > "$W/state/triage.done"
+         unset DISPLAY WAYLAND_DISPLAY UPG_COCKPIT_OPENER; export UPG_COCKPIT_OPEN=${NOOPENER_MODE:-auto}
+         uname() { echo Linux; }   # no macOS "open"; no display, so no xdg-open either
+         STEP=build cockpit_live > "$T/live.out" 2>&1; unset -f uname
+         sed 's#127.0.0.1:[0-9]*#127.0.0.1:PORT#' "$T/live.out"
+         port=$(cat "$W/.cockpit-port" 2> /dev/null); echo "port file: ${port:+yes}"; echo "pid alive: $(kill -0 "$(cat "$W/.cockpit-pid" 2> /dev/null)" 2> /dev/null && echo 1 || echo 0)"
+         echo ".cockpit-work: $(cat "$W/.cockpit-work" 2> /dev/null | sed "s#$W#WORK#")"
+         [ -z "$port" ] || python3 -c 'import json,sys,urllib.request as u; r=json.load(u.urlopen("http://127.0.0.1:%s/status"%sys.argv[1])); print("status:", r.get("state"), r.get("reason"))' "$port"
+         [ -z "$port" ] || python3 -c 'import sys,urllib.request as u; print("page served:", len(u.urlopen("http://127.0.0.1:%s/"%sys.argv[1]).read()) > 100)' "$port"
+         kill "$(cat "$W/.cockpit-pid")" 2> /dev/null; true ;;
+  live-noserver) # DV-4: the server cannot start: the log says no cockpit is running and why, never silence
+         { sed -n '/^say() /p' "$B/cloud/upgrade-pipeline.sh"; sed -n '/^cockpit_live() {/,/^}/p' "$B/cloud/upgrade-pipeline.sh"; } > "$T/fn.sh"
+         . "$T/fn.sh"; DRY=0; WORK=$W; mkdir -p "$W/state" "$W/logs" "$T/stub"; date > "$W/state/triage.done"
+         printf '#!/bin/bash\ncase "$*" in *cockpitserve*) echo "cannot bind: boom" >&2; exit 1;; esac\nexec %s "$@"\n' "$(command -v python3)" > "$T/stub/python3"; chmod +x "$T/stub/python3"
+         unset DISPLAY WAYLAND_DISPLAY UPG_COCKPIT_OPENER; export UPG_COCKPIT_OPEN=auto
+         PATH=$T/stub:$PATH STEP=build cockpit_live 2>&1 | sed 's#'"$W"'#WORK#g' ;;
+  resume-cockpit) # DV-10: resume.sh starts the cockpit server for a run folder with a work folder; a second resume starts no second one
+         mkdir -p "$T/rr"; cp -R "$here/fixtures/cockpit/run/work" "$T/rr/work"; printf '#!/bin/bash\nexit 0\n' > "$T/rr/run-pipeline.sh"; touch "$T/rr/work/state/gate.done"
+         mkdir -p "$T/rr/bare"; printf '#!/bin/bash\nexit 0\n' > "$T/rr/bare/run-pipeline.sh"
+         export UPG_COCKPIT_OPEN=1 UPG_RESUME_NO_DOCKER=1
+         r() { bash "$B/cloud/resume.sh" "$@" 2>&1 | grep 'cockpit:' | sed -E 's#^\[resume [0-9:]+\] ##; s#127.0.0.1:[0-9]+#127.0.0.1:PORT#; s#\(.*\)$##'; }
+         r "$T/rr"; p1=$(cat "$T/rr/work/.cockpit-pid"); r "$T/rr"; p2=$(cat "$T/rr/work/.cockpit-pid")
+         echo "same server after second resume: $([ "$p1" = "$p2" ] && echo yes || echo no)"
+         echo "servers on this folder: $(pgrep -f "cockpitserve.py --dir $T/rr/work" | wc -l | tr -d ' ')"
+         r "$T/rr/bare"; echo "no work folder: .cockpit-pid $([ -e "$T/rr/bare/work/.cockpit-pid" ] && echo made || echo none)"
+         echo "open=0 cockpit lines: $(UPG_COCKPIT_OPEN=0 r "$T/rr" | wc -l | tr -d ' ')"; kill "$p1" 2> /dev/null; true ;;
+  up-stale-pid) # a live pid that is not our server (sleep) in .cockpit-pid and a bogus port: started, answers /status, the sleep is left alone
+         mkdir -p "$T/su/logs"; cp -R "$here/fixtures/cockpit/run/work/." "$T/su/"; sleep 60 & sp=$!
+         echo $sp > "$T/su/.cockpit-pid"; echo 1 > "$T/su/.cockpit-port"
+         out=$(bash "$B/cloud/cockpit-up.sh" --work "$T/su" 2>&1); echo "line: ${out%% *}"
+         port=$(cat "$T/su/.cockpit-port"); echo "port replaced: $([ "$port" != 1 ] && echo yes || echo no)"
+         python3 -c 'import json,sys,urllib.request as u; print("status answers:", "state" in json.load(u.urlopen("http://127.0.0.1:%s/status"%sys.argv[1])) or True)' "$port"
+         echo "unrelated pid untouched: $(kill -0 $sp 2> /dev/null && echo yes || echo no)"
+         echo "pid file is the server: $([ "$(cat "$T/su/.cockpit-pid")" != "$sp" ] && echo yes || echo no)"
+         kill $sp "$(cat "$T/su/.cockpit-pid")" 2> /dev/null; true ;;
   cockpit-flag) cp -R "$here/fixtures/cockpit/run" "$T/r2"; bash "$B/cloud/upgrade-pipeline.sh" --cockpit --work "$T/r2/work" && test -s "$T/r2/work/COCKPIT.html" && echo "COCKPIT.html written" ;;
   matrix-*) # the matrix page: read the embedded data with a small python helper, print what it saw
             mx() { python3 - "$@" <<'PY'
@@ -649,13 +770,22 @@ PY
   # cockpitcheck.py: the page never contradicts itself (cold test WM1: ghost "Not approved yet" rows, a red stop bar while running)
   check-ghost) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
             python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
+  check-ghost-note) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
+            printf '## 3. Needs your decision before we start\n\n- [P-1] module: Gridmod\n\n## Agent notes\n\n> Oldmod is the [P-99] case, I looked at it by hand.\n\n## 6. Sign-off\n' > "$W/PROPOSAL.md"
+            python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?" ;;
   check-withdraw) mkst; st open --topic module:Oldmod --title "Keep or update module Oldmod" --say "A module needs a decision." --alias P-99 >/dev/null
             python3 -c "import sys; sys.path.insert(0,'$B'); import steps; print('withdrawn', steps.withdraw('$W', {'S-1','S-2','S-3'}, 'No longer in the plan.'))"
             python3 "$B/cockpitcheck.py" --work "$W"; echo "rc=$?"
             python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "rows Oldmod: $(cnt 'module Oldmod' "$T/out.html")" ;;
   check-running) sleep 300 & sp=$!; mkdir -p "$W/state" "$W/logs"; printf 'update\t%s\t%s\n' "$(date +%s)" "$sp" > "$W/state/running"
             printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
-            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar"' "$T/out.html")"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null; echo "stopbar: $(cnt 'class="stopbar' "$T/out.html")"
             python3 "$B/cockpitcheck.py" --work "$W" | grep -c 'stop-and-running'; kill $sp 2>/dev/null ;;
+  plan-wait-bar) # exit 14: the plan waits for sign-off. A normal wait for answers: amber and "paused", never the red "stopped" of a failure
+            printf '# NEEDS JUDGMENT: step propose, exit 14\n\n## Upgrade proposal awaits sign-off (exit 14)\n\nsign it\n' > "$W/NEEDS-JUDGMENT.md"
+            python3 "$B/cockpitpage.py" --work "$W" --out "$T/out.html" >/dev/null
+            echo "bar: $(grep -o '<div class="stopbar[a-z ]*"' "$T/out.html" | head -1)"
+            echo "text: $(grep -o '<div class="stopbar[^>]*><b>[^<]*' "$T/out.html" | head -1 | sed 's/.*<b>//')"
+            echo "red stopped: $(cnt 'The run stopped' "$T/out.html")" ;;
   *) echo "unknown case $case_"; exit 2 ;;
 esac

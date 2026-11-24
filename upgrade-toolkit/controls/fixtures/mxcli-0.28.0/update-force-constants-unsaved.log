@@ -1,0 +1,12 @@
+WARNING: This is a vibe-coded PoC, alpha quality, use with caution.
+
+  Could not be saved (3) - these edits are not recoverable this way:
+    CONSTANT ClientId (DESCRIBE produced no body, so a difference here is not evidence of an edit)
+    CONSTANT IdPUrl (DESCRIBE produced no body, so a difference here is not evidence of an edit)
+    JAR_DEPENDENCY com.nimbusds:oauth2-oidc-sdk (DESCRIBE produced no body, so a difference here is not evidence of an edit)
+Proceeding under --force; 3 locally changed element(s) will be replaced:
+    CONSTANT ClientId
+    CONSTANT IdPUrl
+    JAR_DEPENDENCY com.nimbusds:oauth2-oidc-sdk
+
+Updating MendixSSO 4.2.0 -> 10.6.2...

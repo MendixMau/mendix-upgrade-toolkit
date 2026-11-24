@@ -1,0 +1,5 @@
+{"from": "replace-clean.json", "ops": [
+ ["set", "modules/0/pages/0/widgets", [
+  {"id": "Moving.widget.Moving", "name": "mv1", "props": {"pageContent": {"form": "MyOwn.Lazy_Content"}}}]],
+ ["set", "widget_packages", {
+  "Moving.mpk": {"ids": ["Moving.widget.Moving"], "dojo": true, "version": "2.0.0", "props": {"pageContent": "form"}}}]]}

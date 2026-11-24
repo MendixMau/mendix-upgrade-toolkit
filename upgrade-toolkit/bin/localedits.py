@@ -34,6 +34,14 @@ Three layers:
      theme/web/custom-variables.scss); a Java user-code edit is a logic edit (keep the module).
      --files-only runs this layer alone (stepupdate.sh calls it before each update): exit 0 clean, 1 edited, 2 not comparable.
 
+  5. Constants and jar dependencies (always, fast, GM-11): per vendor module, constant defaults (added, removed, type or
+     default value changed) and Maven/JAR dependencies (added, removed, version changed), app vs the installed package.
+     Each difference is a `conf` row (kind constant / jar), counts as a local edit and gives exit 1: `marketplace update`
+     refuses these modules, and a "domain model unchanged" line used to hide it. Jar rows read Projects$ModuleSettings
+     JarDependencies (GroupId, ArtifactId, Version); a module without that unit has no jar dependencies.
+  Without --mxcli-diff the element CONTENTS (microflows, pages, ...) are not compared: every module line then ends with
+  "element contents NOT compared (no mxcli | --mxcli-diff not given)", never a bare "unchanged" (GM-11).
+
 Usage:
   localedits.py <project.mpr|dir> [--module NAME ...] [--files-only] [--cache DIR] [--json out.json] [--md out.md]
                 [--cid NAME=ID ...] [--proxy NAME=VERSION ...] [--installed NAME=VERSION ...]
@@ -300,6 +308,80 @@ def logic_diff(app_model, pkg_model, mod):
     return rows
 
 
+SECRET_NAME = re.compile(r"password|secret|key|token", re.I)
+
+
+def _norm_default(v):
+    v = "" if v is None else str(v).strip()
+    return v.lower() if v.lower() in ("true", "false") else v
+
+
+def const_index(model, mod):
+    out = {}
+    for d in model.all_docs:
+        if d.module == mod and d.type == "Constants$Constant":
+            t = (d.data.get("Type") or {}).get("$Type", "").split("$")[-1].replace("Type", "")
+            out[d.qn] = {"default": _norm_default(d.data.get("DefaultValue")), "type": t}
+    return out
+
+
+def jar_index(model, mod):
+    """({group:artifact: version}, read) of the module's JarDependencies (Projects$ModuleSettings unit). read is False when
+    no ModuleSettings unit holds a JarDependencies list of dicts: that is "not verified", never "no jars" (GM-11)."""
+    out, read = {}, False
+    for uid, (_cid, _cn, d) in model.units.items():
+        if d.get("$Type") != "Projects$ModuleSettings":
+            continue
+        if model._module_of(uid)[0] != mod:
+            continue
+        jd = d.get("JarDependencies")
+        if not isinstance(jd, list):
+            continue
+        items = [j for j in jd if isinstance(j, dict)]
+        if len(items) != len([j for j in jd if not isinstance(j, int)]):
+            continue   # an item that is not a document: unexpected shape
+        read = True
+        for j in items:
+            out[f"{j.get('GroupId', '')}:{j.get('ArtifactId', '')}"] = str(j.get("Version") or "")
+    return out, read
+
+
+def config_diff(app_model, pkg_model, mod):
+    """Constant defaults and jar dependencies of one module, app vs package (GM-11)."""
+    rows = []
+    a, p = const_index(app_model, mod), const_index(pkg_model, mod)
+    for qn in sorted(set(a) | set(p)):
+        x, y = a.get(qn), p.get(qn)
+        shown = (lambda v: "(not shown)") if SECRET_NAME.search(qn) else (lambda v: repr(v))
+        if x and not y:
+            rows.append({"change": "ADDED", "kind": "constant", "name": qn, "detail": "local constant, removed by the update"})
+        elif y and not x:
+            rows.append({"change": "REMOVED", "kind": "constant", "name": qn, "detail": "package constant deleted locally, comes back on update"})
+        elif x["default"] != y["default"] or x["type"] != y["type"]:
+            what = f"default {shown(y['default'])} -> {shown(x['default'])}" if x["default"] != y["default"] else f"type {y['type']} -> {x['type']}"
+            rows.append({"change": "CHANGED", "kind": "constant", "name": qn,
+                         "detail": what + " (the update puts the package default back: restore it after, constcheck.py)"})
+    (a, ra), (p, rp) = jar_index(app_model, mod), jar_index(pkg_model, mod)
+    # jar rows only when BOTH sides were read; one side read: with no jars there both are empty (verified), else not verified
+    if ra and rp:
+        jars_read = True
+    elif ra or rp:
+        jars_read = "one side unread" if (a if ra else p) else True
+        a, p = {}, {}
+    else:
+        jars_read = False
+        a, p = {}, {}
+    for k in sorted(set(a) | set(p)):
+        if k in a and k not in p:
+            rows.append({"change": "ADDED", "kind": "jar", "name": k, "detail": f"local jar dependency {a[k]}, removed by the update"})
+        elif k in p and k not in a:
+            rows.append({"change": "REMOVED", "kind": "jar", "name": k, "detail": f"package jar dependency {p[k]} deleted locally, comes back on update"})
+        elif a[k] != p[k]:
+            rows.append({"change": "CHANGED", "kind": "jar", "name": k,
+                         "detail": f"version {p[k] or '(none)'} -> {a[k] or '(none)'} (the update refuses or resets it)"})
+    return rows, jars_read
+
+
 def files_layer(app_dir, mpk, mod):
     """(rows, None) or (None, error text): the files outside the model of one module against the installed .mpk (T5-17)."""
     if not os.path.exists(mpk):
@@ -438,13 +520,16 @@ def main():
     report, lines, red_total = [], [f"# localedits {args.mpr}", ""], 0
     app_model = None
     unknown_el, partial, force_ui, network, netdiff = [], [], [], {}, {}
-    files_total, files_unknown = 0, []
+    files_total, files_unknown, config_total, jars_unverified = 0, [], 0, []
+    have_mxcli = bool(args.mxcli_cmd) or (os.path.isfile(MXCLI) and os.access(MXCLI, os.X_OK)) or bool(shutil.which(MXCLI))
+    not_compared = "no mxcli" if not have_mxcli else "--mxcli-diff not given"
     for m in mods:
         if m["name"] in cids:
             m["cid"] = int(cids[m["name"]])
         entry = dict(m)
         against = proxies.get(m["name"], m["version"])
         entry["compared_with"] = against
+        entry["contents_compared"] = bool(args.mxcli_diff)
         if not m["cid"]:
             pkg_mpr, err, net = None, [f"content id {m['cid']!r} in the MPR: give --cid {m['name']}=<id>"], False
         else:
@@ -452,7 +537,7 @@ def main():
         if net:
             network[m["name"]] = net
         if err:
-            entry["domain"] = None; entry["domain_error"] = err; entry["ui"] = None; entry["logic"] = None
+            entry["domain"] = None; entry["domain_error"] = err; entry["ui"] = None; entry["logic"] = None; entry["config"] = None
         else:
             entry["domain"] = domain_diff(app, idcheck.build(idcheck.read_mpr(pkg_mpr)), m["name"])
             if app_model is None:
@@ -460,6 +545,9 @@ def main():
             pkg_model = mprmodel.Model.load(pkg_mpr)
             entry["ui"] = ui_diff(app_model, pkg_model, m["name"])
             entry["logic"] = logic_diff(app_model, pkg_model, m["name"])
+            entry["config"], entry["jars_verified"] = config_diff(app_model, pkg_model, m["name"])
+            if entry["jars_verified"] is not True:
+                jars_unverified.append(m["name"])
         if err:
             entry["files"], entry["files_error"] = None, "package not readable"
         else:
@@ -489,6 +577,10 @@ def main():
             status += f" | FILES edits {len(files)} (themesource / javascriptsource / Java user code: the update replaces them)"
         elif entry.get("files") is None and not err:
             status += f" | FILES NOT COMPARED ({entry['files_error']})"; files_unknown.append(m["name"])
+        config = entry.get("config") or []
+        config_total += len(config)
+        if config:
+            status += f" | CONFIG edits {len(config)} (constant defaults / jar dependencies: the update replaces them)"
         if ui:
             status += f" | UI edits {len(ui)} (replay after update)"
         if logic:
@@ -526,12 +618,20 @@ def main():
             if against.split(".")[0] != (m["version"] or "").split(".")[0]:
                 px += f"; {against} is a major version away from {m['version']}: expect much drift"
             px += "]"
+        if entry.get("jars_verified") is False:
+            status += " | jar dependencies not verified (no ModuleSettings unit read)"
+        elif entry.get("jars_verified") == "one side unread":
+            status += " | jar dependencies not verified (one side unread)"
+        if not args.mxcli_diff and entry["domain"] is not None:
+            el = f" | element contents NOT compared ({not_compared}): microflows, pages and layouts may differ"
         lines.append(f"## {m['name']} {m['version']} (content {m['cid']}): {status}{el}{px}")
         for x in entry["domain"] or []:
             lines.append(f"  {'RED ' if x['data'] else 'info'} {x['change']:8} {x['kind']:11} {x['name']}  {x['detail']}")
         for x in ui:
             lines.append(f"  ui   {x['change']:8} {x['kind']:11} {x['name']}  {x['detail']}")
         lines.extend(files_lines(files))
+        for x in config:
+            lines.append(f"  conf {x['change']:8} {x['kind']:11} {x['name']}  {x['detail']}")
         for x in logic:
             lines.append(f"  logic {x['change']:8} {x['kind']:11} {x['name']}  {x['detail']}")
         for e in (entry.get("elements") or {}).get("modified") or []:
@@ -551,6 +651,11 @@ def main():
                  + (" --mxcli-diff" if args.mxcli_diff else "")] if nets else []),
               f"LOGIC edits (documents added or deleted, contents not compared): {sum(len(e.get('logic') or []) for e in report)}",
               f"FILES edits (themesource, javascriptsource, Java user code; exit 1): {files_total}",
+              f"CONFIG edits (constant defaults, jar dependencies; exit 1): {config_total}",
+              *([f"CONTENTS NOT COMPARED ({not_compared}): microflow, nanoflow, page and layout contents were not judged; "
+                 "'domain model unchanged' says nothing about them. Run with --mxcli-diff."] if not args.mxcli_diff else []),
+              *([f"JAR DEPENDENCIES NOT VERIFIED (no ModuleSettings unit read, or one side unread): {jars_unverified}: this is not 'no jars'; "
+                 "run --mxcli-diff (JAR_DEPENDENCY rows) or compare in Studio Pro."] if jars_unverified else []),
               f"UI edits (pages, layouts): {sum(len(e.get('ui') or []) for e in report)}"
               + (f", partially verified (mxcli diff verified=false): {partial}" if partial else ""),
               "force-ui: " + (",".join(force_ui) if force_ui else "none")
@@ -564,7 +669,7 @@ def main():
         open(args.md, "w").write(out + "\n")
     if args.json:
         json.dump(report, open(args.json, "w"), indent=1)
-    sys.exit(1 if red_total or files_total else 2 if unknown or nets else 0)
+    sys.exit(1 if red_total or files_total or config_total else 2 if unknown or nets else 0)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,14 @@ JavaIndex), userlib/*.jar names, javascriptsource/, theme/ and themesource/, wid
   --accept FILE   one line per accepted package, `<sha256 of the .mpk> <reason>`: an mpkjs hit on exactly that file is not
                   reported (the row says "accepted by checksum"). For a package a person patched (V3D-2: 3D Viewer 4.0.0
                   with the react-loading spinner replaced keeps the dead React 16 copy, so R36 still matches the file).
+  --rules FILE    an extra rule table (repeatable), same columns and grammar as the table; GM-41. A version rule is a row:
+                  `modver:Mod:<Y` in detect, `->Z` in applies_on_jump = "module Mod needs a version >= Y when the target is Z or
+                  later". Also read without the flag: the files named in $UPG_RULES (os.pathsep separated: ':' on Unix, ';' on Windows) or UPG_RULES= in
+                  ~/.config/upgrade-toolkit/local.env, and <brain>/baseline/upgrade-rules.tsv when the brain (brainpath.py) has
+                  one. The same file by two routes is read once. A named or found file that cannot be read, or an id that repeats an
+                  earlier table's, prints an ERROR line, is skipped, and the run exits 2 AFTER writing the report of every table that
+                  did load (the unattended pipeline keeps its R rows); a rule is never silently skipped. No file anywhere = only the main table (the toolkit runs
+                  without a brain). Rules are the owner's data and live with the owner (the brain), never in this repo.
   --no-newer A,B  widgets or modules with no newer version for the target (stranded, private owner): an mpkjs hit on one
                   of them says BLOCKER in its evidence and the run prints a `blockers:` line (NR2-24). Still exit 1.
 
@@ -133,6 +141,35 @@ def read_table(path):
     if len(set(ids)) != len(ids):
         raise TableError(f"{path}: duplicate ids")
     return rows
+
+
+def extra_tables(flags):
+    """[(path, how)] of the extra rule tables: --rules, $UPG_RULES, local.env UPG_RULES=, <brain>/baseline/upgrade-rules.tsv."""
+    out = [(f, "--rules") for f in flags]
+    env = os.environ.get("UPG_RULES")
+    if env is None:
+        try:
+            for ln in (Path.home() / ".config" / "upgrade-toolkit" / "local.env").read_text().splitlines():
+                if ln.strip().startswith("UPG_RULES="):
+                    env = ln.split("=", 1)[1].strip().strip("'\"")
+        except (OSError, UnicodeDecodeError):
+            pass
+    out += [(os.path.expanduser(f), "UPG_RULES") for f in (env or "").split(os.pathsep) if f.strip()]
+    try:
+        import brainpath
+        brain, _ = brainpath.find()
+        f = os.path.join(brain, "baseline", "upgrade-rules.tsv") if brain else None
+        if f and os.path.exists(f):
+            out.append((f, "brain"))
+    except Exception:
+        pass
+    seen, uniq = set(), []
+    for f, how in out:  # the same file by two routes is read once, under the first route
+        k = os.path.realpath(f)
+        if k not in seen:
+            seen.add(k)
+            uniq.append((f, how))
+    return uniq
 
 
 def parse_detect(s, where):
@@ -251,6 +288,62 @@ class App:
             return idx
         return self.once("widgets", build)
 
+    def instances(self):
+        """[(host qn, CustomWidget dict)] on pages, snippets and layouts."""
+        def build():
+            out = []
+            for d in self.m.all_docs:
+                if d.type in WIDGET_HOSTS:
+                    out += [(d.qn, w) for w in _find(d.data, lambda x: x.get("$Type") == "CustomWidgets$CustomWidget")]
+            return out
+        return self.once("instances", build)
+
+    def package_props(self):
+        """{widget id: (package file name, {key: type})} for every widgets/*.mpk that declares a form, widgets or action property."""
+        def build():
+            import zipfile
+            out, d = {}, self.root / "widgets"
+            for f in sorted(d.glob("*.mpk")) if d.is_dir() else []:
+                try:
+                    with zipfile.ZipFile(f) as z:
+                        for wid, props in mpk_props(z).items():
+                            out[wid] = (f.name, props)
+                except (zipfile.BadZipFile, OSError, KeyError, NotImplementedError, RuntimeError):
+                    continue
+            return out
+        return self.once("package_props", build)
+
+    def removal_note(self, wids):
+        """'' or a sentence saying what removing every instance of these widgets removes: for each property the package
+        declares as form, widgets or action, what each instance holds (the page it points at, the child widget count, the
+        action), read from the model's instances. GM-19: LazyloadingDataPlaceholder's pageContent held a whole page and
+        `mxcli describe page` omits it."""
+        pp, parts = self.package_props(), []
+        for wid in sorted(set(wids)):
+            if wid not in pp:
+                continue
+            pkg, props = pp[wid]
+            groups = {}   # (key, type, desc) -> {host: n}
+            for host, w in self.instances():
+                if (w.get("Type") or {}).get("WidgetId") != wid:
+                    continue
+                types = {repr(pt.get("$ID")): pt.get("PropertyKey")
+                         for pt in _find(w.get("Type") or {}, lambda x: x.get("$Type") == "CustomWidgets$WidgetPropertyType")}
+                for prop in _find(w.get("Object") or {}, lambda x: x.get("$Type") == "CustomWidgets$WidgetProperty", skip=("Widgets",)):
+                    key = types.get(repr(prop.get("TypePointer")))
+                    if key in props:
+                        g = groups.setdefault((key, props[key], _value_desc(props[key], prop.get("Value"))), {})
+                        g[host] = g.get(host, 0) + 1
+            seen = {k for k, _, _ in groups}
+            items = [f"{k} ({t}) holds {desc} in {sum(h.values())} instance(s) on {fmt_hosts(self, h)}"
+                     for (k, t, desc), h in sorted(groups.items())[:SHOW]]
+            if len(groups) > SHOW:
+                items.append(f"... ({len(groups)} kinds)")
+            items += [f"{k} ({t}): declared by the package, no instance in the model carries it (per-instance detail still wanted)"
+                      for k, t in sorted(props.items()) if k not in seen]
+            parts.append(f"widgets/{pkg} widget {wid} has properties describe page leaves out: " + "; ".join(items))
+        return ("removing it removes: " + " | ".join(parts)) if parts else ""
+
     def exprs(self):
         """[(doc qn, element $Type, text)]: every non-empty string value in microflows, nanoflows and rules, minus the
         $-keys (ids, types) and names, so an attribute in an expression or an XPath constraint is found."""
@@ -328,6 +421,63 @@ def grep(app, files, rx, own, label):
     return True, f"/{rx}/ in {s}"
 
 
+LOSS_TYPES = ("form", "widgets", "action")   # property types in a widget's package XML that hold a page, child widgets or an action (GM-19)
+MAX_XML = 2_000_000                         # a widget descriptor is a few kB; a larger member is not read
+
+
+def mpk_props(z):
+    """{widget id: {property key: type}} for the properties of type form, widgets or action that a package's XML declares.
+    The package XML is the only place that says a property holds a whole page: `mxcli describe page` leaves it out (GM-19)."""
+    out = {}
+    for i in z.infolist():
+        n = i.filename
+        if not n.lower().endswith(".xml") or n.startswith("__MACOSX") or n.lower().endswith("package.xml") or i.file_size > MAX_XML:
+            continue
+        txt = z.read(i).decode("utf-8", "replace")
+        m = re.search(r"<widget\s[^>]*?\bid\s*=\s*\"([^\"]+)\"", txt)
+        if not m:
+            continue
+        for tag in re.findall(r"<property\b[^>]*>", txt):
+            k, t = re.search(r"\bkey\s*=\s*\"([^\"]*)\"", tag), re.search(r"\btype\s*=\s*\"([^\"]*)\"", tag)
+            if k and t and t.group(1).lower() in LOSS_TYPES:
+                out.setdefault(m.group(1), {})[k.group(1)] = t.group(1).lower()
+    return out
+
+
+def _find(x, pred, skip=()):
+    """Every dict under x that pred accepts; a key in `skip` is not entered (a child widget's own properties)."""
+    if isinstance(x, dict):
+        if pred(x):
+            yield x
+        for k, v in x.items():
+            if k not in skip:
+                yield from _find(v, pred, skip)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _find(v, pred, skip)
+
+
+def _is_widget(d):
+    t = d.get("$Type")
+    return isinstance(t, str) and isinstance(d.get("Name"), str) and (t.startswith("Forms$") or t == "CustomWidgets$CustomWidget")
+
+
+def _value_desc(typ, val):
+    """What one instance's property holds, read from the model's WidgetValue (not from describe output)."""
+    val = val if isinstance(val, dict) else {}
+    if typ == "form":
+        return f"page {val['Form']}" if val.get("Form") else "a page not readable from the model (WidgetValue.Form is empty; assume it holds a page)"
+    if typ == "widgets":
+        n = sum(1 for _ in _find(val.get("Widgets"), _is_widget))
+        return f"{n} child widget(s)"
+    a = val.get("Action")
+    t = a.get("$Type") if isinstance(a, dict) else None
+    if not t or t == "Forms$NoAction":
+        return "no action set"
+    target = next((d[k] for d in _find(a, lambda d: True) for k in ("Microflow", "Nanoflow", "Form", "Page") if isinstance(d.get(k), str) and d[k]), "")
+    return f"action {t.split('$')[-1]}" + (f" {target}" if target else "")
+
+
 def mpk_widgets(z):
     """Widget ids a package declares: <widget id="..."> in its XML files, plus the clientModule version."""
     ids, ver = [], ""
@@ -395,7 +545,8 @@ def mpkjs(app, rx):
             out.append(("BLOCKER (no newer version: " + ", ".join(blocked) + "): " if blocked else "") +
                        f"widgets/{name}{' ' + ver if ver else ''} runs /{rx}/ in its JavaScript and widget "
                        f"{', '.join(ids[:SHOW])} is used {n} time(s) on {fmt_hosts(app, hosts)}"
-                       + (f"; the bundled copy belongs to {', '.join(libs)}" if libs else ""))
+                       + (f"; the bundled copy belongs to {', '.join(libs)}" if libs else "")
+                       + (f"; {note}" if (note := app.removal_note(ids)) else ""))
         return True, "; ".join(out)
     if accepted:
         return False, "accepted by checksum, not reported: " + "; ".join(accepted)
@@ -440,7 +591,8 @@ def clause(app, kind, own, arg, rows, stack):
                     if not own or q.split(".")[0].lower() in app.own:
                         hosts[f"{q}"] = hosts.get(q, 0) + n
         if hosts:
-            return True, f"widget /{arg}/ on {fmt_hosts(app, hosts)}"
+            note = app.removal_note(w for w in app.widgets() if re.fullmatch(arg, w))
+            return True, f"widget /{arg}/ on {fmt_hosts(app, hosts)}" + (f"; {note}" if note else "")
         return False, f"no widget /{arg}/ on a page, snippet or layout{' of an own module' if own else ''}"
     if kind == "type":
         from release_impact import ALWAYS_PRESENT_TYPES
@@ -611,6 +763,7 @@ def main():
     ap.add_argument("--to", required=True, help="target Studio Pro version")
     ap.add_argument("--from", dest="frm", help="source version (default: the .mpr's)")
     ap.add_argument("--table", default=str(DEFAULT_TABLE))
+    ap.add_argument("--rules", action="append", default=[], help="extra rule table (repeatable); see the header")
     ap.add_argument("--out", help="markdown report (one row per table row, a handled column for the open ones)")
     ap.add_argument("--json", help="JSON report")
     ap.add_argument("--accept", help="file: one line per accepted widget package, `<sha256 of the .mpk> <reason>` ('#' lines skipped); "
@@ -637,6 +790,21 @@ def main():
     except (OSError, TableError) as e:
         print(f"replacement_check: cannot read the table: {e}")
         return 2
+    extra = extra_tables(a.rules)
+    bad = []
+    for f, how in extra:
+        try:
+            more = read_table(f)
+        except (OSError, TableError, UnicodeDecodeError) as e:
+            print(f"ERROR replacement_check: cannot read the rule table {f} ({how}): {e}; its rules are NOT checked, the main table still is")
+            bad.append(f)
+            continue
+        dup = sorted({r["id"] for r in more} & {r["id"] for r in rows})
+        if dup:
+            print(f"ERROR replacement_check: rule table {f} ({how}) repeats id(s) {', '.join(dup)} of an earlier table: its rules are NOT checked; give its rows ids of their own (e.g. V1)")
+            bad.append(f)
+            continue
+        rows += more
     try:
         app = App(a.app)
     except SystemExit as e:  # mprmodel exits with a message on a folder without exactly one .mpr, or without bson
@@ -654,6 +822,8 @@ def main():
         print(f"replacement_check: --from {frm!r} / --to {a.to!r}: not a version (give both, e.g. --from 10.24.16 --to 11.12.5)")
         return 2
     byid = {r["id"]: r for r in rows}
+    if extra:
+        print(f"replacement_check: extra rule tables: {', '.join(f'{f} ({h})' for f, h in extra)}")
     results = []
     try:
         for r in rows:
@@ -697,6 +867,9 @@ def main():
     if a.json:
         Path(a.json).write_text(json.dumps({"app": app.m.path, "from": frm, "to": a.to, "counts": count,
                                             "rows": results}, indent=1))
+    if bad:
+        print(f"ERROR replacement_check: {len(bad)} extra rule table(s) not read ({', '.join(bad)}): exit 2")
+        return 2
     return 1 if count["HIT"] or count["UNKNOWN"] else 0
 
 

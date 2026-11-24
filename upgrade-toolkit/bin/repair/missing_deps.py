@@ -30,8 +30,10 @@ With --target 11.x every add-on built before 10.21 is a finding too, referenced 
 With --target 11 or later, the deprecated Charts 3.x widgets (com.mendix.widget.custom.PieChart, ColumnChart,
 TimeSeries, ... ; DEPRECATED_11) are listed as DEPRECATED-11 with the documents that use them: they build and pass
 mx check but fail at runtime on Mendix 11 ("Could not find store"; T7-29, every dashboard page broken). Replace them
-with the Charts 6.x widgets before the 11 rung. They count as a finding. Each is followed by its documents per module
-(`  module <M>: n document(s): ...`), so the app's own pages stand apart from a Marketplace module's demo pages.
+with the Charts 6.x widgets before the 11 rung (bin/repair/widgetroute.py gives the route per module and makes the 1:1
+replacement). They count as a finding. Each is followed by its documents per module (`  module <M>: n document(s): ...`),
+so the app's own pages stand apart from a Marketplace module's demo pages. The widget ids are the rows of
+playbooks/widget-routes.json with blocks_from 11.
 Exit: 0 = nothing missing, 1 = something missing, broken or DEPRECATED-11 (install or replace it, then rerun), 2 = input error.
 """
 import argparse, collections, glob, json, os, re, sqlite3, struct, sys, tempfile, uuid, zipfile
@@ -69,13 +71,17 @@ PLATFORM_WIDGETS = {
 }
 
 
-# T7-29: Charts 3.x widget ids (last part, lower case) that fail at runtime on Mendix 11
-DEPRECATED_11 = {"anychart", "areachart", "barchart", "bubblechart", "columnchart", "heatmap", "linechart", "piechart",
-                 "polarchart", "timeseries"}
+# T7-29: widgets that fail at runtime on Mendix 11 (the Charts 3.x ids): the rows of playbooks/widget-routes.json whose
+# blocks_from is 11, the one table bin/repair/widgetroute.py also reads for the replacement route
+ROUTES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "playbooks", "widget-routes.json")
+try:
+    DEPRECATED_11 = [re.compile(r["match"]) for r in json.load(open(ROUTES, encoding="utf-8"))["routes"] if r.get("blocks_from") == 11]
+except (OSError, ValueError, KeyError, re.error) as _e:
+    print(f"missing_deps: INVALID, cannot read {ROUTES}: {_e}", file=sys.stderr); sys.exit(2)
 
 
 def deprecated_11(wid):
-    return wid.lower().startswith("com.mendix.widget.custom.") and wid.rsplit(".", 1)[-1].lower() in DEPRECATED_11
+    return any(r.fullmatch(wid) for r in DEPRECATED_11)
 
 
 def vtuple(v):
@@ -116,14 +122,21 @@ def units(path, with_ids=False):
     try:
         import bson
     except ImportError:
-        sys.exit("missing_deps: needs the 'bson' module (pip install pymongo)")
+        print("missing_deps: INVALID, needs the 'bson' module (pip install pymongo)", file=sys.stderr); sys.exit(2)
     proj = os.path.dirname(os.path.abspath(path))
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
+    try:   # an unreadable model is INVALID (exit 2); a traceback exits 1, which reads as findings
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        cols = {r[1] for r in con.execute("pragma table_info(Unit)")}
+    except sqlite3.Error as e:
+        print(f"missing_deps: INVALID, cannot read {path}: {e}", file=sys.stderr); sys.exit(2)
     blob_col = "Contents" if "Contents" in cols else "NULL"
+    cid_col = "ContainerID" if "ContainerID" in cols else "NULL"
+    if with_ids and cid_col == "NULL":
+        print("missing_deps: INVALID, Unit table has no ContainerID column, so documents cannot be placed in modules",
+              file=sys.stderr); sys.exit(2)
     v2 = {os.path.basename(f)[:-7].lower(): f
           for f in glob.glob(os.path.join(proj, "mprcontents", "**", "*.mxunit"), recursive=True)}
-    for uid, cid, blob in con.execute(f"select UnitID, ContainerID, {blob_col} from Unit"):
+    for uid, cid, blob in con.execute(f"select UnitID, {cid_col}, {blob_col} from Unit"):
         if blob is None and v2:
             f = v2.get(str(uuid.UUID(bytes_le=bytes(uid))).lower())
             blob = open(f, "rb").read() if f else None
@@ -274,7 +287,7 @@ def main():
     dep11 = sorted(w for w in widgets if deprecated_11(w)) if a.target and vtuple(a.target)[:1] >= (11,) else []
     for w in dep11:
         lines.append(f"DEPRECATED-11 widget {w}: used {widgets[w]}x in {', '.join(sorted(used_in[w]))}: Charts 3.x fails at "
-                     f"runtime on Mendix 11 (T7-29); replace with the Charts 6.x widget before the 11 rung")
+                     f"runtime on Mendix 11 (T7-29); replace with the Charts 6.x widget before the 11 rung (route: widgetroute.py)")
         # cold run 4: 18 of the 23 documents were a Marketplace module's own demo pages, 5 the app's snippets; one flat
         # list hid which pages are the app's work and which go with that module (update, remove or exclude it)
         by_mod = collections.defaultdict(list)

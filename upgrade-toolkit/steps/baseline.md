@@ -24,11 +24,17 @@ make a THROWAWAY copy of the app, run the newest `mx` that has `sync-java-depend
 mx; the project version stays unchanged), and commit only the resulting `vendorlib/` to the app. Never commit the
 copy's converted model.
 
+0. Build output (DV-6): before the first build of the old app run `python3 $B/buildout.py exclude app/` (appends `.classpath`,
+   `.project`, `<name>.launch` to the repo's `.git/info/exclude`, idempotent, the app's `.gitignore` untouched; upgrade-pipeline.sh
+   does it at run start and again at the start of the baseline step, so a resumed run gets it too). The compiled `theme-cache/` is TRACKED in some apps, so an exclude cannot hide it: triage item 9 and
+   `convertpre.py` accept exactly that path as build output and list it ACCEPTED; any other dirty path still refuses (hand edits under `theme-cache/` are accepted as build output too).
+
 1. Database with realistic data. If it has none: `seed_pg.py --psql "docker exec -i mig-pg psql -U mendix -d X" --mpr app/<app>.mpr`
    with the app STOPPED (values are unique per entity, so two System.User specializations no longer collide). `--mpr`
    gives every enum column its enumeration's first value; the summary names any enum left NULL. FileDocument and Image
    specializations are not seeded (a row without a file throws FileNotFoundInStorageException on the page that shows
-   it); `--with-filedocuments` seeds them anyway (T6R-13). Set key
+   it); the seed summary and the readiness data rung then say "file storage not exercised" (GM-42: a green data rung proves nothing
+   about files on the new version); `--with-filedocuments` seeds them anyway (T6R-13). Set key
    values by hand for every RED element from localedits. A Marketplace template that ships `data-snapshot.zip` (the
    publisher's demo data, HSQLDB) is loaded with `seed_snapshot.py` instead, never a hand-written loader (T5-10, T3-11):
    start the app ONCE on the empty X (it creates the schema), stop it, then
@@ -47,7 +53,7 @@ copy's converted model.
    that constant and CONST_OVERRIDES does not name it (HARNESS CONDITION line, T9), the same for both apps. The old app needs an mxbuild first; mx9.sh / mx10.sh refuse an incomplete toolset (no
    `modeler/runtemplates/deployment` or `modeler/tools/node/node_modules`): the symptom is "dojo-web
    DirectoryNotFoundException" (9.x, 10.12) or "copyDeploymentArtifacts NoSuchFileException" (10.24), and the fix is a
-   fresh extraction of `mxbuild-<full ver>.tar.gz` (E4-20, E5b-1). Stop it, then freeze: `createdb -T X X_frozen`. Never drop or start anything on X_frozen.
+   fresh extraction of `mxbuild-<full ver>.tar.gz` (E4-20, E5b-1). Stop it, then READ its start log before freezing (GM-A5): `python3 $B/startcheck.py $W/logs/runtime-old.log` must exit 0 (`CLEAN`, or `CLEAN-WITH-ERRORS`: plain ERROR lines outside after-startup are listed, read them, not a stop): the after-startup section ended with no ERROR inside it and "successfully started" is present. UNCLEAN (exit 1) or INVALID (exit 2, log missing or unreadable) means do not freeze: fix the cause first (a failed after-startup microflow leaves half-written state in the baseline), or accept a known benign line in `$W/startup-allow.txt` (`ERROR Node: message*  # reason`). `upgrade-pipeline.sh` does this itself, lists the ERROR lines in `$W/start-errors-old.txt`, and stops as a judgment item (exit 10). Then freeze: `createdb -T X X_frozen`. Never drop or start anything on X_frozen.
 3. Restart-neutral data baseline: start the OLD app again on a fresh copy `createdb -T X_frozen X_base`, then
    `python3 $B/snapshot.py --label before --ledger $W/db-ledger.txt --psql "... -d X_base" ... --out $W/before.json`
    (db, http with swagger.json or openapi.json contracts, start log window, admin). This snapshot already contains

@@ -6,12 +6,14 @@
 //           not show the login form, an "An error occurred" dialog or a widget's own error box (landedOk, T3-6; also checked
 //           after the home step).
 // FAIL    = an error, or it landed somewhere else / nothing opened.
-// INVALID = could not judge (no credentials for the role, login failed, menu link not rendered).
+// INVALID = could not judge (no credentials for the role, login failed, menu link not rendered AND the direct open failed too).
+// GM-31: a menu link that is not rendered (pluggable navigation widget) opens the page (/p/<url> or mx.ui.openForm) or microflow
+//           (mx.data.action) directly; the step then says "opened directly" and proves the target, not the menu.
 //
 // Usage:
 //   node smokewalk.js --plan plan.json --url http://localhost:8380 --user Administrator=MxAdmin:pass \
 //        [--user Role=name:pass ...] [--microflows] [--out results.json] [--compare old-results.json ...] [--shots DIR]
-//        [--repeat N] [--login-path /login-without-sso.html]   (T5: where the walk signs in, default /login.html, as run_journeys.py)
+//        [--repeat N] [--runtime-log FILE] [--login-path /login-without-sso.html]   (T5: where the walk signs in, default /login.html, as run_journeys.py)
 //   node smokewalk.js --rejudge new.json [--rejudge new2.json ...] --compare old.json [--compare ...]   (no browser: judge
 //        again; several --rejudge files are pooled as the walks of one new run)
 // T6R-9: one walk is a coin flip for an intermittent client error (T6R DepartmentManager Settings, React #409 "attempt to
@@ -58,6 +60,7 @@ const path = require('path');
 const os = require('os');
 const { settle, pageSettled } = require('./settle.js');
 const { topmost } = require('./journey-verbs.js');
+const { revealLocalLogin } = require('./loginreveal.js');
 
 function args() {
   const a = process.argv.slice(2), o = { users: {}, microflows: false, timeout: 15000, loginPath: '/login.html' };
@@ -67,6 +70,7 @@ function args() {
     else if (k === '--url') o.url = a[++i].replace(/\/$/, '');
     else if (k === '--user') { const [r, cred] = a[++i].split(/=(.*)/s); const j = cred.indexOf(':'); o.users[r] = [cred.slice(0, j), cred.slice(j + 1)]; }
     else if (k === '--microflows') o.microflows = true;
+    else if (k === '--runtime-log') o.runtimeLog = a[++i];
     else if (k === '--out') o.out = a[++i];
     else if (k === '--compare') (o.compare = o.compare || []).push(a[++i]);
     else if (k === '--repeat') o.repeat = +a[++i];
@@ -167,12 +171,57 @@ function landedOk() {
   } catch (e) { return 'page could not be inspected: ' + String(e && e.message || e).slice(0, 100); }
 }
 
+// GM-30: a signed-in session whose home page never rendered is not a failed login. Runs in the browser: the signed-in user's
+// name (Dojo mx.session.getUserName, React mx.session.sessionData.user), else null. Exported for controls/smokewalk_predicates.js.
+function sessionUser(want) {
+  try {
+    if (!window.mx || !mx.session) return null;
+    let n = null;   // only the expected smoke user counts: a guest/anonymous session is not a login
+    if (mx.session.getUserName) n = mx.session.getUserName() || null;
+    else { const u = mx.session.sessionData && mx.session.sessionData.user; n = (u && u.name) || null; }
+    return n && want && String(n).toLowerCase() === String(want).toLowerCase() ? n : null;
+  } catch (e) { return null; }
+}
+// The reason a login did not finish. A session that exists means the credentials worked and the home page errored: say so,
+// with the server's or the dialog's own text when there is one (it was "login failed (HTTP 200, still on login3.html)").
+// GF-17: the last error line of the runtime log that names a microflow or an exception, or null. The log is --runtime-log FILE,
+// else the output of $UPG_RUNTIME_LOG_CMD (the pipeline: docker logs <app container>).
+function homeErrorFromLog(text) {
+  const l = String(text || '').split('\n').filter(x => /(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)/i.test(x));
+  return l.length ? l[l.length - 1].trim().slice(0, 300) : null;
+}
+// The log only grows: runtimeLogMark() is its line count before a sign-in, runtimeLogText(file, mark) only the lines after it,
+// so an earlier role's error line is never quoted for a later role.
+function runtimeLogAll(file) {
+  try {
+    if (file) return require('fs').readFileSync(file, 'utf8');
+    const c = process.env.UPG_RUNTIME_LOG_CMD;
+    if (c) return require('child_process').execSync('(' + c + ') 2>&1', { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 });   // docker logs writes the app's stderr to stderr
+  } catch (e) { /* no log: the plain message */ }
+  return '';
+}
+function runtimeLogMark(file) { return (runtimeLogAll(file).match(/\n/g) || []).length; }   // complete lines, as runtimeLogText slices them
+function runtimeLogText(file, mark) { return runtimeLogAll(file).split('\n').slice(mark || 0).join('\n').slice(-300000); }
+function loginFailure({ status, url, user, error, logError }) {
+  if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
+  if (user) return 'home failed for this user: ' + (error || 'the home page did not render (no server error captured)') + ' (session exists, HTTP ' + status + ', on ' + url + ')';
+  if (logError) return 'login failed (HTTP ' + status + ', back on ' + url + '): the sign-in itself worked and the home page then failed; the runtime log says: "' + logError +
+    '" (check the entity the smoke user was made as: UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt)';
+  return 'login failed (HTTP ' + status + ', still on ' + url + ')';
+}
+
 function loginUrl(url, loginPath) { return url + (loginPath || '/login.html'); }
 
-async function login(page, url, user, pass, timeout, loginPath) {
-  let status = 0;
-  page.on('response', r => { if (r.url().endsWith('/xas/') && r.request().postData() && r.request().postData().includes('"login"')) status = r.status(); });
+async function login(page, url, user, pass, timeout, loginPath, runtimeLog) {
+  const logMark = runtimeLogMark(runtimeLog);   // GF-17: only log lines written after this sign-in started
+  let status = 0, srvErr = null;
+  page.on('response', r => {
+    if (!r.url().endsWith('/xas/')) return;
+    if (r.request().postData() && r.request().postData().includes('"login"')) status = r.status();
+    if (r.status() >= 400 || r.status() === 200) r.text().then(t => { try { const j = JSON.parse(t); const m = j && (j.message || j.error || (j.errorMessage)); if (m && (r.status() >= 400 || j.error || j.errorMessage)) srvErr = String(m.message || m).slice(0, 200); } catch (e) { if (r.status() >= 400) srvErr = ('HTTP ' + r.status() + ' ' + t).slice(0, 200); } }).catch(() => {});
+  });
   await page.goto(loginUrl(url, loginPath), { waitUntil: 'domcontentloaded' });
+  await revealLocalLogin(page);   // a form folded under "Show alternative login" is in the DOM but not visible
   await page.fill('#usernameInput', user);
   await page.fill('#passwordInput', pass);
   await page.click('#loginButton');
@@ -180,8 +229,9 @@ async function login(page, url, user, pass, timeout, loginPath) {
     await page.waitForFunction(loggedIn, null, { timeout });
     return null;
   } catch (e) {
-    if (status === 402) return 'login refused: license session limit (a trial runtime allows 6 sessions; end other sessions or restart the app)';
-    return 'login failed (HTTP ' + status + ', still on ' + page.url() + ')';
+    const sessUser = await page.evaluate(sessionUser, user).catch(() => null);
+    const dlg = sessUser ? await page.evaluate(() => { const d = [...document.querySelectorAll('.mx-dialog-error, .modal-dialog')].find(e => e.offsetParent !== null); return d ? d.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; }).catch(() => null) : null;
+    return loginFailure({ status, url: page.url(), user: sessUser, error: srvErr || dlg, logError: status === 200 && !sessUser ? homeErrorFromLog(runtimeLogText(runtimeLog, logMark)) : null });
   }
 }
 
@@ -227,6 +277,29 @@ async function clickStep(page, step) {
   return null; // home: already there
 }
 
+// GM-31: the menu link is not rendered (a pluggable navigation widget draws the menu, not a Mendix menu widget). The step's
+// target is then opened directly: a page with a URL by its /p/<url> address (directUrl), any other page by mx.ui.openForm, a
+// microflow by mx.data.action (openDirect, runs in the browser). Resolves null when it was opened, else the reason.
+// What this proves: the page or microflow works. It does NOT prove the menu works (directNote says so in the result).
+function directUrl(step, base) { return step.kind === 'page' && step.url ? base.replace(/\/+$/, '') + '/p/' + String(step.url).replace(/^\/+/, '') : null; }
+function openDirect(step) {
+  return new Promise(resolve => {
+    const why = e => String((e && e.message) || e).slice(0, 200);
+    try {
+      if (!window.mx || !mx.ui) return resolve('mx client not available');
+      if (step.kind === 'microflow') {
+        if (!mx.data || !mx.data.action) return resolve('mx.data.action not available');
+        mx.data.action({ params: { actionname: step.microflow }, callback: () => resolve(null), error: e => resolve('microflow failed: ' + why(e)) });
+      } else {
+        if (!mx.ui.openForm) return resolve('mx.ui.openForm not available');
+        mx.ui.openForm(step.page_path, { location: 'content', callback: () => resolve(null), error: e => resolve('page did not open: ' + why(e)) });
+      }
+    } catch (e) { resolve('open threw: ' + why(e)); }
+  });
+}
+const directNote = menuReason => 'opened directly: the page or microflow works, the menu is NOT proven (' + menuReason + ')';
+const directFailure = (menuReason, directReason) => menuReason + '; direct open also failed: ' + directReason;
+
 async function landed(page, step, before, timeout) {
   if (step.kind !== 'page') { await page.waitForTimeout(2500); return { ok: true, where: 'microflow ran' }; }
   try {
@@ -242,7 +315,7 @@ async function landed(page, step, before, timeout) {
 
 // ---- T6R-9: repeated walks and the compare over pooled runs (pure: controls/smokewalk_judge.js) ----
 const stepKey = (role, s) => role + ' | ' + s.via + ' | ' + s.caption + ' | ' + s.target;
-const stepRuns = s => s.runs || [{ verdict: s.verdict, errors: s.errors, reason: s.reason, landed: s.landed, t0: s.t0, t1: s.t1 }];
+const stepRuns = s => s.runs || [{ direct: s.direct, verdict: s.verdict, errors: s.errors, reason: s.reason, landed: s.landed, t0: s.t0, t1: s.t1 }];
 const RANK = { FAIL: 3, INVALID: 2, SKIPPED: 1, PASS: 0 };
 
 // one error signature per error line; digits do not count (React #409, timeouts, ids); a run without error lines is
@@ -282,6 +355,7 @@ function mergeWalks(walks) {
       const bad = s.runs.filter(r => r.verdict !== 'PASS');
       const worst = bad.slice().sort((a, b) => RANK[b.verdict] - RANK[a.verdict])[0];
       s.verdict = worst ? worst.verdict : 'PASS';
+      const dr = s.runs.find(r => r.direct); if (dr) s.direct = dr.direct;   // GM-31: said even when every run PASSed
       if (worst) { s.errors = worst.errors; if (worst.reason) s.reason = worst.reason; }
       if (bad.length && bad.length < s.runs.length) s.flaky = bad.length + ' of ' + s.runs.length;
     }
@@ -296,7 +370,7 @@ function judge(olds, results) {
   for (const old of olds) for (const r of old.roles || []) for (const s of r.steps || []) {
     const k = stepKey(r.role, s); om.set(k, (om.get(k) || []).concat(stepRuns(s)));
   }
-  const lines = [], tot = { regressions: 0, intermittent: 0, flaky_both: 0, flaky_baseline: 0, coverage_lost: 0 };
+  const lines = [], tot = { regressions: 0, intermittent: 0, flaky_both: 0, flaky_baseline: 0, coverage_lost: 0, menu_lost: 0 };
   const rate = (rs, v) => rs.filter(x => x.verdict === v).length;
   for (const r of results.roles) for (const s of r.steps) {
     const k = stepKey(r.role, s), N = stepRuns(s);
@@ -315,6 +389,8 @@ function judge(olds, results) {
     const newBad = N.filter(x => x.verdict !== 'PASS');
     const oldBad = O.filter(x => x.verdict !== 'PASS');
     if (!newBad.length) {
+      // GM-31: PASSed by a menu click on the old app, PASSes only by a direct open now: the menu was lost in the upgrade
+      if (O.every(x => !x.direct) && N.some(x => x.direct)) { tot.menu_lost++; lines.push(`  MENU-LOST ${k}: was clicked, now opened directly (the page works, the menu link is gone)`); }
       if (oldBad.length) { tot.flaky_baseline++; lines.push(`  FLAKY-BASELINE ${k}: old not PASS ${oldBad.length} of ${O.length}, new PASS ${N.length} of ${N.length}`); }
       continue;
     }
@@ -334,6 +410,7 @@ function judge(olds, results) {
   }
   om.forEach((rs, k) => { const p = rate(rs, 'PASS'); if (p) tot.coverage_lost++; lines.push('  step gone ' + k + ' (was ' + (p === rs.length ? 'PASS' : rs.map(x => x.verdict).join('/')) + ')'); });
   lines.push(`  PASS steps no longer judged (coverage lost): ${tot.coverage_lost}`);
+  lines.push(`  menu links lost (clicked on the old app, opened directly now; exit 2): ${tot.menu_lost}`);
   if (tot.flaky_baseline || tot.flaky_both) lines.push(`  flaky: ${tot.flaky_baseline} only on the old app (listed), ${tot.flaky_both} on both (not a regression and not a pass: exit 2; walk again or pin it)`);
   lines.push(`  regressions: ${tot.regressions}` + (tot.intermittent ? ` (${tot.intermittent} intermittent: the error never showed on the old app)` : ''));
   return { lines, tot };
@@ -346,7 +423,7 @@ function apiOnlyHome(plan, s) {
     ? 'API-only role: its home page is the login page ' + s.page + ', no signed-in home to walk' : null;
 }
 
-module.exports = { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl };
+module.exports = { sessionUser, loginFailure, homeErrorFromLog, runtimeLogMark, runtimeLogText, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, mergeWalks, judge, errSig, apiOnlyHome, args, loginUrl, directUrl, openDirect, directNote, directFailure };
 if (require.main === module) (async () => {
   const o = args();
   let results;
@@ -373,7 +450,7 @@ if (require.main === module) (async () => {
         let errs = [];
         page.on('pageerror', e => errs.push('pageerror: ' + String(e.message).slice(0, 300)));
         page.on('console', m => { if (m.type() === 'error' && !IGNORE_CONSOLE.some(re => re.test(m.text()))) errs.push('console: ' + m.text().slice(0, 300)); });
-        const le = await login(page, o.url, cred[0], cred[1], o.timeout, o.loginPath);
+        const le = await login(page, o.url, cred[0], cred[1], o.timeout, o.loginPath, o.runtimeLog);
         if (le) { rr.verdict = 'INVALID'; rr.reason = le; await ctx.close(); continue; }
         for (const s of r.steps) {
           const res = { caption: s.caption, kind: s.kind, via: s.via, target: s.page || s.microflow };
@@ -389,9 +466,24 @@ if (require.main === module) (async () => {
             errs = [];
             const before = await page.evaluate(contentPath);
             const t0 = Date.now();
-            const ce = await clickStep(page, s);
+            let ce = await clickStep(page, s), l;
+            if (ce && s.via === 'menu') {   // GM-31: no menu link, open the target directly
+              const du = directUrl(s, o.url);
+              let de = null;
+              try {
+                if (du) await page.goto(du, { waitUntil: 'domcontentloaded' });
+                else {
+                  let tm; const lim = new Promise(r => { tm = setTimeout(() => r('direct open timed out after ' + o.timeout + ' ms'), o.timeout); });
+                  de = await Promise.race([page.evaluate(openDirect, s), lim]); clearTimeout(tm);
+                }
+              } catch (e) { de = String(e.message).split('\n')[0]; }
+              if (!de) { l = await landed(page, s, before, o.timeout); if (!l.ok) de = 'did not land on the page (' + l.where + ')'; }
+              if (de) { res.verdict = 'INVALID'; res.reason = directFailure(ce, de); continue; }
+              res.direct = directNote(ce); ce = null;
+              try { await hookErrors(page); } catch (e) { res.direct += '; error hook NOT installed after the direct open (' + String(e.message).split('\n')[0] + '): mx.ui.error/exception not captured'; }
+            }
             if (ce) { res.verdict = 'INVALID'; res.reason = ce; continue; }
-            const l = await landed(page, s, before, o.timeout);
+            if (!l) l = await landed(page, s, before, o.timeout);
             const mxErr = await page.evaluate(() => window.__swErrors || []).catch(() => []);
             const dlg = await page.evaluate(() => [...document.querySelectorAll('.mx-dialog-error, .mx-window .alert-danger')].filter(e => e.offsetParent !== null).map(e => e.textContent.trim().slice(0, 200)));
             const bad = await page.evaluate(landedOk).catch(e => 'page could not be inspected: ' + String(e.message).split('\n')[0]);
@@ -430,12 +522,12 @@ if (require.main === module) (async () => {
   const lines = [];
   for (const r of results.roles) {
     lines.push(`== ${r.role}: ${r.verdict}${r.reason ? ' (' + r.reason + ')' : ''}`);
-    for (const s of r.steps) lines.push(`  ${s.verdict.padEnd(7)} ${s.via.padEnd(6)} ${s.caption} -> ${s.target}${s.flaky ? ' [not PASS in ' + s.flaky + ' walks]' : ''}${s.landed ? ' [' + s.landed + ', ' + s.ms + 'ms]' : ''}${s.reason ? ' (' + s.reason + ')' : ''}${s.screen ? ' [screen ' + s.screen + ']' : ''}${(s.errors || []).map(e => '\n            ' + e).join('')}`);
+    for (const s of r.steps) lines.push(`  ${s.verdict.padEnd(7)} ${s.via.padEnd(6)} ${s.caption} -> ${s.target}${s.flaky ? ' [not PASS in ' + s.flaky + ' walks]' : ''}${s.landed ? ' [' + s.landed + ', ' + s.ms + 'ms]' : ''}${s.direct ? ' [' + s.direct + ']' : ''}${s.reason ? ' (' + s.reason + ')' : ''}${s.screen ? ' [screen ' + s.screen + ']' : ''}${(s.errors || []).map(e => '\n            ' + e).join('')}`);
   }
   const tot = { PASS: count('PASS'), FAIL: count('FAIL'), INVALID: count('INVALID'), SKIPPED: count('SKIPPED'),
                 roles_invalid: results.roles.filter(r => r.verdict === 'INVALID').length };
   results.totals = tot;
-  lines.push('', `steps: PASS ${tot.PASS}, FAIL ${tot.FAIL}, INVALID ${tot.INVALID}, SKIPPED ${tot.SKIPPED}; roles not run (INVALID): ${tot.roles_invalid}`);
+  lines.push('', `steps: PASS ${tot.PASS}, FAIL ${tot.FAIL}, INVALID ${tot.INVALID}, SKIPPED ${tot.SKIPPED}, direct ${results.roles.reduce((n, r) => n + r.steps.filter(x => x.direct).length, 0)}; roles not run (INVALID): ${tot.roles_invalid}`);
   if (o.compare) {
     const olds = o.compare.map(f => JSON.parse(fs.readFileSync(f, 'utf8')));
     const j = judge(olds, results);
@@ -447,5 +539,5 @@ if (require.main === module) (async () => {
   // 1 = something broke; 2 = could not judge everything that was asked (login failed, step INVALID, coverage lost)
   const loginFailed = results.roles.some(r => r.verdict === 'INVALID' && o.users[r.role]);
   const broke = o.compare ? tot.regressions : tot.FAIL;  // with --compare a FAIL that was already FAIL before is not new
-  process.exit(broke ? 1 : (!tot.PASS || tot.INVALID || loginFailed || tot.coverage_lost || tot.flaky_both ? 2 : 0));
+  process.exit(broke ? 1 : (!tot.PASS || tot.INVALID || loginFailed || tot.coverage_lost || tot.menu_lost || tot.flaky_both ? 2 : 0));
 })().catch(e => { console.error('smokewalk: ' + e.stack); process.exit(2); });

@@ -197,7 +197,7 @@ def main():
     ap.add_argument("--kept")
     ap.add_argument("--kept-file")
     ap.add_argument("--planned")
-    ap.add_argument("--plan-file")
+    ap.add_argument("--plan-file", action="append")
     ap.add_argument("--newest", default="")
     ap.add_argument("--javasource")
     ap.add_argument("--cache", default=os.environ.get("UPG_CACHE") or os.path.expanduser("~/.cache/upgrade-toolkit/mpk"))
@@ -214,7 +214,7 @@ def main():
     kept = names(a.kept) + ([n for n, _ in read_first_words(a.kept_file, False)] if a.kept_file else [])
     kept = list(dict.fromkeys(kept))
     planv = {}
-    for n, v in (read_first_words(a.plan_file, True) if a.plan_file else []):
+    for n, v in [x for f in (a.plan_file or []) for x in read_first_words(f, True)]:   # repeatable: a later file's version of a module wins
         planv[n] = v
     planned = list(dict.fromkeys(names(a.planned) + list(planv)))
     both = [n for n in planned if n in kept]

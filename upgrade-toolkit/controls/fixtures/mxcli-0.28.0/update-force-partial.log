@@ -1,0 +1,16 @@
+WARNING: This is a vibe-coded PoC, alpha quality, use with caution.
+Saved 1 locally changed element(s) to <saved-edits>/MendixSSO:
+    <saved-edits>/MendixSSO/page-Home_Web.mdl
+  Replay after the update with 'mxcli exec <file> -p <project.mpr>'.
+  These are resulting states, not diffs: an edit that REMOVED something
+  will not be restored by replaying them.
+
+  Could not be saved (2) - these edits are not recoverable this way:
+    CONSTANT ClientId (DESCRIBE produced no body, so a difference here is not evidence of an edit)
+    CONSTANT IdPUrl (DESCRIBE produced no body, so a difference here is not evidence of an edit)
+Proceeding under --force; 3 locally changed element(s) will be replaced:
+    PAGE Home_Web
+    CONSTANT ClientId
+    CONSTANT IdPUrl
+
+Updating MendixSSO 4.2.0 -> 10.6.2...

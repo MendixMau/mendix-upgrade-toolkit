@@ -842,6 +842,53 @@ function runExitCode(positiveControl, results, mutants) {
     && ctl.length === mutants.expected && ctl.every(r => r.verdict === 'PASS') ? 0 : 1;
 }
 
+// ── Anonymous visitor ───────────────────────────────────────────────────────
+// An anonymous role: no credentials; open the app root (the anonymous home, as a visitor sees it). Two apps exist:
+// the sign-in form IS the home (a password input shows), or Guest access is on and the home is a normal page. For the
+// second the visitor's identity is the Mendix client's own answer, mx.session.isGuest() === true, with a rendered
+// .mx-page: never a bare page (a signed-in session would also render one). Measured on a Marketplace sample with
+// Guest access on (Mendix 10.24.13): no password input, isGuest() true, .mx-page present, 'login page did not render'.
+async function anonymousVisit(page, baseUrl) {
+  await page.context().clearCookies();
+  await page.goto(baseUrl + '/', { waitUntil: 'domcontentloaded' });
+  const form = await page.locator('input[type=password]').first()
+    .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+  if (form) return { ok: true, user: 'anonymous', usedFallback: false };
+  const g = await page.evaluate(() => {
+    const shown = e => !!e && (e.offsetParent !== null || (e.getClientRects && e.getClientRects().length > 0));
+    const all = sel => [...document.querySelectorAll(sel)];
+    // the markers smokewalk.js landedOk uses for an error the client shows (error dialog "An error occurred", a red
+    // .alert-danger that is not a validation message), plus the client's own not-found text
+    const dlg = all('.mx-dialog, .modal-dialog, .mx-dialog-error').filter(shown).find(e => /An error occurred/i.test(e.textContent || ''));
+    const danger = all('.alert-danger').filter(shown).find(e => !/(^|\s)mx-validation-message(\s|$)/.test(e.className || ''));
+    // the wording is tested on the page content (.mx-page), not the whole body: a nav item "Pages" beside an empty state
+    // "Customer not found" is no not-found page; [^.\n] keeps a match on one line, and 404 counts only at the start of the page text
+    const pg = document.querySelectorAll('.mx-page')[0];
+    const txt = (pg ? (pg.innerText || pg.textContent) : (document.body && document.body.innerText)) || '';
+    // 404 is a signal only as the first non-empty line on its own. An explicit form ("404 Not Found", "Error 404", "404 | Not Found.")
+    // counts at any page length; a bare "404" counts only when it is the whole page or the next line has not-found wording: "404 open cases"
+    // and a KPI tile "404 / Open cases / Closed 12" are no error page
+    const t2 = txt.slice(0, 2000);
+    let ln = t2.split('\n').map(x => x.trim()).filter(Boolean);
+    if (ln.length > 1 && /^error$/i.test(ln[0])) ln = ['Error ' + ln[1]].concat(ln.slice(2));
+    const l0 = ln[0] || '';
+    const f404 = /^(error\s*)?404(\.\d+)?[\s\-:|.–—]*((page|file|resource)\s+)?(not found|error)?[\s.!]*$/i.test(l0);
+    // "404. That's an error." : the number ends a sentence, and the line then says error / not found
+    const explicit = (f404 && /(not found|error)/i.test(l0)) || /^(error\s*)?404[.:!|\u2013\u2014-]\s*\S.*(not found|error|oops|sorry|does not exist)/i.test(l0);
+    const bare = f404 && !explicit && (ln.length === 1 || /not found|oops|sorry|exist|error/i.test(ln[1] || ''));
+    const nf = /(page|resource)[^.\n]{0,40}(not found|could not be found|does not exist)/i.test(t2) || explicit || bare;
+    const bad = dlg ? 'error dialog' : danger ? 'error box' : nf ? 'not-found text' : '';
+    return {
+      guest: !!(window.mx && mx.session && typeof mx.session.isGuest === 'function' && mx.session.isGuest() === true),
+      pages: document.querySelectorAll('.mx-page').length,
+      bad,
+    };
+  }).catch(() => ({ guest: false, pages: 0, bad: '' }));
+  if (g.guest && g.pages > 0 && g.bad) return { ok: false, reason: `anonymous guest session shows an error or not-found page (${g.bad}), not a home page` };
+  if (g.guest && g.pages > 0) return { ok: true, user: 'anonymous (guest home, no sign-in form)', usedFallback: false };
+  return { ok: false, reason: g.guest ? 'anonymous guest session but no page rendered' : 'anonymous login page did not render' };
+}
+
 // ── Exports for the rung-4 scope unit test ──────────────────────────────────
 // The SQL builders are pure and exported so their behaviour can be proven against
 // fixture rows without a running app. See tests/e2e/journey-rung4-scope.test.js.
@@ -849,6 +896,7 @@ function runExitCode(positiveControl, results, mutants) {
 module.exports = {
   sqlRowCount, sqlWatermark, whereScoped, scopeLiteral,
   sqlAssocTotal, sqlAssocLinked, sqlMustPointAt, captureScope, scopeEvidence,
+  anonymousVisit,
   runExitCode,
 };
 
@@ -860,13 +908,8 @@ if (require.main !== module) return;
   const { browser, page } = await H.launchBrowser();
 
   let li;
-  if (process.env.UPG_ANONYMOUS) {   // anonymous role: no credentials; open the app root (anonymous home) and require a sign-in form
-    await page.context().clearCookies();
-    await page.goto(cfg.baseUrl + '/', { waitUntil: 'domcontentloaded' });   // the anonymous home, as a visitor sees it
-    const form = await page.locator('input[type=password]').first()
-      .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
-    li = form ? { ok: true, user: 'anonymous', usedFallback: false } : { ok: false, reason: 'anonymous login page did not render' };
-  } else li = await H.login(page);
+  if (process.env.UPG_ANONYMOUS) li = await anonymousVisit(page, cfg.baseUrl);
+  else li = await H.login(page);
   // Identity, not presence. A silent degrade to admin bypasses the role grants the
   // journey exists to exercise, and every assertion below would be measuring an
   // access path no real user takes.
