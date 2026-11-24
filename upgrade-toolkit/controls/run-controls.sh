@@ -6041,7 +6041,7 @@ if python3 -c 'import bson' 2>/dev/null; then
   ctl apimock-classify-pass 0 '^MOCKED +rest:ModuleBConnector\.ExecuteModuleBQuery_Custom .*control: the seed data' '^apis 2 found · mocked 2 · excluded 0 · unknown 0$' -- python3 $B/apimock.py inventory $KB --classify "$AM/cls.txt"
   # B4T2-6 / B4N1-9: an add-on module (modules/*.mxmodule, a zip whose project.mpr is ONE bson document) is one UNKNOWN
   # endpoint naming its URL constants and URL attributes, so "unknown 0" is never claimed beside an add-on. Golden:
-  # fixtures/apimock/addon-mfn-auth.json, verbatim nodes of the public vendor starter-kit's MFN_Authentication.
+  # fixtures/apimock/addon-mfn-auth.json, nodes of the public vendor starter-kit's MFN_Authentication (constant-value prefix neutralised).
   cat > "$AM/mkxm.py" <<'EOF'
 # mkxm.py GOLDEN OUT.mxmodule: the golden's nodes packed the way Studio Pro packs an add-on (package.xml + bson project.mpr)
 import bson, sys, zipfile
