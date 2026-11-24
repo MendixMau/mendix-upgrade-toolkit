@@ -100,6 +100,21 @@ def rungs_cell(g, names, labels=None):
     return cell(s, label, steps, tech)
 
 
+def build_failure(model):
+    """GF-46: the lines that say the build ran and failed, or None. A stop at step build (NEEDS-JUDGMENT.md titles, e.g. "mxbuild failed
+    (exit 3, 32 ERROR at lines)") or a last attempt of step build that failed with no stop file (state/timing.tsv). Without this the page
+    kept saying "The build has not run yet" over a build that had failed. A stop at the build that asks a person (owner: person) is a
+    judgment stop, not a failure: None, so it keeps the "waiting for you" call to action."""
+    s, f = model.get("stopped") or {}, model.get("failed") or {}
+    if s.get("step") == "build" and "person" in (s.get("owners") or []):
+        return None   # a judgment stop at the build (a question for a person), not a failed build: the page says "waiting for you"
+    if s.get("step") == "build":
+        return [t for t in s.get("titles", [])[:3] if t] or [f"The run stopped at the build (exit {s.get('code')})."]
+    if f.get("step") == "build":
+        return [f"Step build failed (exit {f.get('code')}). Read {f.get('log')}."]
+    return None
+
+
 TRIAGE_FILES = ("findings.json", "release-impact.md", "localedits.json", "jarclash.md", "appshape.out")
 PLAN_FILES = ("PROPOSAL.md", "DECISIONS.md", "NEEDS-JUDGMENT.md")
 
@@ -192,6 +207,31 @@ def worst(*cs):
 
 
 # ---- derivation ----
+def parked_count(work):
+    """Items Interview mode auto parked (NEEDS-JUDGMENT.md header, else the park markers in parked/*.md): the run went on, a person still has to answer."""
+    t = cp.rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
+    m = re.search(r"^# NEEDS JUDGMENT: (\d+) parked item", t, re.M)
+    if m:
+        return int(m.group(1))
+    d = os.path.join(work, "parked")
+    n = 0
+    for f in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+        n += len(re.findall(r"^<!-- park exit", cp.rd(os.path.join(d, f)) or "", re.M))
+    return n
+
+
+def parked_act(n, running=None):
+    """The parked-items card. While a step runs, the count may include answered files of steps a rerun has not reached yet
+    (main() deletes NEEDS-JUDGMENT.md at its start, run_step deletes parked/<step>.md only when that step reruns), so a running
+    run says "so far" and sends the person to the end of the run; only an idle run says the items wait for an answer."""
+    if running:
+        return {"kind": "wait", "text": f"{n} parked so far. Answer {'it' if n == 1 else 'them'} after the run ends (NEEDS-JUDGMENT.md).",
+                "rec": "The run is still going and goes on without them. Some of the count may be left from an earlier run until its step runs again.", "q": "",
+                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
+    return {"kind": "wait", "text": f"{n} parked {'item waits' if n == 1 else 'items wait'} for your answer. The run went on without {'it' if n == 1 else 'them'}.",
+            "rec": "They are listed in NEEDS-JUDGMENT.md in the work folder (details under parked/). Answer them in one round, then rerun once.", "q": "", "time": ""}
+
+
 def derive(work, model):
     P = cp.parse_proposal(cp.rd(os.path.join(work, "PROPOSAL.md")))
     dm = cp.parse_decisions_md(cp.rd(os.path.join(work, "DECISIONS.md")))
@@ -228,8 +268,10 @@ def derive(work, model):
          cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
          else notyet("No plan yet."))
     if done["convert"]:
+        bfail = build_failure(model)
         u = (cell("ok", "Converted, build clean", [f"The model was converted to Mendix {tgt}.", "The build finished with 0 errors."])
              if done["build"] and any(r["rung"] == "build" and r["verdict"].startswith("PASS") for r in g["rungs"])
+             else cell("bad", "Build failed", [f"The model was converted to Mendix {tgt}."] + bfail) if bfail and not any(r["rung"] == "build" for r in g["rungs"])
              else cell("wait", "Converted, build open", [f"The model was converted to Mendix {tgt}.", "The build is not clean yet."]))
         u["tech"] = [f"{h} {s}" for h, s in commit_rows(lambda s: s.startswith("convert"))]
     else:
@@ -238,7 +280,9 @@ def derive(work, model):
         t["d"] = f"{src} → {tgt}"
         p["d"] = p["d"] or "convert, then build"
     rows.append(row("runtime", "Mendix runtime", f"{src} → {tgt}" if src else "", "app",
-                    {"triage": t, "plan": p, "upgrade": u, "test": rungs_cell(g, ["build", "data"])},
+                    {"triage": t, "plan": p, "upgrade": u,
+                     "test": (cell("bad", "Build failed", build_failure(model)) if build_failure(model) and not any(r["rung"] == "build" for r in g["rungs"])
+                              else rungs_cell(g, ["build", "data"]))},
                     story={"found": [f"The app runs on Mendix {src}; the target is Mendix {tgt}."] if src else [],
                            "means": ["The whole app model is converted to the new version. Pages, microflows and Java code must still build after that."],
                            "plan": ["Convert the model with the new Studio Pro, then build it. Every repair after the build is its own Git commit."]}))
@@ -439,7 +483,7 @@ def derive(work, model):
                         story={"found": t["steps"],
                                "means": ["The test must not call real outside systems. A call with no stand-in is not tested."],
                                "plan": [f"Answer {len(mocked)} calls with a stand-in during the test.",
-                                        f"The other {len(eps) - len(mocked)} are checked on the real test systems by a person before go-live."]}))
+                                        f"The other {sum(1 for e in eps if e.get('status') in ('UNKNOWN', 'EXCLUDED'))} are checked on the real test systems by a person before go-live."]}))
 
     # Release notes
     ri = cp.rd(os.path.join(work, "release-impact.md"))
@@ -460,10 +504,16 @@ def derive(work, model):
     else:
         n = len([r for r in ri.splitlines() if re.match(r"^\| \d+ \|", r)])
         mm = re.search(r"This run: (\d+) auto, \d+ kept from a person, (\d+) open", ri)
+        # cold test: the environment rows (database, Java, OS, browser, cloud) are ONE item for a person before go-live
+        gl = re.search(r"^## Go-live environment checklist \((\d+) items\)", ri, re.M)
         t = cell("ok", f"{n} rows listed", [f"{n} release-note rows were checked against the app."], ["release-impact.md"])
-        p = (cell("ok", f"{mm.group(1)} handled automatically", [f"{mm.group(1)} rows are handled automatically.", f"{mm.group(2)} rows need a person's answer."]) if mm else notyet())
+        p = (cell("ok", f"{mm.group(1)} handled automatically", [f"{mm.group(1)} rows are handled automatically.", f"{mm.group(2)} rows need a person's answer."]
+                  + ([f"{gl.group(1)} rows about the deployment environment are one go-live checklist for a person before go-live."] if gl else []))
+             if mm else notyet())
         rows.append(row("release", "Release notes", f"{n} rows", "app",
                         {"triage": t, "plan": p, "upgrade": nowork("Release notes are read, not applied."), "test": release_cell(g)}))
+        if gl:
+            rows[-1]["checklist"] = int(gl.group(1))
 
     # How we prove it still works: one row per kind of app part in test-inventory.md, with the gate rungs that measure it
     # (cold test WM1: 13 kinds of test sat in test-inventory.md and the matrix showed one row, "Click paths: Not needed")
@@ -857,6 +907,13 @@ def plan_doc(text):
         if sec is None or not ln.strip():
             continue
         t = ln.strip().replace("`", "")
+        if sec["h"] == "Agent notes" and t.startswith(">"):   # the notes are a blockquote in PROPOSAL.md: show the text, not the marker
+            t = t[1:].strip()
+            if not t:
+                continue
+            sec["intro"].append(t)
+            cur = None
+            continue
         if ln.startswith("- "):
             cur = {"text": t[2:], "subs": []}
             mm = re.match(r"^\[(P-\d+)\] (\w+): (.*)$", cur["text"])
@@ -934,20 +991,22 @@ def found_detail(rec, work):
             why = e.get("why") or ""
             if e.get("status") == "MOCKED":
                 items.append([e["doc"], "stand-in ready", "ok", "The tests answer this call with a stand-in, so the screens that use it can be checked."])
+            elif e.get("status") == "UNCALLED":
+                items.append([e["doc"], "not called", "ok", "A web address setting that nothing in the model calls. No stand-in is needed; if Java code calls it after all, the test says so."])
             elif why.startswith("location from data"):
                 fld = why.split(":")[0].replace("location from data", "").strip()
                 items.append([e["doc"], "address from data", "wait", f"The address is read from the database ({fld}) while the app runs. The tests cannot know where it goes; a person names the real test system."])
             elif "computed by Java action" in why:
-                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs. The toolkit cannot see it, so a person says which system this is."])
+                items.append([e["doc"], "address built in Java", "wait", "A Java action builds the address while the app runs, from nothing the toolkit can read. Recommended: test this call in the customer's test environment before go-live."])
             elif e.get("kind") == "const":
                 items.append([e["doc"], "unused address?", "wait", "A web address setting that nothing in the model reads. Either it is unused, or a Java action reads it. A person checks."])
             else:
                 items.append([e["doc"], e.get("status", "").lower() or "open", "wait", why])
         ok = sum(1 for i in items if i[2] == "ok")
-        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") != "MOCKED"})
-        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests.",
-                          f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
-                          f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."], "items": items}
+        mods = sorted({e["doc"].split(".")[0] for e in eps if e.get("status") not in ("MOCKED", "UNCALLED")})
+        return {"means": [f"{ok} of {len(items)} outside calls are covered in the tests."]
+                + ([f"For the other {len(items) - ok}, a passing test only shows the screen works without the outside system. It says nothing about the real call.",
+                    f"Before go-live, a person tests these against real test systems ({', '.join(mods)})."] if mods else []), "items": items}
     if t in ("modules", "module-edits"):
         edits = {m["name"]: m for m in (_json(work, "localedits.json") or []) if isinstance(m, dict)}
         items, clean, touched, unknown = [], 0, [], 0
@@ -1358,6 +1417,8 @@ def open_items(rows, chips, g):
     if nrel:
         add("Your call", f"{nrel} release notes to review", "you")
     for r in rows:
+        if r["id"] == "release" and r.get("checklist"):   # later, by a person: one grouped item, not one per row
+            add("At deploy", f"Go-live environment checklist ({r['checklist']} items)", "you / customer")
         if r["id"] == "release" and nrel:
             continue
         cs = [(k, r["cells"][k]) for k in STAGES if r["cells"][k]["s"] in ("wait", "bad", "you")]
@@ -1416,7 +1477,11 @@ def band(model, rows, chips, g, tl, kpi=None):
         st, head, sub = "bad", "The build does not pass yet", "The agent is fixing it."
     else:
         st, head, sub = "neutral", (f"Upgrade to Mendix {tgt} in progress" if tgt else "Upgrade in progress"), "The build has not run yet."
-    if model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
+    bfail = build_failure(model)
+    if bfail and not b and st != "ok":   # GF-46: the build ran and failed; "has not run yet" is wrong. Say failed, with the stop's first lines
+        st, head = "bad", "The build failed"
+        sub = " ".join(x.rstrip(".") + "." for x in bfail[:2]) + (" Details: NEEDS-JUDGMENT.md in the work folder." if model.get("stopped") else "")
+    elif model.get("stopped") and st != "ok":   # a judgment stop outranks "in progress": nothing moves until a person decides
         s = model["stopped"]
         st, head = "bad", f"Stopped at {s['step']}, waiting for you"
         n = len(open_questions(model)) or len(s["titles"])   # the cards in Blocked on you, not the stop file's older list
@@ -1622,6 +1687,7 @@ def brief(work, model, rows, g, tl):
         prog = f"{n} of {len(cp.STEP_ORDER)} steps done" if n else "just started"
     ov = cp.parse_gate(gs)["overall"]
     sinfo = model.get("stopped") or {}
+    failed = model.get("failed")   # the last attempt failed with no stop file (cockpitpage.failed_step)
     rep_n = sinfo.get("repeats") or 0
     stuck = f"Stopped here {rep_n} times in a row, each time for the same reason." if rep_n >= 2 else ""   # the run is stuck (lane B, PMNT)
     if stopped and nask:
@@ -1632,6 +1698,8 @@ def brief(work, model, rows, g, tl):
         now = "Paused: the agent has to do something and rerun. Nothing for you to answer."
     elif running:
         now = f"The agent is working: {running['text'][:1].lower() + running['text'][1:]}."
+    elif failed:
+        now = f"Step {failed['step']} failed (exit {failed['code']}). Nothing is running."
     elif nask:
         now = f"Waiting for {nask} {'answer' if nask == 1 else 'answers'} from you."
     elif ov == "PASS":
@@ -1732,6 +1800,11 @@ def brief(work, model, rows, g, tl):
             why, needs = sinfo["handoff"]
             act = {"kind": "handoff", "text": f"The agent cannot get past this alone: {why}.", "rec": f"It needs: {needs}.", "q": "",
                    "time": f"The run goes on from {stopped['step']} once that is done." if stopped.get("step") else ""}
+    elif failed and not running:
+        act = {"kind": "agent", "text": "Nothing you can answer here. " + (f"Read {failed['log']}, fix the cause, then rerun this command." if failed.get("cmd") else f"Read {failed['log']}, fix the cause, then rerun with --from {failed['step']}."), "rec": "", "q": "", "cmd": failed.get("cmd") or "",
+               "time": "The run goes on from that step once it passes."}
+    elif parked_count(work):   # after the stop branch: a stop that needs an agent or a person takes precedence over the parked count
+        act = parked_act(parked_count(work), running)
     elif running:
         act = {"kind": "wait", "text": "Nothing needed from you now." if nchosen else "Nothing. Come back later.", "rec": "", "q": "",
                "time": f"This step has run {running['mins']} min" if running.get("mins") else "This step just started"}
@@ -1786,6 +1859,8 @@ def h_brief(b, qlist):
                 if c["top"] else f"The AI made {c['n']} {'choice' if c['n'] == 1 else 'choices'} on its own")
         chosen = (f'<details class="chosen"><summary>{E(head)}</summary>{"<ol>" + lis + "</ol>" if lis else ""}'
                   f'<p class="m">{E(tail)}Check them under Plan; to change one, answer it in chat.</p></details>')
+    if a.get("cmd"):   # the exact rerun command (rung 2 differs from the ladder command): shown whole, never cut to fit
+        tm += f'<p class="atime"><code>{E(a["cmd"])}</code></p>'
     more = f'<details class="allq"><summary>All {b["n"]} questions waiting for you</summary>{qlist}</details>' if b["n"] > 1 and qlist else ""
     return ('<section class="brief" aria-label="Where the upgrade stands">\n'
             f'<p class="status">{E(b["status"])}</p>\n'
@@ -2036,7 +2111,7 @@ details.ctx>summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bot
 .qclose{font:inherit;font-size:13px;margin-top:6px;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 .legend .gbreak{flex-basis:100%;height:0}.legend .gl b{color:var(--fg);font-weight:600}
 .stopbar{margin:0 0 14px;padding:10px 14px;border-radius:12px;background:var(--badbg);border:1px solid var(--bad);font-size:14px}
-.stopbar.agent{background:var(--waitbg);border-color:var(--wait)}.stopbar.agent b{color:var(--fg)}
+.stopbar.agent,.stopbar.wait{background:var(--waitbg);border-color:var(--wait)}.stopbar.agent b,.stopbar.wait b{color:var(--fg)}
 .stopbar b{color:var(--bad)}.stopbar ul{margin:6px 0;padding-left:20px}.stopbar small{display:block;color:var(--muted,#6c7a87);overflow-wrap:anywhere}
 .nowrun .pulse{flex:none;width:10px;height:10px;border-radius:50%;background:var(--wait);animation:nrp 1.4s ease-in-out infinite}
 @keyframes nrp{0%,100%{opacity:1}50%{opacity:.25}}
@@ -2572,7 +2647,8 @@ def h_stopped(s):
     if not s:
         return ""
     if str(s["code"]) in ("14", "15"):   # the plan waits for sign-off: the Decide now cards are the questions, no paths or commands
-        return ('<div class="stopbar" role="alert"><b>The run stopped before changing anything: the plan waits for your answers and '
+        # a normal wait for answers is amber and says "paused", not the red "stopped" of a failure (nothing is wrong, nothing ran)
+        return ('<div class="stopbar wait" role="status"><b>The run is paused before changing anything: the plan waits for your answers and '
                 'your approval.</b><small>Open <b>Blocked on you</b> on the right to answer. The run goes on after you approve.</small></div>')
     li = "".join(f"<li>{E(clip_ask(t, 160, head=True))}</li>" for t in s["titles"])
     cmd = f'<small>Then rerun: <code>{E(s["rerun"])}</code></small>' if s["rerun"] else ""
@@ -2795,6 +2871,11 @@ def h_questions(model, matrix=None, cases_=None):
                         f'{"<em>Recommended</em>" if rec else ""}{"<small>" + E(say[:320]) + "</small>" if say else ""}'
                         f'{"<small class=" + chr(34) + "catch" + chr(34) + ">The catch: " + E(co["catch"]) + "</small>" if co.get("catch") else ""}</button>')
         ctx = "".join(f"<p>{E(t)}</p>" for t in context_of(i) if t)
+        ar = i.get("assumed_rows") or []   # the rows the "n choices were assumed" count is made of (same list, DV-13)
+        if ar:
+            ctx += ('<div class="qev" id="assumed-list"><b>' + E(f"{len(ar)} {'choice' if len(ar) == 1 else 'choices'} assumed by the agent") + '</b><ul>'
+                    + "".join(f"<li>{E(x['id'])}: {E(x['text'])}</li>" for x in ar[:5])
+                    + (f'<li><a href="#matrix">+{len(ar) - 5} more, see the matrix</a></li>' if len(ar) > 5 else "") + "</ul></div>")
         # what exactly is behind it, from the run's own files (cold test WM1: "how can a person ever decide without those details?")
         ev = i.get("evidence") or {}
         if ev.get("what"):

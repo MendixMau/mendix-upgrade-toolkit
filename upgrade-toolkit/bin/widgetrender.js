@@ -28,6 +28,7 @@
 //                     --widget bizzomateUltimateScheduler1 [--data] [--strict] [--shot f.png] [--out r.json]
 //                exit 0 PASS, 1 FAIL, 2 could not judge (login failed, menu item not found).
 const fs = require('fs');
+const { revealLocalLogin } = require('./loginreveal');
 const path = require('path');
 const os = require('os');
 
@@ -149,6 +150,7 @@ if (require.main === module) (async () => {
     const r = { role, widget: o.widget };
     try {
       await page.goto(o.url.replace(/\/$/, '') + '/login.html', { waitUntil: 'domcontentloaded' });
+      await revealLocalLogin(page);
       await page.fill('#usernameInput', user); await page.fill('#passwordInput', pass); await page.click('#loginButton');
       await page.waitForSelector('.mx-page', { timeout: 30000 });
       if (o.open) {

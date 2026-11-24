@@ -1,0 +1,8 @@
+{"from": "replace-react19.json", "ops": [
+ ["set", "modules/0/pages/0/widgets", [
+  {"id": "Lazy.widget.LazyPlaceholder", "name": "lazy1", "props": {"pageContent": {"form": "MyOwn.Lazy_Content"}, "fallback": {"widgets": 2}, "caption": "x"}},
+  {"id": "Lazy.widget.LazyPlaceholder", "name": "lazy2", "props": {"pageContent": {"form": "MyOwn.Lazy_Content"}, "fallback": {"widgets": 0}, "caption": "y"}},
+  {"id": "Lazy.widget.LazyPlaceholder", "name": "lazy3", "props": {"pageContent": {"form": "MyOwn.Lazy_Other"}, "fallback": {"widgets": 0}, "caption": "z"}}]],
+ ["set", "widget_packages", {
+  "Lazy.mpk": {"ids": ["Lazy.widget.LazyPlaceholder"], "version": "1.0.0", "js": "ReactDOM.findDOMNode(this)",
+               "props": {"pageContent": "form", "fallback": "widgets", "onShow": "action"}}}]]}

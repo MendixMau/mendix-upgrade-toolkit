@@ -132,7 +132,7 @@ A later stepupdate pass rewrites `APP/.stepupdate/kept.txt`; in the trial that d
 kept file is that default (or `--kept-snapshot F` is given), remedy.py keeps a snapshot (`$W/remedy-kept-snapshot.txt`
 by default). A module in the snapshot but not in the current list keeps its card with `WARN kept list shrank`, unless a
 tried PASS resolved it; `--reset-kept-snapshot` starts again from the current list. A tried line for a card the run no
-longer generates prints a WARN too. A kept line "skipped by --skip" is a choice, printed as `CHOICE`, not a gap (RT-13).
+longer generates prints a WARN too. A kept line "skipped by --skip" is a choice, printed as `CHOICE`, not a gap (RT-13). A reason given with `stepupdate.sh --skip-reason Mod=why` follows the words (`skipped by --skip: why`) and is printed as `(reason given: why)`; a reason that says "newest" does not hide the line.
 
 ## Done when
 

@@ -64,6 +64,9 @@ print(f"hidden {len(n)} property-level oldNames in {p}" + "".join(f"\n   {x}" fo
 PY
 done
 [[ ${#files} == 0 ]] && echo "no internal design system declares property-level oldNames: the rename runs unchanged"
+if [[ -n $(find ${mpr:h}/mprcontents -name '*.mxunit' -print -quit 2>/dev/null) ]]; then   # GF-42
+  restore; echo "pds_oldnames: REFUSED, ${mpr:t} is an MPR v2 project (mprcontents/): mx rename-design-properties rewrites it as a single-file v1 .mpr. Run mxcli fix design-properties -p <mpr> instead (the property-level oldNames files are restored)." >&2; exit 2
+fi
 $mx $ver mx rename-design-properties $mpr; rc=$?
 trap - INT TERM
 restore || exit 3

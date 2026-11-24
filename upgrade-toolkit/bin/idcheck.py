@@ -14,14 +14,15 @@ Inputs (old and new, any mix):
 Usage:
   idcheck.py OLD NEW [--json out.json] [--md out.md] [--red-only]
              [--approved approved.txt] [--baseline ORIGINAL]
-  idcheck.py APP --xmod                 list cross-module associations per TARGET module (update those targets last)
+  idcheck.py APP --xmod                 list cross-module associations per TARGET module (update those targets last, unless an owner is on the plan too: then before the owner)
 Exit: 0 = no open data-bearing finding, 1 = open data-bearing findings (RED), 2 = input error.
 
 Step mode (one module update at a time): OLD = the previous commit (git show HEAD:app.mpr > prev.mpr), NEW = the
 working copy, --approved = findings already accepted in writing (one fnmatch pattern per line on the element name
-or on "FINDING kind name", then " # reason"), --baseline = the ORIGINAL app before the upgrade. A step finding is
+or on "FINDING kind name", then " # reason"). A bare element name does not approve READDED_NEW_GUID; that needs the keyed form "READDED_NEW_GUID attribute
+Mod.Entity.Attr". --baseline = the ORIGINAL app before the upgrade. A step finding is
 then approved automatically when it is net zero against the original: REMOVED of an element the original never had
-(a step added it, a later step removed it again), or GUID_CHANGED back to the original GUID. Every auto-approval is
+(a step added it, a later step removed it again; the GUID must be new too, not only the name), or GUID_CHANGED back to the original GUID. Every auto-approval is
 printed with its reason. Comparing every step against the original instead goes blind after the first accepted
 finding, because every later step then exits 1 as well.
 
@@ -32,6 +33,8 @@ Findings:
   GUID_CHANGED  same qualified name, different GUID                 -> DROP + ADD, data lost
   REMOVED       name and GUID both gone                              -> column/table dropped (may be intended)
   PERSISTENCE_LOST  entity or association became non-persistent    -> table dropped (may be intended)
+  READDED_NEW_GUID  (step mode, --baseline) added by this step under a name the original had, with another GUID
+                (GM-24: a dropped-and-approved element re-created by a later step: the original data is orphaned)
   RENAMED       GUID kept, name changed                              -> safe, runtime renames (INFO)
   warn MODULE_RECREATED  (MPR on both sides) a module with 3 or more units shares no unit id with its old self: it was
                 deleted and re-imported, not updated (NS-7: DataWidgets 2.27.6 in notification-service cc318c0b, every
@@ -274,20 +277,45 @@ def read_approved(path):
     return out
 
 
+def readded(old, new, base):
+    """GM-24: an element this step ADDED under a name the ORIGINAL app already had, with a GUID that is not the original's.
+    Step mode compares only the step before with the step after, so a drop the owner accepted at one step (MxModelReflection
+    removed 11 associations, approved as transient) and a re-creation at a later step (ExcelImporter, new GUIDs) showed no
+    finding at all, while the data sat in the old GUID's table. Only the original-to-now check saw it, at the end."""
+    out = []
+    for kind in ("entity", "attribute", "association"):
+        for qn, ni in sorted(new[kind].items()):
+            if qn in old[kind]:
+                continue
+            oi = base[kind].get(qn)
+            if oi is not None and oi["guid"] != ni["guid"]:
+                out.append({"finding": "READDED_NEW_GUID", "kind": kind, "name": qn, "module": ni["module"],
+                            "old_guid": oi["guid"], "new_guid": ni["guid"], "data": bool(oi["persistent"] and ni["persistent"])})
+    return out
+
+
 def apply_approvals(findings, approved, base):
     """Mark findings approved (listed in writing) or transient (net zero against the original)."""
     for x in findings:
         if not x["data"]:
             continue
         key = f"{x['finding']} {x['kind']} {x['name']}"
+        # a bare element name approves a removal; it must not approve an identity finding: editroute writes bare names for
+        # replayed associations, and that line would otherwise hide the GUID that came back different (GM-24)
+        # GUID_CHANGED keeps bare-name approvals: approved.txt files written by hand already accept it that way, and
+        # changing that would flip their verdicts with no hint (review of PR #84)
+        keyed_only = x["finding"] == "READDED_NEW_GUID"
         for pat, why in approved:
-            if fnmatch.fnmatch(x["name"], pat) or fnmatch.fnmatch(key, pat):
+            if fnmatch.fnmatch(key, pat) or (not keyed_only and fnmatch.fnmatch(x["name"], pat)):
                 x["approved"] = f"approved: {why}"
+                x["pattern"] = pat   # GM-35: diff.py derives data allows from literal patterns only; a glob is never widened into data
                 break
         if base is not None and "approved" not in x:
             orig = base[x["kind"]].get(x["name"])
-            if x["finding"] == "REMOVED" and orig is None:
-                x["approved"] = "transient: not in the original app, net zero"
+            # GM-24: net zero needs the GUID as well as the name: an element absent under this name that carries a GUID the
+            # original had (renamed by an earlier step, then removed) is a real loss, not a transient
+            if x["finding"] == "REMOVED" and orig is None and x.get("old_guid") not in {v["guid"] for v in base[x["kind"]].values()}:
+                x["approved"] = "transient: not in the original app (name or GUID), net zero"
             elif x["finding"] == "GUID_CHANGED" and orig is not None and orig["guid"] == x["new_guid"]:
                 x["approved"] = "restores the original GUID"
     return findings
@@ -302,7 +330,7 @@ def xmod(model):
                 by_target.setdefault(end.split(".")[0], []).append((qn, end, a["persistent"]))
     lines = ["# cross-module associations by target module",
              "A headless update of a TARGET module can drop these (seen: MxModelReflection 8.0.2 -> 8.0.4 removed 27).",
-             "Update target modules last, one per commit, with a step idcheck.", ""]
+             "Update target modules last, one per commit, with a step idcheck; but before an owner of these associations that is on the plan too (planorder.py --write).", ""]
     for t in sorted(by_target, key=lambda t: (-len(by_target[t]), t)):
         rows = sorted(set(by_target[t]))
         lines.append(f"{t}: {len(rows)} associations ({sum(1 for r in rows if r[2])} data-bearing)")
@@ -342,6 +370,8 @@ def main():
     if a.baseline:
         bdm, bfmt = load(a.baseline); base = build(bdm)
     f = compare(old, new)
+    if base is not None:
+        f += readded(old, new, base)
     apply_approvals(f, read_approved(a.approved) if a.approved else [], base)
     red = [x for x in f if x["data"]]
     open_red = [x for x in red if "approved" not in x]
@@ -352,7 +382,7 @@ def main():
         lines.append(note)
     lines += [f"findings: {len(f)} total, {len(red)} RED (data-bearing), {len(red) - len(open_red)} of them approved, "
               f"{len(open_red)} open", ""]
-    order = {"GUID_CHANGED": 0, "PERSISTENCE_LOST": 1, "REMOVED": 2, "RENAMED": 3}
+    order = {"GUID_CHANGED": 0, "READDED_NEW_GUID": 0, "PERSISTENCE_LOST": 1, "REMOVED": 2, "RENAMED": 3}
     for x in sorted(f, key=lambda x: ("approved" in x, not x["data"], order[x["finding"]], x["kind"], x["name"])):
         if not x["data"] and a.red_only:
             continue
@@ -360,6 +390,8 @@ def main():
         extra = ""
         if x["finding"] == "GUID_CHANGED":
             extra = f"{x['old_guid']} -> {x['new_guid']}" + ("  (DROP + ADD: data lost)" if x["data"] else "  (no data)")
+        elif x["finding"] == "READDED_NEW_GUID":
+            extra = f"{x['old_guid']} -> {x['new_guid']}" + ("  (re-created under the original name with a new identity: the original data stays in the old one; restore_guid.py)" if x["data"] else "  (no data)")
         elif x["finding"] == "RENAMED":
             extra = f"-> {x['new_name']}"
         elif x["finding"] == "REMOVED":
@@ -388,7 +420,7 @@ def main():
                          + (f", {kept} of {len(both)} element identities kept" if both else ", no element identities to compare")
                          + ": the module was deleted and imported again, not updated in place; documents that use it (pages, "
                          "snippets) were rewritten too: review them, or redo the update with Studio Pro's module update (NS-7)")
-    verdict = "FAIL" if any(x["finding"] == "GUID_CHANGED" for x in open_red) else ("REVIEW" if open_red else "PASS")
+    verdict = "FAIL" if any(x["finding"] in ("GUID_CHANGED", "READDED_NEW_GUID") for x in open_red) else ("REVIEW" if open_red else "PASS")
     lines += ["", f"verdict: {verdict}  (FAIL = open data-bearing GUID change; REVIEW = open data-bearing removals or"
               " persistence loss only: confirm each is intended, then add it to the approved list / allow-list)"]
     out = "\n".join(lines)
