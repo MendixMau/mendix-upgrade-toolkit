@@ -18,8 +18,8 @@ jobs:
           python-version: '3.12'
 
       - name: Python packages the controls use
-        # controls/lib/mkmodel.py writes fixture models as BSON (the bson module ships with pymongo)
-        run: pip install pymongo
+        # controls/lib/mkmodel.py writes fixture models as BSON (the bson module ships with pymongo); smoke_users.py hashes with bcrypt
+        run: pip install pymongo bcrypt
 
       - name: Shell the toolkit scripts use
         # bin/*.sh wrappers exec zsh (macOS default); the Ubuntu runner has none

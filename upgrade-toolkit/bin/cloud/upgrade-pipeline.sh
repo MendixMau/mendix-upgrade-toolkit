@@ -614,7 +614,7 @@ app_up() { # app_up NAME MDA FULLVER DB  -> 0 started
     e=$(first_err "$WORK/logs/runtime-$1.log")
     [ -z "$e" ] || echo "upgrade-pipeline.sh: $1 did not start; first error in $WORK/logs/runtime-$1.log: $e" >&2
   fi
-  [ "$rc" != 0 ] || APPS_UP+=("$1")
+  [ "$rc" != 0 ] || { APPS_UP+=("$1"); export UPG_RUNTIME_LOG_CMD="docker logs ${UPG_NAME:-mig}-$1"; }   # GF-17: smokewalk.js and run_journeys.py quote the home-microflow error from it
   return "$rc"
 }
 app_down() {
@@ -828,6 +828,27 @@ smoke_mf() {
   [ "${UPG_SMOKE_MICROFLOWS:-}" != 0 ] || return 0
   if [ "${UPG_SMOKE_MICROFLOWS:-}" = 1 ] || grep -q '"landed": *"microflow ran"' "$WORK/smoke-before.json" 2> /dev/null ||
     grep -q '"kind": *"microflow"' "$WORK/plan.json" 2> /dev/null; then echo --microflows; fi
+}
+# GF-17: the user entity the smoke users are made as. UPG_SMOKE_ENTITY (Module.Entity) wins, else the first line of
+# $WORK/smoke-entity.txt; neither -> smoke_users.py reads the model itself (Account specialization, else the System.User
+# specialization with rows). Printed as `--entity X` for word splitting: smoke_users.py refuses anything but Module.Entity.
+smoke_entity_args() {
+  local e=${UPG_SMOKE_ENTITY:-}
+  [ -n "$e" ] || e=$(head -n1 "$WORK/smoke-entity.txt" 2> /dev/null | tr -d ' \r\t') || true
+  [ -z "$e" ] || echo "--entity $e"
+}
+# GF-21: the roles that get a smoke user are the roles of the smoke-walk plan AND the roles the impact map makes journeys
+# for (roles_all PLAN IMPACT): two sources gave "no test user for this role" for the ones only the impact map knew.
+roles_all() {
+  python3 -I -c '
+import json, sys, os
+p = json.load(open(sys.argv[1])); out = [r["role"] for r in p.get("roles", []) if r.get("role") and r["role"] != p.get("guest_role")]
+guest = p.get("guest_role")
+if len(sys.argv) > 2 and os.path.isfile(sys.argv[2]):
+    m = json.load(open(sys.argv[2])); guest = guest or (m.get("user_roles") or {}).get("guest")
+    for r in (m.get("roles") or {}):
+        if r and r != guest and r not in out: out.append(r)
+print(",".join(out))' "$1" "${2:-}"
 }
 user_args() { # user_args ROLES -> sets UARGS for smokewalk.js
   UARGS=(); local r
@@ -1376,7 +1397,7 @@ step_basewalk() {
   local old roles rc=0 db
   old=$(mda_old)
   must python3 "$B/smokewalk_gen.py" "$APP" -o "$WORK/plan.json"
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan.json" "$WORK/impact-base.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   [ -n "$roles" ] || { nj_meta agent; nj_add 11 "No user roles in the smoke-walk plan" "plan.json has no non-guest role: nothing can log in. $WORK/plan.json"; nj_flush; }
   [ "$DRY" = 1 ] || write_users "$roles" "$WORK/users.json"
@@ -1385,7 +1406,7 @@ step_basewalk() {
   db=$(fresh_name "${X}_smoke_walk")
   copy_db "$X_FROZEN" "$db"
   app_up oldwalk "$old" "$SOURCE" "$db" || die4 "old app did not start for the smoke walk (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   rc=0; x node "$B/smokewalk.js" --plan "$WORK/plan.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --out "$WORK/smoke-before.json" --shots "$WORK/smoke-before-shots" || rc=$?
   app_down oldwalk
@@ -1411,7 +1432,7 @@ step_basewalk() {
   db=$(fresh_name "${X}_smoke_jbase")
   copy_db "$X_FROZEN" "$db"
   app_up oldj "$old" "$SOURCE" "$db" || die4 "old app did not start for the journeys (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   rc=0; xo "$WORK/journeys-base.out" python3 "$B/run_journeys.py" "$WORK/journeys-base" --label before --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-base" --pause 50 ${ev[@]+"${ev[@]}"} || rc=$?
   app_down oldj
@@ -2228,12 +2249,12 @@ step_afterwalk() {
   local roles rc=0 db
   must python3 "$B/impact_map.py" "$WORK/original.mpr" "$MPR" --out "$WORK/impact.json" --md "$WORK/impact.md"
   must python3 "$B/smokewalk_gen.py" "$APP" -o "$WORK/plan-new.json"
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   user_args "$roles"
   db=$(fresh_name "${X}_smoke_new"); copy_db "$X_FROZEN" "$db"
   app_up newwalk "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the smoke walk" "$WORK/logs/runtime-newwalk.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --apply
   x node "$B/smokewalk.js" --plan "$WORK/plan-new.json" --url "http://localhost:$APP_PORT" "${UARGS[@]}" $(smoke_mf) --login-path "$(login_path)" \
     --compare "$WORK/smoke-before.json" --out "$WORK/smoke-after.json" --shots "$WORK/smoke-after-shots" || rc=$?
   app_down newwalk
@@ -2268,7 +2289,7 @@ journeys_resume() { # journeys_resume NAME MDA FULLVER DB OUTFILE RC -- run_jour
 step_journeys() {
   local roles rc=0 db create=() old
   old=$(mda_old)
-  roles=""; [ "$DRY" = 1 ] || roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=""; [ "$DRY" = 1 ] || roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ "$DRY" = 1 ] && roles="Role1,Role2"
   # PR-F36: a rerun writes journeys-*.out and e2e-*/ in place; keep the previous run's evidence first (pipe-30 -> 31)
   [ "$DRY" = 1 ] || must bash "$B/archive_journeys.sh" "$WORK"
@@ -2306,7 +2327,7 @@ step_journeys() {
   db=$(fresh_name "${X}_smoke_jold"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up oldjp "$old" "$SOURCE" "$db" || die4 "old app did not start for before-picked (log: $LOG)"
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   local jb=(python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --port "$APP_PORT" --psql "$(psql_str "$db")"
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-before-picked" --pause 50 ${act[@]+"${act[@]}"})
@@ -2318,7 +2339,7 @@ step_journeys() {
   db=$(fresh_name "${X}_smoke_jnew"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up newjp "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the journeys" "$WORK/logs/runtime-newjp.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
   # PR-F32: each smoke user is its role's only holder, so a workflow that targets "all users with role X" picks it
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   local sa=() ev=()
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
@@ -2396,7 +2417,7 @@ heal_standin_start() { # the same stand-in for the old and the new app (apimock.
 heal_standin_stop() { rm -f "$WORK/state/heal-standin"; x python3 "$B/apimock.py" stop --state "$WORK/apimock" || true; }
 heal_gen() { # the journeys again, with --standin: an action whose only todo is an external call gets a journey
   local roles act=() create=() rc=0 SC=()
-  roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ ! -s "$WORK/actions.json" ] || { act=(--actions "$WORK/actions.json"); scope_run; }
   [ ! -f "$WORK/create-spec.json" ] || create=(--create "$WORK/create-spec.json")
   must python3 "$B/gen_journeys.py" "$WORK/impact.json" ${act[@]+"${act[@]}"} --out-dir "$WORK/journeys" --roles-with-users "$roles" --users "$WORK/users.json" --data-rung ${create[@]+"${create[@]}"} --standin ${SC[@]+"${SC[@]}"}
@@ -2407,21 +2428,21 @@ heal_gen() { # the journeys again, with --standin: an action whose only todo is 
 }
 heal_run_journeys() { # heal_run_journeys IDS_CSV BASE_DB: those journeys on the old app, then the new app (--compare), then merge
   local ids=$1 base=$2 roles db rc=0 act=() sa=() ev=()
-  roles=$(roles_of_plan "$WORK/plan-new.json")
+  roles=$(roles_all "$WORK/plan-new.json" "$WORK/impact.json")
   [ ! -s "$WORK/actions.json" ] || act=(--actions "$WORK/actions.json")
   [ ! -f "$WORK/shot-accept.txt" ] || sa=(--shot-accept "$WORK/shot-accept.txt")
   [ ! -f "$WORK/baseline-evidence.txt" ] || ev=(--baseline-evidence "$WORK/baseline-evidence.txt")
   rm -rf "$WORK/e2e-heal-old" "$WORK/e2e-heal-new"
   db=$(fresh_name "${X}_smoke_jheal_old"); copy_db "$base" "$db"; fixture_db "$db"
   app_up healold "$(mda_old)" "$SOURCE" "$db" || die4 "old app did not start for the heal rerun (log: $LOG)"
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   rc=0; xo "$WORK/heal-journeys-old.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label before-picked --only "$ids" --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-heal-old" --pause 50 ${act[@]+"${act[@]}"} || rc=$?
   app_down healold; mark_used "$db" heal; heal_drop "$db"
   db=$(fresh_name "${X}_smoke_jheal_new"); copy_db "$base" "$db"; fixture_db "$db"
   app_up healnew "$(mda_new)" "$TARGET" "$db" || { nj_meta agent; nj_file 10 "New app did not start for the heal rerun" "$WORK/logs/runtime-healnew.log" 20 'ERROR|CRITICAL|Exception'; nj_flush; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$roles" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$roles" --sole-target --apply
   fixture_users_db "$db"
   rc=0; xo "$WORK/heal-journeys-new.out" python3 "$B/run_journeys.py" "$WORK/journeys" --label after --only "$ids" --port "$APP_PORT" --psql "$(psql_str "$db")" \
     --admin-port "$ADMIN_PORT" --admin-pass "$M2EE_PASS" --users "$WORK/users.json" --login-path "$(login_path)" --work "$WORK/e2e-heal-new" --pause 50 ${act[@]+"${act[@]}"} \
@@ -2547,7 +2568,7 @@ apidirect_side() { # apidirect_side SIDE VER MDA: build the throwaway copy, run 
   [ "$rc" = 0 ] || { note "apidirect: the $side test build failed (exit $rc, $AD/build-$side.log)"; return 1; }
   db=$(fresh_name "${X}_smoke_apid_$side"); copy_db "$X_FROZEN" "$db"; fixture_db "$db"
   app_up "apid$side" "$mda" "$ver" "$db" || { note "apidirect: the $side test app did not start"; heal_drop "$db"; return 1; }
-  must python3 "$B/smoke_users.py" "$db" --roles "$role" --sole-target --apply
+  must python3 "$B/smoke_users.py" "$db" $(smoke_entity_args) --roles "$role" --sole-target --apply
   fixture_users_db "$db"
   base=$(cat "$WORK/apimock/ready" 2> /dev/null | sed 's#//[^:/]*:#//localhost:#')
   rc=0; xo "$AD/drive-$side.out" python3 "$B/apidirect.py" drive "$AD/calls-$side.json" --side "$side" --app-url "http://localhost:$APP_PORT" \
