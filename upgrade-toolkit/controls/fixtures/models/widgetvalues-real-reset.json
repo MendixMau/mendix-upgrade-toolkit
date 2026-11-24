@@ -1,0 +1,37 @@
+{
+ "from": "widgetvalues-real-old.json",
+ "ops": [
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/1/Value/Image",
+   ""
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/1/raw/Object/Properties/1/Value/DataSource/EntityRef/Entity",
+   ""
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/2/Value/Selection",
+   "None"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/3/raw/Object/Properties/1/Value/DataSource/MicroflowSettings/Microflow",
+   ""
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/4/raw/Object/Properties/2/Value/Action",
+   {
+    "raw_file": "widgetvalues-real-widgets.json",
+    "path": "widgets/0/Object/Properties/2/Value/Action"
+   }
+  ],
+  [
+   "delete",
+   "modules/0/pages/0/widgets/2/raw/Object/Properties/1/Value/Objects/2"
+  ]
+ ]
+}

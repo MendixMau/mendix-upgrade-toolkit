@@ -1,0 +1,75 @@
+{
+ "version": "10.24.16.96987",
+ "modules": [
+  {
+   "name": "Shop",
+   "entities": [
+    {
+     "name": "Item",
+     "attributes": [
+      {
+       "name": "Title"
+      }
+     ]
+    }
+   ],
+   "pages": [
+    {
+     "name": "Home",
+     "widgets": [
+      {
+       "raw": {
+        "raw_file": "widgetvalues-real-widgets.json",
+        "path": "widgets/0"
+       }
+      },
+      {
+       "raw": {
+        "raw_file": "widgetvalues-real-widgets.json",
+        "path": "widgets/1"
+       }
+      },
+      {
+       "raw": {
+        "raw_file": "widgetvalues-real-widgets.json",
+        "path": "widgets/2"
+       }
+      },
+      {
+       "raw": {
+        "raw_file": "widgetvalues-real-widgets.json",
+        "path": "widgets/1"
+       }
+      },
+      {
+       "raw": {
+        "raw_file": "widgetvalues-real-widgets.json",
+        "path": "widgets/0"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "widget_packages": {
+  "Image.mpk": {
+   "ids": [
+    "com.mendix.widget.web.image.Image"
+   ],
+   "version": "1.0.0"
+  },
+  "LanguageSelector.mpk": {
+   "ids": [
+    "com.mendix.widget.web.languageselector.LanguageSelector"
+   ],
+   "version": "1.0.0"
+  },
+  "DropdownFilter.mpk": {
+   "ids": [
+    "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter"
+   ],
+   "version": "1.0.0"
+  }
+ }
+}

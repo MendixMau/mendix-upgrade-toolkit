@@ -457,7 +457,8 @@ def screen_compare(before_dir, out_dir, journeys, accept_file=None):
         if not m:
             continue
         jid = m.group(1)
-        if jid not in per or worst[r["verdict"]] < worst[per[jid]["verdict"]]:
+        rk = lambda x: (worst[x["verdict"]], x.get("severity") != "content-lost")   # GF-54: content lost first among REVIEWs
+        if jid not in per or rk(r) < rk(per[jid]):
             per[jid] = r
     for jid, s in journeys.items():
         r = per.get(jid)

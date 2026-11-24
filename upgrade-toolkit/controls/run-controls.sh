@@ -1192,6 +1192,124 @@ ctl widgetroute-charts6-missing-catch 1 '^ROUTE Shop: Any Chart 3\.x .*-> instal
   '^  Applied: will apply A on your OK: install Charts 6\.x' -- $WRP $(model widgetroute-nocharts6) --target 11.12.7
 ctl widgetroute-outside-data-view-catch 1 '^ROUTE Shop: Any Chart 3\.x used 1x outside a data view in SNIP_Total -> put a data view around each, then rerun.*\[ASK\]' '^  OUTSIDE-DATA-VIEW Shop\.SNIP_Total anyChart4$' \
   '^  Applied: not yet: the snippet has no object parameters' '!WOULD-(REPLACE|WRAP) Shop\.SNIP_Total' -- $WRP $(model widgetroute-bare) --target 11.12.7
+# widgetvalues.py (GF-44, a field run): two update-widgets passes put a widget's configured settings back to the package
+# defaults; mx check named only the two now-required ones and no rung compared values. The fixtures are built from widgets
+# captured verbatim from a starter app model (fixtures/models/widgetvalues-real-widgets.json, its header says how): an Image
+# widget, a Language selector, a data grid drop-down filter with an object list, and a real microflow action. The captures hold
+# no widget whose datasource or action IS a microflow, so those two are the captured microflow nodes spliced into a captured
+# widget (the -old model). A reset names document, widget and property; a list that lost or cleared items is a reset; a gone
+# property and a missing widget instance are named and are not exit codes; a model that cannot be read is exit 2, never 1.
+WVD=$T/wvd; mkdir -p $WVD
+echo 'widgets/DropdownFilter.mpk DropdownFilter 1.0.0 -> 2.0.0' > $WVD/changed.txt; echo 'widgets/Other.mpk Other 1.0.0 -> 2.0.0' > $WVD/other.txt
+WVO=$(model widgetvalues-real-old); WVS=$(model widgetvalues-real-same); WVR=$(model widgetvalues-real-reset); WVC=$(model widgetvalues-real-cleared)
+WVM=$(model widgetvalues-real-missing); WVG=$(model widgetvalues-real-gone)
+ctl widgetvalues-reset-catch 1 '^WIDGET-RESET Shop\.Home image1 \(.*Image\) imageObject: was Shop\.Layout\.logo, now empty$' \
+  '^WIDGET-RESET Shop\.Home image1 .* onClick: was Multi, now empty$' '^WIDGET-RESET Shop\.Home imgAct .* onClick: was Shop\.ACT_Save, now empty$' \
+  '^WIDGET-RESET Shop\.Home langMf .* languageOptions: was Shop\.ACT_Save, now empty$' '^WIDGET-RESET Shop\.Home languageSelector1 .* languageOptions: was System\.Language, now empty$' \
+  '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 .* filterOptions: was 2 item\(s\), now 1$' '^widgetvalues: FAIL, 6 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVO $WVR
+ctl widgetvalues-list-cleared-catch 1 '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 .* filterOptions: was 2 item\(s\), now 0$' '^widgetvalues: FAIL, 1 of 15 configured value' -- python3 $B/widgetvalues.py $WVO $WVC
+ctl widgetvalues-missing-instance-catch 0 '^WIDGET-MISSING Shop\.Home imgAct \(.*Image\): 3 configured value\(s\), no such widget instance in the new model$' \
+  '^WIDGET-MISSING Shop\.Home dataGridDrop_downFilter1 .*: 5 configured value\(s\), no such widget' '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 7 .* 2 widget instance\(s\) with configured values missing in the new model' -- python3 $B/widgetvalues.py $WVO $WVM
+ctl widgetvalues-prop-gone-catch 0 '^WIDGET-PROP-GONE Shop\.Home image1 .* imageObject: was Shop\.Layout\.logo; the new package removed it$' \
+  '^WIDGET-PROP-GONE Shop\.Home languageSelector1 .* languageCaption: was \$currentObject/Description; renamed to captionExpr' '!WIDGET-RESET' '2 property\(ies\) gone' -- python3 $B/widgetvalues.py $WVO $WVG
+ctl widgetvalues-unchanged-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVO $WVS
+ctl widgetvalues-changed-package-catch 1 '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 ' '!image1' '^widgetvalues: FAIL, 1 of ' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/changed.txt
+ctl widgetvalues-unrelated-package-pass 0 '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 0 configured value\(s\) reset on 0 widget instance' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/other.txt
+# a direct WidgetValue.Microflow / Nanoflow (GF-44's getAdminOptionsMf shape: a widget property that IS a microflow, no Action
+# around it): the captured Image widget's WidgetValue node carries both keys (empty); the -flows-old model fills them in that
+# same node, the -flows-reset model empties them again. Dropping "Microflow" or "Nanoflow" from _full_value's key tuple makes it red.
+WVFO=$(model widgetvalues-real-flows-old); WVFR=$(model widgetvalues-real-flows-reset)
+ctl widgetvalues-direct-flow-value-catch 1 '^WIDGET-RESET Shop\.Home image1 .* imageObject: was Shop\.GetAdminOptions, now empty$' '^WIDGET-RESET Shop\.Home image1 .* onClick: was Shop\.NAN_Open, now empty$' \
+  '^widgetvalues: FAIL, 2 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVFO $WVFR
+ctl widgetvalues-direct-flow-value-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 15 configured' -- python3 $B/widgetvalues.py $WVFO $WVFO
+# Marketplace module documents (FromAppStore): a reset there is the module's own new default, reported apart and never an exit code
+WVMO=$(model widgetvalues-real-mkt-old); WVMV=$(model widgetvalues-real-mkt-vendor-reset); WVMW=$(model widgetvalues-real-mkt-own-reset)
+ctl widgetvalues-marketplace-reset-apart-catch 0 '^MARKETPLACE-WIDGET-RESET Atlas_Core\.Feedback image1 .* imageObject: was Shop\.Layout\.logo, now empty$' '!^WIDGET-RESET' \
+  '^widgetvalues: PASS, 0 of 4 .*1 reset\(s\) in Marketplace module documents reported apart, not counted' -- python3 $B/widgetvalues.py $WVMO $WVMV
+ctl widgetvalues-own-module-reset-still-fails-catch 1 '^WIDGET-RESET Shop\.Home image1 ' '!MARKETPLACE' '^widgetvalues: FAIL, 1 of 4 ' -- python3 $B/widgetvalues.py $WVMO $WVMW
+ctl widgetvalues-noproject-exit2-catch 2 'no such project' -- python3 $B/widgetvalues.py $WVO $WVD/none
+mkdir -p $WVD/junk; echo 'not a project' > $WVD/junk/App.mpr
+ctl widgetvalues-junk-model-exit2-catch 2 '!Traceback' '!^widgetvalues: PASS' -- python3 $B/widgetvalues.py $WVO $WVD/junk
+ctl widgetvalues-junk-old-model-exit2-catch 2 '!Traceback' '!^widgetvalues: PASS' -- python3 $B/widgetvalues.py $WVD/junk $WVR
+# the old side is parsed once and kept (--cache): the second run says the same, and a cache made for another old model is never trusted
+ctl widgetvalues-cache-pass 0 '^cache-written$' '^cache-same$' '^cache-not-stale$' -- bash -c "python3 $B/widgetvalues.py $WVO $WVR --cache $WVD/c.json > $WVD/c1.txt; python3 $B/widgetvalues.py $WVO $WVR --cache $WVD/c.json > $WVD/c2.txt; [ -s $WVD/c.json ] && echo cache-written; cmp -s $WVD/c1.txt $WVD/c2.txt && echo cache-same; python3 $B/widgetvalues.py $WVR $WVS --cache $WVD/c.json > $WVD/c3.txt; grep -q '^WIDGET-RESET' $WVD/c3.txt || echo cache-not-stale"
+# the pipeline's update_widgets compares with the RUN's first model (\$WORK/original.mpr), never the model one pass started from:
+# a value that went 12 -> 10 in one pass and back in the next is no change per pass. heavy() stands in for the update-widgets pass
+cat > $WVD/uw.sh <<'UWEOF'
+B=$1; PIPE=$2; WORK=$3; OLD=$4; shift 4
+APP=$WORK/app; mkdir -p "$APP"; cp "$OLD/App.mpr" "$WORK/original.mpr"; cp "$OLD/App.mpr" "$APP/App.mpr"
+MPR=$APP/App.mpr; DRY=${DRY:-0}; TARGET=11.12.7; NEWS=("$@"); PASS=0
+note() { echo "NOTE: $*"; }
+mpr_v2() { return 1; }
+mxcli_bin() { echo mxcli; }
+heavy() { [ "${HRC:-0}" = 0 ] || return "$HRC"; local n=${NEWS[$PASS]:-=}; [ "$n" = = ] || cp "$n/App.mpr" "$MPR"; return 0; }
+eval "$(sed -n '/^update_widgets() {/,/^}/p; /^wv_note() {/,/^}/p; /^widgetvalues_note() {/,/^}/p' "$PIPE")"
+for i in "${!NEWS[@]}"; do PASS=$i; echo "--- pass $((i + 1))"; update_widgets; echo "rc=$?"; done
+UWEOF
+UW() { local n=$1; shift; bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-$n "$@"; }
+ctl pipeline-update-widgets-reset-catch 0 '^        WIDGET-RESET Shop\.Home image1 ' '^NOTE: widgetvalues after update-widgets: configured widget settings were reset to the package defaults' '^rc=0$' -- UW reset $WVO $WVR
+ctl pipeline-update-widgets-round-trip-catch 0 '^--- pass 2$' '^NOTE: widgetvalues after update-widgets: configured widget settings were reset' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW trip $WVO $WVR = | sed -n '/^--- pass 2/,\$p'"
+ctl pipeline-update-widgets-prop-gone-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget propert\(ies\) no longer exist in the new package' '!configured widget settings were reset' -- UW gone $WVO $WVG
+ctl pipeline-update-widgets-missing-instance-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget instance\(s\) with configured values are missing in the new model' -- UW missing $WVO $WVM
+ctl pipeline-update-widgets-could-not-compare-catch 0 '^NOTE: widgetvalues NOT RUN: could not compare the widget settings after update-widgets \(exit 2\)' '^NOTE: .*NOT RUN' '!configured widget settings were reset' '^rc=0$' -- UW junk $WVD/junk $WVR
+ctl pipeline-update-widgets-marketplace-note-catch 0 '^NOTE: widgetvalues after update-widgets: 1 widget setting\(s\) in Marketplace module documents differ from the first model: the module.s new version changed its own default \(field: Atlas_Core\.FeedbackWidget app id to 1, DataGrid _WidgetsExporterSnippet filterOptions 2 to 0\)' \
+  '!configured widget settings were reset' '!put them back' '^rc=0$' -- UW mkt $WVMO $WVMV
+ctl pipeline-update-widgets-clean-pass 0 '^rc=0$' '!NOTE' '!WIDGET-' -- UW clean $WVO $WVS
+ctl pipeline-update-widgets-failed-pass-passes-rc-pass 0 '^rc=3$' '!NOTE' '!WIDGET-' -- env HRC=3 bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-fail $WVO $WVR
+ctl pipeline-update-widgets-no-copy-pass 0 '^no-copy$' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW nocopy $WVO $WVR > /dev/null; [ ! -e $WVD/w-nocopy/widgetvalues-before ] && [ -s $WVD/w-nocopy/widgetvalues-original.json ] && echo no-copy"
+# stepupdate: the old side is --baseline (the run's original.mpr) or, with none, a snapshot of the first step's start; every step is
+# compared (stepupdate never runs update-widgets itself: a step's own update does); the exit comes after the roles block
+wv_app() { mkdir -p $WVD/$1; cp -R $2/. $WVD/$1/; (cd $WVD/$1 && git init -q && git add . && git -c user.email=c@c -c user.name=ctl commit -qm base); }
+wv_app su-reset $WVO; wv_app su-clean $WVO; wv_app su-nobase $WVO; wv_app su-roles $WVO; wv_app su-snapclean $WVO
+printf '1 1.0.0 Dock\n' > $WVD/plan.txt
+WVRO=$(model widgetvalues-real-roles-old); WVRR=$(model widgetvalues-real-roles-reset); wv_app su-both $WVRO
+SU() { local app=$1 new=$2; shift 2; env UPG_UPDATE_CMD="cp $new/App.mpr {mpr}" bash ${SUB:-$B}/stepupdate.sh $WVD/$app $WVD/plan.txt "$@"; }
+ctl stepupdate-widgetvalues-reset-catch 1 '^   WIDGET-RESET Shop\.Home image1 .* imageObject: was Shop\.Layout\.logo, now empty$' '^stepupdate: WIDGET SETTINGS RESET by a step' \
+  '^   WIDGET-VALUES: Dock 1\.0\.0: 6 widget setting\(s\) reset to the package default \(compared with the run' -- SU su-reset $WVR --baseline $WVO/App.mpr
+ctl stepupdate-widgetvalues-first-snapshot-catch 1 '^   WIDGET-RESET Shop\.Home imgAct ' '^stepupdate: WIDGET SETTINGS RESET by a step' -- SU su-nobase $WVR
+ctl stepupdate-widgetvalues-clean-pass 0 '!WIDGET' '!stepupdate: WIDGET' -- SU su-clean $WVS --baseline $WVO/App.mpr
+ctl stepupdate-widgetvalues-and-new-roles-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^stepupdate: NEW MODULE ROLES with no user role' -- SU su-both $WVRR --baseline $WVRO/App.mpr
+# a bin folder whose widgetvalues.py cannot read the models (exit 2): the comparison did not run, which is never "nothing reset"
+mkdir -p $WVD/bin-nowv; for f in $B/*; do ln -s $f $WVD/bin-nowv/$(basename $f); done; rm $WVD/bin-nowv/widgetvalues.py; printf 'import sys\nprint("widgetvalues: cannot read the project", file=sys.stderr)\nsys.exit(2)\n' > $WVD/bin-nowv/widgetvalues.py
+ctl stepupdate-widgetvalues-not-run-catch 1 '^   WIDGET-VALUES: widgetvalues\.py could not judge Dock' '^stepupdate: WIDGET-VALUES NOT RUN for: Dock' '!^stepupdate: WIDGET SETTINGS RESET' -- env SUB=$WVD/bin-nowv bash -c "$(declare -f SU); WVD=$WVD; B=$B; SU su-roles $WVR --baseline $WVO/App.mpr"
+ctl stepupdate-widgetvalues-first-snapshot-pass 0 '!WIDGET' -- SU su-snapclean $WVS
+# a two-step plan (GF-44 fix round): step A resets a value, step B leaves it as it is. Step B is compared with the RUN's first
+# model, so its own widgetvalues file still says FAIL (and the reset is said once, not again); against the model before step B
+# (wvold=$prevmpr) it would say PASS. A second invocation (the pipeline runs stepupdate once per batch) that changes nothing
+# must still exit 1: the reset is still there against the run baseline.
+mkdir -p $WVD/mods; ln -sfn $WVR $WVD/mods/StepA; ln -sfn $WVR $WVD/mods/StepB
+printf '1 1.0.0 StepA\n2 1.0.0 StepB\n' > $WVD/plan2.txt; printf '2 1.0.0 StepB\n' > $WVD/plan-b.txt
+wv_app su-two $WVO; wv_app su-two2 $WVO
+SU2() { local app=$1 plan=$2; shift 2; env UPG_UPDATE_CMD="cp $WVD/mods/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $WVD/$app $WVD/$plan "$@"; }
+ctl stepupdate-widgetvalues-two-step-baseline-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^   WIDGET-RESET Shop\.Home image1 .* imageObject' '^step2-StepB-says-FAIL$' '^said-once$' \
+  -- bash -c "$(declare -f SU2); WVD=$WVD; B=$B; SU2 su-two plan2.txt --baseline $WVO/App.mpr > $WVD/su-two.out 2>&1; rc=\$?; cat $WVD/su-two.out; grep -q '^widgetvalues: FAIL' $WVD/su-two/.stepupdate/step2-StepB.widgetvalues && echo step2-StepB-says-FAIL; [ \$(grep -c '^   WIDGET-RESET Shop.Home image1 .* imageObject' $WVD/su-two.out) = 1 ] && echo said-once; exit \$rc"
+ctl stepupdate-widgetvalues-second-batch-baseline-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^   WIDGET-RESET Shop\.Home image1 .* imageObject' \
+  -- bash -c "$(declare -f SU2); WVD=$WVD; B=$B; SU2 su-two2 plan2.txt --baseline $WVO/App.mpr > /dev/null 2>&1; SU2 su-two2 plan-b.txt --baseline $WVO/App.mpr"
+# Marketplace module documents in stepupdate: labelled apart, exit 0 on their own; an own module's reset still exits 1
+wv_app su-mkt $WVMO; wv_app su-mktown $WVMO; wv_app su-mktold $WVMO
+ctl stepupdate-widgetvalues-marketplace-apart-catch 0 '^   MARKETPLACE-WIDGET-RESET Atlas_Core\.Feedback image1 ' '^stepupdate: MARKETPLACE WIDGET DEFAULTS changed by a module' '^   MARKETPLACE: Dock 1\.0\.0: 1 default' \
+  '!^stepupdate: WIDGET SETTINGS RESET' '!write the old values back' '!WIDGET-VALUES NOT RUN' -- SU su-mkt $WVMV --baseline $WVMO/App.mpr
+ctl stepupdate-widgetvalues-own-module-exits-1-catch 1 '^   WIDGET-RESET Shop\.Home image1 ' '^stepupdate: WIDGET SETTINGS RESET by a step' '!MARKETPLACE' -- SU su-mktown $WVMW --baseline $WVMO/App.mpr
+# the copied playbooks/ is replaced, not merged: a file a previous run left there is gone
+mkdir -p $WVD/su-mktold/.stepupdate/playbooks; echo old > $WVD/su-mktold/.stepupdate/playbooks/stale-from-last-run.txt
+ctl stepupdate-playbooks-copy-fresh-pass 0 '^stale-gone$' -- bash -c "$(declare -f SU); WVD=$WVD; B=$B; SU su-mktold $WVMV --baseline $WVMO/App.mpr > /dev/null 2>&1; [ ! -e $WVD/su-mktold/.stepupdate/playbooks/stale-from-last-run.txt ] && echo stale-gone"
+# the pipeline puts a stepupdate reset into the run notes (run_stepupdate), and a comparison that did not run too
+cat > $WVD/rs.sh <<'RSEOF'
+B=$1; PIPE=$2; WORK=$3; APP=$4; PLAN=$5; NEW=$6; BASE=$7; DRY=0; RUN=$WORK; LOG=$WORK/log; mkdir -p "$WORK"; : > "$LOG"
+note() { echo "NOTE: $*"; }
+die4() { echo "DIE4: $*"; exit 4; }
+stepcheck_stop() { :; }
+project_version() { echo 11.12.7; }
+nj_meta() { :; }; nj_add() { :; }; nj_flush() { :; }
+cp "$BASE" "$WORK/original.mpr"
+export UPG_NO_STEPCHECK=1 UPG_UPDATE_CMD="cp $NEW/App.mpr {mpr}"
+eval "$(sed -n '/^xo() {/,/^}/p; /^quoted() {/,/^}/p; /^run_stepupdate() {/,/^}/p' "$PIPE")"
+run_stepupdate "$PLAN" post-convert; echo "rc=$?"
+RSEOF
+RS() { local n=$1 app=$2 new=$3 base=$4 bd=${5:-$B}; wv_app rs-$n $app; bash $WVD/rs.sh $bd $B/cloud/upgrade-pipeline.sh $WVD/rw-$n $WVD/rs-$n $WVD/plan.txt $new $base; }
+ctl pipeline-stepupdate-widget-reset-noted-catch 0 '^NOTE: widget settings were reset to the package defaults by the post-convert batch' '^rc=0$' -- RS reset $WVO $WVR $WVO/App.mpr
+ctl pipeline-stepupdate-widget-clean-pass 0 '!^NOTE: widget' '^rc=0$' -- RS clean $WVO $WVS $WVO/App.mpr
+ctl pipeline-stepupdate-widget-not-compared-noted-catch 0 '^NOTE: widget settings comparison NOT RUN after the post-convert batch' '^rc=0$' -- RS notrun $WVO $WVR $WVO/App.mpr $WVD/bin-nowv
 # the item shape (owner's rule): every item a person sees says what was searched, the candidates with one recommended, and
 # what was applied; it never says only "no replacement"
 ctl widgetroute-item-shape-catch 1 '^## Any Chart 3\.x in Shop: 1 outside a data view, a data view by hand recommended$' '^Found: Any Chart 3\.x on 1 snippet \(1 use\) in module Shop' \
@@ -2624,6 +2742,13 @@ ctl remedy-apply-commit-all-kept-pass 0 '^hash=[0-9a-f]{7,}$' '^commits=2$' '!ST
 # a fixer that keeps the format is kept: v1 and v2 both commit as before
 rm -rf $F42/v2k; cp -R $F42/v2 $F42/v2k; printf '#!/bin/sh\necho edit >> "$(dirname "$1")/note.txt"\n' > $F42/keep.sh
 ctl pipeline-tryfix-storage-kept-pass 0 '^ +repair: keeper' '^commits=2$' '!STORAGE' -- bash -c "$F42F; $F42E; APP=$F42/v2k; CHECK_LOG=$F42/before.log; try_fix keeper repair-row-5 CE0463 sh $F42/keep.sh $F42/v2k/App.mpr; echo commits=\$(git -C $F42/v2k rev-list --count HEAD)"
+# GF-44: update_widgets's widgetvalues notes are written only when try_fix KEEPS the change; a fix undone as worse leaves no note about it
+printf '[error] [CE0463] x\n[error] [CE0999] y\nThe app contains: 200 errors.\n' > $F42/worse.log
+F42W="eval \"\$(sed -n '/^wv_note() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)\"; fxw() { wv_note 'widgetvalues after update-widgets: configured widget settings were reset'; echo edit >> \$1/note.txt; }"
+rm -rf $F42/v2w; cp -R $F42/v2 $F42/v2w
+ctl pipeline-tryfix-widgetvalues-note-kept-catch 0 '^NOTE widgetvalues after update-widgets: configured widget settings were reset$' '^ +repair: fxw' -- bash -c "$F42F; $F42E; $F42W; APP=$F42/v2w; CHECK_LOG=$F42/before.log; try_fix fxw repair-row-5 CE0463 fxw $F42/v2w"
+rm -rf $F42/v2u; cp -R $F42/v2 $F42/v2u
+ctl pipeline-tryfix-widgetvalues-note-undone-catch 0 '^NOTE fix .fxw. made mx check WORSE' '!widgetvalues after update-widgets' -- bash -c "$F42F; $F42E; $F42W; mxcheck() { CHECK_LOG=$F42/worse.log; }; APP=$F42/v2u; CHECK_LOG=$F42/before.log; try_fix fxw repair-row-5 CE0463 fxw $F42/v2u"
 # routing: on MPR v2 row 5 runs mxcli fix widgets (not mx update-widgets) and row 6 the mxcli fix design-properties fixer; on v1 the mx tools as before
 printf '#!/bin/sh\necho "FAKE-MXCLI $*"\n' > $F42/fake-mxcli.sh; chmod +x $F42/fake-mxcli.sh
 F42R="$F42F; $F42E; heavy() { echo \"HEAVY \$*\"; }; mxw() { echo MXW; }; try_fix() { echo \"TRYFIX \$*\"; }; MXCLI=$F42/fake-mxcli.sh TARGET=11.6.3 UPG_LOCK=$F42/lock"
@@ -2643,7 +2768,7 @@ ctl stepupdate-storage-collapse-tree-pass 0 '^units=[1-9][0-9]*$' '^last=stepupd
 
 # the guard exits 2 (cannot tell) is not a collapse: the step is committed, nothing undone (mutating the test to `!= 0` makes this red)
 rm -rf $F42/su3 $F42/bin2; mkdir -p $F42/su3 $F42/bin2; cp -R $S2/base/. $F42/su3/; (cd $F42/su3 && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
-for f in $B/*; do ln -s $f $F42/bin2/$(basename $f); done; rm $F42/bin2/mprstorage.sh; printf '#!/bin/sh\necho "mprstorage: no .mpr" >&2\nexit 2\n' > $F42/bin2/mprstorage.sh
+for f in $B/*; do ln -s $f $F42/bin2/$(basename $f); done; ln -s $B/../playbooks $F42/playbooks; rm $F42/bin2/mprstorage.sh; printf '#!/bin/sh\necho "mprstorage: no .mpr" >&2\nexit 2\n' > $F42/bin2/mprstorage.sh
 ctl stepupdate-storage-guard-unsure-not-undone-pass 0 'committed [0-9a-f]{7}' '!STORAGE FORMAT' '!Step undone' -- env UPG_UPDATE_CMD="cp $M/step1-adds/App.mpr {mpr}" bash $F42/bin2/stepupdate.sh $F42/su3 $F42/su.plan
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
@@ -3705,6 +3830,38 @@ ctl shotdiff-text-lost-catch 1 '^REVIEW +shots-Administrator/overview.*visible t
 ctl shotdiff-text-doubled-catch 1 '^REVIEW +shots-Administrator/overview.*visible text changed: new currently, of, showing, to' -- python3 $B/shotdiff.py $SH/textold $SH/textdup
 ctl shotdiff-text-same-pass 0 '^PASS +shots-Administrator/overview.*text same' '!^REVIEW' -- python3 $B/shotdiff.py $SH/textold $SH/textsame
 ctl shotdiff-text-one-side-pass 0 '^PASS +shots-Administrator/overview' '!text same' -- python3 $B/shotdiff.py $SH/textold $SH/textnone
+# GF-54: content that vanished outranks a colour/tone change. The tone page (aaa-) sorts first by name, so only the
+# ranking puts the vanished page (zzz-) on the first REVIEW line; a tone-only pair is still a plain REVIEW (same word, exit 1).
+ctl shotdiff-content-lost-ranks-first-catch 1 '^FIRST-REVIEW: REVIEW +shots-Administrator/zzz-vanish.*CONTENT LOST .*empty now' '^CONTENT LOST: 1 open pair\(s\).*zzz-vanish' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new > $T/rank.out; r=\$?; cat $T/rank.out; echo \"FIRST-REVIEW: \$(grep -m1 '^REVIEW' $T/rank.out)\"; exit \$r"
+ctl shotdiff-content-lost-json-catch 1 '"severity": "content-lost"' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new --json $T/rank.json >/dev/null; r=\$?; cat $T/rank.json; exit \$r"
+ctl shotdiff-tone-only-not-escalated-pass 1 '^REVIEW +shots-Administrator/aaa-tone.*100% of the page changed' '!CONTENT LOST' '!severity' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
+# GF-54 review: a darkening backdrop scales the spread with the mean, so a light low-contrast texture (spread ~10) under
+# x0.3 / x0.25 is toned, not lost; the same texture replaced by a flat page of the same mean still is
+ctl shotdiff-tone-lowcontrast-f30-pass 1 '^REVIEW +shots-Administrator/tex.*100% of the page changed' '!CONTENT LOST' '!severity' '!content lost\)' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f30
+ctl shotdiff-tone-lowcontrast-f25-pass 1 '^REVIEW +shots-Administrator/tex.*100% of the page changed' '!CONTENT LOST' '!content lost\)' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f25
+ctl shotdiff-tone-lowcontrast-f50-pass 1 '^REVIEW +shots-Administrator/tex' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f50
+ctl shotdiff-texture-gone-catch 1 '^REVIEW +shots-Administrator/tex.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-gone
+# one of three charts removed measures ~6.7%: above LOST_SEVERE (5%), below the earlier 8%
+ctl shotdiff-one-chart-removed-catch 1 '^REVIEW +shots-Administrator/dashboard.*CONTENT LOST .*7% of the page had content before' -- python3 $B/shotdiff.py $SH/onechart-old $SH/onechart-new
+# the count line carries the content-lost number (the gate row and the cockpit read it); the plain tone-only line has none
+# GF-54 r2: a pure reflow (the same amount of content moved: ~17% lost and ~17% gained) is CONTENT MOVED?, not CONTENT LOST;
+# the vanished-chart pair and the table-as-list shape (gained 1.4x lost) keep CONTENT LOST; a moved pair is not counted
+ctl shotdiff-reflow-moved-not-lost-pass 1 '^REVIEW +shots-Administrator/reflow.*CONTENT MOVED\?' '!CONTENT LOST' '!content lost\)' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new
+ctl shotdiff-reflow-json-moved-pass 1 '"severity": "moved"' '!content-lost' -- bash -c "python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new --json $T/reflow.json >/dev/null; r=\$?; cat $T/reflow.json; exit \$r"
+ctl shotdiff-list-for-table-still-lost-catch 1 '^REVIEW +shots-Administrator/listtable.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/listtable-old $SH/listtable-new
+# GF-54 r3: the moved rule counts only gained cells on the rows of the lost content (+-1 row): the same chart removal with an
+# unrelated banner added below stays CONTENT LOST (the global shares, 6.7 % lost / 6.4 % gained, used to read MOVED)
+ctl shotdiff-removed-plus-unrelated-banner-catch 1 '^REVIEW +shots-Administrator/banner.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/banner-old $SH/banner-new
+# the band itself: 4.8 % apart is a reflow (MOVED_BAND=0.0 turns this red), 28.6 % apart is a loss (MOVED_BAND=0.30 turns this red)
+# GF-54 r4: the window is the rows that lost content +-1, not the span between two separate losses: a chart removed, a banner
+# added below it and a small footer item lost below the banner stays CONTENT LOST (the span used to open to the banner: 8.5 % lost / 8.3 % gained read MOVED?)
+ctl shotdiff-two-losses-banner-between-catch 1 '^REVIEW +shots-Administrator/twoloss.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/twoloss-old $SH/twoloss-new
+# the lower side of the window: bars gained one grid row off the lost bars still read MOVED? (MOVED_ROWS=0 turns this red)
+ctl shotdiff-moved-rows-one-row-off-moved-pass 1 '^REVIEW +shots-Administrator/rowoff.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/rowoff-old $SH/rowoff-new
+ctl shotdiff-moved-band-4pct-moved-pass 1 '^REVIEW +shots-Administrator/band4.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/band4-old $SH/band4-new
+ctl shotdiff-moved-band-28pct-lost-catch 1 '^REVIEW +shots-Administrator/band28.*CONTENT LOST' '!CONTENT MOVED' -- python3 $B/shotdiff.py $SH/band28-old $SH/band28-new
+ctl shotdiff-counts-line-content-lost-catch 1 '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/rank-old $SH/rank-new
+ctl shotdiff-counts-line-tone-only-pass 1 '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
 ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old $SH/same
 ctl shotdiff-missing-invalid 2 '^INVALID +shots-Administrator/dashboard.*no NEW screenshot' -- python3 $B/shotdiff.py $SH/old $SH/missing
 ctl shotdiff-notreached-invalid 2 '^INVALID .*NOT-REACHED' -- python3 $B/shotdiff.py $SH/old $SH/notreach
@@ -3831,6 +3988,11 @@ cp -R $SH/old/shots-Administrator $J/old/before/; cp -R $SH/empty/shots-Administ
 # both journeys carry a measured effect record (E2E-9): without one, a PASS on both runs is EFFECT INVALID (exit 3)
 for d in old/before new/after; do echo '{"journeys": {"dashboard-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}, "login-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $J/$d/summary.json; done
 ctl journeys-screen-catch 1 'PASS +dashboard-Administrator .*SCREEN REVIEW' '!login-Administrator .*SCREEN' '^screens: 1 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID' -- python3 $B/run_journeys.py x --label after --work $J/new --compare $J/old --rejudge
+# GF-54: one journey with a tone-only screen (step1) and a content-lost screen (step2): the journey's SCREEN line is the lost one
+JLF=$T/rjlf; mkdir -p $JLF/old/before $JLF/new/after
+cp -R $SH/jr-old/shots-Administrator $JLF/old/before/; cp -R $SH/jr-new/shots-Administrator $JLF/new/after/
+for d in old/before new/after; do echo '{"journeys": {"j-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $JLF/$d/summary.json; done
+ctl journeys-screen-content-lost-first-catch 1 'PASS +j-Administrator .*SCREEN REVIEW\] screen REVIEW CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/run_journeys.py x --label after --work $JLF/new --compare $JLF/old --rejudge
 # T1-26 / T4-17: the screens line is printed when every pair passes too, so the gate can cite it
 J2=$T/rj2; mkdir -p $J2/old/before $J2/new/after
 cp -R $SH/old/shots-Administrator $J2/old/before/; cp -R $SH/same/shots-Administrator $J2/new/after/
@@ -8011,7 +8173,7 @@ mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
 ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
 # GF-10: without UPG_BRAIN and with no brain under ~/Mendix, the brain this repo ships is found
-ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from this repo\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
+ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from shipped toolkit brain\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
 ctl brainpath-gf10-shipped-plain-pass 0 '/company-brain-test/brain$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
 ctl brainpath-gf10-upg-brain-first-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-gf10-home-brain-first-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $B/brainpath.py --describe
@@ -8019,6 +8181,41 @@ gbr() ( export HOME="$BPH/empty" UPG_BRAIN_SHIPPED=0; unset UPG_BRAIN; gcase "$@
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
+# the shipped brain is found with nothing set, in a repo that holds it as <repo>/brain (the planned name) or as company-brain-test/brain
+FR=$BPH/fr; mkdir -p $FR/upgrade-toolkit/bin $FR/brain/baseline/versions $FR/company-brain-test/brain/baseline/versions
+cp $B/brainpath.py $FR/upgrade-toolkit/bin/; : > $FR/brain/baseline/versions/studio-pro-upgrade-11.md; : > $FR/company-brain-test/brain/baseline/versions/studio-pro-upgrade-11.md
+ctl brainpath-shipped-repo-brain-first-catch 0 "^brain: $FR/brain \\(from shipped toolkit brain\\)\$" -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-old-name-pass 0 "^brain: $FR/company-brain-test/brain \\(from shipped toolkit brain\\)\$" -- sh -c "mv $FR/brain $FR/brain.off; env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$BPH/empty python3 $FR/upgrade-toolkit/bin/brainpath.py --describe; mv $FR/brain.off $FR/brain"
+ctl brainpath-shipped-upg-brain-wins-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!from shipped' -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-local-env-wins-pass 0 "^brain: $RB \\(from local\\.env\\)\$" '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h2" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-home-brain-wins-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+# brain notes at a person-facing stop: path + title of the top matches, "none matched", or nothing without a brain
+BNB=$T/bnbrain; mkdir -p $BNB; cp -r $FX/brain-evidence/baseline $BNB/; cp -r $FX/brain-notes/internal $BNB/
+ctl brainnotes-stop-lists-note-catch 0 '^brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - Custom reason phrases in HTTP responses are no longer sent after the upgrade$' '!module-plan-order' -- env HOME="$BPH/empty" UPG_BRAIN=$BNB python3 $B/brainnotes.py --stop "10.1.0 removal custom reason phrases"
+ctl brainnotes-stop-none-matched-catch 0 '^brain notes: none matched$' '!^  - ' -- env HOME="$BPH/empty" UPG_BRAIN=$BNB python3 $B/brainnotes.py --stop "zzqqx unrelated words"
+ctl brainnotes-stop-no-brain-silent-catch 0 '^bytes=0$' -- sh -c "o=\$(env HOME=$BPH/empty UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/brainnotes.py --stop 'custom reason phrases' 2>&1); echo bytes=\${#o}"
+ctl brainnotes-stop-brain-without-notes-silent-catch 0 '^bytes=0$' -- sh -c "o=\$(env HOME=$BPH/empty UPG_BRAIN=$RB python3 $B/brainnotes.py --stop 'custom reason phrases' 2>&1); echo bytes=\${#o}"
+ctl brainnotes-stop-shipped-found-catch 0 '^brain notes:$' '^  - internal/upgrade/' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainnotes.py --stop "Community Commons update PDFBox JAR userlib"
+# a pipeline stop (the module plan is missing, exit 13) starts with the matching notes; without a brain it is unchanged
+mkdir -p $BPH/fakebin; printf '#!/bin/sh\nexit 0\n' > $BPH/fakebin/docker; chmod +x $BPH/fakebin/docker   # preflight asks `docker info`
+ctl pipeline-stop-brain-notes-catch 0 'needs judgment \(exit 13\)' '^brain notes:$' '^  - internal/upgrade/module-plan-order\.md - Write the module plan before the update step' -- bash -c "rm -rf $NJ/wbn; PATH=$BPH/fakebin:\$PATH MXCLI= UPG_BRAIN=$BNB bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wbn --from update --only update; cat $NJ/wbn/NEEDS-JUDGMENT.md"
+ctl pipeline-stop-no-brain-unchanged-pass 0 'needs judgment \(exit 13\)' '^# NEEDS JUDGMENT: step update, exit 13$' '!brain notes' -- bash -c "rm -rf $NJ/wnb; PATH=$BPH/fakebin:\$PATH MXCLI= HOME=$BPH/empty UPG_BRAIN= UPG_BRAIN_SHIPPED=0 bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wnb --from update --only update; cat $NJ/wnb/NEEDS-JUDGMENT.md"
+# park_finish under set -Eeuo pipefail: a parked item with no `question:` line and no `## ` heading (parked.py writes `### `) made the
+# note query's grep exit 1 and the run end rc=4 with no NEEDS-JUDGMENT.md; it must still exit 12 and write it
+PF=$T/parkfin; mkdir -p $PF/w/parked
+printf '<!-- park exit 12 step update -->\n### Release impact: one open row\n\nRow 1 is still open.\n' > $PF/w/parked/update.md
+{ for fn in nj_brain_notes park_finish; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh; done
+  printf '%s\n' 'parked_any() { return 0; }' 'rerun_cmd() { echo rerun; }' 'cockpit_regen() { :; }' 'brief_say() { :; }' 'say() { echo "$*"; }' \
+    'set -Eeuo pipefail; trap "exit 4" ERR; DRY=0; STEP=""; STEPS=(update); WORK=$PF_WORK; park_finish'; } > $PF/fn.sh
+ctl pipeline-park-finish-no-question-line-catch 0 'rc=12' '^STOP    auto: 1 parked item' 'nj=present' -- sh -c "PF_WORK=$PF/w B=$B HOME=$BPH/empty UPG_BRAIN=$BNB bash $PF/fn.sh; echo rc=\$?; [ -s $PF/w/NEEDS-JUDGMENT.md ] && echo nj=present || echo nj=absent"
+# the release-impact page lists the notes under the open rows (row 1 of the evidence fixture stays open)
+ctl reln-brain-notes-open-row-catch 0 '^## Brain notes for the open rows \(1 of 1\)$' '^- row 1 \(10\.1\.0\): brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - ' -- sh -c "python3 $B/release_impact.py --brain $BNB --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn.md > /dev/null; cat $RI/bn.md; python3 $B/release_impact.py --check $RI/bn.md | tail -1"
+ctl reln-brain-notes-no-notes-silent-pass 0 '!Brain notes' -- sh -c "python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn2.md > /dev/null; cat $RI/bn2.md"
+# the notes the repo ships: INDEX.md lists every note under brain/internal/upgrade once, and links nothing that is not there
+SB=""; for d in "$here/../../brain" "$here/../../company-brain-test/brain"; do [ -f "$d/internal/upgrade/INDEX.md" ] && { SB=$d/internal/upgrade; break; }; done
+if [ -n "$SB" ]; then
+  ctl brain-index-lists-every-note-once-pass 0 '^notes=[1-9][0-9]* links=same$' '!listed' '!not a note' '!INDEX links' -- sh $here/brain-index-check.sh $SB
+else skip brain-index-lists-every-note-once-pass 'no brain/internal/upgrade in this checkout'; fi
 # a brainpath.py that crashes must not stop triage (the pipeline runs under set -Eeuo pipefail)
 TKB=$B; mkdir -p $BPH/crash; printf 'import sys\nsys.exit(3)\n' > $BPH/crash/brainpath.py
 ctl pipeline-triage-brain-crash-continues-catch 0 '^continued$' 'brain: not reported' -- bash -c "set -Eeuo pipefail; B=$BPH/crash; WORK=\$(mktemp -d); DRY=0; say() { printf '%s\n' \"\$*\"; }; eval \"\$(sed -n '/# DV-3: which company brain/,/brain.txt/p' \${PIPE:-$TKB/cloud/upgrade-pipeline.sh})\"; echo continued"
@@ -8696,7 +8893,7 @@ ctl pipeline-history-default-target-pass 0 '^\| .* \| 20260101000000 \| unnamed 
   -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/RUN-APP-NAME SOURCE=a TARGET=b record_grade > /dev/null 2>&1; grep -E '^\| 20' $PW/work/history-row.md; echo toolkit-runs=\$(ls $PW/tk/runs | wc -l | tr -d ' ')"
 ctl pipeline-history-override-pass 0 'UPG_HISTORY=ok' -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/r SOURCE=a TARGET=b UPG_HISTORY=$PW/other.md UPG_APP_NAME=generic record_grade > /dev/null 2>&1; grep -q ' generic ' $PW/other.md && echo UPG_HISTORY=ok"
 # the committed runs/HISTORY.md: every row has 12 cells and a run id once
-ctl history-committed-shape-pass 0 'rows=17 bad=0 dup=0' -- python3 -I -c "
+ctl history-committed-shape-pass 0 'rows=[1-9][0-9]* bad=0 dup=0' -- python3 -I -c "
 import re,sys,collections
 ls=[l for l in open('$TK/runs/HISTORY.md').read().split('\n') if l.startswith('| ') and not l.startswith('| date |')]
 bad=sum(1 for l in ls if len(l.strip().strip('|').split(' | '))!=12)
@@ -8808,7 +9005,7 @@ ctl pipeline-runlog-wired-pass 0 '^  record_runlog \|\| true$' 'STEP:-\}" = gate
 # the header and three real rows of FIELD-RUNS.md as they were with 12 columns.
 TM=$T/timing; mkdir -p $TM; GS=$here/fixtures/runlog/gate-summary.run6.md
 { sed -n '/^say() /p;/^quoted() /p;/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh
-  for f in nj_add rerun_cmd nj_flush timing_open timing_close cleanup run_step decisions_apply; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
+  for f in nj_add rerun_cmd nj_brain_notes nj_flush timing_open timing_close cleanup run_step decisions_apply; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
 cat > $TM/h.sh <<'HEOF'
 # h.sh WORK TIMES STEP...: run_step for each STEP the way main does, stub steps, a clock from the TIMES list
 set -Eeu
@@ -10318,6 +10515,16 @@ ctl harvest-denylist-catch 1 'Acmecorp' '!^harvest: wrote' -- sh -c "python3 -I 
 ctl harvest-denylist-wrote-nothing-pass 0 '^none$' -- sh -c "ls $HV/tk-deny/*.md 2>/dev/null || echo none"
 ctl harvest-bad-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code 'a b' --inbox $HV/tk-bad
 ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code Acmecorp --inbox $HV/tk-bad
+# a brain inside the toolkit checkout is read, never written: its drafts go to <work>/learnings/brain
+cp -R $HV/run $HV/run-sh; cp -R $HV/run $HV/run-home; mkdir -p $HV/home/Mendix/x-brain/baseline/versions $HV/home/Mendix/x-brain/internal/upgrade
+: > $HV/home/Mendix/x-brain/baseline/versions/studio-pro-upgrade-11.md; cp $HV/brain/internal/upgrade/mx-logger.md $HV/home/Mendix/x-brain/internal/upgrade/
+# a stand-in toolkit checkout under $T (a copy of the bin and the brain fixture): a red run must not leave an inbox/ in the real checkout
+mkdir -p $HV/ftk/upgrade-toolkit; cp -R $B $HV/ftk/upgrade-toolkit/bin; cp -R $FX/brain-notes $HV/ftk/brain-copy
+ctl harvest-toolkit-brain-draft-to-work-catch 0 '^  brain: .* is the brain shipped in the toolkit \(read only\)' "learnings/brain/2026-01-03-HV1-upgrade\\.md" '^NOT-IN-BRAIN$' -- sh -c "env -u UPG_BRAIN python3 -I $HV/ftk/upgrade-toolkit/bin/harvest.py --code HV1 --brain $HV/ftk/brain-copy --date 2026-01-03 --work $HV/run-sh --inbox $HV/tk-sh --to brain; [ -d $HV/ftk/brain-copy/inbox ] && echo WROTE-INTO-BRAIN || echo NOT-IN-BRAIN"
+# a brain without internal/: the first `harvest:` line stays the summary (feedback_report.py shows the first one), the skip note follows, no path
+mkdir -p $HV/brain-noint/baseline; cp -R $HV/run $HV/run-noint
+ctl harvest-no-internal-summary-first-catch 0 '^harvest: 3 agent fixes' '^  brain: the brain has no internal/ folder' '!^harvest: .*no internal' '!brain-noint' -- sh -c "python3 -I $B/harvest.py --code HV1 --brain $HV/brain-noint --date 2026-01-05 --work $HV/run-noint --inbox $HV/tk-noint --to brain 2>&1"
+ctl harvest-brainpath-default-pass 0 "x-brain/inbox/2026-01-04-HV1-upgrade\\.md" '!not configured' -- sh -c "env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$HV/home python3 -I $B/harvest.py --code HV1 --date 2026-01-04 --work $HV/run-home --inbox $HV/tk-home --to brain"
 # feedback_report.py (cold WM1): harvest ran only when a person remembered steps/report.md 3c, so a stopped run taught the
 # toolkit nothing. Every exit now harvests into $WORK/learnings and writes FEEDBACK-REPORT.md with an issue summary
 # (metadata only, denylisted); the pipeline calls it from its exit trap, so a stop (exit 4 at build) gets one too.
@@ -10412,6 +10619,9 @@ ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmn
 # 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
 ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
 ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
+# GF-54: the screens count line ends "(N content lost)": the brief and the rung sentence both say so
+ctl cockpit-screens-content-lost-named-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty, open those first\)' -- $CK lb-screens-lost
+ctl cockpit-screens-content-lost-with-unpinned-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty' -- $CK lb-screens-lost-unpinned
 ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
 # --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
 # terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end

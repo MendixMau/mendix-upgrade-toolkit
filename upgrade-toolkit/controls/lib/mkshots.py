@@ -17,6 +17,15 @@ OUT/stuckeq-old/-new, stuckeq-newside-new, stuckeq-loading-new, stuckdiff-old/-n
 OUT/nrboth-old, OUT/nrboth-new: dashboard NOT-REACHED on both sides (T1-24, used to PASS)            -> INVALID BASELINE DEFECT
 OUT/runid-a, OUT/runid-b: the "empty" dashboard with a per-run id block at x 300-359, y 60-75 that differs
               between the two runs (B4T2-17); OUT/runid-moved: run b with the title changed too (outside the mask)
+OUT/rank-old, rank-new, rank-tone-old, rank-tone-new: a tone-only change beside a vanished-content change (GF-54)
+OUT/tex-old, tex-f30, tex-f25, tex-f50: a light low-contrast texture (spread ~10) under a backdrop of factor 0.3 / 0.25 / 0.5
+OUT/tex-gone: the same texture replaced by a flat page of the same mean (content really gone)
+OUT/onechart-old, onechart-new: the page with one of its three charts removed (~6.7% of the page)
+OUT/band4-old/-new, band28-old/-new: the reflow block moved right, 4.8 % / 28.6 % fewer cells gained than lost (GF-54 r3 band pins)
+OUT/twoloss-old/-new: chart removed + banner added below it + a separate small footer loss below the banner (GF-54 r4)
+OUT/rowoff-old/-new: a reflow whose gained bars sit one grid row below the lost bars (pins MOVED_ROWS)
+OUT/banner-old/-new: one of three charts removed (lost ~6.7 %) and an unrelated striped banner added below (gained 6.4 %, 4 % under the lost share globally, none on the lost rows)
+OUT/jr-old, jr-new: ONE journey, step1 tone-only, step2 content vanished (GF-54, run_journeys picks the worse screen)
 """
 import os, struct, sys, zlib
 
@@ -93,10 +102,105 @@ def text_pairs(out, sd):
     png(f"{out}/textnone/{sd}/overview-Administrator-step1.png", page())
 
 
+def rank_pairs(out, sd):
+    """GF-54: one folder pair holding a tone-only change and a vanished-content change. The tone page sorts first by
+    name (aaa-tone), so only a content-lost ranking puts zzz-vanish above it.
+    rank-old/rank-new: aaa-tone (every grey level darkened, a modal backdrop: changed ~100%, lost 0%) -> REVIEW, not
+    escalated; zzz-vanish (the charts gone) -> REVIEW, CONTENT LOST. rank-tone-old/-new: the tone page only."""
+    dark = [[int(v * 0.4) for v in r] for r in page()]
+    for v in ("rank-old", "rank-new", "rank-tone-old", "rank-tone-new"):
+        png(f"{out}/{v}/{sd}/aaa-tone-Administrator-step1.png", page() if v.endswith("old") else dark)
+    png(f"{out}/rank-old/{sd}/zzz-vanish-Administrator-step1.png", page())
+    png(f"{out}/rank-new/{sd}/zzz-vanish-Administrator-step1.png", page(charts=False))
+
+
+def texture():
+    """Light low-contrast texture: 4 px checker of 225 / 245 (mean 235, spread 10) over the whole page."""
+    return [[225 if ((x // 4) + (y // 4)) % 2 else 245 for x in range(W)] for y in range(H)]
+
+
+def texture_pairs(out, sd):
+    t = texture()
+    n = "tex-Administrator-step1.png"
+    png(f"{out}/tex-old/{sd}/{n}", t)
+    for tag, f in (("f30", 0.3), ("f25", 0.25), ("f50", 0.5)):
+        png(f"{out}/tex-{tag}/{sd}/{n}", [[int(v * f) for v in r] for r in t])
+    png(f"{out}/tex-gone/{sd}/{n}", [[235] * W for _ in range(H)])
+    one = page()
+    two = [list(r) for r in one]
+    for y in range(90, 301):                     # the first chart only (x 20-160): ~6.7% of the page
+        for x in range(20, 161):
+            two[y][x] = 245
+    png(f"{out}/onechart-old/{sd}/dashboard-Administrator-step1.png", one)
+    png(f"{out}/onechart-new/{sd}/dashboard-Administrator-step1.png", two)
+    dark = [[int(v * 0.4) for v in r] for r in page()]
+    png(f"{out}/jr-old/{sd}/j-Administrator-step1.png", page())
+    png(f"{out}/jr-old/{sd}/j-Administrator-step2.png", page())
+    png(f"{out}/jr-new/{sd}/j-Administrator-step1.png", dark)
+    png(f"{out}/jr-new/{sd}/j-Administrator-step2.png", page(charts=False))
+
+
+def reflow_pairs(out, sd):
+    """GF-54 r2. reflow-old/new: one striped block moved from the left to the right of the page (the same share lost
+    and gained, ~17% each: a reflow). listtable-old/new: a table block shrunk to a strip, with a wider block of list
+    rows added below it (lost ~5.5%, gained ~1.4x that, as on the field page where a table became a list)."""
+    def block(rows, x0, x1, y0, y1, step):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                rows[y][x] = 60 if (y // step) % 2 == 0 else 200
+    a, b = page(charts=False), page(charts=False)
+    block(a, 20, 160, 90, 300, 6)
+    block(b, 300, 440, 90, 300, 6)
+    png(f"{out}/reflow-old/{sd}/reflow-Administrator-step1.png", a)
+    png(f"{out}/reflow-new/{sd}/reflow-Administrator-step1.png", b)
+    c, d = page(charts=False), page(charts=False)
+    block(c, 20, 170, 100, 200, 5)          # old table
+    block(d, 20, 60, 100, 200, 5)           # the list keeps a strip of it ...
+    block(d, 20, 440, 230, 270, 5)          # ... and gains a wider block below
+    png(f"{out}/listtable-old/{sd}/listtable-Administrator-step1.png", c)
+    png(f"{out}/listtable-new/{sd}/listtable-Administrator-step1.png", d)
+    # GF-54 r3 band pins: the same block moved right; band4 gains 4.8 % fewer cells than it lost, band28 28.6 % fewer
+    for tag, x1, y1 in (("band4", 440, 290), ("band28", 400, 300)):
+        e = page(charts=False)
+        block(e, 300, x1, 90, y1, 6)
+        png(f"{out}/{tag}-old/{sd}/{tag}-Administrator-step1.png", a)
+        png(f"{out}/{tag}-new/{sd}/{tag}-Administrator-step1.png", e)
+    # one of three charts gone, and an unrelated striped banner (20 px full width plus a short second line) added below the chart row
+    one, two = page(), page()
+    for y in range(90, 301):
+        for x in range(20, 161):
+            two[y][x] = 245
+    block(two, 0, W, 320, 340, 4)
+    block(two, 0, 150, 340, 350, 4)             # a banner with a short second line
+    png(f"{out}/banner-old/{sd}/banner-Administrator-step1.png", one)
+    png(f"{out}/banner-new/{sd}/banner-Administrator-step1.png", two)
+    # GF-54 r4: two SEPARATE losses (a chart, and a footer item at y 345-358) with an unrelated banner between them: the
+    # span from the chart rows to the footer rows must not open the window to the banner
+    fo, fn = page(), page()
+    block(fo, 0, 150, 345, 358, 4)               # the footer item, gone in the new page
+    for y in range(90, 301):
+        for x in range(20, 161):
+            fn[y][x] = 245
+    block(fn, 0, W, 318, 338, 4)                 # the unrelated banner, two grid rows, between the two losses
+    # GF-54 r4: the lost bars sit on grid rows 10, 12, 14, 16, the gained bars (same size, other columns) on rows 11, 13, 15, 17:
+    # a reflow one row off, which reads MOVED? only while gained cells within one row of a lost row count (MOVED_ROWS=0 turns it LOST)
+    ro, rn = page(charts=False), page(charts=False)
+    for i in range(4):
+        block(ro, 20, 240, 100 + i * 20, 110 + i * 20, 4)
+        block(rn, 240, 460, 110 + i * 20, 120 + i * 20, 4)
+    png(f"{out}/rowoff-old/{sd}/rowoff-Administrator-step1.png", ro)
+    png(f"{out}/rowoff-new/{sd}/rowoff-Administrator-step1.png", rn)
+    png(f"{out}/twoloss-old/{sd}/twoloss-Administrator-step1.png", fo)
+    png(f"{out}/twoloss-new/{sd}/twoloss-Administrator-step1.png", fn)
+
+
 def main():
     out = sys.argv[1]
     sd = "shots-Administrator"
     text_pairs(out, sd)
+    rank_pairs(out, sd)
+    texture_pairs(out, sd)
+    reflow_pairs(out, sd)
     login = page(charts=False)
     for v in ("old", "same", "empty", "missing", "notreach", "taller", "loading", "loadname"):
         png(f"{out}/{v}/{sd}/login-Administrator-step1.png", login)

@@ -19,7 +19,8 @@ What it reads in --work (recursively; a flat run folder and an examples/<app>/<r
   3. grade-notes.tsv, gate-summary.md, AGENT-DECISIONS.md   items owned by the toolkit, WARNING lines, agent decisions
   4. *.py *.sh *.js *.mdl   files the agent wrote in the run that are not a copy of a toolkit file (candidate tools)
 
-Brain lookup (--brain, default $UPG_BRAIN; skipped when the folder has no internal/): each error code and each new fix
+Brain lookup (--brain, default $UPG_BRAIN, else bin/brainpath.py; a brain inside the toolkit checkout is only read: its
+drafts go to <work>/learnings/brain; skipped when the folder has no internal/): each error code and each new fix
 is grepped in <brain>/internal/. The toolkit draft only says whether the brain has a note; it never copies brain text,
 which is internal. Only lessons the brain does not hold get a brain draft.
 
@@ -358,8 +359,19 @@ def main():
               file=sys.stderr)
         return 2
     brain = Path(a.brain).expanduser() if a.brain else None
+    if not brain:   # no --brain and no $UPG_BRAIN: the brain bin/brainpath.py finds (local.env, ~/Mendix, the shipped brain)
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import brainpath
+            found = brainpath.find()[0]
+            brain = Path(found) if found else None
+        except Exception:
+            brain = None
+    # drafts never land inside the toolkit checkout (the shipped brain is read for its notes, never written)
+    in_toolkit = bool(brain) and TK.parent.resolve() in (brain.resolve(), *brain.resolve().parents)
+    no_internal = False
     if brain and not (brain / "internal").is_dir():
-        print(f"harvest: {brain} has no internal/ folder, brain lookup skipped")
+        no_internal = True
         brain = None
     f = harvest(work, brain)
     new = sum(g["status"] == "new" for g in f["fixes"])
@@ -373,9 +385,13 @@ def main():
     if a.to in ("brain", "both"):
         bd = brain_draft(f, a.code, a.date) if brain else ""
         if bd:
-            target = Path(a.brain_inbox) if a.brain_inbox else brain / "inbox"
+            target = Path(a.brain_inbox) if a.brain_inbox else (work / "learnings" / "brain" if in_toolkit else brain / "inbox")
+            if in_toolkit and not a.brain_inbox:
+                print(f"  brain: {brain} is the brain shipped in the toolkit (read only): the draft goes to {target}")
             ok = write(target / f"{a.date}-{a.code}-upgrade.md", scrub(bd, work), deny, "brain")
             rc, wrote = (rc, wrote + 1) if ok else (1, wrote)
+        elif no_internal:
+            print("  brain: the brain has no internal/ folder, so the lookup was skipped and no brain draft was written")
         elif not brain:
             print("  brain: not configured (set UPG_BRAIN or --brain), no brain drafts")
     if wrote:

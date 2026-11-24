@@ -1,0 +1,18 @@
+{
+ "from": "widgetvalues-real-old.json",
+ "ops": [
+  [
+   "delete",
+   "modules/0/pages/0/widgets/0/raw/Type/ObjectType/PropertyTypes/1"
+  ],
+  [
+   "delete",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/1"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/1/raw/Type/ObjectType/PropertyTypes/2/PropertyKey",
+   "captionExpr"
+  ]
+ ]
+}

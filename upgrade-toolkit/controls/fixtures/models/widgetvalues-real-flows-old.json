@@ -1,0 +1,25 @@
+{
+ "from": "widgetvalues-real-old.json",
+ "ops": [
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/1/Value/Image",
+   ""
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/1/Value/Microflow",
+   "Shop.GetAdminOptions"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/2/Value/Selection",
+   "None"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/2/Value/Nanoflow",
+   "Shop.NAN_Open"
+  ]
+ ]
+}

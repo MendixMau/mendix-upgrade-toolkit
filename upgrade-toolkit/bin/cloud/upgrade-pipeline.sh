@@ -321,12 +321,20 @@ rerun_cmd() { # the command that resumes at the current step: the run's own --fr
   done
   printf '%s%s%s --from %s' "$pre" "$SELF" "$(quoted ${a[@]+"${a[@]}"})" "$STEP"
 }
+nj_brain_notes() { # nj_brain_notes < STOP-TEXT: the company brain's notes that match a stop (path + title, top 3), read only; nothing without a brain
+  [ "$DRY" != 1 ] || return 0
+  local st=$STEP   # a step word every stop shares ("update" pulls in OQL UPDATE notes) says nothing about this stop
+  case $st in update|triage|heal|repair|gate|build|test|fetch|plan) st= ;; esac
+  local q; q="$st $({ grep -E '^(#{2,3} |question: )' 2> /dev/null || true; } | head -n 40 | tr '\n' ' ')"
+  python3 "$B/brainnotes.py" --stop "$q" 2> /dev/null || true
+}
 nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   [ "$NJ_CODE" != 0 ] || return 0
   {
     printf '# NEEDS JUDGMENT: step %s, exit %s\n\nrun folder: %s\nwork: %s\nsource %s -> target %s\n' "$STEP" "$NJ_CODE" "$RUN" "$WORK" "$SOURCE" "$TARGET"
     printf 'Rule: the items below are pending, not passed: a REGRESSION is fixed, the rest are decided in writing (allow/approved files named in steps/*.md), then rerun:\n\n'
     printf '    %s\n' "$(rerun_cmd)"
+    local bn; bn=$(nj_brain_notes < "$NJ_TMP"); [ -z "$bn" ] || printf '\n%s\n' "$bn"   # triage, repair, heal and gate stops all end here
     cat "$NJ_TMP"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
@@ -356,8 +364,10 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   out=$(python3 "$B/parked.py" report --work "$WORK" --steps "${STEPS[*]}" ${also[@]+"${also[@]}"}) || return 0
   first=$(printf '%s\n' "$out" | tail -n 1); code=$(echo "$first" | cut -d' ' -f2); step=$(echo "$first" | cut -d' ' -f3)
   STEP=$step
+  local bn; bn=$(printf '%s\n' "$out" | nj_brain_notes)
   { printf '%s\n' "$out" | sed '$d'
     printf '\nRerun once, after the answers, from the first parked step (%s; a rung-1 step: the rung-1 command with --from %s):\n\n    %s\n' "$step" "$step" "$(rerun_cmd)"
+    [ -z "$bn" ] || printf '\n%s\n' "$bn"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"
   cockpit_regen
@@ -1727,6 +1737,12 @@ run_stepupdate() { # run_stepupdate PLAN label
   elif [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK could not run' "$WORK/stepupdate-$2.out" 2> /dev/null; then
     note "batch idcheck not run after the $2 batch, see $WORK/stepupdate-$2.out; the total idcheck after the routes and replays still runs"
   fi
+  # GF-44: stepupdate compares the widget settings with the run's first model; its reset (exit 1) is said in the run notes too
+  if [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET SETTINGS RESET' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "widget settings were reset to the package defaults by the $2 batch (compared with the run's first model), see $WORK/stepupdate-$2.out and $APP/.stepupdate/widgetvalues.txt"
+  elif [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET-VALUES NOT RUN' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "widget settings comparison NOT RUN after the $2 batch (the comparison could not run), see $WORK/stepupdate-$2.out: do not read this as 'nothing was reset'"
+  fi
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0
 }
@@ -1992,8 +2008,36 @@ storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes t
 }
 mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
 update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
-  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR"
-  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  local rc=0
+  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR" || rc=$?
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR" || rc=$?; fi
+  [ "$rc" = 0 ] && widgetvalues_note "after update-widgets"
+  return $rc
+}
+# GF-44: a pass can put a widget's configured settings back to the package defaults. The comparison is always against the run's
+# first model ($WORK/original.mpr), never against the model one pass started from: a value that went 12 -> 10 in one pass and
+# back in the next would show as no change per pass. The old side is parsed once ($WORK/widgetvalues-original.json).
+# A reset, a gone property, a widget that vanished and a comparison that could not run are all run notes.
+wv_note() { # a note now, or held (WV_DEFER=1, inside try_fix) until the fix is kept: an undone fix leaves no note about its widgets
+  if [ "${WV_DEFER:-0}" = 1 ]; then WV_PENDING="${WV_PENDING:-}$*"$'\n'; else note "$*"; fi
+}
+widgetvalues_note() { # widgetvalues_note "after <what>"
+  [ "$DRY" != 1 ] && [ -f "$WORK/original.mpr" ] || return 0
+  local wrc=0 out="$WORK/widgetvalues.out" g
+  python3 "$B/widgetvalues.py" "$WORK/original.mpr" "$MPR" --cache "$WORK/widgetvalues-original.json" > "$out" 2>&1 || wrc=$?
+  grep -E '^(MARKETPLACE-WIDGET-RESET|WIDGET-RESET|WIDGET-PROP-GONE|WIDGET-MISSING|widgetvalues:)' "$out" | sed 's/^/        /'
+  if [ "$wrc" = 1 ]; then
+    wv_note "widgetvalues $1: configured widget settings were reset to the package defaults (compared with the run's first model), see $out; put them back before the build (steps/repair.md row 5)"
+  elif [ "$wrc" -gt 1 ]; then
+    wv_note "widgetvalues NOT RUN: could not compare the widget settings $1 (exit $wrc), see $out: do not read this as 'nothing was reset'; rerun bin/widgetvalues.py $WORK/original.mpr $MPR"
+  fi
+  g=$(grep -c '^MARKETPLACE-WIDGET-RESET' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget setting(s) in Marketplace module documents differ from the first model: the module's new version changed its own default (field: Atlas_Core.FeedbackWidget app id to 1, DataGrid _WidgetsExporterSnippet filterOptions 2 to 0); vendor content, not written back, see $out"
+  g=$(grep -c '^WIDGET-PROP-GONE' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget propert(ies) no longer exist in the new package, their configured values are gone, see $out (steps/repair.md row 5)"
+  g=$(grep -c '^WIDGET-MISSING' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget instance(s) with configured values are missing in the new model, see $out"
+  return 0
 }
 try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
   if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP
@@ -2001,15 +2045,17 @@ try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 
 }
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
   local subj=$1 rule=$2 codes=$3 prev rc=0; shift 3
-  prev=$CHECK_LOG
-  x "$@" || { note "fixer '$subj' failed (exit $?): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  prev=$CHECK_LOG; WV_DEFER=1; WV_PENDING=   # GF-44: update_widgets's widgetvalues notes wait until the fix is kept
+  x "$@" || { rc=$?; WV_DEFER=0; WV_PENDING=; note "fixer '$subj' failed (exit $rc): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  WV_DEFER=0
   # GF-42: a repair tool that rewrote MPR v2 as v1 lowers the error count too; the format is checked before the errors are
-  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then CHECK_LOG=$prev; return 0; fi
+  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then WV_PENDING=; CHECK_LOG=$prev; return 0; fi
   mxcheck
   [ "$DRY" = 1 ] && return 0
   python3 "$B/checkdiff.py" "$prev" "$CHECK_LOG" --fixed "$codes" >> "$LOG" 2>&1 || rc=$?
-  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { CHECK_LOG=$prev; return 0; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
-  else note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
+  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { WV_PENDING=; CHECK_LOG=$prev; return 0; }
+    [ -z "$WV_PENDING" ] || { while IFS= read -r wl; do [ -z "$wl" ] || note "$wl"; done <<< "$WV_PENDING"; WV_PENDING=; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
+  else WV_PENDING=; note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
 }
 # row 37 (cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents): every
 # deprecated widget gets one route per module from playbooks/widget-routes.json (bin/repair/widgetroute.py). The toolkit
