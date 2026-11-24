@@ -216,8 +216,10 @@ def gate_sentence(r, causes, heal_repairs, nreal):
     if rung == "screens":
         rv, iv = n(r"(\d+) REVIEW"), n(r"screens: .*?(\d+) INVALID")
         bits = []
+        cl = n(r"(\d+) content lost\)")
         if rv:
-            bits.append(f"{pl(rv, 'screen')} changed and {'needs' if rv == 1 else 'need'} a look")
+            bits.append(f"{pl(rv, 'screen')} changed and {'needs' if rv == 1 else 'need'} a look"
+                        + (f" ({cl} had content where the new screen is empty, open those first)" if cl else ""))
         if iv:
             bits.append(f"{pl(iv, 'screen')} could not be compared")
         return (", ".join(bits) + ".") if bits else "Screens are not measured yet."
