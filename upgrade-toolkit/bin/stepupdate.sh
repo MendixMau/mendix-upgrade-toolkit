@@ -125,6 +125,8 @@ if [ "${STEPUPDATE_SNAPSHOT:-}" = "" ]; then
   src=$(cd "$(dirname "$0")" && pwd)
   mkdir -p "$app/.stepupdate"
   rm -rf "$app/.stepupdate/bin"; cp -R "$src" "$app/.stepupdate/bin"
+  # the copied scripts find playbooks/ beside their bin/ (missing_deps.py, which widgetdrop.py and widgetvalues.py import, dies without it)
+  [ ! -d "$src/../playbooks" ] || { rm -rf "$app/.stepupdate/playbooks"; mkdir -p "$app/.stepupdate/playbooks"; cp -R "$src/../playbooks/." "$app/.stepupdate/playbooks/"; }
   STEPUPDATE_SNAPSHOT=1 STEPUPDATE_SRC="$src" exec bash "$app/.stepupdate/bin/stepupdate.sh" "$@"
 fi
 bin=$(cd "$(dirname "$0")" && pwd)
@@ -190,8 +192,8 @@ mkdir -p "$saved"; saved=$(cd "$saved" && pwd)
 st="$app/.stepupdate"
 # GF-31: .stepupdate/ran.txt names the modules THIS invocation really ran an update for; editroute.py plan holds a module as
 # "kept again for the same reason" only when it ran (a module the pass never reached keeps its stale kept.txt line)
-[ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; }
-jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; roles_run=""; assoc_run=""
+[ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; : > "$st/widgetvalues.last"; }
+jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; wval_run=""; wmkt_run=""; wvexit=""; keptexit=""; wvnotrun=""; wvsnap=""; roles_run=""; assoc_run=""
 # PV-2: a target of a cross-module association updated AFTER the module that owns it loses the association (the owner's
 # import would have restored it); planorder.py says so before anything runs. A warning, not a stop: the cheap fix after
 # the fact is to reimport the owner (steps/upgrade.md item 1).
@@ -675,6 +677,38 @@ PY
     echo "$wout" | sed 's/^/      /'
     rec widgets.txt "$mod" "$mod $ver: $(echo "$wout" | sed 's/^widgets\///' | paste -sd ';' - | sed 's/;/; /g')"; widg_run="$widg_run $mod "
   fi
+  # GF-44: a step (its update-widgets passes) can put a widget's configured settings back to the package defaults; mx check
+  # names only the properties that became required. The comparison is against the RUN's first model, never the step's own start:
+  # a value that went 12 -> 10 in one step and back in the next must not read as no change. The old side is --baseline (the
+  # run's original.mpr) or, with none, a snapshot of the first step's start taken once; it is parsed once (--cache). Every step
+  # is compared, not only those that changed a widget package (stepupdate never runs update-widgets on its own: a step's own
+  # update does). A reset is a finding (exit 1 at the end); a property the new package dropped and a widget gone are named;
+  # a comparison that could not run (exit 2) is said, never read as "nothing reset". Findings already said by an earlier step
+  # of this invocation are not said again.
+  unrec widgetvalues.txt "$mod"; unrec widgetmkt.txt "$mod"
+  if [ -n "$baseline" ] && [ -f "$baseline" ]; then wvold="$baseline"
+  else
+    if [ -z "$wvsnap" ]; then rm -rf "$st/wvbase"; mkdir -p "$st/wvbase"; cp -R "$st/prevtree/." "$st/wvbase/" 2> /dev/null; wvsnap="$st/wvbase/$mpr"; rm -f "$st/widgetvalues-base.json"; fi
+    wvold="$wvsnap"
+  fi
+  python3 "$bin/widgetvalues.py" "$wvold" "$app/$mpr" --cache "$st/widgetvalues-base.json" > "$st/step$n-$mod.widgetvalues" 2>&1; wvrc=$?
+  if [ $wvrc -le 1 ]; then
+    grep -E '^(MARKETPLACE-)?WIDGET-(RESET|PROP-GONE|MISSING)' "$st/step$n-$mod.widgetvalues" > "$st/widgetvalues.now" 2> /dev/null
+    [ -f "$st/widgetvalues.last" ] || : > "$st/widgetvalues.last"
+    grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | sed 's/^/   /'
+    nwv=$(grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | grep -c '^WIDGET-RESET')
+    nmk=$(grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | grep -c '^MARKETPLACE-WIDGET-RESET')
+    cat "$st/widgetvalues.now" >> "$st/widgetvalues.last"
+    if [ "${nmk:-0}" -gt 0 ]; then   # a Marketplace module's own document: reported apart, never an exit code
+      rec widgetmkt.txt "$mod" "$mod $ver: $nmk default(s) in Marketplace module documents changed by the module's new version, see .stepupdate/step$n-$mod.widgetvalues"; wmkt_run="$wmkt_run $mod "
+    fi
+    if [ "${nwv:-0}" -gt 0 ]; then
+      rec widgetvalues.txt "$mod" "$mod $ver: $nwv widget setting(s) reset to the package default (compared with the run's first model), see .stepupdate/step$n-$mod.widgetvalues"; wval_run="$wval_run $mod "
+    fi
+  else
+    echo "   WIDGET-VALUES: widgetvalues.py could not judge $mod ($(head -1 "$st/step$n-$mod.widgetvalues")); widget settings NOT compared"
+    wvnotrun="$wvnotrun $mod"
+  fi
   # APPD-26: a module role the update added and no user role holds. mx check is clean and the build is green; the smoke rung
   # then fails with "Executing action failed for security reasons" (Atlas_Core 3.21 User/Administrator, 13 of 15 pages).
   # Listed now, repeated in the summary (exit 1) until each role is mapped or waived in .stepupdate/roles-waived.txt.
@@ -822,13 +856,30 @@ if [ $nkept -gt 0 ] || [ $nnet -gt 0 ] || [ -n "$nobase_run" ] || [ -s "$st/unsa
   [ -n "${widg_run:-}" ] && [ -s "$st/widgets.txt" ] && while IFS= read -r l; do
     case "$widg_run" in *" ${l%% *} "*) echo "   WIDGETS: $l";; esac
   done < "$st/widgets.txt"
-  [ -z "$kdout" ] && { [ $nkept -gt 0 ] || [ $nnet -gt 0 ]; } && exit 1
+  # the exit waits for the summary blocks below (widget settings, roles, kept dependencies): one run says everything it found
+  [ -z "$kdout" ] && { [ $nkept -gt 0 ] || [ $nnet -gt 0 ]; } && keptexit=1
 fi
 if [ -n "$assoc_run" ] && [ -s "$st/assoc-saved.txt" ]; then
   echo "stepupdate: ASSOCIATIONS-SAVED (owned by other modules, removed by the update, to replay: mxcli exec <file>, then restore_guid.py):"
   while IFS= read -r l; do
     case "$assoc_run" in *" ${l%% *} "*) echo "   $l";; esac
   done < "$st/assoc-saved.txt"
+fi
+if [ -n "$wval_run" ] && [ -s "$st/widgetvalues.txt" ]; then
+  echo "stepupdate: WIDGET SETTINGS RESET by a step (GF-44; widgetvalues.py; write the old values back, then mx check):"
+  while IFS= read -r l; do
+    case "$wval_run" in *" ${l%% *} "*) echo "   WIDGET-VALUES: $l";; esac
+  done < "$st/widgetvalues.txt"
+  wvexit=1   # the exit comes after the roles and kept-dependency blocks, so one run says everything it found
+fi
+if [ -n "$wmkt_run" ] && [ -s "$st/widgetmkt.txt" ]; then
+  echo "stepupdate: MARKETPLACE WIDGET DEFAULTS changed by a module's new version (GF-44; not a failure, no exit code): the Marketplace module's own pages carry the new version's default; leave them as the new version has them, the next module update overwrites them:"
+  while IFS= read -r l; do
+    case "$wmkt_run" in *" ${l%% *} "*) echo "   MARKETPLACE: $l";; esac
+  done < "$st/widgetmkt.txt"
+fi
+if [ -n "$wvnotrun" ]; then
+  echo "stepupdate: WIDGET-VALUES NOT RUN for:$wvnotrun (widgetvalues.py could not read a model): the widget settings were NOT compared; do not read this as 'nothing was reset'"
 fi
 if [ -n "$roles_run" ] && [ -s "$st/newroles.txt" ]; then
   echo "stepupdate: NEW MODULE ROLES with no user role (APPD-26; rolecheck.py; waive with a reason in $st/roles-waived.txt):"
@@ -843,5 +894,5 @@ if [ -n "$kdout" ]; then
   echo "$kdout" | sed 's/^/   /'
   exit 1
 fi
-[ -z "$batchfail$chknotrun" ] || exit 1
+[ -z "$batchfail$chknotrun$wvexit$wvnotrun$keptexit" ] || exit 1
 exit 0

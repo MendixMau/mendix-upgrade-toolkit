@@ -1,0 +1,30 @@
+{
+ "from": "roles-new-unmapped.json",
+ "ops": [
+  [
+   "append",
+   "modules",
+   {
+    "name": "Shop",
+    "pages": [
+     {
+      "name": "Home",
+      "widgets": [
+       {
+        "raw": {
+         "raw_file": "widgetvalues-real-widgets.json",
+         "path": "widgets/0"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  [
+   "set",
+   "modules/3/pages/0/widgets/0/raw/Object/Properties/1/Value/Image",
+   ""
+  ]
+ ]
+}
