@@ -8219,7 +8219,7 @@ printf 'TaskQueueHelpers 2.0.2 -> 3.1.0\nFakeModuleXyz 1.0.0 -> 2.0.0\n' > $PR/u
 python3 $B/release_impact.py --brain $RB --from 10.24.16 --to 11.12.2 --plan $FX/release-impact/plan-unknown.txt --out $PR/unk/release-impact.md > /dev/null || true
 # extra Not covered rows (appended like release_impact writes them): a Studio Pro gap, a row with a handled entry, a held module, another cause
 cp $PR/kept/kept.txt $PR/unk/kept.txt
-sed -i '/^| [0-9]* | FakeModuleXyz | UNKNOWN /a\
+sedi '/^| [0-9]* | FakeModuleXyz | UNKNOWN /a\
 | 90 | Studio Pro | UNKNOWN | no release-note rows above the brain version | |\
 | 91 | HandledMod | UNKNOWN | no brain file for HandledMod | not relevant: read by hand, nothing applies |\
 | 92 | DataWidgets | UNKNOWN | no brain file for DataWidgets | |\
@@ -9552,7 +9552,7 @@ ctl pipeline-smoke-users-on-smoke-copy-catch 0 '^ok \$\{X\}_smoke_apid_\$side$' 
 # --- cockpit page (bin/cockpitpage.py) and the decision ledger (bin/decisions.py) on fixtures/cockpit (a made-up shop app) -------------
 CK="bash $here/cockpit_control.sh"
 # no GNU-only in-place sed (a bare -i before the script) in the control scripts: BSD sed on a Mac takes the script as a backup suffix
-ctl controls-sed-inplace-portable-pass 0 '^gnu-only 0$' -- sh -c "grep -E \"sed -[i] '\" '$here'/*.sh | wc -l | tr -d ' ' | sed 's/^/gnu-only /'"
+ctl controls-sed-inplace-portable-pass 0 '^gnu-only 0$' -- sh -c "grep -E \"sed -[i] \" '$here'/*.sh | wc -l | tr -d ' ' | sed 's/^/gnu-only /'"
 ctl cockpit-render-five-phases-catch 0 '"id": "find"' '"id": "plan"' '"id": "upgrade"' '"id": "test"' '"id": "golive"' -- $CK render
 ctl cockpit-render-versions-from-run-pass 0 '10\.24\.1\.1 \\u2192 11\.1\.0|10\.24\.1\.1 .{1,3} 11\.1\.0' '!HTMLSnippet' -- $CK render
 ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id": "regression:Gridmod"' '"id": "confirm:D2"' '"id": "signoff"' '"id": "P-1"' -- $CK render
@@ -10343,7 +10343,7 @@ LU=$T/lecache-unknown; mkdir -p $LU/w/state; cp -r $LC/app $LU/app; echo 78bdfa5
 printf '%s\n' '## Mod 1.0 (content 1): UNKNOWN (package not readable: version "108746" not found)' 'modules: 1, RED data-bearing edits: 0, UNKNOWN (not judged): 1 ['"'"'Mod'"'"']: use x, NETWORK (not judged, transient): 0' > $LU/w/localedits.md
 ctl localedits-cache-unknown-kept-catch 0 '^2$' -- sh -c "bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-unknown-model-changed-redo-catch 1 -- sh -c "echo x > $LU/app/new.mpr; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff; rc=\$?; rm $LU/app/new.mpr; exit \$rc"
-ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i 's/transient): 0/transient): 1/' $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i.sedi 's/transient): 0/transient): 1/' $LU/w/localedits.md; rm -f $LU/w/localedits.md.sedi; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-unknown-no-report-not-kept-catch 1 -- sh -c "rm -f $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; echo '# x' > $LU/w/localedits.md; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-pipeline-clears-old-report-pass 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {r=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (r && d && r<d) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # a dry run prints the commands and runs nothing: it must not delete the saved report (then the next real run redoes ~14 minutes of diff)
