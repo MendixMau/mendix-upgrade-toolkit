@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 .env
 .claude/.pending-writes
+# brain drafts from a manual harvest.py run against the shipped brain (confidentiality: internal; never commit)
+company-brain-test/brain/inbox/
