@@ -204,7 +204,7 @@ def _menu_items(x, path=(), idx=()):
     """(caption path, action $Type, index path, action dict) of every menu item under x (a menu document or an item
     collection). The index path counts menu items in model order per level (int list markers skipped): Mendix renders
     item i of a menu bar as `.mx-name-<menuBar>-<i>`, its sub item j as `.mx-name-<menuBar>-<i>-<j>` (T2R3-4: the hand
-    journey clicked menuBar2-0 then menuBar2-0-1 "Sign out" and PASSed on the Opcenter app)."""
+    journey clicked menuBar2-0 then menuBar2-0-1 "Sign out" and PASSed on the App A app)."""
     if isinstance(x, dict):
         if x.get("$Type", "").endswith("MenuItem"):
             p = path + (text_of(x.get("Caption")),)
@@ -301,7 +301,7 @@ def layout_sign_out(m, page_qn):
     dropdown "My profile | Sign out"). Returns {"path": [captions], "widget": name, "clicks": [...], "by", "detail"}
     for a menu item of a menu document (or of another navigation profile) a layout menu widget renders,
     {"button": name, "by", "detail"} for a layout button that signs out, or None.
-    T2R3-4, N1R2: the Opcenter user dropdown is an icon-only item (empty caption), so a caption path cannot name it and
+    T2R3-4, N1R2: the App A user dropdown is an icon-only item (empty caption), so a caption path cannot name it and
     the old `all(captions)` test dropped the item: sign-out stayed a hand todo. Every menu hit carries "clicks", the
     index chain of the rendered item names; the journey uses it when a caption on the path is empty.
     B4T2-4: the platform SignOut action wins; else an item or button that calls a flow named like sign-out, else one

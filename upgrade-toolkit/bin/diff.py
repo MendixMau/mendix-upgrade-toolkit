@@ -22,7 +22,7 @@ Verdict rules (data-survival test: the after app was started on a COPY of the be
   db.identity   an old model GUID of that name is gone (same name, new GUID: dropped and re-created)   FAIL
                 Compared as SETS per name: System.owner / System.changedBy have one row per entity, so a new
                 entity adds a GUID without removing one (that is PASS).
-  known.anonymous_users  (PLM-27) the Mx10 runtime deletes session-less Anonymous_* users at start. When both snapshots
+  known.anonymous_users  (APPD-27) the Mx10 runtime deletes session-less Anonymous_* users at start. When both snapshots
                 carry the "anonymous" section (snapshot.py records System.User, its attributes and role links for the NAMED
                 users alone) the System.User rows are judged on named users, and the lost anonymous users are ONE row,
                 PASS* "known platform behaviour", not 14 FAIL rows. Older snapshots: the FAIL rows say so.
@@ -195,7 +195,7 @@ def main():
 
     db_b, db_a = B.get("db"), A.get("db")
     anb, ana = ((db_b or {}).get("anonymous") or {}), ((db_a or {}).get("anonymous") or {})
-    anon = bool(anb and ana)    # PLM-27: both snapshots know which System.User rows are anonymous
+    anon = bool(anb and ana)    # APPD-27: both snapshots know which System.User rows are anonymous
     hint = "" if anon else " (if these are Anonymous_* users the Mx10 runtime deletes at start, re-take both snapshots with this snapshot.py: it records named users apart and diff groups them)"
     if db_b and db_a:
         user_rows = sum(v or 0 for k, v in db_b["entities"].items() if not k.startswith("System."))

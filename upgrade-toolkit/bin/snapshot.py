@@ -84,7 +84,7 @@ def db_snapshot(psql):
             sql = f'select count(*), md5(coalesce(string_agg("{pcol}"::text||\'>\'||"{ccol}"::text, \'|\' order by "{pcol}","{ccol}"),\'\')) from "{table}"'
         n, h = q(psql, sql)[0]
         out["associations"][name] = {"pairs": int(n), "md5": h}
-    # PLM-27: the Mx10 runtime deletes session-less Anonymous_* users at start, so System.User rows, their attributes and
+    # APPD-27: the Mx10 runtime deletes session-less Anonymous_* users at start, so System.User rows, their attributes and
     # their role links always drop on a 9 to 10 data rung. Record the same figures for the NAMED users alone, so diff.py can
     # judge those and report the anonymous rows as one known behaviour.
     try:

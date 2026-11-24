@@ -3,7 +3,7 @@
 
 Synthetic on purpose: controls are committed, so fixtures hold Marketplace and System names only, never an app's own
 modules, values or secrets. The units have the fields the toolkit reads (same $Type names and shapes as a real MPR,
-captured from the E1/E5 projects), nothing more. A real-evidence control reads ~/upgrade-lab instead.
+captured from the E1/E5 projects), nothing more. A real-evidence control reads <workdir> instead.
 
   mkmodel.py spec.json <out dir>          writes <out dir>/App.mpr (+ widgets/*.mpk, javasource/... when specified)
 
@@ -272,7 +272,7 @@ def build(spec, out):
         if m.get("appstore"):
             mod["AppStorePackageId"], mod["AppStoreVersion"] = m["appstore"][0], m["appstore"][1]
         units.append((mid, root, mod))
-        if m.get("module_roles"):   # PLM-26: "module_roles": ["User", "Administrator"] = Security$ModuleSecurity of the module
+        if m.get("module_roles"):   # APPD-26: "module_roles": ["User", "Administrator"] = Security$ModuleSecurity of the module
             msid = gid(f"modsec:{mn}")
             units.append((msid, mid, {"$ID": msid, "$Type": "Security$ModuleSecurity",
                                       "ModuleRoles": lst([{"$ID": gid(f"mr:{mn}.{r}"), "$Type": "Security$ModuleRole", "Name": r}

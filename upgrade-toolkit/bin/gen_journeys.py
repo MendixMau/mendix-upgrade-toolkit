@@ -190,7 +190,7 @@ def home_texts(model, qn, limit=2, lang="en_US"):
     (NOT_ON_SCREEN_KEY). The page Title counts only when a page title widget (on the page or its layout) or a popup
     layout's dialog header renders it.
     N1R2-3: "Type search text here..." (a text box placeholder) and "Home" (the page Title, no title widget on the
-    page) were asserted and both login journeys FAILed on the unchanged OLD Opcenter app."""
+    page) were asserted and both login journeys FAILed on the unchanged OLD App A app."""
     if model is None or not qn or qn not in model.docs:
         return []
     import impact_map as I
@@ -425,7 +425,7 @@ def mfa_journey(role, f, login, sign_out_path, reasons):
 
 def signout_journey(role, f, login):
     """Sign out from the role menu: the login page renders and the role menu is gone (E5b 6). A layout menu item with
-    an empty caption on its path (T2R3-4: the Opcenter icon-only user dropdown) is opened by clicking the rendered
+    an empty caption on its path (T2R3-4: the App A icon-only user dropdown) is opened by clicking the rendered
     item names in turn (sign_out_clicks: menuBar2-0, menuBar2-0-1), as the T2R3 hand journey did."""
     path, button, clicks = f.get("sign_out_item"), f.get("sign_out_button"), f.get("sign_out_clicks")
     if not path and not button and not clicks:

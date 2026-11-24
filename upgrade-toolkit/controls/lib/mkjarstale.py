@@ -5,9 +5,9 @@
 
 addon-*   T2R3-6 shape: the 6 OIDC-marked userlib jars of TOOLKIT-FEEDBACK T2R3-6 (java-jwt 3.11.0, jackson-core,
           -databind, -annotations 2.14.1, json, commons-codec 1.15), no OIDC module in the app, and an add-on
-          EXFN_Authentication whose DecodeJWT.java imports com.auth0.jwt and jackson databind. A PushNotifications-marked
-          jar nobody imports stays stale. -cache: the Java is in .mendix-cache/modules/exfn_authentication.mxmodule/
-          (where the worker found it); -zip: only inside modules/EXFN_Authentication.mxmodule; -unreadable: the
+          MFN_Authentication whose DecodeJWT.java imports com.auth0.jwt and jackson databind. A PushNotifications-marked
+          jar nobody imports stays stale. -cache: the Java is in .mendix-cache/modules/mfn_authentication.mxmodule/
+          (where the worker found it); -zip: only inside modules/MFN_Authentication.mxmodule; -unreadable: the
           .mxmodule is no zip and there is no cache; no-addon: the same jars without any add-on.
 sso       N3-17 marker shape '<jar>.MendixSSO.<version>.RequiredLib': old-only jars, a jar both versions claim, an orphan
           marker, an old-only jar the app's javasource imports.
@@ -68,21 +68,21 @@ if kind.startswith("addon") or kind == "no-addon":
         put(f"{out}/userlib/{name}.OIDC.RequiredLib")
     put(f"{out}/userlib/pushy-0.15.2.jar", jar(cls("com.eatthepath.pushy.apns"), ("com.eatthepath", "pushy", "0.15.2")))
     put(f"{out}/userlib/pushy-0.15.2.jar.PushNotifications.RequiredLib")
-    java = ("package exfn_authentication.actions;\n\nimport com.auth0.jwt.JWT;\nimport com.auth0.jwt.interfaces.DecodedJWT;\n"
+    java = ("package mfn_authentication.actions;\n\nimport com.auth0.jwt.JWT;\nimport com.auth0.jwt.interfaces.DecodedJWT;\n"
             "import com.fasterxml.jackson.databind.ObjectMapper;\nimport com.mendix.systemwideinterfaces.core.IContext;\n\n"
             "public class DecodeJWT {}\n")
-    rel = "javasource/exfn_authentication/actions/DecodeJWT.java"
+    rel = "javasource/mfn_authentication/actions/DecodeJWT.java"
     if kind == "addon-cache":
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", jar(["project.mpr"]))
-        put(f"{out}/.mendix-cache/modules/exfn_authentication.mxmodule/{rel}", java)
+        put(f"{out}/modules/MFN_Authentication.mxmodule", jar(["project.mpr"]))
+        put(f"{out}/.mendix-cache/modules/mfn_authentication.mxmodule/{rel}", java)
     elif kind == "addon-zip":
         b = io.BytesIO()
         with zipfile.ZipFile(b, "w") as z:
             z.writestr("project.mpr", b"")
             z.writestr(rel, java)
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", b.getvalue())
+        put(f"{out}/modules/MFN_Authentication.mxmodule", b.getvalue())
     elif kind == "addon-unreadable":
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", "notazip")
+        put(f"{out}/modules/MFN_Authentication.mxmodule", "notazip")
 elif kind == "sso":
     put(f"{out}/App.mpr", "Module MendixSSO Module Administration")
     put(f"{out}/userlib/accessors-smart-2.4.7.jar", jar(cls("net.minidev.asm"), ("net.minidev", "accessors-smart", "2.4.7")))

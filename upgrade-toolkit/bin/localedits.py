@@ -19,7 +19,7 @@ Three layers:
      each page uses (FormCall.Form), app vs package. A module update puts the package's layout back: in E5b a
      dashboard page that used the app's layout fell back to Atlas_Default, and only a screenshot caught it. Each
      row is a UI edit to save and replay after the update (stepupdate.sh --force-ui saves the edits).
-     A layout or snippet present on both sides is also compared by CONTENT (PLM-29: its named widgets and every document
+     A layout or snippet present on both sides is also compared by CONTENT (APPD-29: its named widgets and every document
      it points at, ids and geometry left out): a region replaced or a snippet call removed in Atlas_Default is a CHANGED row
      even when mxcli diff is UNKNOWN because the package predates 9.18.
 
@@ -234,7 +234,7 @@ QN_ONLY = re.compile(r"^[A-Za-z_]\w*\.[A-Za-z_]\w*$")
 
 
 def content_signature(model, qn):
-    """What a layout or snippet is made of, version-neutral (PLM-29): the named widgets (type, name) and every
+    """What a layout or snippet is made of, version-neutral (APPD-29): the named widgets (type, name) and every
     qualified name it points at (snippet calls, pages, layouts, microflows). Geometry, ids and design-property format
     are left out, because a package made before 9.18 and the same module after Studio Pro converted it differ there
     without a local edit."""
@@ -276,7 +276,7 @@ def ui_diff(app_model, pkg_model, mod):
             rows.append({"change": "CHANGED", "kind": x["type"], "name": qn,
                          "detail": f"layout {y['layout'] or '(none)'} -> {x['layout'] or '(none)'} (the update resets it: replay)"})
         elif x and y and x["type"] in ("layout", "snippet"):
-            # PLM-29: the content of a layout or snippet. A package made before 9.18 gives mxcli diff no answer
+            # APPD-29: the content of a layout or snippet. A package made before 9.18 gives mxcli diff no answer
             # (UNKNOWN), so this is the only layer that sees a local edit of Atlas_Default or Atlas_TopBar.
             sa, sp = content_signature(app_model, qn), content_signature(pkg_model, qn)
             if sa is not None and sp is not None and sa != sp:
@@ -503,7 +503,7 @@ def main():
         print(f"localedits: mxcli not found at {MXCLI} (set UPG_MXCLI, or prepare {args.cache}); needed for "
               + (", ".join(m["name"] for m in need) or "--mxcli-diff"), file=sys.stderr)
         sys.exit(2)
-    # PLM-1: mx below 10.0 has no module-import, so mxcli diff cannot run on a 9.x model: say so once, not a failure per module
+    # APPD-1: mx below 10.0 has no module-import, so mxcli diff cannot run on a 9.x model: say so once, not a failure per module
     if args.mxcli_diff:
         try:
             pv = sqlite3.connect(f"file:{args.mpr}?mode=ro", uri=True).execute("select _ProductVersion from _MetaData").fetchone()[0]

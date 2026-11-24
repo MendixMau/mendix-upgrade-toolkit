@@ -29,7 +29,7 @@ is INVALID with the instrument's advice, never FAIL (N1R2-8, N1R2-9, T2R3-10, T2
 `APIMOCK=<state>` and `EXCLUDE_SYSTEMS=Teamcenter` (item 12) the driver can end in `PASS (except Teamcenter: N items)`,
 exit 4, with every NOT CHECKED item listed by name in `gate-summary.md`; it never prints plain PASS then. With
 `APIMOCK` set and any endpoint on the stand-in it ends in `PASS (on stand-in APIs: <systems>)`, exit 4, the stand-in
-endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcenter; except Teamcenter: 3 items)`. Run
+endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: App A; except Teamcenter: 3 items)`. Run
 `gate.sh --help` for the keys.
 
 1. Build: mx check 0 errors and BUILD SUCCEEDED (step 4).
@@ -169,8 +169,8 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    location from data, a hard-coded URL, a URL constant no modelled call reads), or a request the stand-in could not
    match, is INVALID until it is classified (`--classify` lines with a reason) or its data points at the stand-in.
    Add-on modules (`modules/*.mxmodule`, B4T2-6 / B4N1-9) are packed and protected: their calls cannot be read, and a
-   location their microflows build at runtime from entity data (Opcenter `EXFN_ServiceLayer`: ServiceUrl from
-   `ClientConfiguration.OpcenterEXFNUrl`) is invisible. Each add-on is one UNKNOWN endpoint `addon:<Module>` naming its
+   location their microflows build at runtime from entity data (App A `MFN_ServiceLayer`: ServiceUrl from
+   `ClientConfiguration.ModuleAUrl`) is invisible. Each add-on is one UNKNOWN endpoint `addon:<Module>` naming its
    URL constants and URL attributes, so "unknown 0" is never shown beside an add-on. Point such a location at the
    stand-in with a LOCATION line, then classify it: `<pattern> LOCATION const:<Module.Constant> # reason` (serve
    overrides that constant, it is in `overrides.json`) or `<pattern> LOCATION data:<Module.Entity.Attribute> # reason`

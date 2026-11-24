@@ -19,7 +19,7 @@ python3 $B/remedy.py --work $W --app app/ --next   # only the next action per op
 
 Optional inputs: `--gate F`, `--kept-file F`, `--release F`, `--replacements F.json` (replacement_check.py --json),
 `--dojo F.json` (dojo_report.py --json), `--finding TEXT` or `--findings F` (a blocker found outside the gate, such as a
-hand-opened page or an ASSUMPTIONS line), `--from VER --to VER`. Output: `$W/remedy-cards.md` and `$W/remediation.json` (QI-5: never `remediation.md`; on a case-insensitive disk it is the same file as the merged `REMEDIATION.md` a brief asks for). `--gate` takes the gate summary or the gate folder that holds it.
+hand-opened page or an ASSUMPTIONS line), `--from VER --to VER`. Output: `$W/remedy-cards.md` and `$W/remediation.json` (APPE-5: never `remediation.md`; on a case-insensitive disk it is the same file as the merged `REMEDIATION.md` a brief asks for). `--gate` takes the gate summary or the gate folder that holds it.
 remedy.py only reads; it never changes the app. `--keptdeps F` adds a saved keptdeps.py output (RT-8);
 `--kept-snapshot F` and `--reset-kept-snapshot` steer the kept-list snapshot (RT-9, below).
 
@@ -76,7 +76,7 @@ The pipeline may apply an AUTO-TRY option itself only when all of these hold:
 Everything else is HUMAN: the person picks an option on the card. D, a rebuild, licensed downloads, a private design
 system owner, and anything that touches data are always HUMAN.
 
-## Widget remedies (V3D-7 to V3D-10, QI-4)
+## Widget remedies (V3D-7 to V3D-10, APPE-4)
 
 - Triage a widget swap fast: replace `web/widgets/<path>` in a STARTED app's run folder with the candidate package's files
   (delete the `.gz` twins), reload, probe. It served exactly the package's files and predicted the built result (3D Viewer

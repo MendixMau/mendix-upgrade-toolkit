@@ -34,7 +34,7 @@ JavaIndex), userlib/*.jar names, javascriptsource/, theme/ and themesource/, wid
 Every row of the table is reported, never dropped, with one status:
   HIT             open: the app holds the pattern; the evidence names the module, document, file or widget
   UNKNOWN         open: a detector could not decide (no javasource folder, a module version that is no version
-                  number such as Opcenter EF's '2be20', a navigation profile of unknown kind)
+                  number such as App A EF's '2be20', a navigation profile of unknown kind)
   clear           the jump binds the row and no detector fired (the reason names what was looked for)
   NOT APPLICABLE  the jump does not reach the row (the reason names the jump and the row's applies_on_jump)
 Each row also prints its "unchecked" column: the part of the pattern no detector here can see (database rows, a
@@ -112,7 +112,7 @@ class TableError(Exception):
 
 
 def strict_v(s):
-    """Version tuple only for a real version number: '2be20' (an Opcenter EF module's version) is no version."""
+    """Version tuple only for a real version number: '2be20' (an App A EF module's version) is no version."""
     s = str(s or "").strip()
     return tuple(int(x) for x in s.split(".")) if re.fullmatch(r"\d+(\.\d+)*", s) else None
 
@@ -570,7 +570,7 @@ def clause(app, kind, own, arg, rows, stack):
         if name not in m.modules:
             return False, f"no module {name}"
         raw = m.modules[name].get("version") or ""
-        v = strict_v(raw) if "." in raw else None  # Opcenter EF 6.0.0: '2be20', '73355' (a hash, also all digits)
+        v = strict_v(raw) if "." in raw else None  # App A EF 6.0.0: '2be20', '73355' (a hash, also all digits)
         if v is None:
             return None, f"module {name} version '{raw}' is no version number: compare by hand against {spec}"
         from release_impact import cmpv

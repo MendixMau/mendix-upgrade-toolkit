@@ -17,7 +17,7 @@ if [ "${2:-}" != --locked ]; then
     bash "$0" "$T" --locked
 fi
 unset UPG_LOCK UPG_LOCK_POLL
-LAB=${UPG_LAB:-$HOME/upgrade-lab}; E1=$LAB/f1/runs/e1/app; E1W=$LAB/f1/runs/e1/work
+LAB=${UPG_LAB:-$HOME/field-lab}; E1=$LAB/f1/runs/e1/app; E1W=$LAB/f1/runs/e1/work
 W=$T/journey; mkdir -p $W
 export WORKDIR=$W UPG_TOOLS=$LAB/f1/mig/tools PORT_OFF=800 UPG_DB_PREFIX=fx_ UPG_NAME=ctl UPG_SESSION_TIMEOUT=30000
 db=fx_ctl_journey; tmpl=e1_base_frozen; pw='Ctl-only-3!'

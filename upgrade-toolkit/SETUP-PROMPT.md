@@ -43,7 +43,7 @@ Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says 
 **Inputs**
 - App: `<git URL of the app, or path to the folder holding the .mpr>`
 - Target Mendix version: `<version; default = latest LTS (as of 2026-11 Mendix 11.12): give 11.12 and triage picks the newest patch from the release notes; a full version only if you want a specific patch. Another version only if asked by name>`
-- Test or sandbox systems for the external APIs the app calls: `<e.g. Opcenter test URL, or none>`
+- Test or sandbox systems for the external APIs the app calls: `<e.g. App A test URL, or none>`
 - Systems that cannot be stood in locally (excluded, listed in the verdict): `<e.g. Teamcenter, or none>`
 
 **Setup**

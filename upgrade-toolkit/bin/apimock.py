@@ -2,7 +2,7 @@
 """apimock.py: a local stand-in for the external APIs an app consumes, read from its model (E2E-13, E2E-14, E2E-15).
 
 A gate run must never call a real external system, and a call nobody answers must never pass as "no issues". Before
-E2E-13 every journey or smoke step that touched Opcenter, an OData service or an SSO endpoint either called the real
+E2E-13 every journey or smoke step that touched App A, an OData service or an SSO endpoint either called the real
 system or failed on a dead host, and the gate could not tell an upgrade defect from a missing server. This script
 reads the consumed APIs from the .mpr (mprmodel.py; no Studio Pro, no mxcli), points every endpoint constant at
 itself, answers with bodies of the mapped shape, and logs every request. The old and the new app use the SAME
@@ -35,9 +35,9 @@ Inventory (per model; several models are merged by endpoint id):
                          stand-in needed"); a request to it is logged UNKNOWN, so the rung still says when it IS called.
   addon:<Module>         an add-on module (<project>/modules/<Module>.mxmodule, B4T2-6, B4N1-9): its packed model is not
                          a sqlite MPR and its flows are protected, so its calls cannot be read, and a location it builds
-                         at runtime from entity data (EXFN_ServiceLayer: ClientConfiguration.OpcenterEXFNUrl + '/...')
+                         at runtime from entity data (MFN_ServiceLayer: ClientConfiguration.ModuleAUrl + '/...')
                          is invisible. One UNKNOWN endpoint per add-on, so "unknown 0" is never claimed while add-ons
-                         exist. The URL-named constants its files name (@EXFN_Authentication.APPBaseUrl) are routed and
+                         exist. The URL-named constants its files name (@MFN_Authentication.APPBaseUrl) are routed and
                          overridden; the URL-named attributes it names are printed as candidate data locations.
 
 Classification, one per endpoint:
@@ -86,7 +86,7 @@ but endpoints excluded (each listed "NOT CHECKED (excluded: <System>) ..."); 3 =
 UNMATCHED requests (INVALID); 2 = no state. An endpoint excluded for a system not in --exclude-systems is INVALID too
 (the gate names what it excludes). B4N1-11: a MOCKED endpoint with 0 requests is "NOT EXERCISED" and INVALID unless an
 UNEXERCISED line waives it with a reason; MOCKED endpoints with 0 requests answered IN TOTAL are INVALID with no
-waiver (the stand-in was never shown reachable: Opcenter b4 passed this rung with 2 MOCKED endpoints and 0 requests).
+waiver (the stand-in was never shown reachable: App A b4 passed this rung with 2 MOCKED endpoints and 0 requests).
 
 A --classify EXCLUDED line (with its reason) makes its endpoints INFO, not stray: printed "INFO (excluded: <System>) ...:
 check at deploy", exit 0 ("verdict: PASS (INFO: ...)"). Only an --exclude pattern without a classify line is "NOT CHECKED" (4).
@@ -624,7 +624,7 @@ def classify(ep, model_consts, excludes, rules, recorded):
             continue
         if st == "MOCKED" and not kinds & {"const", "attr"}:
             # B4N1-9: MOCKED says the app talks to this stand-in; with no constant or data location the stand-in has no
-            # route the app could reach (Opcenter: the URL is built by a protected add-on microflow), so the claim is
+            # route the app could reach (App A: the URL is built by a protected add-on microflow), so the claim is
             # unprovable and the endpoint stays UNKNOWN until a LOCATION line names where the URL comes from.
             ep.update(status="UNKNOWN", system="", why=f"classified MOCKED ({pat}) but the stand-in has no route to it: "
                       f"no constant or data location is known ({'; '.join(r for k, r in ep['routes'] if k == 'unknown') or 'no location'}); "
@@ -663,8 +663,8 @@ def addon_files(model_path):
 def addon_names(path, names, cap=256 << 20):
     """(URL constants {qualified name: default}, URL-named attributes, why unreadable) of an add-on module. An .mxmodule
     is a zip whose project.mpr is not a sqlite MPR but ONE bson document (mprmodel cannot open it): its
-    Constants$Constant nodes (Name, DefaultValue, Type; EXFN_Authentication.APPBaseUrl = 'OCEXFN: {{APPLICATIONBASEURL}}')
-    and the Attribute of every member change (EXFN_Authentication.ClientConfiguration.OpcenterEXFNUrl) are read from it.
+    Constants$Constant nodes (Name, DefaultValue, Type; MFN_Authentication.APPBaseUrl = 'OCMFN: {{APPLICATIONBASEURL}}')
+    and the Attribute of every member change (MFN_Authentication.ClientConfiguration.ModuleAUrl) are read from it.
     A packed model bson cannot decode falls back to qualified names in its bytes (modules of `names` only)."""
     consts, attrs = {}, set()
     try:
@@ -708,7 +708,7 @@ def addon_names(path, names, cap=256 << 20):
 
 def addon_endpoint(path, names):
     """B4T2-6 / B4N1-9: an add-on module's own calls are invisible to this reader (its model is packed and protected; a
-    location may be built at runtime from entity data, EXFN_ServiceLayer). It is one UNKNOWN endpoint per add-on, so
+    location may be built at runtime from entity data, MFN_ServiceLayer). It is one UNKNOWN endpoint per add-on, so
     "unknown 0" is never claimed while add-ons exist. The URL-named constants it names are routed (serve overrides them
     and they show in overrides.json); the URL-named attributes are printed as candidate data locations."""
     name = os.path.splitext(os.path.basename(path))[0]
@@ -966,7 +966,7 @@ class Stand:
 
     def odata_tail(self, e, rest):
         """The part of the path from $metadata or an entity set on. A location built at runtime adds segments after the
-        routed prefix (Opcenter: <OpcenterEXFNUrl>/<segment>/<plant>/Application/<app>/odata/<Set>, B4N1-9)."""
+        routed prefix (App A: <ModuleAUrl>/<segment>/<plant>/Application/<app>/odata/<Set>, B4N1-9)."""
         segs = rest.strip("/").split("/")
         sets = self.sets.get(e["metadata_doc"], {})
         for i, sg in enumerate(segs):
@@ -1251,7 +1251,7 @@ def cmd_check(a):
     by = lambda s: [r for r in recs if r.get("status") == s]
     mocked = [e for e in eps if e["status"] == "MOCKED"]
     # B4N1-11: a MOCKED endpoint nobody called proves nothing: either no journey reached it, or the app never reached the
-    # stand-in at all (Opcenter b4: 2 endpoints MOCKED, 0 requests, the old app failing on every page, verdict PASS).
+    # stand-in at all (App A b4: 2 endpoints MOCKED, 0 requests, the old app failing on every page, verdict PASS).
     hits = {e["id"]: sum(1 for r in recs if r.get("endpoint") == e["id"] and r.get("status") == "MOCKED") for e in mocked}
     idle = [e for e in mocked if not hits[e["id"]] and e["id"] not in measured]
     unwaived = [e for e in idle if not e.get("unexercised")]

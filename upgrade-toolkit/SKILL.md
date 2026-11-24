@@ -114,7 +114,7 @@ rung whether the app can be judged, what the customer must supply, and the best 
 - Never judge data safety by `$ID`; the runtime maps tables and columns by `GUID`. Use idcheck.py.
 - A tool that says "ok" may have checked nothing: scanner (`scancover.py`), localedits (exit 2 = UNKNOWN modules),
   journeys (a role with no test user, a todo) all report INVALID, never PASS.
-- mx convert's exit code and "mx convert finished" mean nothing (E6: 31 errors, rc=0; Academy: a refused 10.18
+- mx convert's exit code and "mx convert finished" mean nothing (E6: 31 errors, rc=0; App C: a refused 10.18
   source, rc=0). `convertcheck.py` after every convert: the project version must be the target.
 - Convert once per rung on the integration branch, with the patch production runs, then freeze it (NS-8). Commit the
   convert alone, then each fix in its own commit; `convertnoise.py app/ --rev HEAD` refuses a convert commit that
@@ -192,7 +192,7 @@ reachable. The stand-in is a stopgap, not the standard: plain PASS needs real (t
 run again against the real test systems before go-live. On the stand-in, rung `apis` needs every endpoint MOCKED, no
 UNKNOWN endpoint and no unanswered request. When a system cannot be stood in (Teamcenter), the best verdict is
 `PASS (except Teamcenter: N items)` (gate exit 4): only the N journeys, smoke steps and endpoints that need that system
-are NOT CHECKED, each listed by name. Both read `PASS (on stand-in APIs: Opcenter; except Teamcenter: 3 items)`. Never
+are NOT CHECKED, each listed by name. Both read `PASS (on stand-in APIs: App A; except Teamcenter: 3 items)`. Never
 plain PASS; a failure that is not a call into an excluded system stays FAIL, an UNKNOWN endpoint stays INVALID.
 
 ## Stop rules
@@ -223,4 +223,4 @@ plain PASS; a failure that is not a call into an excluded system stays FAIL, an 
 ## Proof that the tools work
 
 `cd $TK/controls && make test` (about 4 minutes with the Docker controls; `make fast` skips them). Every fixed item in
-[FEEDBACK.md](FEEDBACK.md) names its control. Field controls read `~/upgrade-lab` (UPG_LAB) and are skipped without it.
+[FEEDBACK.md](FEEDBACK.md) names its control. Field controls read `<workdir>` (UPG_LAB) and are skipped without it.

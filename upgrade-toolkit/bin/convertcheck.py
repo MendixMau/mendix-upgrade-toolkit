@@ -2,7 +2,7 @@
 """convertcheck.py: read what `mx convert` really did, never its exit code.
 
 Why: mx convert exits 0 and prints "mx convert finished." also when it reports errors (E6: "The project contains 31
-errors", rc=0; Academy 10.18 to 11.15: 4 errors, "finished", success). It also refuses a source it cannot convert
+errors", rc=0; App C 10.18 to 11.15: 4 errors, "finished", success). It also refuses a source it cannot convert
 (Mendix 11 converts only from the last Mendix 10 release; 10.18 to 11.15 was refused, AC-1). Reading rc=0 as "done"
 hides both. This check reads the log, then proves the conversion from the project file itself: its version must now
 be the target.

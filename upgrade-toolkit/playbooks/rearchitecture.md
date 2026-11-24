@@ -43,7 +43,7 @@ need the feature rebuilt from platform widgets, or kept alive on the old platfor
 - recommendation: replace by nested Data grid 2 when the tree is 2 levels deep or less; rebuild only if deeper; keep only while the app stays on the Dojo client.
 - effort: M
 - recipe: 1) list the pages that hold the widget (`dojo_report.py`, impact_map; skip dead pages). 2) Per page read the tree: entity, parent association, columns, the on-click action. 3) Build the top level as Data grid 2 on the root entity; for each child level add a Data grid 2 (or Gallery) in a conditionally visible container bound to the association of the row, opened by a design-property-styled toggle (Atlas 4 design properties, no custom CSS). 4) Move the on-click action onto the row. 5) Run mx check, then smoke and a by-eye look at the page. 6) Record the decision and update this entry.
-- evidence: PFEP (detector only, no repair run yet); dojo-successors.tsv row (research 2026-10-08); B6-4. No field result.
+- evidence: App B (detector only, no repair run yet); dojo-successors.tsv row (research 2026-10-08); B6-4. No field result.
 - status: idea
 - cards: generic-dojo
 
@@ -82,7 +82,7 @@ need the feature rebuilt from platform widgets, or kept alive on the old platfor
 - recommendation: dump the properties of each used instance before the update, re-set afterwards from the dump.
 - effort: M
 - recipe: 1) Before `update-widgets`, dump every property of each instance of the widget (mprmodel). 2) Update. 3) Dump again, diff by instance. 4) Re-set each lost value (mxcli where the registry has the widget, a direct model edit where not). 5) By-eye screen of one page per widget. 6) Add the pair to the report.
-- evidence: AM (Academy run): 30 Link captions, a lost child widget, MxDock header settings; AM-U2 backlog, AM-U8 closed. No automated diff yet.
+- evidence: AM (App C run): 30 Link captions, a lost child widget, MxDock header settings; AM-U2 backlog, AM-U8 closed. No automated diff yet.
 - status: idea
 - cards: none
 
@@ -184,7 +184,7 @@ ready / delete / can move / can't move / not researched. Clear what blocks on 11
 - recommendation: newer version if R38 clears it; else the shim, with a recorded owner and a removal date.
 - effort: S
 - recipe: 1) R38 on the candidate mpk. 2) If none: put the shim in the app's own theme `index.html` hook before the widget loads; keep it out of vendor files. 3) Smoke the page that holds the widget; walk one journey through it. 4) List the shim in the report as a debt item.
-- evidence: QI (Quality Inspection): QI-3, QI-4 (LVC 1.3.16 calls it in 6 files); shim proven in a browser only (QI A37); AM-M4 and AC-9 for the scanner gap.
+- evidence: APPE (App E): APPE-3, APPE-4 (LVC 1.3.16 calls it in 6 files); shim proven in a browser only (APPE A37); AM-M4 and AC-9 for the scanner gap.
 - status: tried once
 - cards: widget-mxlogger
 
@@ -254,7 +254,7 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 - recommendation: OIDC with the IdP once the IdP decision is made; keep until then.
 - effort: L
 - recipe: 1) settle the IdP with the owner of identity. 2) Install OIDC with UserCommons. 3) Map the MendixSSO user specialisation rows to the new users (match on the stable id, dry run, count). 4) Switch login pages and the after-startup flow. 5) Journey per role. Do not delete the old module before login works for every role.
-- evidence: R3 research only; MendixSSO seen in fsm, kanban, pfep (kept); AM-T4/AM-T9 are harness items on an SSO app. No migration run.
+- evidence: R3 research only; MendixSSO seen in fsm, kanban, app-b (kept); AM-T4/AM-T9 are harness items on an SSO app. No migration run.
 - status: idea
 - cards: none
 

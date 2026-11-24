@@ -1,7 +1,7 @@
 # Starter Kit user guide (EXAMPLE)
 
 Example manual written for the E2E-16 controls; not vendor documentation and no customer text. Its captions follow
-the Opcenter EX Starter Kit home page captured in fixtures/actions/t2-home-cards.json (a public Marketplace app).
+the vendor starter-kit home page captured in fixtures/actions/t2-home-cards.json (a public Marketplace app).
 
 ## 1. Finding your way
 
