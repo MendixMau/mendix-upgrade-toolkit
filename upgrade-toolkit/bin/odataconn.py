@@ -2,7 +2,7 @@
 """OData / REST connector modules: the one place that knows their names (T3F-11).
 
 An app can consume OData with no consumed-OData document at all: the Marketplace connector SAPODataConnector (Java
-actions GetList/Create, entities generalizing SAPODataConnector.OdataObject) and ODataQueryBuilder carry it. T3 (PFEP)
+actions GetList/Create, entities generalizing SAPODataConnector.OdataObject) and ODataQueryBuilder carry it. T3 (App B)
 recorded "0 OData consumed" from the built-in client count alone, and `release_impact.py --auto` with that fact would
 have closed every consumed-OData row as not relevant. The count of REFERENCES into such a module is its own fact,
 odata_consumed_connector; a non-zero value keeps the OData rows open, a value that could not be counted is no fact.

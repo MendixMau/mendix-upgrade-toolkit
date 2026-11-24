@@ -38,11 +38,14 @@ Three rules, all dry-run unless --apply (commit first: git is the undo). Every j
     OIDC module). A jar without a marker is the app's own and is kept. No .mpr found, or --modules naming it, means
     "cannot prove": kept. ADD-ON JAVA (T2R3-6): add-on modules (modules/*.mxmodule, unpacked by Studio Pro into
     .mendix-cache/modules/<name>.mxmodule/) carry their own javasource that is NOT under javasource/ and reuse jars of
-    modules the app does not have (EXFN_Authentication's DecodeJWT.java imports com.auth0.jwt from the OIDC-marked
+    modules the app does not have (MFN_Authentication's DecodeJWT.java imports com.auth0.jwt from the OIDC-marked
     java-jwt jar: removing it failed the build twice). A jar whose classes add-on Java imports is kept as "NEEDED BY
     ADD-ON", and with it every jar of the same absent module (its runtime dependencies, jackson and codec, show in no
     import line); when an add-on's Java cannot be read (unreadable zip, or classes/jars and no .java), no STALE jar is
     removed: kept as UNPROVEN, review by hand.
+ GM-27: a marker token that is not a module name (a Maven artifact such as databroker-business-events-module) is mapped to
+    its module through the module's installed package (it ships the marker file) or the artifact's own jar (packages the
+    module's Java declares or imports); owner found = known. Owner not found = "KEEP UNKNOWN", never STALE.
  3. OLD-VERSION markers (N3-17, T1R-13): some modules version their markers, <jar>.<Module>.<version>.RequiredLib
     ('*.MendixSSO.4.1.0'). A module's version is the one installed in the .mpr (AppStoreVersion, read with mprmodel)
     when that is newer than its markers, else its newest marker version; a marker of an older version is a leftover. A
@@ -248,6 +251,83 @@ def module_known(project, mod, extra):
     return False
 
 
+IDENT = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def is_artifact_token(tok):
+    """A Mendix module name is an identifier. A marker token that is not one ('databroker-business-events-module',
+    a Maven artifact name, GM-27) names an artifact: it is never matched as a module name."""
+    return not IDENT.match(tok)
+
+
+def in_app(project, mod):
+    """True when the module is INSTALLED: in the .mpr's module list, an add-on, or named in the .mpr / mprcontents bytes
+    (case-insensitive). A leftover javasource/<module>/ folder alone is not an install. No .mpr = cannot prove = True."""
+    low = mod.lower()
+    if low in {k.lower() for k in installed_modules(project)} or low in addon_java(project)[2]:
+        return True
+    mprs = [f for f in os.listdir(project) if f.endswith(".mpr")]
+    if not mprs:
+        return True
+    paths = [os.path.join(project, m) for m in mprs]
+    for root, _, fs in os.walk(os.path.join(project, "mprcontents")):
+        paths += [os.path.join(root, f) for f in fs]
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                if low.encode() in f.read().lower():
+                    return True
+        except OSError:
+            return True
+    return False
+
+
+def artifact_owner(project, tok, marker):
+    """(module, how, detail) for the module a marker that names an ARTIFACT belongs to (GM-27), or None.
+    how 'proof': the module's own installed package ships the marker file (userlib/<jar>.<artifact>.RequiredLib in its
+    .mpk). how 'guess': the artifact's own jar (<artifact>-<digit>...jar in userlib/ or vendorlib/) holds packages that
+    no other jar there provides, and an INSTALLED module's Java (javasource/<module>/ or an add-on) declares or imports
+    one; detail = that package. The caller prints a guess (OWNER-GUESS), never silently.
+    Nothing is guessed from the artifact's spelling: no match = None (the caller reports UNKNOWN, never STALE)."""
+    js = os.path.join(project, "javasource")
+    jmods = sorted(d for d in (os.listdir(js) if os.path.isdir(js) else []) if os.path.isdir(os.path.join(js, d)))
+    for m in sorted(set(installed_modules(project)) | set(jmods)):
+        pk = package_userlib(project, m)
+        if pk and marker in pk[0]:
+            return m, "proof", ""
+    pkgs, shared = set(), set()
+    for d in ("userlib", "vendorlib"):
+        base = os.path.join(project, d)
+        for j in (os.listdir(base) if os.path.isdir(base) else []):
+            if j.endswith(".jar"):
+                if re.match(re.escape(tok) + r"-\d", j):
+                    pkgs |= jar_packages(os.path.join(base, j))
+                else:
+                    shared |= jar_packages(os.path.join(base, j))
+    pkgs -= shared   # a package another jar also provides (shaded gson, a common namespace) proves nothing
+    if not pkgs:
+        return None
+    hit = lambda i: next((q for q in sorted(pkgs) if i == q or i.startswith(q + ".")), None)
+    for m in jmods:
+        if not in_app(project, m):
+            continue
+        for root, _, fs in os.walk(os.path.join(js, m)):
+            for f in fs:
+                if f.endswith(".java"):
+                    try:
+                        t = open(os.path.join(root, f), errors="replace").read()
+                    except OSError:
+                        continue
+                    pk = {x.group(1) for x in re.finditer(r"^\s*package\s+([\w.]+)\s*;", t, re.M)}
+                    for i in sorted(java_imports(t) | pk):
+                        if hit(i):
+                            return m, "guess", hit(i)
+    for i, adds in sorted(addon_java(project)[0].items()):
+        if hit(i):
+            return sorted(adds)[0], "guess", hit(i)
+    return None
+
+
 def imported_packages(project):
     """Every package that the app's own javasource imports (dotted prefixes)."""
     pk = set()
@@ -270,7 +350,7 @@ def jar_packages(path):
 
 
 def has_classes(path):
-    """True when the jar holds at least one .class file (PLM-23: okio-3.5.0.jar is a Kotlin multiplatform metadata jar,
+    """True when the jar holds at least one .class file (APPD-23: okio-3.5.0.jar is a Kotlin multiplatform metadata jar,
     okio-jvm-3.5.0.jar holds the classes). False for an unreadable file too, so fake empty jars behave as before."""
     return bool(jar_packages(path))
 
@@ -282,7 +362,7 @@ def is_imported(path, imports):
 
 NEEDS_VENDORLIB = set()   # ids of userlib jars whose removal rests on a vendorlib copy (T5-16)
 SBOMS = ("vendorlib-sbom.json", "vendorlib/vendorlib-sbom.json", "vendorlib/sbom.json", ".stepupdate/vendorlib-sbom.json")
-SHADOWED = []  # (older userlib jar, newer vendorlib jar, owners): two majors of one library on the classpath (PLM-24)
+SHADOWED = []  # (older userlib jar, newer vendorlib jar, owners): two majors of one library on the classpath (APPD-24)
 UPDATED = {}   # --updated / --updated-from-git: module (lower case) -> where it was seen; their markers on older copies are leftovers
 
 
@@ -313,7 +393,7 @@ def needs_older_major(project, extra, r, g, top):
 
 
 def lone_class_packages(r, top):
-    """Packages (sorted) that jar r holds classes for and the kept jar top does not (PLM-23). Only when r is the same
+    """Packages (sorted) that jar r holds classes for and the kept jar top does not (APPD-23). Only when r is the same
     version as top, or top holds no classes at all: a newer version may legitimately drop a package (a split artifact is
     UNMATCHED's business). Empty for jars that are not zips."""
     mine = jar_packages(r["path"])
@@ -421,7 +501,27 @@ def plan(project, extra=frozenset()):
     for r in jars.values():
         if r["dir"] != "userlib" or not r["mods"]:
             continue
-        gone_m = sorted({mod for _, mod, _ in r["mv"] if not module_known(project, mod, extra)})
+        gone_m, unk_m, guess = set(), set(), []
+        for f, mod, _ in r["mv"]:
+            if is_artifact_token(mod):   # GM-27: an artifact name is mapped to its module, never matched as one
+                ow = artifact_owner(project, mod, f)
+                if ow:
+                    if ow[1] == "guess":
+                        guess.append(f"{ow[0]} (package {ow[2]})")
+                    continue
+                if module_known(project, mod, extra):
+                    continue
+                unk_m.add(mod)
+            elif not module_known(project, mod, extra):
+                gone_m.add(mod)
+        gone_m = sorted(gone_m)
+        if unk_m:   # the owner cannot be determined: never STALE on a guess
+            out.append(("KEEP", r, f"UNKNOWN: marker names artifact {', '.join(sorted(unk_m))}, whose module cannot be "
+                        f"determined (no installed package ships the marker, no javasource or add-on uses the artifact's "
+                        f"jar): review by hand", 2))
+            continue
+        if guess:   # ownership by package import is a guess: never silent
+            out.append(("KEEP", r, f"OWNER-GUESS: {', '.join(sorted(set(guess)))}", 2))
         old = [(f, mod, v) for f, mod, v in r["mv"] if mod not in gone_m and v and vkey(v) < vkey(cur[mod])]
         live = [x for x in r["mv"] if x[1] not in gone_m and x not in old]
         if live:
@@ -472,7 +572,7 @@ def plan(project, extra=frozenset()):
             for r in g:
                 out.append(("KEEP", r, f"AMBIGUOUS: {art} has {len(g)} copies and a version that cannot be read", 1))
             continue
-        top = max(g, key=lambda r: (vkey(r["ver"]), r["dir"] == "vendorlib", has_classes(r["path"])))   # PLM-23: same version, the one with classes wins
+        top = max(g, key=lambda r: (vkey(r["ver"]), r["dir"] == "vendorlib", has_classes(r["path"])))   # APPD-23: same version, the one with classes wins
         decl = sorted({f"{m} {r['ver']}" for r in g if r["dir"] == "userlib" for m in r["mods"] if module_known(project, m, extra)})
         dn = f"; declared by present modules: {', '.join(decl)}" if decl else ""
         out.append(("KEEP", top, f"newest of {len(g)} copies of {art} ({top['ver']}){dn}", 1))
@@ -480,7 +580,7 @@ def plan(project, extra=frozenset()):
             if r is top:
                 continue
             sole = lone_class_packages(r, top)
-            if sole:   # PLM-23: never drop the only jar that holds the classes of a package
+            if sole:   # APPD-23: never drop the only jar that holds the classes of a package
                 out.append(("KEEP", r, f"ONLY COPY WITH CLASSES for {', '.join(sole[:3])}{' ...' if len(sole) > 3 else ''}: "
                                        f"{top['id']} ({top['ver']}) has none of them; kept: review by hand", 1))
             elif r["dir"] == "vendorlib" and top["dir"] == "userlib" and vkey(r["ver"]) < vkey(top["ver"]):
@@ -570,7 +670,7 @@ def main():
                  f"{sum(1 for x in res if x[0] == 'KEEP')} listed as kept"
                  + (f", {sum(1 for x in res if x[0] == 'UNMATCHED')} UNMATCHED (review by hand)"
                     if any(x[0] == "UNMATCHED" for x in res) else ""))
-    # PLM-24: an older MAJOR kept in userlib while vendorlib has the newer one. The module that declares it may only be
+    # APPD-24: an older MAJOR kept in userlib while vendorlib has the newer one. The module that declares it may only be
     # a leftover marker of an old version (CommunityCommons 9 to 11: PDFBox 2 shadowed PDFBox 3, javac failed in
     # Misc.java). Only the module's installed package, a "step:" commit or --updated can prove that, so it is flagged,
     # never removed on a guess, and named loudly.

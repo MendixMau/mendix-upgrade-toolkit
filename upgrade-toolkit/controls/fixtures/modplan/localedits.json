@@ -1,0 +1,17 @@
+[
+ {
+  "name": "Administration",
+  "cid": 23513,
+  "version": "4.4.0"
+ },
+ {
+  "name": "DatabaseConnector",
+  "cid": 2888,
+  "version": "7.0.2"
+ },
+ {
+  "name": "Fresh",
+  "cid": 23513,
+  "version": "4.5.0"
+ }
+]

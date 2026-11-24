@@ -15,14 +15,24 @@
 // its mx-progress bar, an error page keeps one too). settle returns { ok: false, stuck: true } and the caller saves
 // <name>-STUCK.png: shotdiff keeps the pair INVALID, but a person may close it with an accept line after a look.
 // The full timeout is always waited first, so a slow page that is still fetching is never called STUCK early.
-// TOP BAR (B4N1-14, Opcenter EF on 10.24/11): a thin progress bar pinned to the top edge of the window (the UMC session
+// TOP BAR (B4N1-14, App A EF on 10.24/11): a thin progress bar pinned to the top edge of the window (the UMC session
 // renew nanoflow keeps one running) never goes away on pages that rendered fully, so StarterKit.HowTo, Contents and
 // three more were named -STUCK and only PASSed through shotdiff's "equal below the top 10 px" rule. A shown indicator
 // whose box lies within the top TOPBAR_PX (10, the same band shotdiff uses) and is at most TOPBAR_PX high is reported
 // apart (topbar) and ignored, bounded: only when it is the ONLY indicator, the DOM stood still for `topbarMs`
 // (SETTLE_TOPBAR_MS, default 3000) and the page content has visible text (the .mx-placeholder elements, or the body when
 // there are none). Then settle returns { ok: true, topbar: true, reason: 'top bar ignored: ...' }. A blank page under
-// the same bar (the Opcenter home pages, no text) and any page with another indicator stay STUCK / LOADING as before.
+// the same bar (the App A home pages, no text) and any page with another indicator stay STUCK / LOADING as before.
+// LAZY PLACEHOLDERS (GM-33): a lazy-loading widget (Marketplace "LazyloadingDataPlaceholder", In View Content Renderer,
+// Skeleton) draws a placeholder first and its content later, so the baseline shot showed a page with holes. A shown
+// placeholder (LAZY below) counts as busy like any loading indicator, bounded by the same timeout. On timeout the reason
+// says "lazy-load placeholder(s) still present: <class>" and the page is never passed silently (ok false, never
+// stuck-ignored as a top bar). ASSUMED: no captured page in this repo shows the placeholder's DOM, so the selectors are
+// class-name patterns taken from the widget names, not read from a captured page; replace them with the real class
+// once a page capture exists (FEEDBACK GM-33).
+// FALSE MATCH: a class that matches but never goes away (a permanent "skeleton" theme class) would fail every page. When
+// the timeout ends on the lazy path with the DOM unchanged for stuckMs the reason says so and names SETTLE_LAZY_OFF=1,
+// which turns lazy detection off entirely (the pre-GM-33 behaviour).
 // pageSettled() runs in the browser (page.evaluate) and in node with a fake document (controls/smokewalk_predicates.js).
 
 const BUSY = [
@@ -32,12 +42,22 @@ const BUSY = [
   '.spinner', '.spinner-border', '.loading-spinner', '[aria-busy="true"]',
 ];
 
+// ASSUMED (GM-33): class-name substrings, matched case-insensitively; no captured page shows the real markup.
+// ONE copy: settle() passes LAZY (and BUSY) into pageSettled as an argument, because pageSettled is serialised into the
+// browser and cannot see this const. SETTLE_LAZY_OFF=1 passes an empty list (lazy detection off, the pre-GM-33 behaviour).
+const LAZY = [
+  '[class*="lazyload" i]', '[class*="lazy-load" i]', '[class*="skeleton" i]', '[class*="dataview-loader" i]',
+];
+
 const TOPBAR_PX = 10;
 
-function pageSettled(busySel, topPx) {
+// cfg = { busy, lazy, top } (arrays of selectors, band in px); a bare array is taken as the busy list (old call shape).
+function pageSettled(cfg) {
   try {
-    const sel = (busySel || BUSY).join(', ');
-    const band = topPx || 10;
+    const c = Array.isArray(cfg) ? { busy: cfg } : (cfg || {});
+    const sel = (c.busy || BUSY).join(', ');
+    const lazyList = c.lazy || LAZY;
+    const band = c.top || 10;
     const shown = e => {
       try {
         if (e.getClientRects && !e.getClientRects().length) return false;
@@ -54,6 +74,7 @@ function pageSettled(busySel, topPx) {
         return r.top >= -1 && r.top <= band && r.height <= band && r.top + r.height <= band + 1;
       } catch (x) { return false; }
     };
+    const lazy = lazyList.length ? [...document.querySelectorAll(lazyList.join(', '))].filter(shown).map(name) : [];
     const shownAll = [...document.querySelectorAll(sel)].filter(shown);
     const busy = shownAll.filter(e => !thinTop(e)).map(name);
     const topbar = shownAll.filter(thinTop).map(name);
@@ -64,7 +85,7 @@ function pageSettled(busySel, topPx) {
       const roots = ph && ph.length ? [...ph] : (document.body ? [document.body] : []);
       text = roots.reduce((n, e) => n + String(e.innerText || '').replace(/\s+/g, '').length, 0);
     } catch (x) { text = 0; }
-    return { busy, size, topbar, text };
+    return { busy: busy.concat(lazy.map(n => 'lazy-placeholder:' + n)), size, topbar, text, lazy };
   } catch (e) {
     return { busy: ['error: ' + String(e && e.message || e).slice(0, 80)], size: -1 };
   }
@@ -75,12 +96,14 @@ async function settle(page, opts = {}) {
   const stableMs = opts.stableMs ?? 750;
   const stuckMs = opts.stuckMs ?? Number(process.env.SETTLE_STUCK_MS || 5000);
   const topbarMs = opts.topbarMs ?? Number(process.env.SETTLE_TOPBAR_MS || 3000);
+  const lazyOff = opts.lazyOff ?? process.env.SETTLE_LAZY_OFF === '1';   // escape hatch for a permanent false match
+  const arg = { busy: BUSY, lazy: lazyOff ? [] : LAZY, top: TOPBAR_PX };
   const poll = 250;
   const t0 = Date.now();
   let last = null, stableSince = 0, sizeSince = 0, lastBusy = [], topSince = 0;
   await page.waitForLoadState('networkidle', { timeout: Math.min(5000, timeout) }).catch(() => {});
   while (Date.now() - t0 < timeout) {
-    const s = await page.evaluate(pageSettled, BUSY).catch(e => ({ busy: ['evaluate: ' + String(e.message).split('\n')[0]], size: -1 }));
+    const s = await page.evaluate(pageSettled, arg).catch(e => ({ busy: ['evaluate: ' + String(e.message).split('\n')[0]], size: -1 }));
     const top = s.topbar || [];
     lastBusy = s.busy.concat(top);
     if (s.size !== last || s.size < 0) sizeSince = Date.now();   // DOM size changed (or unreadable): not standing still
@@ -105,10 +128,19 @@ async function settle(page, opts = {}) {
   }
   const ms = Date.now() - t0, still = Date.now() - sizeSince;
   const busy = [...new Set(lastBusy)].slice(0, 4).join(', ');
+  const lazyLeft = lastBusy.filter(b => /^lazy-placeholder:/.test(b));
+  if (lazyLeft.length) {
+    const names = [...new Set(lazyLeft)].slice(0, 4).map(b => b.slice(17)).join(', ');
+    const other = [...new Set(lastBusy.filter(b => !/^lazy-placeholder:/.test(b)))].slice(0, 3).join(', ');
+    const unchanged = sizeSince && still >= stuckMs
+      ? `; placeholder present and DOM unchanged for ${still}ms; if this class is permanent it is a false match — set SETTLE_LAZY_OFF=1` : '';
+    return { ok: false, ms, lazy: true,
+             reason: `still loading: lazy-load placeholder(s) still present: ${names}${other ? '; also ' + other : ''}${unchanged}` };
+  }
   const real = lastBusy.length && !lastBusy.some(b => /^(error|evaluate):/.test(b));
   if (real && sizeSince && still >= stuckMs)
     return { ok: false, stuck: true, ms, reason: `stuck: ${busy} shown, DOM unchanged for ${still}ms` };
   return { ok: false, ms, reason: lastBusy.length ? 'still loading: ' + busy : 'DOM still changing' };
 }
 
-module.exports = { BUSY, TOPBAR_PX, pageSettled, settle };
+module.exports = { BUSY, LAZY, TOPBAR_PX, pageSettled, settle };

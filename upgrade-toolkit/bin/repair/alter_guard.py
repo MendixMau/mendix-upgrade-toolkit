@@ -2,7 +2,7 @@
 """alter_guard.py: run an `mxcli alter page` and fail loudly when it changed nothing, instead of a silent no-op.
 
 Why (T2-4, T2R3-7): `mxcli alter page P set DataSource = microflow M(Param = $x)` printed "Altered page" and exited 0,
-twice, on Opcenter's ClientConfiguration_NewEdit, and saved nothing: M lives in a protected add-on module
+twice, on App A's ClientConfiguration_NewEdit, and saved nothing: M lives in a protected add-on module
 (modules/*.mxmodule, not in app.mpr), so mxcli cannot read its parameters and drops the mapping. The same holds for a
 page that itself sits in an add-on: there is nothing in app.mpr to alter. Both runs lost time believing the message.
 

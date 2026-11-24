@@ -1,0 +1,1 @@
+{"from": "base.json", "ops": [["set", "modules/0/jars", [{"group": "org.example", "artifact": "lib-a", "version": "1.0.0"}, {"group": "org.example", "artifact": "lib-b", "version": "1.0.0"}]]]}

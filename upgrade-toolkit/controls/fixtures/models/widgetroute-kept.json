@@ -1,0 +1,1 @@
+{"from": "widgetroute.json", "ops": [["append", "modules/0/docs", {"type": "Microflows$Microflow", "name": "ACT_Open", "data": {}}], ["append", "modules/1/pages/0/widgets", "com.mendix.widget.custom.LineChart.LineChart"]]}

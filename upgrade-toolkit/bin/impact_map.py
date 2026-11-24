@@ -204,7 +204,7 @@ def _menu_items(x, path=(), idx=()):
     """(caption path, action $Type, index path, action dict) of every menu item under x (a menu document or an item
     collection). The index path counts menu items in model order per level (int list markers skipped): Mendix renders
     item i of a menu bar as `.mx-name-<menuBar>-<i>`, its sub item j as `.mx-name-<menuBar>-<i>-<j>` (T2R3-4: the hand
-    journey clicked menuBar2-0 then menuBar2-0-1 "Sign out" and PASSed on the Opcenter app)."""
+    journey clicked menuBar2-0 then menuBar2-0-1 "Sign out" and PASSed on the App A app)."""
     if isinstance(x, dict):
         if x.get("$Type", "").endswith("MenuItem"):
             p = path + (text_of(x.get("Caption")),)
@@ -301,7 +301,7 @@ def layout_sign_out(m, page_qn):
     dropdown "My profile | Sign out"). Returns {"path": [captions], "widget": name, "clicks": [...], "by", "detail"}
     for a menu item of a menu document (or of another navigation profile) a layout menu widget renders,
     {"button": name, "by", "detail"} for a layout button that signs out, or None.
-    T2R3-4, N1R2: the Opcenter user dropdown is an icon-only item (empty caption), so a caption path cannot name it and
+    T2R3-4, N1R2: the App A user dropdown is an icon-only item (empty caption), so a caption path cannot name it and
     the old `all(captions)` test dropped the item: sign-out stayed a hand todo. Every menu hit carries "clicks", the
     index chain of the rendered item names; the journey uses it when a caption on the path is empty.
     B4T2-4: the platform SignOut action wins; else an item or button that calls a flow named like sign-out, else one
@@ -328,14 +328,21 @@ def any_sign_out(m, limit=5):
     and a button / link / card widget with an Action, on any page, layout or snippet. [(where, by, detail)], at most
     `limit`. Empty is the proof run_journeys.py's NO-SIGNOUT evidence needs: the app has no sign-out UI at all."""
     hits = []
+    # A page, layout or snippet no entry point reaches (an add-on's spare layout, or a page only such a layout's pages
+    # use) is no UI a user can open: its sign-out button is not "the app has a sign-out" (run SNOW: an Encryption
+    # add-on layout, 0 of its pages in any menu or link). The reach is gen_journeys.entry_reach, the same one the
+    # inventory uses for no-click-path; imported here, not at the top, because gen_journeys imports this module.
+    from gen_journeys import entry_reach
+    reach = entry_reach(m)
+    unused = {d.qn for d in m.all_docs if d.type in ("Forms$Layout", "Forms$Page", "Forms$Snippet") and d.qn not in reach}
     nav = [("navigation", m.singletons[t]) for t in m.singletons if "Navigation" in t]
-    for qn, data in nav + [(d.qn, d.data) for d in m.all_docs if d.type.startswith(("Forms$", "Pages$", "Menus$"))]:
+    for qn, data in nav + [(d.qn, d.data) for d in m.all_docs if d.type.startswith(("Forms$", "Pages$", "Menus$")) and d.qn not in unused]:
         for p, kind, idx, a in _menu_items(data):
             k = _sign_out_kind(m, p[-1] if p else "", a)
             if k:
                 hits.append((f"{qn}: menu item {' > '.join(p)}", *k))
     for d in m.all_docs:
-        if d.type.startswith(("Forms$", "Pages$")):
+        if d.type.startswith(("Forms$", "Pages$")) and d.qn not in unused:
             for w in m.widgets(d.qn):
                 if isinstance(w.get("Action"), dict) and not NAV_TYPES.search(w.get("$Type", "")):
                     k = _sign_out_kind(m, text_of(w.get("Caption")) if w.get("Caption") else "", w["Action"])
@@ -691,6 +698,8 @@ def role_facts(m, roles):
         home = next((h for h in web.get("homes", []) if h["role"] == r), None) or default
         visible, hidden = [], []
         for cap, items in tops.items():
+            if not (cap or "").strip():  # an icon-only item has no text to look for (cold rfq: caption " ")
+                continue
             targets = [i for i in items if i["target"]]
             ok = any(r in roles.of_doc(i["target"]) for i in targets)
             if not targets:  # sign-out, url, no target: always shown
@@ -704,7 +713,10 @@ def role_facts(m, roles):
                   "home_role_specific": home is not default,
                   "landing": landing_widget(m, hp, () if r == roles.guest else pre_login) if hp else None,
                   "menu_visible": visible, "menu_hidden": hidden,
-                  "sign_out_item": next((i["path"] for i in menu if i["kind"] == "SignOutClientAction"), None),
+                  # a caption path with a blank caption cannot be navigated; gen_journeys then takes the layout menu
+                  # widget that renders the item and clicks it by index (cold rfq: an icon-only sign-out, caption " ")
+                  "sign_out_item": next((i["path"] for i in menu if i["kind"] == "SignOutClientAction"
+                                         and all((c or "").strip() for c in i["path"])), None),
                   "is_admin": r == roles.admin, "is_guest": r == roles.guest}
     return out, web, nav
 

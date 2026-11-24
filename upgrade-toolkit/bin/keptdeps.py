@@ -227,12 +227,16 @@ def main():
         return 2
     base = os.path.dirname(os.path.abspath(model.path))
     updated = names(a.updated)
+    skipped = []
     if a.updated_from_git:
         g, err = git_updated(base)
         if g is None:
             print(f"keptdeps: --updated-from-git: {err} (nothing judged)", file=sys.stderr)
             return 2
-        updated += g
+        # GF-40: a commit subject is free text ("step: <Marketplace package name> <ver>" is not always the module name). One
+        # unknown name from the history switched the whole check off (exit 2); skip it with a warning and judge the rest.
+        skipped = [n for n in g if n not in model.modules and n not in updated]
+        updated += [n for n in g if n not in skipped]
     updated = list(dict.fromkeys(updated))
     both = [n for n in updated if n in kept]
     updated = [n for n in updated if n not in kept]
@@ -257,6 +261,9 @@ def main():
             for key, v in src.items():
                 dirs.setdefault((d,) + key, set()).update(v)
 
+    if skipped:
+        print(f"WARNING: skipped {', '.join(skipped)}: a 'step:' commit subject names it but it is not a module of the model "
+              f"(a Marketplace package name or a removed module); the other modules ARE checked. Write the module name in the subject.")
     print(f"keptdeps: kept {len(kept)} ({', '.join(kept) or '-'}), updated {len(updated)} ({', '.join(updated) or '-'}); "
           f"scanned {ndocs} documents and {nfiles} Java files of these modules under {jdir}")
     if both:

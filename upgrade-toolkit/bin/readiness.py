@@ -7,7 +7,7 @@ what the customer must supply when it cannot, and which verdict the run can reac
 
 Why: in the 13 and 14 Oct runs, rungs turned out unjudgeable only at the very end. notification-service R2: 233 of 406
 generated journeys failed on the OLD app (57%, bar 30%), so the journeys rung could never pass. R1: 19 consumed API
-endpoints UNKNOWN, the apis rung INVALID. PLM and PV360: guest access on and no confirmed key-user process as the
+endpoints UNKNOWN, the apis rung INVALID. APPD and App F: guest access on and no confirmed key-user process as the
 anonymous role, journeys INVALID. Teamcenter apps fall back to mock data without an error, so a rendered connector
 page proves nothing (TC-1, PV-10, MC-17). Each of those was knowable at triage from what triage already writes.
 
@@ -131,7 +131,7 @@ def read_model(mpr):
         return None, f"model not read: {e}"
     sec = m.security_summary()
     roles = sorted(r for r in m.user_roles() if r)
-    return {"mpr": str(mpr), "roles": roles, "guest": sec.get("GuestUserRole") if sec.get("EnableGuestAccess") else None,
+    return {"mpr": str(mpr), "file_documents": mprmodel.file_document_entities(m), "roles": roles, "guest": sec.get("GuestUserRole") if sec.get("EnableGuestAccess") else None,
             "modules": sorted(getattr(m, "modules", []) or []), "project": str(Path(mpr).parent)}, None
 
 
@@ -280,6 +280,19 @@ def judge(w, a):
                            "a demo data snapshot or an anonymised copy of a test database", fallback="seeded rows",
                            source=(model or {}).get("project", ""))
 
+    # GM-42: a data rung over rows without files says so; a green data rung must not read as "files work on the new version"
+    fds = (model or {}).get("file_documents") or []
+    fd_rows = None
+    if before and isinstance((before.get("db") or {}).get("entities"), dict):
+        fd_rows = sum(v for k, v in before["db"]["entities"].items() if k in fds and isinstance(v, int))
+    if fds and (fd_rows == 0 or (fd_rows is None and rows["data"]["fallback"] == "seeded rows")):
+        rows["data"]["why"] += (f"; file storage not exercised: {'0 rows in' if fd_rows == 0 else 'no row count (no before.json) for'} the "
+                                f"{len(fds)} FileDocument entities ({', '.join(fds[:3])}{' ...' if len(fds) > 3 else ''}), so no file was read "
+                                "or written on either version")
+        fd_unexercised = True
+    else:
+        fd_unexercised = False
+
     # rest: published contract and safe probes
     if inv is None:
         rows["rest"] = row("rest", "NEEDS the test inventory", "not read", "", False)
@@ -413,6 +426,8 @@ def judge(w, a):
         qual.append("on stand-in APIs: " + ", ".join(standin[:6]) + (f" +{len(standin) - 6}" if len(standin) > 6 else ""))
     if rows["data"]["fallback"] == "seeded rows":
         qual.append("on seeded rows")
+    if fd_unexercised:
+        qual.append("file storage not exercised")
     if rows["connectors"]["fallback"] == "except":
         qual.append("; ".join(f"except {s}: connector pages" for s in sorted(csys)))
     pass_txt = "PASS" + (f" ({'; '.join(qual)})" if qual else "")

@@ -6,7 +6,7 @@
 # Checks: bash, git, python (UPG_PYTHON) with its modules (toolcheck.sh --host), mxcli (the run's container binary
 # $UPG_TOOLS/mxcli-linux or the host one, and the Marketplace login), docker (CLI, daemon, the toolkit images), node and the
 # Playwright module and Chromium for the walks, the mxbuild toolset per VERSION (toolcheck.sh), free disk (diskcheck.sh),
-# and the old shared-checkout link (SETUP.md before the split). Reads upg-env.sh values from the environment (source it first).
+# and the old shared-checkout link (SETUP.md before the split). Reads env.sh values from the environment (source it first).
 # Never prints a token. Never changes anything.
 # Exit: 0 ready (WARN lines are fine), 1 one or more FAIL lines.
 set -u
@@ -20,11 +20,11 @@ have() { command -v "$1" > /dev/null 2>&1; }
 # mxcli project toolkit's doctor bounds it the same way). perl ships with macOS; GNU timeout does not.
 bounded() { local s=$1; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"; }
 
-[ -n "$TOOLS" ] || echo "note: UPG_TOOLS is not set; for a run folder made by setup, source <run dir>/upg-env.sh first (toolsets and the run's mxcli are then checked too)"
+[ -n "$TOOLS" ] || echo "note: UPG_TOOLS is not set; for a run folder made by setup, source <run dir>/env.sh first (toolsets and the run's mxcli are then checked too)"
 
 # shell and git
-if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then ok bash "$BASH_VERSION"
-else warn bash "bash $BASH_VERSION (macOS ships 3.2; the scripts are tested on bash 5)" "brew install bash"; fi
+if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" = 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then ok bash "$BASH_VERSION"
+else warn bash "bash $BASH_VERSION (macOS ships 3.2; the pipeline and toolcheck refuse bash older than 4.4)" "brew install bash, then put it first on PATH: export PATH=\"\$(brew --prefix)/bin:\$PATH\""; fi
 have zsh || fail zsh "no zsh (toolcheck.sh and several helpers are zsh scripts)" "install zsh (apt install zsh)"
 if have git; then ok git "$(git --version | cut -d' ' -f3)"; else fail git "no git" "install git"; fi
 
@@ -40,7 +40,7 @@ else fail python "no $PY" "install python3, or set UPG_PYTHON"; fi
 # mxcli: the binary the run uses and the login
 mx=""; [ -n "$TOOLS" ] && [ -e "$TOOLS/mxcli-linux" ] && mx=$TOOLS/mxcli-linux
 if [ -n "$mx" ]; then ok mxcli "run binary $mx ($(bash "$B/mxcli_pin.sh" show "$mx" 2> /dev/null | head -1 | cut -d" " -f1))"
-elif have mxcli; then warn mxcli "no \$UPG_TOOLS/mxcli-linux; only the host mxcli ($(command -v mxcli))" "run bin/setup-container.sh, or source run/upg-env.sh"
+elif have mxcli; then warn mxcli "no \$UPG_TOOLS/mxcli-linux; only the host mxcli ($(command -v mxcli))" "run bin/setup-container.sh, or source run/env.sh"
 else fail mxcli "no mxcli (neither \$UPG_TOOLS/mxcli-linux nor mxcli on PATH)" "run bin/setup-container.sh <run dir> <versions> (SETUP.md)"; fi
 if [ -n "${MENDIX_PAT:-}" ] || [ -s "$HOME/.mxcli/auth.json" ]; then ok login "Marketplace token present (not shown)"
 else fail login "no MENDIX_PAT and no ~/.mxcli/auth.json: module updates (marketplace update) cannot download" "export MENDIX_PAT=<personal access token> and rerun setup (step auth)"; fi
@@ -63,6 +63,9 @@ elif ! bounded 8 "$RT" info > /dev/null 2>&1; then
   else
     fail docker "the docker daemon does not answer within 8 s (DOCKER_HOST=${DOCKER_HOST:-unset})" "start it: Apple Silicon colima with Rosetta (colima start -p upgrade --vm-type vz --vz-rosetta, then export DOCKER_HOST=unix://\$HOME/.colima/upgrade/docker.sock), or Docker Desktop"
   fi
+elif [ "$RT" = podman ] && ! { have docker && bounded 8 docker info > /dev/null 2>&1; }; then
+  # the pipeline scripts and the step docs call `docker` by name, so podman alone is not enough
+  fail docker "podman answers but docker info does not: the pipeline calls docker" "install the docker shim (the podman-docker package) or alias docker to podman (put a docker symlink to podman on PATH), then rerun"
 else
   ok docker "$RT daemon up ($(bounded 8 "$RT" info --format '{{.ServerVersion}} {{.Architecture}}' 2> /dev/null))"
   # Apple Silicon: the amd64 tools need Rosetta in the VM. Under qemu the Linux mxcli dies with SIGSEGV in triage
@@ -104,7 +107,7 @@ fi
 
 # toolsets per version
 for v in "$@"; do
-  if [ -z "$TOOLS" ]; then fail toolset "$v: UPG_TOOLS is not set" "source <run dir>/upg-env.sh"; continue; fi
+  if [ -z "$TOOLS" ]; then fail toolset "$v: UPG_TOOLS is not set" "source <run dir>/env.sh"; continue; fi
   if [ ! -d "$TOOLS/mxbuild-$v" ]; then fail toolset "$v: no $TOOLS/mxbuild-$v" "bash bin/setup-container.sh <run dir> $v (step toolsets)"
   elif out=$(zsh "$B/toolcheck.sh" "$TOOLS/mxbuild-$v" mxbuild 2>&1); then ok toolset "$v complete"
   else fail toolset "$v: $(echo "$out" | head -1 | cut -c1-110)" "extract mxbuild-$v.tar.gz again into a fresh folder"; fi

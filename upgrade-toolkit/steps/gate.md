@@ -29,7 +29,7 @@ is INVALID with the instrument's advice, never FAIL (N1R2-8, N1R2-9, T2R3-10, T2
 `APIMOCK=<state>` and `EXCLUDE_SYSTEMS=Teamcenter` (item 12) the driver can end in `PASS (except Teamcenter: N items)`,
 exit 4, with every NOT CHECKED item listed by name in `gate-summary.md`; it never prints plain PASS then. With
 `APIMOCK` set and any endpoint on the stand-in it ends in `PASS (on stand-in APIs: <systems>)`, exit 4, the stand-in
-endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcenter; except Teamcenter: 3 items)`. Run
+endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: App A; except Teamcenter: 3 items)`. Run
 `gate.sh --help` for the keys.
 
 1. Build: mx check 0 errors and BUILD SUCCEEDED (step 4).
@@ -50,7 +50,11 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    `python3 $B/diff.py $W/before.json $W/after.json --allow $W/allow.txt --log-allow $W/log-allow.txt --md $W/diff.md`:
    0 FAIL, 0 INVALID, 0 open REVIEW, 0 NEW_ENDPOINT open. allow.txt: `<check pattern> [detail pattern] # reason`; it
    accepts FAIL, INVALID, REVIEW and NEW_ENDPOINT lines (for example `http./rest-doc/*/openapi.json` on 9 to 10). An
-   accepted line prints as PASS*, with its reason, and the report lists it (E4-23). `--log-allow` applies the logdiff
+   accepted line prints as PASS*, with its reason, and the report lists it (E4-23).
+   The line is split on the FIRST space: `<check pattern>` up to it, the rest (up to `#`) is the detail pattern, so wrap a
+   detail in wildcards: `log.new_error *MigrateOldFiles* # known queued-task error` (a bare `ClusterManagement-MigrateOldFiles`
+   after the space does not match a detail that starts with other text). The diff step rebuilds `allow-effective.txt`
+   from `allow.txt` plus `heal-allow.txt` itself, so `--from diff` picks up a line you just wrote. `--log-allow` applies the logdiff
    allow file to the `log.start` rows.
 5. REST contract: part of diff.py (lost operation, response code or parameter, or a new required parameter is FAIL).
    For saved documents: `python3 $B/restcontract.py before/ after/`.
@@ -77,9 +81,9 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    RUN; it is never a PASS. Order matters: journeys change data (pager counts, edited or deleted rows), so walk the layout on both apps
    first. A layout compare run after the journeys fails against a baseline walked on fresh data. In the gate the rung sits before `journeys`. Accept lines: `pair pattern # what you saw`, the reason is required.
 
-8. Journeys: [journeys.md](journeys.md) "At the gate". `GATE_TIMEOUT` (seconds per instrument, default 900) is too
+8. Journeys: [journeys.md](journeys.md) "At the gate". `GATE_TIMEOUT` (seconds per instrument, default 900; smoke 600) is too
    short for a big set: 247 journeys at `--pause 50` take about 65 minutes per side. Set it to journeys times pause
-   times 1.3 plus the app start, e.g. `GATE_TIMEOUT=6000`, in gate.conf next to the journeys rung (NR1-29). A REGRESSION is FAIL; INVALID (no test user, todo) blocks DONE.
+   times 1.3 plus the app start, e.g. `GATE_TIMEOUT=6000`, in gate.conf next to the journeys rung (NR1-29). `GATE_TIMEOUT` is a gate.conf key and a `KEY=VALUE` argument (a positive whole number of seconds, else the gate refuses to start); the order is gate.conf < environment variable of the same name < the `KEY=VALUE` argument (later wins); leading zeros are stripped (`007` is 7), zero and unit suffixes (`30s`) are refused. The smoke limit does not scale with roles x repeat (6 roles x 3 repeats took about 20 minutes, over the 600 s default): set it from roles x repeat x about 70 s plus the app start (GM-32). A rung that hits it names the elapsed time and both ways to raise it. A REGRESSION is FAIL; INVALID (no test user, todo) blocks DONE.
    Cite the coverage line (`actions A found · G generated ... · coverage B/A`, journeys.md "Coverage and honesty").
    gate.sh keys: `ACTIONS` (the OLD model's actions.json, run_journeys `--actions`), else `ACTIONS_WAIVE=<reason>`
    (at best PASS*: no denominator); without either the rung is INVALID. `JOURNEY_EVIDENCE` (`--baseline-evidence`)
@@ -165,8 +169,8 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    location from data, a hard-coded URL, a URL constant no modelled call reads), or a request the stand-in could not
    match, is INVALID until it is classified (`--classify` lines with a reason) or its data points at the stand-in.
    Add-on modules (`modules/*.mxmodule`, B4T2-6 / B4N1-9) are packed and protected: their calls cannot be read, and a
-   location their microflows build at runtime from entity data (Opcenter `EXFN_ServiceLayer`: ServiceUrl from
-   `ClientConfiguration.OpcenterEXFNUrl`) is invisible. Each add-on is one UNKNOWN endpoint `addon:<Module>` naming its
+   location their microflows build at runtime from entity data (App A `MFN_ServiceLayer`: ServiceUrl from
+   `ClientConfiguration.ModuleAUrl`) is invisible. Each add-on is one UNKNOWN endpoint `addon:<Module>` naming its
    URL constants and URL attributes, so "unknown 0" is never shown beside an add-on. Point such a location at the
    stand-in with a LOCATION line, then classify it: `<pattern> LOCATION const:<Module.Constant> # reason` (serve
    overrides that constant, it is in `overrides.json`) or `<pattern> LOCATION data:<Module.Entity.Attribute> # reason`
@@ -202,7 +206,7 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: Opcen
    --smoke $G/smoke-after.json --journeys $W/e2e-gen` lists every widgets/*.mpk that a page uses and that no smoke step and
    no journey renders (a snippet or layout of a rendered page renders with it). Exit 0 = every used package is rendered or
    waived (`--waive FILE`, "package or widget id # reason"), exit 3 = at least one UNRENDERED: the driver reports INVALID, never
-   PASS. Why: Asset Console's 3D viewer widget (2024 build, its own React 18) crashed on the 11.12.6 client with React
+   PASS. Why: App H's 3D viewer widget (2024 build, its own React 18) crashed on the 11.12.6 client with React
    error #525 and "Could not render widget"; the gate exited 0 because the frozen data had no configuration for the panel,
    so no walked page held the widget. Close it by a journey or hand-written walk that opens one page with the widget
    (`--rendered FILE` names the pages a hand-written walk covers) or by a waiver with the reason. Gate key: `WIDGETS_APP=app/`.

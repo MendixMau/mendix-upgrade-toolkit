@@ -75,11 +75,22 @@ async function lastVisible(loc) {
 }
 
 function pageWidget(els) { // runs in the page: index of the shown element nested in the most placeholders, else 0
+  // SITS (an SSO starter app; synthetic fixture, no capture kept): the layout footer's links share the page's widget names
+  // (actionButton5 = "New Account" on the page and "Terms of Use" in the footer) and sit deeper in placeholders, so the
+  // footer won and create-save FAILed on the new app only. A shown match inside a footer / [role=contentinfo] is demoted
+  // only when a shown match outside one sits in a page placeholder (depth >= 1): then that one is the page's own. With no
+  // such match (a layout topbar at depth 0 is not the page) the footer stays in the pool, so a page widget inside a
+  // <footer> within its placeholder still wins over the layout (R38). A sole shown match is kept wherever it is.
+  const shown = [];
+  els.forEach((e, i) => { if (e.getClientRects().length) shown.push(i); });
+  const depthOf = (e) => { let d = 0; for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++; return d; };
+  const inFooter = (e) => typeof e.closest === 'function' && !!e.closest('footer, [role="contentinfo"]'); // guarded: a thrown error here falls back to index 0 (the layout widget)
+  const pageSide = shown.filter((i) => !inFooter(els[i]) && depthOf(els[i]) >= 1);
+  const pool = pageSide.length ? pageSide : shown;
   let best = 0, depth = -1;
-  els.forEach((e, i) => {
-    if (!e.getClientRects().length) return;
+  pool.forEach((i) => {
     let d = 0;
-    for (let a = e.parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
+    for (let a = els[i].parentElement; a; a = a.parentElement) if (a.classList.contains('mx-placeholder')) d++;
     if (d > depth) { best = i; depth = d; }
   });
   return best;
@@ -130,7 +141,14 @@ async function topmost(page, widget, near, unassigned) {
     const i = await all.evaluateAll(inTab, t).catch(() => -1);
     if (i >= 0) return all.nth(i);
   }
-  return all.nth(await all.evaluateAll(pageWidget).catch(() => 0));
+  // a page that threw while picking (navigated away, detached node) used to give index 0 silently, the layout widget; it is
+  // still index 0, but said on the console and left on page.__pickFallback (a mark for whoever debugs the run; no step reads it)
+  const pick = await all.evaluateAll(pageWidget).catch((e) => {
+    page.__pickFallback = `${widget}: ${String((e && e.message) || e).split('\n')[0].slice(0, 120)}`;
+    console.log(`    pick: "${widget}" fell back to the first match (${page.__pickFallback})`);
+    return 0;
+  });
+  return all.nth(pick);
 }
 
 const UNASSIGNED_STATE = /(^|[^A-Za-z])(not assigned( yet)?|unassigned|no assignee|nobody|no one)($|[^A-Za-z])/i;
@@ -257,13 +275,39 @@ async function toggle(page, a, value) {
   return got;
 }
 
+async function radio(page, radios, nr, a, want) {
+  const items = [];
+  for (let i = 0; i < nr; i++) {
+    const r = radios.nth(i);
+    const text = await r.evaluate(e => ((e.closest('label') || e.parentElement || e).textContent || '').trim());
+    items.push({ r, text, off: await r.isDisabled().catch(() => false) });
+  }
+  let it;
+  if (a.first) it = items.find(x => !x.off);
+  else it = items.find(x => x.text === want && !x.off) || items.find(x => want && x.text.includes(want) && !x.off);
+  if (!it) {
+    throw new Error(`${a.widget}: no radio button matches "${a.first ? '(first enabled)' : want}". Options were: ` +
+      items.slice(0, 8).map(x => `"${x.text}"${x.off ? ' (disabled)' : ''}`).join(', ') + (items.length > 8 ? ` (+${items.length - 8} more)` : ''));
+  }
+  await it.r.check();
+  await page.waitForTimeout(300);
+  if (!(await it.r.isChecked().catch(() => false))) throw new Error(`${a.widget}: radio "${it.text}" is not checked after choosing it`);
+  return it.text;
+}
+
 async function select(page, a, want) {
   const box = await topmost(page, a.widget);
   await visibleOrThrow(box, `.mx-name-${a.widget}`);
   let sel = box.locator('select').first();
   if (!(await sel.count().catch(() => 0))) {
+    // Radio buttons (an enumeration or boolean shown as Radio buttons) are no <select>: choose the radio whose own
+    // label is the caption asked for (a.first: the first enabled one) and read the choice back. A create-spec field
+    // {"widget": "radioButtons1", "do": "select"} used to FAIL the healthy OLD app here (field run RMS).
+    const radios = box.locator('input[type="radio"]');
+    const nr = await radios.count().catch(() => 0);
+    if (nr) return radio(page, radios, nr, a, want);
     const tag = await box.evaluate(e => e.tagName).catch(() => '');
-    if (String(tag).toUpperCase() !== 'SELECT') throw new Error(`${a.widget}: no <select> inside .mx-name-${a.widget} (a combobox widget needs "combobox")`);
+    if (String(tag).toUpperCase() !== 'SELECT') throw new Error(`${a.widget}: no <select> inside .mx-name-${a.widget} (a Combo box widget needs "combo")`);
     sel = box;
   }
   const texts = await sel.evaluate(s => [...s.options].map(o => o.textContent.trim()));

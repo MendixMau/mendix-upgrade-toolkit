@@ -1,7 +1,7 @@
 // Control for E5 F9: the smokewalk wait predicates must return false (not throw) while the Mendix session is not
 // available yet, and true once it is. Playwright's waitForFunction rejects on the first throw, which made every role
 // INVALID one second after a login that worked. Runs in plain node with a fake window/mx; exit 0 = pass.
-const { loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome } = require('../bin/smokewalk.js');
+const { judge, directUrl, openDirect, directNote, directFailure, mergeWalks, loggedIn, contentPath, homeReady, landedWhere, landedOk, pageSettled, apiOnlyHome, sessionUser, loginFailure, homeErrorFromLog, runtimeLogMark, runtimeLogText } = require('../bin/smokewalk.js');
 let fail = 0;
 const check = (name, got, want) => {
   const ok = got === want;
@@ -109,6 +109,8 @@ function pwLoad() {
   check('landedOk fake filter attribute error', /widget error is showing/.test(landedOk() || ''), true);
   global.document = fake([shown('.alert-danger', 'No filter store available')]);
   check('landedOk fake no filter store', /widget error is showing/.test(landedOk() || ''), true);
+  global.document = fake([shown('.alert-danger', '3 lots expire this week')]);
+  check('landedOk fake app alert text', landedOk(), null);
   global.document = fake([Object.assign(shown('.alert-danger', 'widget value required'), { className: 'alert alert-danger mx-validation-message' }), hidden('.alert-danger', 'widget broken')]);
   check('landedOk fake validation message', landedOk(), null);
   global.document = { querySelectorAll() { throw new Error('boom'); } };
@@ -120,5 +122,68 @@ function pwLoad() {
   check('apiOnlyHome menu step to the login page', apiOnlyHome(lp, { via: 'menu', page: 'General.Login_Web' }), null);
   check('apiOnlyHome no model login page', apiOnlyHome({ login_page: '' }, { via: 'home', page: 'General.Login_Web' }), null);
   // T7R-12, T8R-8: --repeat never clears a FAIL by luck: FAIL then PASS is FLAKY, FAIL on every attempt stays FAIL
+  // GM-30: a live session with a home page that errors is "home failed for this user", not "login failed"
+  global.mx = { session: { getUserName: () => 'smoke_user' } };
+  check('sessionUser dojo', sessionUser('Smoke_User'), 'smoke_user');
+  global.mx = { session: { sessionData: { user: { guid: '1', name: 'smoke_user' } } } };
+  check('sessionUser react', sessionUser('smoke_user'), 'smoke_user');
+  global.mx = { session: { getUserName: () => 'guest' } };
+  check('sessionUser guest is not the expected user', sessionUser('smoke_user'), null);
+  global.mx = { session: { sessionData: { user: { guid: '9', name: 'anonymous' } } } };
+  check('sessionUser anonymous is not the expected user', sessionUser('smoke_user'), null);
+  check('loginFailure guest session stays login failed', loginFailure({ status: 200, url: 'u', user: sessionUser('smoke_user'), error: 'x' }), 'login failed (HTTP 200, still on u)');
+  global.mx = { session: { getUserName() { throw new Error('Session is not available'); } } };
+  check('sessionUser while session throws', sessionUser('smoke_user'), null);
+  check('loginFailure session and server error', loginFailure({ status: 200, url: 'http://h/login3.html', user: 'smoke_user', error: 'NullPointerException in Home' }),
+    'home failed for this user: NullPointerException in Home (session exists, HTTP 200, on http://h/login3.html)');
+  check('loginFailure session without error text', /^home failed for this user: the home page did not render/.test(loginFailure({ status: 200, url: 'u', user: 'x' })), true);
+  check('loginFailure no session', loginFailure({ status: 200, url: 'http://h/login3.html', user: null, error: 'x' }), 'login failed (HTTP 200, still on http://h/login3.html)');
+  // GF-17: a sign-in that works and then lands back on login quotes the home microflow error from the runtime log
+  check('homeErrorFromLog last error line', homeErrorFromLog('INFO a\nERROR - MicroflowEngine: error in microflow M.Home\nINFO b\n'), 'ERROR - MicroflowEngine: error in microflow M.Home');
+  check('homeErrorFromLog none', homeErrorFromLog('INFO a\nINFO b\n'), null);
+  check('loginFailure quotes the log error', loginFailure({ status: 200, url: 'http://h/login.html', user: null, logError: 'ERROR - microflow M.Home: null' }).startsWith('login failed (HTTP 200, back on http://h/login.html): the sign-in itself worked and the home page then failed; the runtime log says: "ERROR - microflow M.Home: null"'), true);
+  // GF-17 review: only the lines written after THIS sign-in started; an earlier role's error is never quoted for a later role
+  { const fs = require('fs'), os = require('os'), path = require('path'), f = path.join(os.tmpdir(), 'upg-rtlog-' + process.pid + '.log');
+    fs.writeFileSync(f, 'INFO a\nERROR - MicroflowEngine: error in microflow M.Home for role one\n');
+    const mark = runtimeLogMark(f);
+    fs.appendFileSync(f, 'INFO sign-in of role two\n');
+    check('runtimeLogText since the mark has no earlier role error', homeErrorFromLog(runtimeLogText(f, mark)), null);
+    check('runtimeLogText whole log still has it', homeErrorFromLog(runtimeLogText(f, 0)), 'ERROR - MicroflowEngine: error in microflow M.Home for role one');
+    fs.appendFileSync(f, 'ERROR - MicroflowEngine: error in microflow M.Home for role two\n');
+    check('runtimeLogText since the mark quotes this role', homeErrorFromLog(runtimeLogText(f, mark)), 'ERROR - MicroflowEngine: error in microflow M.Home for role two');
+    // a log that ends in a newline: the first line after the mark is the new one, never dropped
+    fs.writeFileSync(f, 'INFO a\nINFO b\n');
+    const mark2 = runtimeLogMark(f);
+    fs.appendFileSync(f, 'ERROR - MicroflowEngine: error in microflow M.Home for first line\n');
+    check('runtimeLogText keeps the first line after the mark', homeErrorFromLog(runtimeLogText(f, mark2)), 'ERROR - MicroflowEngine: error in microflow M.Home for first line');
+    fs.unlinkSync(f);
+    // the log command's stderr counts too (docker logs writes the app's stderr to stderr)
+    process.env.UPG_RUNTIME_LOG_CMD = "sh -c 'echo INFO ok; echo \"ERROR - microflow M.X: null\" >&2'";
+    check('runtimeLogText from the log command takes stderr', homeErrorFromLog(runtimeLogText(null, 0)), 'ERROR - microflow M.X: null');
+    delete process.env.UPG_RUNTIME_LOG_CMD; }
+  check('loginFailure license limit wins', /^login refused: license session limit/.test(loginFailure({ status: 402, url: 'u', user: 'x' })), true);
+  // GM-31: no menu link (a pluggable navigation widget draws the menu): open the target directly, say so, never claim the menu
+  const mfStep = { kind: 'microflow', via: 'menu', microflow: 'M.Do' }, pgStep = { kind: 'page', via: 'menu', page_path: 'M/P.page.xml', url: '' };
+  check('directUrl page with a url', directUrl({ kind: 'page', url: 'orders' }, 'http://h:1/'), 'http://h:1/p/orders');
+  check('directUrl page without a url falls to openForm', directUrl(pgStep, 'http://h:1'), null);
+  global.mx = { ui: { openForm: (p, o) => o.callback() }, data: { action: o => o.callback() } };
+  check('openDirect page opens', await openDirect(pgStep), null);
+  check('openDirect microflow runs', await openDirect(mfStep), null);
+  check('directNote says the menu is not proven', /opened directly.*menu is NOT proven \(menu link -A-B not rendered\)/.test(directNote('menu link -A-B not rendered')), true);
+  global.mx = { ui: { openForm: (p, o) => o.error(new Error('no access')) }, data: { action: o => o.error({ message: 'CE boom' }) } };
+  check('openDirect page fails with its reason', await openDirect(pgStep), 'page did not open: no access');
+  check('openDirect microflow fails with its reason', await openDirect(mfStep), 'microflow failed: CE boom');
+  check('both failures named', directFailure('menu link -A not rendered', 'page did not open: no access'), 'menu link -A not rendered; direct open also failed: page did not open: no access');
+  global.mx = { ui: {}, data: {} };
+  check('openDirect without client helpers', await openDirect(pgStep), 'mx.ui.openForm not available');
+  const dwalk = [{ role: 'R', steps: [{ caption: 'c', via: 'menu', target: 'M.P', verdict: 'PASS', direct: directNote('x') }] }];
+  check('mergeWalks keeps "opened directly" when every run PASSed', /^opened directly/.test(mergeWalks([dwalk, JSON.parse(JSON.stringify(dwalk))])[0].steps[0].direct), true);
+  // GM-31 fix 1: clicked on the old app, opened directly on the new one: the lost menu is reported and counted (exit 2)
+  const mk = (direct) => ({ roles: [{ role: 'R', verdict: 'PASS', steps: [Object.assign({ caption: 'c', via: 'menu', target: 'M.P', kind: 'page', verdict: 'PASS' }, direct ? { direct: directNote('x') } : {})] }] });
+  const jl = judge([mk(false)], mk(true));
+  check('judge MENU-LOST counted', jl.tot.menu_lost, 1);
+  check('judge MENU-LOST line', jl.lines.some(l => /^  MENU-LOST R \| menu \| c \| M\.P: was clicked, now opened directly/.test(l)), true);
+  check('judge clicked both: no MENU-LOST', judge([mk(false)], mk(false)).tot.menu_lost, 0);
+  check('judge direct on both: no MENU-LOST', judge([mk(true)], mk(true)).tot.menu_lost, 0);
   process.exit(fail ? 1 : 0);
 })();

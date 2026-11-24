@@ -1,6 +1,6 @@
 {
- "_comment": "Golden capture (B4T2-6, B4N1-9): verbatim BSON nodes from the public Opcenter EX Starter Kit add-on modules/EXFN_Authentication.mxmodule project.mpr (one BSON document, not sqlite); three Constants$Constant (ClientId is the non-URL negative) and the Microflows$ChangeActionItem that writes the URL attribute at runtime. Documentation pruned. Rebuilt into a .mxmodule by run-controls.sh.",
- "module": "EXFN_Authentication",
+ "_comment": "Golden capture (B4T2-6, B4N1-9): verbatim BSON nodes from the public vendor starter-kit add-on modules/MFN_Authentication.mxmodule project.mpr (one BSON document, not sqlite); three Constants$Constant (ClientId is the non-URL negative) and the Microflows$ChangeActionItem that writes the URL attribute at runtime. Documentation pruned. Rebuilt into a .mxmodule by run-controls.sh.",
+ "module": "MFN_Authentication",
  "_ProductVersion": "9.24.4.11007",
  "nodes": [
   {
@@ -11,7 +11,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCEXFN: {{APPLICATIONBASEURL}}",
+   "DefaultValue": "APPA_MFN: {{APPLICATIONBASEURL}}",
    "ExposedToClient": true,
    "Name": "APPBaseUrl",
    "Type": {
@@ -32,7 +32,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCEXFN: {{UMCBASEURL}}",
+   "DefaultValue": "APPA_MFN: {{UMCBASEURL}}",
    "ExposedToClient": true,
    "Name": "UMCBaseUrl",
    "Type": {
@@ -53,7 +53,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCEXFN: {{CLIENTID}}",
+   "DefaultValue": "APPA_MFN: {{CLIENTID}}",
    "ExposedToClient": false,
    "Name": "ClientId",
    "Type": {
@@ -75,9 +75,9 @@
    },
    "$Type": "Microflows$ChangeActionItem",
    "Association": "",
-   "Attribute": "EXFN_Authentication.ClientConfiguration.OpcenterEXFNUrl",
+   "Attribute": "MFN_Authentication.ClientConfiguration.ModuleAUrl",
    "Type": "Set",
-   "Value": "@EXFN_Authentication.APPBaseUrl"
+   "Value": "@MFN_Authentication.APPBaseUrl"
   }
  ]
 }

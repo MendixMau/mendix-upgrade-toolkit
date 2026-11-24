@@ -8,7 +8,7 @@
 # ctl-quick* only. mig-pg is used as it is, never recreated.
 set -u
 T=$1; here=$(cd "$(dirname "$0")" && pwd); B=$here/../bin
-LAB=${UPG_LAB:-$HOME/upgrade-lab}; E1W=$LAB/f1/runs/e1/work
+LAB=${UPG_LAB:-$HOME/field-lab}; E1W=$LAB/f1/runs/e1/work
 W=$T/start; mkdir -p $W
 export WORKDIR=$W UPG_TOOLS=$LAB/f1/mig/tools PORT_OFF=800 UPG_DB_PREFIX=fx_ UPG_NAME=ctl
 unset UPG_LOCK UPG_LOCK_POLL   # the real lock: other sessions start apps too

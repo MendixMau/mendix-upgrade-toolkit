@@ -1,5 +1,28 @@
 # Mendix upgrade toolkit
 
+Upgrades a Mendix app to a newer Mendix version, then tells you in plain words whether anything broke for your users.
+
+**You need:** your app (an `.mpk` or project zip) and the Mendix version it runs on now and the one you want;
+a coding agent (such as Claude Code) in a Linux or macOS terminal with Docker; a Mendix token (`MENDIX_PAT`).
+Machine setup, once: [upgrade-toolkit/SETUP.md](upgrade-toolkit/SETUP.md).
+
+**Start with one command:**
+```bash
+upgrade-toolkit/bin/cloud/upgrade-pipeline.sh --app-zip app.mpk --source <current full version> --target <new full version> --work run/work
+```
+**You will see** a page in your browser (`COCKPIT.html`, refreshes itself) and the same short brief in the terminal
+at every stop: where the upgrade stands, what is broken for your users, what is not measured yet, what to do now,
+who changed what. Print it any time with `--work run/work --brief`.
+
+**A person decides** at two places: you approve the upgrade plan once (the sign-off), and you answer the few questions
+the run cannot settle itself, each with a recommended answer. Answer in the chat with your agent or on the page.
+The AI never signs off for you.
+
+---
+The rest of this page is detail; skip it on a first read.
+
+## How it works
+
 A scripted Mendix upgrade with gates, run by a coding agent. Scripts do the fixed work: triage, baseline, convert,
 Marketplace module updates, build, data diff, smoke walk, page layout compare, journeys and the gate. The agent
 repairs build errors, fixes journeys and compares results. Every rung ends in PASS, FAIL or INVALID, with evidence.

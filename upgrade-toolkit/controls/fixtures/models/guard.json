@@ -29,5 +29,5 @@
  "navigation": {"homes": [{"role": "*", "page": "Shop.Inbox"}, {"role": "Manager", "page": "Shop.Clients"},
                           {"role": "Inspector", "page": "Shop.Phone_Home"}, {"role": "Planner", "microflow": "Shop.NAV_Planner"}],
                 "menu": [{"caption": "Inbox", "page": "Shop.Inbox"}, {"caption": "Buffer", "page": "Shop.Buffers"},
-                         {"caption": "Client Configuration", "page": "EXFN_Authentication.Nav_ClientConfiguration_Overview"},
+                         {"caption": "Client Configuration", "page": "MFN_Authentication.Nav_ClientConfiguration_Overview"},
                          {"caption": "Board", "page": "Shop.Board"}, {"caption": "Notifications", "page": "Shop.Notifications"}]}}

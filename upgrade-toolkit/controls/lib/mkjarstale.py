@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """mkjarstale.py: jar folders for the jardedupe STALE / OLD-VERSION controls (public library names, real zips).
 
-  mkjarstale.py <out dir> addon-cache|addon-zip|addon-unreadable|no-addon|sso|t1r|n3|netty|netty-nocodec
+  mkjarstale.py <out dir> addon-cache|addon-zip|addon-unreadable|no-addon|sso|t1r|n3|netty|netty-nocodec|artifact|artifact-pkg|artifact-unknown|artifact-extras|artifact-shaded|artifact-addon|artifact-leftover
 
 addon-*   T2R3-6 shape: the 6 OIDC-marked userlib jars of TOOLKIT-FEEDBACK T2R3-6 (java-jwt 3.11.0, jackson-core,
           -databind, -annotations 2.14.1, json, commons-codec 1.15), no OIDC module in the app, and an add-on
-          EXFN_Authentication whose DecodeJWT.java imports com.auth0.jwt and jackson databind. A PushNotifications-marked
-          jar nobody imports stays stale. -cache: the Java is in .mendix-cache/modules/exfn_authentication.mxmodule/
-          (where the worker found it); -zip: only inside modules/EXFN_Authentication.mxmodule; -unreadable: the
+          MFN_Authentication whose DecodeJWT.java imports com.auth0.jwt and jackson databind. A PushNotifications-marked
+          jar nobody imports stays stale. -cache: the Java is in .mendix-cache/modules/mfn_authentication.mxmodule/
+          (where the worker found it); -zip: only inside modules/MFN_Authentication.mxmodule; -unreadable: the
           .mxmodule is no zip and there is no cache; no-addon: the same jars without any add-on.
 sso       N3-17 marker shape '<jar>.MendixSSO.<version>.RequiredLib': old-only jars, a jar both versions claim, an orphan
           marker, an old-only jar the app's javasource imports.
@@ -17,6 +17,17 @@ n3        N3-17: the vendorlib pairs of runs/n3-purchase-request-11 evidence/jar
 netty     NS-3: notification-service a06afe60, cut down: MendixSSO-marked netty 4.1.119.Final jars in userlib, netty
           4.2.5.Final in vendorlib, where 4.2 split netty-codec into netty-codec-base and netty-codec-compression.
           userlib/netty-codec-4.1.119.Final.jar has no copy anywhere; -nocodec: the same without it.
+artifact  GM-27: kotlin-stdlib and annotations jars whose marker names the ARTIFACT 'databroker-business-events-module',
+          not the module (BusinessEvents, which IS in the app: javasource/businessevents/ imports the artifact jar's
+          package). Also a jar marked by OldMod, a module the app no longer has: that one is still STALE.
+artifact-pkg   the same markers, but nothing in the Java links them: only the module's installed package (an .mpk in
+          the cache the control writes) ships the marker files.
+artifact-extras   the owner's Java imports a package of '<artifact>-extras-1.jar', which is another artifact: no claim.
+artifact-shaded   the artifact jar holds only com.google.gson, which gson-2.10.jar provides too, and an unrelated module
+          'other' imports com.google.gson.Gson: a shared package proves nothing.
+artifact-addon    the artifact jar's package is imported by an add-on's Java only (.mendix-cache/modules/...).
+artifact-leftover a javasource/oldmod/ folder imports the artifact jar's package, but OldMod is not installed.
+artifact-unknown   the artifact marker with no owner anywhere (no package, no jar, no Java), plus the OldMod jar.
 """
 import io, os, sys, zipfile
 
@@ -57,21 +68,21 @@ if kind.startswith("addon") or kind == "no-addon":
         put(f"{out}/userlib/{name}.OIDC.RequiredLib")
     put(f"{out}/userlib/pushy-0.15.2.jar", jar(cls("com.eatthepath.pushy.apns"), ("com.eatthepath", "pushy", "0.15.2")))
     put(f"{out}/userlib/pushy-0.15.2.jar.PushNotifications.RequiredLib")
-    java = ("package exfn_authentication.actions;\n\nimport com.auth0.jwt.JWT;\nimport com.auth0.jwt.interfaces.DecodedJWT;\n"
+    java = ("package mfn_authentication.actions;\n\nimport com.auth0.jwt.JWT;\nimport com.auth0.jwt.interfaces.DecodedJWT;\n"
             "import com.fasterxml.jackson.databind.ObjectMapper;\nimport com.mendix.systemwideinterfaces.core.IContext;\n\n"
             "public class DecodeJWT {}\n")
-    rel = "javasource/exfn_authentication/actions/DecodeJWT.java"
+    rel = "javasource/mfn_authentication/actions/DecodeJWT.java"
     if kind == "addon-cache":
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", jar(["project.mpr"]))
-        put(f"{out}/.mendix-cache/modules/exfn_authentication.mxmodule/{rel}", java)
+        put(f"{out}/modules/MFN_Authentication.mxmodule", jar(["project.mpr"]))
+        put(f"{out}/.mendix-cache/modules/mfn_authentication.mxmodule/{rel}", java)
     elif kind == "addon-zip":
         b = io.BytesIO()
         with zipfile.ZipFile(b, "w") as z:
             z.writestr("project.mpr", b"")
             z.writestr(rel, java)
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", b.getvalue())
+        put(f"{out}/modules/MFN_Authentication.mxmodule", b.getvalue())
     elif kind == "addon-unreadable":
-        put(f"{out}/modules/EXFN_Authentication.mxmodule", "notazip")
+        put(f"{out}/modules/MFN_Authentication.mxmodule", "notazip")
 elif kind == "sso":
     put(f"{out}/App.mpr", "Module MendixSSO Module Administration")
     put(f"{out}/userlib/accessors-smart-2.4.7.jar", jar(cls("net.minidev.asm"), ("net.minidev", "accessors-smart", "2.4.7")))
@@ -120,5 +131,44 @@ elif kind in ("netty", "netty-nocodec"):
         put(f"{out}/userlib/{a}-{v1}.jar.MendixSSO.RequiredLib")
     for a in ("netty-buffer", "netty-codec-http", "netty-codec-base", "netty-codec-compression"):
         put(f"{out}/vendorlib/{a}-{v2}.jar", jar(cls("io.netty." + a.split("-", 1)[1].replace("-", ".")), ("io.netty", a, v2)))
+elif kind in ("artifact", "artifact-pkg", "artifact-unknown", "artifact-extras", "artifact-shaded", "artifact-addon",
+              "artifact-leftover"):
+    art = "databroker-business-events-module"
+    put(f"{out}/App.mpr", "Module BusinessEvents Module Administration")
+    for a, g, v, pkg in (("kotlin-stdlib", "org.jetbrains.kotlin", "1.9.10", "kotlin"),
+                         ("annotations", "org.jetbrains", "13.0", "org.intellij.lang.annotations")):
+        put(f"{out}/userlib/{a}-{v}.jar", jar(cls(pkg), (g, a, v)))
+        put(f"{out}/userlib/{a}-{v}.jar.{art}.RequiredLib")
+    put(f"{out}/userlib/pushy-0.15.2.jar", jar(cls("com.eatthepath.pushy.apns"), ("com.eatthepath", "pushy", "0.15.2")))
+    put(f"{out}/userlib/pushy-0.15.2.jar.OldMod.RequiredLib")   # OldMod is not in the app: truly stale
+    if kind == "artifact":
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime"), ("com.mendix", art, "3.12.1")))
+        put(f"{out}/javasource/businessevents/actions/Publish.java",
+            "package businessevents.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
+    elif kind == "artifact-extras":
+        put(f"{out}/userlib/{art}-extras-1.jar", jar(cls("com.mendix.businessevents.extras")))
+        put(f"{out}/javasource/businessevents/actions/Publish.java",
+            "package businessevents.actions;\nimport com.mendix.businessevents.extras.C0;\nclass Publish {}\n")
+    elif kind == "artifact-shaded":
+        put(f"{out}/App.mpr", "Module BusinessEvents Module other Module Administration")
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.google.gson")))
+        put(f"{out}/userlib/gson-2.10.jar", jar(cls("com.google.gson"), ("com.google.code.gson", "gson", "2.10")))
+        put(f"{out}/javasource/other/actions/Parse.java",
+            "package other.actions;\nimport com.google.gson.Gson;\nclass Parse {}\n")
+    elif kind == "artifact-addon":
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime")))
+        put(f"{out}/.mendix-cache/modules/businessevents.mxmodule/javasource/businessevents/actions/Publish.java",
+            "package businessevents.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
+    elif kind == "artifact-leftover":
+        put(f"{out}/userlib/{art}-3.12.1.jar", jar(cls("com.mendix.businessevents.runtime")))
+        put(f"{out}/javasource/oldmod/actions/Publish.java",
+            "package oldmod.actions;\nimport com.mendix.businessevents.runtime.C0;\nclass Publish {}\n")
+    elif kind == "artifact-pkg":
+        put(f"{out}/javasource/businessevents/actions/Publish.java", "package businessevents.actions;\nclass Publish {}\n")
+        z = io.BytesIO()
+        with zipfile.ZipFile(z, "w") as zf:
+            for a, v in (("kotlin-stdlib", "1.9.10"), ("annotations", "13.0")):
+                zf.writestr(f"userlib/{a}-{v}.jar.{art}.RequiredLib", "")
+        put(f"{out}/pkgcache/170-3.12.1.mpk", z.getvalue())
 else:
     sys.exit(f"mkjarstale: unknown kind {kind}")

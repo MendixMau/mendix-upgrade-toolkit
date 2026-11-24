@@ -1,0 +1,75 @@
+{
+ "version": "11.12.6.1",
+ "_why": "two roles with different home pages reuse the default widget name actionButton1: on the Admin home it is conditionally visible, on the User home it is always visible; the User one must still be walked (the skip is decided on the button's own node, never by name)",
+ "security": {
+  "user_roles": {
+   "Admin": [
+    "Shop.Admin"
+   ],
+   "User": [
+    "Shop.User"
+   ]
+  },
+  "admin": "Admin"
+ },
+ "modules": [
+  {
+   "name": "Shop",
+   "pages": [
+    {
+     "name": "AdminHome",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin",
+      "Shop.User"
+     ],
+     "named": [],
+     "home_buttons": [
+      {
+       "name": "actionButton1",
+       "page": "Shop.Overview",
+       "when": "$currentObject != empty"
+      }
+     ]
+    },
+    {
+     "name": "UserHome",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin",
+      "Shop.User"
+     ],
+     "named": [],
+     "home_buttons": [
+      {
+       "name": "actionButton1",
+       "page": "Shop.Overview"
+      }
+     ]
+    },
+    {
+     "name": "Overview",
+     "layout": "",
+     "allowed": [
+      "Shop.Admin",
+      "Shop.User"
+     ],
+     "named": []
+    }
+   ]
+  }
+ ],
+ "navigation": {
+  "homes": [
+   {
+    "role": "Admin",
+    "page": "Shop.AdminHome"
+   },
+   {
+    "role": "User",
+    "page": "Shop.UserHome"
+   }
+  ],
+  "menu": []
+ }
+}

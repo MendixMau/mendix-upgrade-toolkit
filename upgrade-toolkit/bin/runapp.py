@@ -10,6 +10,8 @@ r"""runapp.py: start a built Mendix app (.mda) on Postgres in Docker through the
                                                           logs/runtime-<name>.<db>.log, named by the start's database
                                                           (B4N1-16: gate.sh OLD_LOG=logs/runtime-old.<baseline db>.log is
                                                           one stable file; the numbered copies moved with every save)
+  runapp.py ports <name>                                  GF-14: exit 3 (an INFRA line naming the port) when the app port 8080+PORT_OFF or the admin
+                                                          port 8090+PORT_OFF is held by anything but <prefix>-<name>; exit 0 when both are free
   runapp.py stop  <name>                                  save the log, remove the runtime container, prune run/<name>/ (BT-9: the
                                                           unpacked app and the runtime's files, 200 to 400 MB per start; the
                                                           small evidence files and data/files stay; UPG_KEEP_RUN=1 keeps all)
@@ -25,7 +27,7 @@ Env:
                    Both layouts are found: runtime-<ver>/runtime/launcher/runtimelauncher.jar, and the tarball as it
                    unpacks, runtime-<ver>/<full version>/runtime/launcher/... (E5b-2). <runtime-version> may be the short
                    (10.24.16) or the full form (10.24.16.96987, as mxversion.py prints it) (E5b-31).
-  RT_IMAGE         Java image (default: by Mendix major, 9 -> eclipse-temurin:11-jdk, 10/11 -> eclipse-temurin:21-jdk)
+  RT_IMAGE         Java image (default: by Mendix version, 9 and 10.0 to 10.9 -> eclipse-temurin:11-jdk, 10.10 and up -> eclipse-temurin:21-jdk)
   XMX              runtime heap (default 1g)
   PORT_OFF         admin port 8090+PORT_OFF, app port 8080+PORT_OFF (default 0; controls use 800 -> 8890/8880)
   CONST_OVERRIDES  JSON {"Module.Constant": "value"}, or the path of a file holding it: give old and new runs the SAME
@@ -43,7 +45,7 @@ Env:
 Login override (T2-7, N1-4): an app whose web/login.html redirects to an external IdP (meta refresh, window.location, a form
 posting to an /auth/ path) cannot be signed into by smoke walks and journeys. --login-override (or UPG_LOGIN_OVERRIDE):
   auto (default)  replace login.html only when it redirects off-app, with web/login.old, web/login-stock.html or a
-                  web/*login*without*sso*.html (the app's own stock page; Academy ships login-without-sso.html, T4); a normal Mendix login page (also one with an SSO button) is never touched.
+                  web/*login*without*sso*.html (the app's own stock page; App C ships login-without-sso.html, T4); a normal Mendix login page (also one with an SSO button) is never touched.
                   No stock page: login.html stays, a HARNESS CONDITION says so, and sign-in journeys are INVALID
   off             never touch login.html
   <file>          always replace login.html with that file
@@ -55,7 +57,7 @@ such page: index.html stays and a HARNESS CONDITION says the client may land on 
 Same value and same result for old and new. Every replacement prints a HARNESS CONDITION line and writes
 run/<name>/harness-login-override.txt (original kept as login.html.orig) for the gate and scorecard to show.
 
-Harness files (T2R3-5, B4T2-13): an add-on that builds a Windows path at runtime (EXFN_Authentication reads
+Harness files (T2R3-5, B4T2-13): an add-on that builds a Windows path at runtime (MFN_Authentication reads
 `/w/run/<name>\model\metadata.json`) fails with FileNotFoundException on Linux (also on Mendix Cloud); workers copied
 the file by hand for old AND new, and forgetting it for new gave a convincing create-save FAIL that was no regression.
 --harness-file (or UPG_HARNESS_FILE):
@@ -91,7 +93,11 @@ def sh(*a, check=True):
 def image_for(rtv):
     if os.environ.get("RT_IMAGE"):
         return os.environ["RT_IMAGE"]
-    return "eclipse-temurin:11-jdk" if rtv.split(".")[0] in ("7", "8", "9") else "eclipse-temurin:21-jdk"
+    parts = rtv.split(".")
+    # CHK-1, DVS: the 10.6 and the 10.9 runtime stop with "Mendix required Java 11"; 10.10 to 10.23 are not field-tested and keep the default
+    if parts[0] in ("7", "8", "9") or (parts[0] == "10" and len(parts) > 1 and int(parts[1]) <= 9):
+        return "eclipse-temurin:11-jdk"
+    return "eclipse-temurin:21-jdk"
 
 
 def ensure_pg():
@@ -200,7 +206,7 @@ def apply_login_override(base, mode="auto", name="app"):
         if not login_redirects_off_app(text):
             return None
         trusted = [web / "login.old", web / "login-stock.html"] + sorted(
-            f for f in web.glob("*.html") if re.search(r"login.*without.*sso", f.name, re.I))  # T4: Academy login-without-sso.html
+            f for f in web.glob("*.html") if re.search(r"login.*without.*sso", f.name, re.I))  # T4: App C login-without-sso.html
         # BT-3 (APPR): a backup of the stock page under another name (login_backup_2022-12-12_10-33.html) and the other
         # login*.html pages; accepted only when the page shows a username and a password field and does not redirect
         others = sorted((f for f in web.glob("login*.html") if f.name != "login.html" and f not in trusted),
@@ -348,9 +354,36 @@ def port_busy(port):
         s.settimeout(1)
         if s.connect_ex(("127.0.0.1", port)) != 0:
             return None
-    who = subprocess.run(["docker", "ps", "--filter", f"publish={port}", "--format", "{{.Names}}"],
-                         capture_output=True, text=True).stdout.split()
+    try:  # GF-34: a hung docker CLI must not stall the port check
+        who = subprocess.run(["docker", "ps", "--filter", f"publish={port}", "--format", "{{.Names}}"],
+                             capture_output=True, text=True, timeout=30).stdout.split()
+    except subprocess.TimeoutExpired:
+        who = []
     return ", ".join(who) or "a non-container process"
+
+
+def port_busy_message(port, who):
+    """FR-6: a leftover toolkit container (<prefix>-<name>, e.g. mig-oldwalk) held the port and the run said only "in use".
+    Name the holder; for a toolkit container give the exact removal command. Never removed here: it may be another run's."""
+    mine = [w.strip() for w in who.split(",") if w.strip().startswith(PREFIX + "-")]
+    if mine:
+        return (f"runapp: INFRA port {port} in use by {who}, a toolkit container left over from an earlier attempt or running for "
+                f"another run. If no other run is using it, remove it with: docker rm -f {' '.join(mine)}  then rerun. "
+                f"(Or set PORT_OFF to use other ports.)")
+    return f"runapp: INFRA port {port} in use by {who}; stop it (or set PORT_OFF) and rerun"
+
+
+def check_ports(port_off, own=None):
+    """GF-13/GF-14: both host ports, app 8080+PORT_OFF and admin 8090+PORT_OFF, named by their own number. Prints the INFRA line of
+    the first taken one and returns True. `own`: a container name that may hold them (the run's own app, removed before a start)."""
+    for p in (8080 + port_off, 8090 + port_off):
+        who = port_busy(p)
+        if who and own and set(w.strip() for w in who.split(",")) == {own}:
+            continue
+        if who:
+            print(port_busy_message(p, who))
+            return True
+    return False
 
 
 def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
@@ -400,11 +433,8 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     aport, rport = 8090 + port_off, 8080 + port_off
     cname = f"{PREFIX}-{name}"
     sh("docker", "rm", "-f", cname, check=False)  # only our own name: <prefix>-<name>
-    for p in (rport, aport):
-        who = port_busy(p)
-        if who:
-            print(f"runapp: INFRA port {p} in use by {who}; stop it (or set PORT_OFF) and rerun")
-            return 3
+    if check_ports(port_off):
+        return 3
     img = image_for(rtv)
     print(f"runapp: {cname} image {img}, runtime {rtv}, db {db}, ports {rport}/{aport}")
     sh("docker", "run", "-d", "--name", cname, "--network", NET, "-v", f"{WORK}:/w", "-v", f"{rt}:/rt:ro",
@@ -509,7 +539,7 @@ def stop(name, guard=True):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("start", "quick", "logs", "stop"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("start", "quick", "logs", "stop", "ports"):
         sys.exit(__doc__)
     cmd, off = sys.argv[1], int(os.environ.get("PORT_OFF", 0))
     opts = {}
@@ -521,6 +551,8 @@ if __name__ == "__main__":
             opts[flag] = sys.argv[i + 1]
             del sys.argv[i:i + 2]
     lo = opts.get("--login-override")
+    if cmd == "ports":  # ports NAME: exit 3 (INFRA line) when the app or admin port is taken by anything but <prefix>-NAME
+        sys.exit(3 if check_ports(off, own=f"{PREFIX}-{sys.argv[2]}") else 0)
     if cmd in ("start", "quick"):
         if len(sys.argv) != 6:
             sys.exit(__doc__)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two snapshots (before / after an upgrade) and give each check a verdict: PASS, FAIL, INVALID or INFO.
 
-  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--log-allow log-allow.txt] [--md report.md] [--db-only]
+  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--idcheck-json idcheck.json] [--log-allow log-allow.txt] [--md report.md] [--db-only] [--restart restart.json]
 
 --db-only compares the db rows alone: the mutant control (a db-only snapshot of an unstarted copy) then shows the planted
 FAIL without http "endpoint not probed" and log rows next to it (E6-11, E7-18). System.User.Password and changedDate of
@@ -22,7 +22,7 @@ Verdict rules (data-survival test: the after app was started on a COPY of the be
   db.identity   an old model GUID of that name is gone (same name, new GUID: dropped and re-created)   FAIL
                 Compared as SETS per name: System.owner / System.changedBy have one row per entity, so a new
                 entity adds a GUID without removing one (that is PASS).
-  known.anonymous_users  (PLM-27) the Mx10 runtime deletes session-less Anonymous_* users at start. When both snapshots
+  known.anonymous_users  (APPD-27) the Mx10 runtime deletes session-less Anonymous_* users at start. When both snapshots
                 carry the "anonymous" section (snapshot.py records System.User, its attributes and role links for the NAMED
                 users alone) the System.User rows are judged on named users, and the lost anonymous users are ONE row,
                 PASS* "known platform behaviour", not 14 FAIL rows. Older snapshots: the FAIL rows say so.
@@ -38,11 +38,27 @@ check pattern matches the check id, the optional detail pattern matches the row'
 acceptance can be narrower than a whole check ("db.attr.System.User.Password values changed (non-null 3 -> 3)").
 A matching FAIL, REVIEW, INVALID or NEW_ENDPOINT becomes PASS* (accepted, reason printed). Use it for changes the
 upgrade is SUPPOSED to make (a module that drops an entity by design), never to hide noise.
+--idcheck-json (GM-35): the --json of idcheck.py. Every REMOVED finding that idcheck marked "approved: <reason>" (an approved.txt line
+the owner wrote) becomes allow rows for that element's data rows, and nothing else: entity -> its "entity not in after model" row and
+its "column gone" attribute rows; association -> its "association gone" row; attribute -> its "column gone" row. Each accepted row
+says "removal approved in idcheck" and the report lists every derived row with the rows it accepted. Never derived: an element that
+idcheck did not approve, GUID_CHANGED / READDED_NEW_GUID / PERSISTENCE_LOST (the data is still there, under another identity),
+RENAMED (a rename or a move keeps the data), "transient" net-zero approvals (the original never had the element), "values changed" or
+"rows N -> M" rows (the element is still there). Hand-written allow.txt lines are read first and keep their own wording.
 log-allow.txt: the logdiff.py allow file ("<signature pattern> # reason"), applied to the log.start rows, so a line
 accepted once for logdiff is accepted here too and diff exits 0 with it (E4 23). A REVIEW row can also be accepted in
 allow.txt ("log.start.CHANGED *MFA* # reason").
+--restart restart.json (GF-51): the restart control. diff.py diffs before.json against it the same way (no allow file). A FAIL or
+REVIEW row of this diff with the SAME check and the SAME detail text is a candidate. A db.attr / db.assoc candidate is START-NOISE
+only when the after snapshot's md5 of that column (association) EQUALS the restart snapshot's md5: the detail holds counts alone,
+so the same count says nothing about which values changed. md5 missing on either side, or the md5s differ: the row stays FAIL,
+with "(also changes between two old starts; values differ from the control)". A db.entity candidate is START-NOISE only when no db.attr / db.assoc
+row of that entity stayed FAIL / REVIEW (no per-row fingerprint exists to compare); other candidates (log, http) are START-NOISE on
+check + detail. START-NOISE is a non-blocking NOTE (exit code ignores it), never hidden. A row the control lacks stays FAIL.
+restart.json absent, or older than before.json (a control of an earlier baseline): one INFO line "start noise not measured" and
+every row stands.
 """
-import argparse, fnmatch, json, os, sys
+import argparse, fnmatch, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import logdiff  # noqa: E402
@@ -81,11 +97,100 @@ def contract_diff(cb, ca):
     return lost, gained
 
 
+def _lit(name):
+    """a name as a literal fnmatch pattern"""
+    return "".join("[" + ch + "]" if ch in "*?[" else ch for ch in name)
+
+
+def derive_idcheck_allows(path, want_old=None, want_new=None):
+    """GM-35: allow rows from the removals idcheck approved. Reads idcheck.py --json; only a REMOVED finding that carries data and
+    an explicit "approved: <reason>" (an approved.txt line, never the "transient" or "restores" auto-approvals) is used.
+    ASSUMED: an unreadable or unexpected file derives nothing (a WARNING on stderr): fewer allows is the safe direction."""
+    try:
+        doc = json.load(open(path)); findings = doc["findings"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print(f"WARNING --idcheck-json {path}: not read ({e.__class__.__name__}); no allow rows derived from idcheck", file=sys.stderr)
+        return [], []
+    for key, want in (("old", want_old), ("new", want_new)):
+        have = doc.get(key)
+        if want and have and os.path.realpath(str(have)) != os.path.realpath(want):
+            print(f"WARNING --idcheck-json {path}: it was made for {key} = {have}, this run's is {want}; no allow rows derived from idcheck", file=sys.stderr)
+            return [], []
+    out, notes = [], []
+    for f in findings:
+        if not isinstance(f, dict) or f.get("finding") != "REMOVED" or not f.get("data"): continue
+        ap_ = str(f.get("approved") or "")
+        if not ap_.startswith("approved:"): continue
+        qn, kind = str(f.get("name") or ""), f.get("kind")
+        if not qn: continue
+        pat = f.get("pattern")
+        if not isinstance(pat, str) or any(c in pat for c in "*?["):
+            # ASSUMED: a glob (or a JSON that does not say which pattern approved) is read as "this approval was not about data"
+            notes.append(f"approval '{pat if isinstance(pat, str) else '?'}' is a glob; data rows not auto-allowed; add a literal approval or a hand allow row"
+                         f" ({kind} {qn})" if isinstance(pat, str) else f"approval of {kind} {qn} does not record its pattern; data rows not auto-allowed; rerun idcheck or add a hand allow row")
+            continue
+        why = f"{kind} {qn} removal approved in idcheck ({ap_[len('approved:'):].strip() or 'no reason written'})"
+        if kind == "entity":
+            out.append((f"db.entity.{_lit(qn)}", "*entity not in after model", why))
+            out.append((f"db.attr.{_lit(qn)}.*", "column gone*", why))
+        elif kind == "association":
+            out.append((f"db.assoc.{_lit(qn)}", "association gone*", why))
+        elif kind == "attribute":
+            out.append((f"db.attr.{_lit(qn)}", "column gone*", why))
+    return out, notes
+
+
+def control_rows(a):
+    """The (check, detail) of every FAIL / REVIEW row of before.json against restart.json, by this same script (no allow file:
+    the control is raw). None when restart.json is absent or the control diff cannot run, so the caller says "not measured"."""
+    import subprocess, tempfile
+    if not os.path.isfile(a.restart): return None
+    try:
+        if os.path.getmtime(a.restart) < os.path.getmtime(a.before): return "stale"   # a control of an earlier baseline measures nothing here
+    except OSError: return None
+    with tempfile.TemporaryDirectory() as td:
+        md = os.path.join(td, "control.md")
+        cmd = [sys.executable, os.path.abspath(__file__), a.before, a.restart, "--md", md, "--_control"]
+        if a.db_only: cmd.append("--db-only")
+        if a.log_allow: cmd += ["--log-allow", a.log_allow]
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode not in (0, 1, 2) or not os.path.isfile(md): return None
+        out, on = set(), False
+        for line in open(md, errors="replace"):
+            if line.startswith("## All rows"): on = True
+            elif on:
+                m = re.match(r"^- (FAIL|REVIEW) (\S+): (.*)$", line.rstrip("\n"))
+                if m: out.add((m.group(2), m.group(3)))
+        return out
+
+
+def fingerprint(snap, check, anon):
+    """md5 of the column or association a db.attr.<A> / db.assoc.<N> row is about, in this snapshot (the named-users section when
+    the comparison used it, as the rows above do). "gone" when the snapshot has a db section but not that element; None when no
+    fingerprint can be read (no db section, or an element without an md5): the caller keeps FAIL."""
+    db = snap.get("db")
+    if not isinstance(db, dict): return None
+    kind, _, name = check[3:].partition(".")          # "attr" / "assoc", then the name
+    sect = {"attr": "attributes", "assoc": "associations"}.get(kind)
+    if not sect: return None
+    rec = (db.get(sect) or {}).get(name)
+    if anon:
+        an = (snap.get("db") or {}).get("anonymous") or {}
+        rec = (an.get("attrs" if kind == "attr" else "assoc") or {}).get(name, rec)
+    if rec is None: return "gone"
+    h = rec.get("md5") if isinstance(rec, dict) else None
+    return h if isinstance(h, str) else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("before"); ap.add_argument("after")
     ap.add_argument("--allow"); ap.add_argument("--md")
     ap.add_argument("--log-allow", help="logdiff allow file for the log.start rows")
+    ap.add_argument("--idcheck-json", dest="idcheck_json",
+                    help="idcheck.py --json output: removals idcheck approved become allow rows for that element's data rows (GM-35)")
+    ap.add_argument("--idcheck-old", dest="idcheck_old", help="the OLD path idcheck was run on; the JSON is refused when it records another")
+    ap.add_argument("--idcheck-new", dest="idcheck_new", help="the NEW path idcheck was run on; the JSON is refused when it records another")
     ap.add_argument("--db-only", action="store_true",
                     help="compare the db section only (the mutant control: a db-only snapshot of a copy; E6-11, E7-18)")
     ap.add_argument("--emit-allow", dest="emit_allow",
@@ -93,6 +198,9 @@ def main():
     ap.add_argument("--module-jumps", dest="module_jumps",
                     help="module-jumps.txt (\"Mod a -> b\" per updated Marketplace module): a column gone or values changed in "
                          "such a module is the vendor's update, PASS* with the jump named, not FAIL")
+    ap.add_argument("--restart", help="restart.json (the restart control: a second start of the OLD app, GF-51). A FAIL or REVIEW row that "
+                    "the SAME check shows with the SAME detail when before.json is diffed against it is START-NOISE (a NOTE, never blocking)")
+    ap.add_argument("--_control", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     B, A = json.load(open(a.before)), json.load(open(a.after))
     jumps = {}
@@ -100,23 +208,31 @@ def main():
         for l in open(a.module_jumps):
             m, _, v = l.strip().partition(" ")
             if m and v: jumps[m] = v.strip()
-    allow = []
+    allow, allow_at, used = [], [], set()
     if a.allow:
-        for l in open(a.allow):
+        for n, l in enumerate(open(a.allow), 1):
             if l.strip() and not l.startswith("#"):
                 pat, _, why = l.partition("#")
                 cpat, _, dpat = pat.strip().partition(" ")
-                allow.append((cpat, dpat.strip(), why.strip()))
+                allow.append((cpat, dpat.strip(), why.strip())); allow_at.append((n, l.strip()))
+    n_hand = len(allow)
+    derived, dnotes = derive_idcheck_allows(a.idcheck_json, a.idcheck_old, a.idcheck_new) if a.idcheck_json else ([], [])
+    allow += derived
+    dcount = {}
     rows = []
 
     def add(check, verdict, detail):
         # WM1 2026-11-17: MendixSSO 4.2 -> 10.6 dropped AuthRequest.Nonce and MxModelReflection 7 -> 9 rewrote its own rows;
         # both read FAIL on the gate card though nothing of the app's data was lost. Only a vendor module's own attribute,
         # and only when the run updated that module; rows lost stay FAIL whatever the module
-        if verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
-            for cpat, dpat, why in allow:
-                if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
-                    verdict, detail = "PASS*", f"{detail} (accepted: {why})"; break
+        hit, hit_k = None, None
+        for k, (cpat, dpat, why) in enumerate(allow):
+            if fnmatch.fnmatch(check, cpat) and (not dpat or fnmatch.fnmatch(detail, dpat)):
+                used.add(k)   # a line that matched a row, whatever its verdict, was read as meant (issue 21)
+                if hit is None: hit, hit_k = why, k
+        if hit is not None and verdict in ("FAIL", "REVIEW", "INVALID", "NEW_ENDPOINT"):
+            if hit_k >= n_hand: dcount[hit_k] = dcount.get(hit_k, 0) + 1   # GM-35: accepted by a derived allow row
+            verdict, detail = "PASS*", f"{detail} (accepted: {hit})"
         mod = check.split(".")[2] if check.startswith("db.attr.") else ""
         if verdict == "FAIL" and mod in jumps and detail.startswith(("column gone", "values changed")):
             verdict, detail = "PASS*", f"{detail} (noted: the {mod} update {jumps[mod]} changed its own attribute, not the app's data)"
@@ -133,7 +249,7 @@ def main():
 
     db_b, db_a = B.get("db"), A.get("db")
     anb, ana = ((db_b or {}).get("anonymous") or {}), ((db_a or {}).get("anonymous") or {})
-    anon = bool(anb and ana)    # PLM-27: both snapshots know which System.User rows are anonymous
+    anon = bool(anb and ana)    # APPD-27: both snapshots know which System.User rows are anonymous
     hint = "" if anon else " (if these are Anonymous_* users the Mx10 runtime deletes at start, re-take both snapshots with this snapshot.py: it records named users apart and diff groups them)"
     if db_b and db_a:
         user_rows = sum(v or 0 for k, v in db_b["entities"].items() if not k.startswith("System."))
@@ -253,7 +369,64 @@ def main():
     elif sb or sa:
         add("log.start", "INVALID", "start window recorded on one side only (re-take the older snapshot with this snapshot.py)")
 
-    order = {"INVALID": 0, "FAIL": 1, "REVIEW": 2, "NEW_ENDPOINT": 3, "PASS*": 4, "PASS": 5, "INFO": 6}
+    # issue 21 (TBUD): `data db.attr.System.User.changedDate *` matched no row and said nothing, so the row stayed FAIL while the person
+    # believed it applied. Every allow line that matched no row is named, with the check it probably meant. No verdict changes.
+    unmatched = []
+    for k, (n, text) in enumerate(allow_at):
+        if k in used: continue
+        mean = next((c for _, c, _ in rows for t in text.split("#")[0].split()
+                     if t not in ("*", "?") and (c == t.rstrip("*") or ("." in t and fnmatch.fnmatch(c, t)))), None)
+        unmatched.append(f"allow line {n} matched nothing: {text.split('#')[0].strip()}" + (f" (did you mean {mean}?)" if mean else
+                         " (the form is <check id> [<detail pattern>] # reason; the check id is the second column of the table)"))
+    noise_note = None
+    if a.restart and not a._control:
+        # GF-51: 29 rows read FAIL on a run where only the restart control (the same old app started twice) explained them.
+        # A row is noise only when the control, diffed the same way, shows the SAME check with the SAME detail; a changed
+        # value, a different check or a row the control does not have stays FAIL.
+        ctl = control_rows(a)
+        if ctl is None or ctl == "stale":
+            why = ("restart.json is older than before.json (a control of an earlier baseline)" if ctl == "stale"
+                   else "no restart control (restart.json missing or its diff failed)")
+            noise_note = f"start noise not measured: {why}; every FAIL and REVIEW row stands"
+            rows.append(("INFO", "start.noise", noise_note))
+        else:
+            R = json.load(open(a.restart))
+            anon_both = bool(((B.get("db") or {}).get("anonymous")) and ((A.get("db") or {}).get("anonymous")))
+            hit, ent = 0, []
+            for i, (v, c, d) in enumerate(rows):
+                if v not in ("FAIL", "REVIEW") or (c, d) not in ctl: continue
+                if c.startswith("db.entity."): ent.append(i); continue   # judged below, once the attr / assoc rows are
+                if c.startswith(("db.attr.", "db.assoc.")):
+                    # the detail is counts alone: same count, other values would match the control. Noise only if the AFTER
+                    # snapshot's fingerprint of this column / association equals the restart's.
+                    fa, fr = fingerprint(A, c, anon_both), fingerprint(R, c, anon_both)
+                    if fa is None or fr is None or fa != fr:
+                        rows[i] = (v, c, f"{d} (also changes between two old starts; values differ from the control)"); continue
+                rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
+            # a db.entity row (rows 10 -> 8) is noise only if no attribute or association of that entity stayed FAIL / REVIEW. The
+            # snapshot has no per-row fingerprint of an entity (ids are model ids, not row ids), so this is all it can check:
+            # an entity whose lost rows carry no non-null attribute and no association can still read as start noise.
+            # which entities a still-failing association row blocks: its two real endpoints, read from the snapshot's assoc_ends
+            # (parent and child entity of mendixsystem$association), whatever the association is called and whichever modules
+            # the two entities live in. An association with no recorded endpoints (an old snapshot, or one missing from the map)
+            # cannot be pinned, and then EVERY db.entity row of every module stays FAIL: the name is never used to guess.
+            ends = {**((B.get("db") or {}).get("assoc_ends") or {}), **((A.get("db") or {}).get("assoc_ends") or {})}
+            blocked_names, block_all = set(), False
+            for v2, c2, _ in rows:
+                if v2 not in ("FAIL", "REVIEW") or not c2.startswith("db.assoc."): continue
+                ep = ends.get(c2[len("db.assoc."):])
+                if isinstance(ep, list) and len(ep) == 2: blocked_names |= set(ep)
+                else: block_all = True
+            for i in ent:
+                v, c, d = rows[i]
+                en = c[len("db.entity."):]
+                if block_all or en in blocked_names or any(
+                        v2 in ("FAIL", "REVIEW") and c2.startswith(f"db.attr.{en}.") for v2, c2, _ in rows):
+                    rows[i] = (v, c, f"{d} (also differs between two old starts, but an attribute or association of this entity still fails)"); continue
+                rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
+            noise_note = f"start noise: {hit} row(s) also differ in the restart control (listed as START-NOISE, not blocking); control has {len(ctl)} differing row(s)"
+            rows.append(("INFO", "start.noise", noise_note))
+    order = {"INVALID": 0, "FAIL": 1, "REVIEW": 2, "NEW_ENDPOINT": 3, "START-NOISE": 3.5, "PASS*": 4, "PASS": 5, "INFO": 6}
     rows.sort(key=lambda r: (order[r[0]], r[1]))
     counts = {k: sum(1 for r in rows if r[0] == k) for k in order}
     head = f"# Upgrade regression diff: {B.get('label')} -> {A.get('label')}\n\n" + " | ".join(f"{k} {v}" for k, v in counts.items()) + "\n\n"
@@ -272,8 +445,22 @@ def main():
         open(a.emit_allow, "w").write("".join(noise))
         print(f"--emit-allow: {len(noise)} check(s) written to {a.emit_allow}; read each one before the gate uses the file"
               + (f"; {refused} row(s) with no detail to match were NOT written (accept them by hand)" if refused else ""))
-    if a.md:
+    if derived or dnotes:
+        table += f"\n## Allow rows derived from idcheck approvals ({a.idcheck_json})\n\n"
+        table += "\n".join(f"- allowed: {w}: {c} [{d}], accepted {dcount.get(n_hand + i, 0)} row(s)" for i, (c, d, w) in enumerate(derived)) + ("\n" if derived else "")
+        table += "".join(f"- NOT allowed: {n}\n" for n in dnotes)
+        for n in dnotes: print(f"diff: {n}")
+        print(f"diff: {len(derived)} allow row(s) derived from idcheck approvals, accepting {sum(dcount.values())} row(s); each is named in the report")
+    if unmatched:
+        table += "\n## Allow lines that matched nothing\n\n" + "\n".join(f"- {u}" for u in unmatched) + "\n"
+    for u in unmatched:
+        print(f"WARNING {u}", file=sys.stderr)
+    if a.md:   # next to the report, for the cockpit's "Everything else" fold; no stale file when every line matched
+        side = os.path.join(os.path.dirname(os.path.abspath(a.md)), "allow-unmatched.txt")
+        if unmatched: open(side, "w").write("\n".join(unmatched) + "\n")
+        elif os.path.exists(side): os.remove(side)
         open(a.md, "w").write(head + table + "\n## All rows\n\n" + "\n".join(f"- {v} {c}: {d}" for v, c, d in rows) + "\n")
+    if noise_note: print(noise_note)
     print(head + table)
     sys.exit(1 if counts["FAIL"] or counts["REVIEW"] else 2 if counts["INVALID"] or counts["NEW_ENDPOINT"] else 0)
 

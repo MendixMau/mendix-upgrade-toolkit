@@ -1,0 +1,22 @@
+// Trimmed from the Data Widgets 3 theme: the grid sits on .table itself (.widget-datagrid-grid.table)
+$root: ".widget-datagrid";
+
+.table {
+    position: relative;
+    .tr {
+        display: contents;
+    }
+}
+
+#{$root} {
+    &-grid {
+        &-head,
+        &-body {
+            display: contents;
+        }
+        &.table {
+            display: grid !important;
+            grid-template-columns: var(--widgets-grid-template-columns);
+        }
+    }
+}

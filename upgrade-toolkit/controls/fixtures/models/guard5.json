@@ -14,7 +14,7 @@
                                      {"type": "MenuBar", "name": "menuBar2", "source": {"menu": "Shop.User_Menu_Flow"}}]},
       {"name": "Layout_B", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "Shop.User_Menu_Caption"}}]},
       {"name": "Layout_C", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "Shop.User_Menu_Deep"}}]},
-      {"name": "Layout_D", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "EXFN_Addon.User_Menu"}}]},
+      {"name": "Layout_D", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "MFN_Addon.User_Menu"}}]},
       {"name": "Layout_E", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "Shop.User_Menu_None"}}]},
       {"name": "Layout_F", "named": [{"type": "MenuBar", "name": "menuBar2", "source": {"menu": "Shop.User_Menu_Both"}}]}],
     "menus": [

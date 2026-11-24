@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """restoreunit.py BASELINE.mpr TARGET.mpr Module.Doc [Module.Doc ...] [--apply] [--force]
 
-Put documents back from a baseline copy of the model (PLM-30). A module update, or an `--accept-unsaved` update, can
+Put documents back from a baseline copy of the model (APPD-30). A module update, or an `--accept-unsaved` update, can
 reset a document you had edited locally (a Marketplace layout, a page, a microflow). localedits tells you which; this
 tool restores them: the Contents of each named document in the baseline replace the Contents of the same-named
 document in the target, KEEPING the target's unit id and containment (so nothing else in the project moves).

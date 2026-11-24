@@ -2,14 +2,14 @@
 """apimock.py: a local stand-in for the external APIs an app consumes, read from its model (E2E-13, E2E-14, E2E-15).
 
 A gate run must never call a real external system, and a call nobody answers must never pass as "no issues". Before
-E2E-13 every journey or smoke step that touched Opcenter, an OData service or an SSO endpoint either called the real
+E2E-13 every journey or smoke step that touched App A, an OData service or an SSO endpoint either called the real
 system or failed on a dead host, and the gate could not tell an upgrade defect from a missing server. This script
 reads the consumed APIs from the .mpr (mprmodel.py; no Studio Pro, no mxcli), points every endpoint constant at
 itself, answers with bodies of the mapped shape, and logs every request. The old and the new app use the SAME
 stand-in (pass both models), so their journeys see the same answers.
 
   apimock.py inventory <model> [<model> ...] [--exclude SYSTEM[=glob,...]] [--classify FILE] [--recorded DIR] [--json FILE]
-  apimock.py serve <model> [<model> ...] --state DIR [--port 8790 (env UPG_APIMOCK_PORT)] [--bind ADDR] [--public-host HOST]
+  apimock.py serve <model> [<model> ...] --state DIR [--port 9290+PORT_OFF (env UPG_APIMOCK_PORT)] [--bind ADDR] [--public-host HOST]
              [--exclude ...] [--classify FILE] [--recorded DIR] [--background]
   apimock.py stop --state DIR
   apimock.py check --state DIR [--exclude-systems Teamcenter,...]            the gate's "apis" rung
@@ -31,12 +31,13 @@ Inventory (per model; several models are merged by endpoint id):
                          expression, else the constants its ConfigurationMicroflow (and the flows it calls) reads.
   const:<Module.Const>   a URL constant (value http(s)://..., or a String constant named *Url/*Uri/*Endpoint/
                          *Location/*Host/*Address) that no modelled call above reads: a Java action or a string built
-                         at runtime may call it. Overridden like the others, UNKNOWN until classified.
+                         at runtime may call it. Overridden like the others, UNCALLED ("not called by the model: no
+                         stand-in needed"); a request to it is logged UNKNOWN, so the rung still says when it IS called.
   addon:<Module>         an add-on module (<project>/modules/<Module>.mxmodule, B4T2-6, B4N1-9): its packed model is not
                          a sqlite MPR and its flows are protected, so its calls cannot be read, and a location it builds
-                         at runtime from entity data (EXFN_ServiceLayer: ClientConfiguration.OpcenterEXFNUrl + '/...')
+                         at runtime from entity data (MFN_ServiceLayer: ClientConfiguration.ModuleAUrl + '/...')
                          is invisible. One UNKNOWN endpoint per add-on, so "unknown 0" is never claimed while add-ons
-                         exist. The URL-named constants its files name (@EXFN_Authentication.APPBaseUrl) are routed and
+                         exist. The URL-named constants its files name (@MFN_Authentication.APPBaseUrl) are routed and
                          overridden; the URL-named attributes it names are printed as candidate data locations.
 
 Classification, one per endpoint:
@@ -49,8 +50,9 @@ Classification, one per endpoint:
                      a reason), or a recorded response exists for a constant-only endpoint. A MOCKED line on an
                      endpoint with no constant and no data location is refused (stays UNKNOWN, B4N1-9): the app could
                      not reach the stand-in, so "mocked" would be a claim nothing can prove.
-  UNKNOWN            anything else (a location from data, a hard-coded URL no override reaches, a URL constant no
-                     modelled call reads, a shape this reader does not know). UNKNOWN stays INVALID until someone
+  UNCALLED           a URL constant no modelled call reads: nothing to stand in.
+  UNKNOWN            anything else (a location from data, a hard-coded URL no override reaches, a URL a Java action computes, a shape
+                     this reader does not know). UNKNOWN stays INVALID until someone
                      classifies it: --classify FILE lines "<fnmatch on endpoint id> MOCKED # reason" or
                      "<pattern> EXCLUDED <System> # reason" (reason required). A location from data is reachable by
                      setting that attribute to the printed /a/<Entity.Attr> URL in the seed data.
@@ -63,7 +65,10 @@ Classification, one per endpoint:
   It replaces the endpoint's unknown routes; a data location still needs a MOCKED line. An endpoint whose location can
   be neither declared nor redirected is not stood in: it stays UNKNOWN (INVALID), never MOCKED.
   "<pattern> UNEXERCISED # reason": a MOCKED endpoint no journey calls (check names it, waived, instead of INVALID).
-Output: one line per endpoint, then `apis E found · mocked M · excluded X (System, ...) · unknown U`.
+Every endpoint carries ONE recommendation ("recommend", printed after "=>"): not called, set
+the data location, or "needs a real test system: test this call in the customer's test environment before go-live".
+Output: one line per endpoint, then `apis E found · mocked M · excluded X (System, ...) · unknown U[ · not called N]`
+and `stand-ins: S stand-ins + A resolved automatically, R need a real test system before go-live (recommended: ...)`.
 inventory exit: 0 = no UNKNOWN, 3 = UNKNOWN present (INVALID), 2 = input error.
 
 serve: prints the constant overrides (`Module.Constant=http://HOST:PORT/c/Module.Constant`) and writes
@@ -81,7 +86,7 @@ but endpoints excluded (each listed "NOT CHECKED (excluded: <System>) ..."); 3 =
 UNMATCHED requests (INVALID); 2 = no state. An endpoint excluded for a system not in --exclude-systems is INVALID too
 (the gate names what it excludes). B4N1-11: a MOCKED endpoint with 0 requests is "NOT EXERCISED" and INVALID unless an
 UNEXERCISED line waives it with a reason; MOCKED endpoints with 0 requests answered IN TOTAL are INVALID with no
-waiver (the stand-in was never shown reachable: Opcenter b4 passed this rung with 2 MOCKED endpoints and 0 requests).
+waiver (the stand-in was never shown reachable: App A b4 passed this rung with 2 MOCKED endpoints and 0 requests).
 
 A --classify EXCLUDED line (with its reason) makes its endpoints INFO, not stray: printed "INFO (excluded: <System>) ...:
 check at deploy", exit 0 ("verdict: PASS (INFO: ...)"). Only an --exclude pattern without a classify line is "NOT CHECKED" (4).
@@ -127,6 +132,16 @@ CALL_TYPES = ("Microflows$SendRestRequestAction", "Microflows$RestOperationCallA
               "Microflows$WebServiceCallAction", "Microflows$CallExternalAction")
 FLOWS = ("Microflows$Microflow", "Microflows$Rule")
 EXIT_INVALID, EXIT_EXCEPT = 3, 4
+REAL_TEST = "test this call in the customer's test environment before go-live"
+
+
+def default_port():
+    """The stand-in's port: UPG_APIMOCK_PORT, else 9290 + PORT_OFF. It was a fixed 8790 (steps/heal.md said 9290): the admin port
+    of a run with PORT_OFF=700 is 8090+700=8790, so the heal step's stand-in and the app's admin API fought for one port
+    ("healold could not start: port 8790 in use"). App and admin ports sit in 8080-8999; 9290+ is clear of both."""
+    if os.environ.get("UPG_APIMOCK_PORT"):
+        return int(os.environ["UPG_APIMOCK_PORT"])
+    return 9290 + int(os.environ.get("PORT_OFF") or 0)
 
 
 def die(msg):
@@ -609,7 +624,7 @@ def classify(ep, model_consts, excludes, rules, recorded):
             continue
         if st == "MOCKED" and not kinds & {"const", "attr"}:
             # B4N1-9: MOCKED says the app talks to this stand-in; with no constant or data location the stand-in has no
-            # route the app could reach (Opcenter: the URL is built by a protected add-on microflow), so the claim is
+            # route the app could reach (App A: the URL is built by a protected add-on microflow), so the claim is
             # unprovable and the endpoint stays UNKNOWN until a LOCATION line names where the URL comes from.
             ep.update(status="UNKNOWN", system="", why=f"classified MOCKED ({pat}) but the stand-in has no route to it: "
                       f"no constant or data location is known ({'; '.join(r for k, r in ep['routes'] if k == 'unknown') or 'no location'}); "
@@ -624,7 +639,11 @@ def classify(ep, model_consts, excludes, rules, recorded):
         if recorded and (Path(recorded) / f"{safe(ep['id'])}.json").is_file():
             ep.update(status="MOCKED", system="", why="recorded response for this constant")
         else:
-            ep.update(status="UNKNOWN", system="", why=ep.get("why", ""))
+            # no modelled call reads it: nothing to stand in. The constant still points at the stand-in (overrides), so
+            # a call from Java or from a string built at runtime arrives as an UNKNOWN request and the rung says so.
+            ep.update(status="UNCALLED", system="", auto="uncalled",
+                      why="no modelled call reads this URL constant; it still points at the stand-in, so a call from "
+                          "Java code shows up as an UNKNOWN request")
         return
     if kinds == {"const"}:
         ep.update(status="MOCKED", system="", why="every location is an overridden constant")
@@ -644,8 +663,8 @@ def addon_files(model_path):
 def addon_names(path, names, cap=256 << 20):
     """(URL constants {qualified name: default}, URL-named attributes, why unreadable) of an add-on module. An .mxmodule
     is a zip whose project.mpr is not a sqlite MPR but ONE bson document (mprmodel cannot open it): its
-    Constants$Constant nodes (Name, DefaultValue, Type; EXFN_Authentication.APPBaseUrl = 'OCEXFN: {{APPLICATIONBASEURL}}')
-    and the Attribute of every member change (EXFN_Authentication.ClientConfiguration.OpcenterEXFNUrl) are read from it.
+    Constants$Constant nodes (Name, DefaultValue, Type; MFN_Authentication.APPBaseUrl = 'APPA_MFN: {{APPLICATIONBASEURL}}')
+    and the Attribute of every member change (MFN_Authentication.ClientConfiguration.ModuleAUrl) are read from it.
     A packed model bson cannot decode falls back to qualified names in its bytes (modules of `names` only)."""
     consts, attrs = {}, set()
     try:
@@ -689,7 +708,7 @@ def addon_names(path, names, cap=256 << 20):
 
 def addon_endpoint(path, names):
     """B4T2-6 / B4N1-9: an add-on module's own calls are invisible to this reader (its model is packed and protected; a
-    location may be built at runtime from entity data, EXFN_ServiceLayer). It is one UNKNOWN endpoint per add-on, so
+    location may be built at runtime from entity data, MFN_ServiceLayer). It is one UNKNOWN endpoint per add-on, so
     "unknown 0" is never claimed while add-ons exist. The URL-named constants it names are routed (serve overrides them
     and they show in overrides.json); the URL-named attributes are printed as candidate data locations."""
     name = os.path.splitext(os.path.basename(path))[0]
@@ -743,8 +762,37 @@ def build_inventory(models, excludes, rules, recorded):
         classify(e, consts, excludes, rules, recorded)
         if e.get("declared"):
             e["why"] = f"{e['why']}; {e['declared']}"
+        if e["status"] not in ("MOCKED", "UNCALLED"):
+            e.pop("auto", None)
+        e["recommend"] = recommend(e)
     return {"models": mods, "endpoints": [eps[k] for k in sorted(eps)], "constants": consts, "metadata": metas,
             "excludes": [[s, p, r] for s, p, r in excludes]}
+
+
+def recommend(e):
+    """ONE recommendation per endpoint that is not a plain constant stand-in: what was done, or what a person does."""
+    st = e["status"]
+    if st == "UNCALLED":
+        return "not called by the model: no stand-in needed"
+    if st == "EXCLUDED":
+        return f"cannot be stood in ({e.get('system')}): {REAL_TEST}"
+    if st == "UNKNOWN":
+        attr = next((r for k, r in e["routes"] if k == "attr"), None)
+        if attr:
+            return f"set {attr} to the stand-in address in the seed data (serve prints it), then classify it MOCKED"
+        return f"needs a real test system: {REAL_TEST}"
+    return ""
+
+
+def grouped(inv):
+    """(stand-ins, resolved automatically, need a real test system, the one-line grouped OK)."""
+    eps = inv["endpoints"]
+    stand = sum(1 for e in eps if e["status"] == "MOCKED" and not e.get("auto"))
+    auto = sum(1 for e in eps if e.get("auto") and e["status"] in ("MOCKED", "UNCALLED"))
+    real = sum(1 for e in eps if e["status"] in ("UNKNOWN", "EXCLUDED"))
+    return stand, auto, real, (f"{stand} stand-in{'' if stand == 1 else 's'} + {auto} resolved automatically, {real} "
+                               f"need{'s' if real == 1 else ''} a real test system before go-live"
+                               + (" (recommended: test in the customer's test environment)" if real else ""))
 
 
 def coverage_line(inv):
@@ -752,7 +800,8 @@ def coverage_line(inv):
     st = lambda s: [e for e in eps if e["status"] == s]
     systems = sorted({e["system"] for e in st("EXCLUDED")})
     return (f"apis {len(eps)} found · mocked {len(st('MOCKED'))} · excluded {len(st('EXCLUDED'))}"
-            + (f" ({', '.join(systems)})" if systems else "") + f" · unknown {len(st('UNKNOWN'))}")
+            + (f" ({', '.join(systems)})" if systems else "") + f" · unknown {len(st('UNKNOWN'))}"
+            + (f" · not called {len(st('UNCALLED'))}" if st("UNCALLED") else ""))
 
 
 def route_text(e):
@@ -764,9 +813,11 @@ def print_inventory(inv, out=sys.stdout):
     for e in inv["endpoints"]:
         st = e["status"] + (f" ({e['system']})" if e["status"] == "EXCLUDED" else "")
         print(f"{st:22} {e['id']}  {e['method']} {e['template'][:60]}  via {route_text(e)}  [{e['shape']}]"
-              + (f"  -- {e['why']}" if e["status"] != "MOCKED" or e["why"].startswith("classified") or e.get("declared") else ""),
-              file=out)
+              + (f"  -- {e['why']}" if e["status"] != "MOCKED" or e["why"].startswith("classified") or e.get("declared")
+                 or e.get("auto") else "")
+              + (f"  => {e['recommend']}" if e.get("recommend") else ""), file=out)
     print(coverage_line(inv), file=out)
+    print("stand-ins: " + grouped(inv)[3], file=out)
 
 
 def overrides(inv, base):
@@ -915,7 +966,7 @@ class Stand:
 
     def odata_tail(self, e, rest):
         """The part of the path from $metadata or an entity set on. A location built at runtime adds segments after the
-        routed prefix (Opcenter: <OpcenterEXFNUrl>/<segment>/<plant>/Application/<app>/odata/<Set>, B4N1-9)."""
+        routed prefix (App A: <ModuleAUrl>/<segment>/<plant>/Application/<app>/odata/<Set>, B4N1-9)."""
         segs = rest.strip("/").split("/")
         sets = self.sets.get(e["metadata_doc"], {})
         for i, sg in enumerate(segs):
@@ -975,7 +1026,9 @@ def make_handler(stand):
                 rec.update(status="EXCLUDED", system=e["system"])
                 code, ct, body = 503, "application/json", json.dumps({"error": f"EXCLUDED: {e['system']} ({e['id']}): not stood in"})
             else:
-                rec["status"] = e["status"]   # MOCKED, or UNKNOWN (answered, but the gate stays INVALID)
+                # MOCKED, or UNKNOWN (answered, but the gate stays INVALID); a URL constant no modelled call reads
+                # (UNCALLED) that IS called arrives as UNKNOWN: it was called after all
+                rec["status"] = "UNKNOWN" if e["status"] == "UNCALLED" else e["status"]
                 code, ct, body = stand.answer(e, self.command, rest, q)
                 if ctx and ctx.get("mode") == "500":   # error path of a direct test: a server error for any call
                     code, ct, body = 500, "application/json", json.dumps({"error": "apimock: injected 500"})
@@ -1198,7 +1251,7 @@ def cmd_check(a):
     by = lambda s: [r for r in recs if r.get("status") == s]
     mocked = [e for e in eps if e["status"] == "MOCKED"]
     # B4N1-11: a MOCKED endpoint nobody called proves nothing: either no journey reached it, or the app never reached the
-    # stand-in at all (Opcenter b4: 2 endpoints MOCKED, 0 requests, the old app failing on every page, verdict PASS).
+    # stand-in at all (App A b4: 2 endpoints MOCKED, 0 requests, the old app failing on every page, verdict PASS).
     hits = {e["id"]: sum(1 for r in recs if r.get("endpoint") == e["id"] and r.get("status") == "MOCKED") for e in mocked}
     idle = [e for e in mocked if not hits[e["id"]] and e["id"] not in measured]
     unwaived = [e for e in idle if not e.get("unexercised")]
@@ -1208,6 +1261,9 @@ def cmd_check(a):
           f" · unmatched {len(by('UNMATCHED'))}")
     for r in (by("UNKNOWN") + by("UNMATCHED"))[:10]:
         print(f"  {r['status']} request {r['method']} {r['path']} ({r.get('endpoint') or r.get('match')}) at {r['t']}")
+    for e in eps:
+        if e["status"] == "UNCALLED" and not any(r.get("endpoint") == e["id"] for r in recs):
+            print(f"  NOT CALLED endpoint {e['id']}: not called by the model, no stand-in needed")
     for e in excl:
         if e.get("classified"):
             print(f"  INFO (excluded: {e['system']}) endpoint {e['id']}: check at deploy")
@@ -1323,7 +1379,7 @@ def main():
             p.add_argument("--json")
         else:
             p.add_argument("--state", required=True)
-            p.add_argument("--port", type=int, default=int(os.environ.get("UPG_APIMOCK_PORT", 8790)))
+            p.add_argument("--port", type=int, default=default_port())
             p.add_argument("--bind", default=None, help="address to listen on (default 127.0.0.1; 0.0.0.0 when "
                            "--public-host is given, so an app container can reach it, B4T2-5)")
             p.add_argument("--public-host", help="host the app reaches the stand-in on (default: --bind)")

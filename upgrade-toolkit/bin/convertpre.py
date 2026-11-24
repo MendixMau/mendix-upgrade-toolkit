@@ -5,8 +5,9 @@ Run it right before the convert (steps/upgrade.md, convert), with the app folder
 
   convertpre.py <app dir>
 
-REFUSE (exit 1): the git tree is not clean. Uncommitted build output (regenerated proxies, JS action stubs, classpath
-files) mixes into the convert commit and convertnoise cannot separate it afterwards (MC-3: Asset Console, fixed by
+REFUSE (exit 1): the git tree is not clean, except for the known baseline build output named in buildout.py (.classpath,
+.project, <name>.launch, theme-cache/**: DV-6; reported as ACCEPTED, never hidden). Any other dirty path still refuses. Uncommitted build output (regenerated proxies, JS action stubs, classpath
+files) mixes into the convert commit and convertnoise cannot separate it afterwards (MC-3: App H, fixed by
 hand with a build: commit, the convert alone, then convertnoise PASS). Every dirty path is listed, grouped by folder; commit
 build output as `build: <what>` (and keep the model out of that commit), then rerun.
 WARN (exit 0): a commit between the last unedited module state (the newest `step: <Module> <version>` commit, else the
@@ -19,6 +20,9 @@ Exit: 0 = ready (WARN lines possible), 1 = REFUSE, 2 = input error (not a git re
 """
 import os, subprocess, sys
 from collections import Counter
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import buildout   # the exact build-output paths a baseline build leaves (DV-6); one list for triage and convertpre
 
 
 def git(app, *a):
@@ -33,16 +37,16 @@ def main():
     if git(app, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").returncode != 0:
         print(f"convertpre: {app}: not a git repository with a commit", file=sys.stderr)
         return 2
-    prefix = git(app, "rev-parse", "--show-prefix").stdout.strip()
-    dirty = [ln for ln in git(app, "status", "--porcelain", "--untracked-files=all", "--", ".").stdout.splitlines() if ln.strip()]
+    allp = buildout.dirty(app)[1]
+    acc = [p for s, p in allp if buildout.accepted(p, s)]
+    dirty = [p for s, p in allp if not buildout.accepted(p, s)]
+    if acc:
+        print(f"ACCEPTED: {len(acc)} baseline build-output path(s) (buildout.py): {', '.join(sorted(acc)[:5])}{' ...' if len(acc) > 5 else ''}")
     rc = 0
     if dirty:
         rc = 1
         groups = Counter()
-        for ln in dirty:
-            p = ln[3:].strip().strip('"')
-            if prefix and p.startswith(prefix):
-                p = p[len(prefix):]
+        for p in dirty:
             groups[p.split("/", 1)[0] + ("/" if "/" in p else "")] += 1
         print(f"REFUSE: {len(dirty)} uncommitted path(s); the convert commit would hold them (convertnoise cannot separate them):")
         for g, n in sorted(groups.items()):

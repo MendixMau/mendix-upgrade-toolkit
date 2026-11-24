@@ -14,7 +14,7 @@ Relation to the other files (this file builds on them, it does not replace them)
 ```
 ### RA-<n> <short title>
 - topic: widget-gone | atlas | dojo | module-api
-- match: <Python regex, case-insensitive search on the section-3 item text: kind, name, evidence>
+- match: <Python regex, case-insensitive search on the section-3 item text: kind, name, evidence. The text of a replacements row item ends with the hit locations, which name other modules (a changedDate hit in a Marketplace SSO microflow); anchor at the start (`^\S+ ` is the kind; one kind has two words, so write `^(?:renamed module|\S+) ` where a renamed module can match) so a module named only in the evidence does not claim the item>
 - trigger: <which tool/file/line detects it>
 - why: <why it cannot be upgraded as it is>
 - options: <keep | replace | rebuild | hand off, each "name (effort S/M/L, risk)"> separated by " | "
@@ -43,7 +43,7 @@ need the feature rebuilt from platform widgets, or kept alive on the old platfor
 - recommendation: replace by nested Data grid 2 when the tree is 2 levels deep or less; rebuild only if deeper; keep only while the app stays on the Dojo client.
 - effort: M
 - recipe: 1) list the pages that hold the widget (`dojo_report.py`, impact_map; skip dead pages). 2) Per page read the tree: entity, parent association, columns, the on-click action. 3) Build the top level as Data grid 2 on the root entity; for each child level add a Data grid 2 (or Gallery) in a conditionally visible container bound to the association of the row, opened by a design-property-styled toggle (Atlas 4 design properties, no custom CSS). 4) Move the on-click action onto the row. 5) Run mx check, then smoke and a by-eye look at the page. 6) Record the decision and update this entry.
-- evidence: PFEP (detector only, no repair run yet); dojo-successors.tsv row (research 2026-10-08); B6-4. No field result.
+- evidence: App B (detector only, no repair run yet); dojo-successors.tsv row (research 2026-10-08); B6-4. No field result.
 - status: idea
 - cards: generic-dojo
 
@@ -69,7 +69,7 @@ need the feature rebuilt from platform widgets, or kept alive on the old platfor
 - recommendation: a version that R36 clears; else stay on 10.24 until one exists.
 - effort: S
 - recipe: 1) run R36 against the candidate mpk FIRST (`--accept FILE` for a patched one). 2) `mx update-widgets`, mx check, build. 3) Probe the page that holds the viewer in a browser (the crash is at render). 4) If none clears: hide the panel with a visibility condition and record the feature loss.
-- evidence: MC (Asset Console 11.12.6): V3D-1 to V3D-5; patch proven on mock data.
+- evidence: MC (App H 11.12.6): V3D-1 to V3D-5; patch proven on mock data.
 - status: tried once
 - cards: react-bundled-viewer3d
 
@@ -82,7 +82,7 @@ need the feature rebuilt from platform widgets, or kept alive on the old platfor
 - recommendation: dump the properties of each used instance before the update, re-set afterwards from the dump.
 - effort: M
 - recipe: 1) Before `update-widgets`, dump every property of each instance of the widget (mprmodel). 2) Update. 3) Dump again, diff by instance. 4) Re-set each lost value (mxcli where the registry has the widget, a direct model edit where not). 5) By-eye screen of one page per widget. 6) Add the pair to the report.
-- evidence: AM (Academy run): 30 Link captions, a lost child widget, MxDock header settings; AM-U2 backlog, AM-U8 closed. No automated diff yet.
+- evidence: AM (App C run): 30 Link captions, a lost child widget, MxDock header settings; AM-U2 backlog, AM-U8 closed. No automated diff yet.
 - status: idea
 - cards: none
 
@@ -178,13 +178,13 @@ ready / delete / can move / can't move / not researched. Clear what blocks on 11
 ### RA-11 Widget package that calls the removed client logger (mx.logger)
 - topic: dojo
 - match: mx\.logger|logger shim|widget-mxlogger|replacement: R38
-- trigger: replacement_check R38 (`mpkjs:\bmx\.logger\b`, widgets a page uses); remedies key `widget-mxlogger`; the scanner misses this.context() calls inside .mpk packages (AM-M4, backlog #25).
+- trigger: replacement_check R38 (`mpkjs:` mx.logger or the bare global `logger.<level>(` call, widgets a page uses); remedies key `widget-mxlogger`; the scanner misses this.context() calls inside .mpk packages (AM-M4, backlog #25).
 - why: the 11.12 client no longer defines mx.logger; a widget that calls it throws, so the page never renders.
 - options: newer widget version without mx.logger, checked with R38 first (S) | local shim defining mx.logger (no-op debug/info, console warn/error) in the theme or index.html (S, proven in a browser only) | rebuild the part on platform widgets (M) | fork the widget (M) | stay on 10.24 (S)
 - recommendation: newer version if R38 clears it; else the shim, with a recorded owner and a removal date.
 - effort: S
 - recipe: 1) R38 on the candidate mpk. 2) If none: put the shim in the app's own theme `index.html` hook before the widget loads; keep it out of vendor files. 3) Smoke the page that holds the widget; walk one journey through it. 4) List the shim in the report as a debt item.
-- evidence: QI (Quality Inspection): QI-3, QI-4 (LVC 1.3.16 calls it in 6 files); shim proven in a browser only (QI A37); AM-M4 and AC-9 for the scanner gap.
+- evidence: APPE (App E): APPE-3, APPE-4 (LVC 1.3.16 calls it in 6 files); shim proven in a browser only (APPE A37); AM-M4 and AC-9 for the scanner gap.
 - status: tried once
 - cards: widget-mxlogger
 
@@ -247,14 +247,14 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 
 ### RA-16 Legacy MendixSSO to OIDC
 - topic: module-api
-- match: mendixsso|sso module|openid
+- match: ^(?:renamed module|\S+) (?:R3\b|mendixsso\b)
 - trigger: replacements.tsv R3 (`module:MendixSSO`), R2 for OIDC shape; release-impact deprecation rows.
 - why: MendixSSO is deprecated; the user specialisation lives in the module's tables, and the IdP is an organisation decision.
 - options: keep the module (S, until it leaves the Marketplace) | OIDC SSO with the IdP (M-L) | SAML / LDAP / local credentials (M) | OIDC Provider for custom SSO
 - recommendation: OIDC with the IdP once the IdP decision is made; keep until then.
 - effort: L
 - recipe: 1) settle the IdP with the owner of identity. 2) Install OIDC with UserCommons. 3) Map the MendixSSO user specialisation rows to the new users (match on the stable id, dry run, count). 4) Switch login pages and the after-startup flow. 5) Journey per role. Do not delete the old module before login works for every role.
-- evidence: R3 research only; MendixSSO seen in fsm, kanban, pfep (kept); AM-T4/AM-T9 are harness items on an SSO app. No migration run.
+- evidence: R3 research only; MendixSSO seen in fsm, kanban, app-b (kept); AM-T4/AM-T9 are harness items on an SSO app. No migration run.
 - status: idea
 - cards: none
 
@@ -307,5 +307,18 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 - effort: M
 - recipe: 1) Read the installed version (R2 modver) and the app's Mendix version; run `bin/localedits.py --module OIDC --mxcli-diff` BEFORE any update and list every flow that differs from the published package (in the field template: three claim-handling microflows SUB_CreateOrUpdate_UserProvisioning, SUB_HandlingClaims, handleAuthorizationCode and the nanoflow ACT_StartWebSignIn, i.e. the code that decides who may log in, plus six pages and Snip_Login_Button); `bin/stepupdate.sh` stops on logic edits and nothing is forced, so the owner decides: keep the module, or save the edits (`--save-edits`) and port them by hand after the update. A cross-version diff is refused (UNKNOWN), so run it on the version the module was installed at, before the convert. A project below 10.24 takes the 10.24 rung first (11.12.5 refuses to open a 10.15 project). List the other customisations: the after-startup setting, custom token-parsing microflows (prefix OIDC_CustomUserParsing or custom ATP), snippets from the module on own pages, and whether the app relies on the module's Anonymous role. 2) Before each module import delete the old module's Java libraries from userlib (the release notes list this step for 1.0.1 to 3.5.0 and 4.2.0): leftover jars give duplicate-class errors at start. 3) Below 3.0: update to 3.x. Without it the module's own microflows fail the check on missing UserCommons entities: import UserCommons 1.x; set the after-startup microflow to OIDC.Startup; assign UserProvisioning to each existing IdP configuration; replace Snip_Login_Automatic by Snip_Login_Button (removed in 3.0.1). 4) To 3.1 or later: set after-startup to OIDC.ASU_OIDC_Startup (error: microflow OIDC.Startup not found, or the app starts and no IdP is provisioned). 5) To 4.0.1 or 4.1.0: replace Administration.Account by System.User in your own token-parsing microflows (the check fails on the removed Administration.Account member; the error text is the symptom, the module is the cause); UserCommons 2.x goes with 4.x. 6) Go to 4.2.0 first, run the UserCommons migration microflow it provides (_USE ME, Migration) on a data copy, compare user counts, only then move on to 4.2.1 or later. 7) To 4.5.0 or later: UserCommons 2.3.0 or later; the IdP must support PKCE (or PKCE is switched off in the client configuration); if the app used the Anonymous role as role-based home page or sign-in page, set both to none first, then re-check landing pages. 8) After each step: mx check clean, start clean, login page loads. 9) At the end validate authentication (login at the IdP, new and existing user), authorization (role from the token, default role), redirects (return URL with and without query parameters, deep link into a page), session handling (sign out, session timeout, second tab). IdP flows need a real IdP; without one say not measured.
 - evidence: brain oidc-sso (Marketplace 120371) and usercommons (223053) release notes; docs.mendix.com/appstore/modules/oidc upgrade sections; replacements.tsv R2; research/snippet-oidc/proof-oidc.md: a public starter app on OIDC 3.1.0 (no public template holds one below 3.0), converted to 10.24, then stopped at step 1 by stepupdate on 4 logic edits in the module; nothing after that ran, the IdP side is not measured.
+- status: idea
+- cards: none
+
+### RA-21 Scheduler widget (Scheduling module, SchedulerWidget 1.0.0) throws on the 10 client
+- topic: widget-gone
+- match: schedulerwidget|scheduling module|scheduler widget
+- trigger: gate smoke walk or journeys: a page with the widget FAILs on the new app and passes on the old one, console `TypeError: titleGetter is not a function` (or `getTitle is not a function`) in `widgets/mendix/schedulerwidget/SchedulerWidget.js`; the Scheduling module has no Marketplace version listing (`mxcli marketplace versions` empty), so no module update exists.
+- why: the widget package is a 9.x-era pluggable widget; on the Mendix 10 client the title getter its code maps over the events is not a function any more (the widget reads an event property the platform now delivers as an expression). The page opens and the guards hold, but no events render.
+- options: keep on 9 (not possible on this path) | rewrite the widget's event title property as the current expression-based one and rebuild the package (M, needs the widget source) | replace by a current scheduler/calendar widget from the Marketplace (M, layout redone) | hand off
+- recommendation: replace by a current calendar widget; only rewrite the package when its source is in the project.
+- effort: M
+- recipe: 1) list the pages with `com.mendix.widget.custom.SchedulerWidget` or `mendix.schedulerwidget` (impact_map). 2) Compare the old and new page screenshot for the failing role. 3) Read the widget's XML for the event title property and the new client's expectation. 4) Replace the widget per page with the chosen calendar widget, same data source and event attributes. 5) Rerun the page's smoke step and journey.
+- evidence: PSOP (Paperless SOP template, 9.24.3 -> 10.24, rung 1 smoke walk: ProductionApp.ProductionProcess_Overview FAIL for 3 roles, old PASS 3 of 3). No repair run, so no field result.
 - status: idea
 - cards: none

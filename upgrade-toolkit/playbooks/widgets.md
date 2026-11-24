@@ -1,6 +1,6 @@
 # Playbook: widgets that break at runtime (build clean, page broken)
 
-Evidence: batch 1 template runs T3 (PFEP 9.24 to 10.24), T5 (Visual Inspection 9.24 to 10.24), T7 (Quality Inspection
+Evidence: batch 1 template runs T3 (App B 9.24 to 10.24), T5 (App G 9.24 to 10.24), T7 (App E
 10.6 to 10.24 to 11.15) and T8 (FSM 9.24 to 10.24); branches `origin/runs/<slug>`, files SCORECARD, COMPARE, JOURNAL,
 TOOLKIT-FEEDBACK. Release facts from the brain version tables (`company-brain-test/brain/baseline/versions`) and the
 public sources named per section. Row ids (T7-29, ...) are the workers' TOOLKIT-FEEDBACK items; FEEDBACK.md row R1-1.
@@ -85,6 +85,22 @@ line in the report: "legacy charts, break from Mendix 11.6".
 **Triage.** List every page and snippet using a `com.mendix.widget.custom.` widget id (and Any Chart), with the
 Charts.mpk version installed: `grep -l 'com.mendix.widget.custom' app/widgets/*.mpk` (unzip -l) and the widget ids
 `missing_deps.py` already reads. Each one is a planned repair for the 10.24 rung of a path to 11.
+
+**The route, per module (cold rung 2: 36 Any Chart uses, 18 of them in a sample module).** `bin/repair/widgetroute.py
+app/ --target <ver>` gives one route per module and old widget, from `playbooks/widget-routes.json` (the table above as
+data: old id, new id, property mapping, what plotly 3 dropped, effort, and the next candidates; `missing_deps.py` reads
+its DEPRECATED-11 ids from it too). The toolkit heals itself: the recommended candidate goes into the test build and the
+person OKs it afterwards or picks B. Any Chart 3.0.4 maps 1:1 to Custom chart (Charts 6.x): every key exists, four
+translatable strings become plain strings, the same plotly engine (plotly.js 3) draws it; `--apply` rewrites the widget
+and `mx update-widgets` does the rest. A static JSON with keys plotly 3 dropped (titlefont, a title as plain text) is
+replaced and listed as approximated. An Any Chart straight on a snippet parameter (Custom chart there fails mx check,
+CE7006 on its attributes) gets a data view on that one object parameter first. A module that holds only pages,
+snippets and building blocks, no entities, and that nothing opens is removed (`keep-module M` puts it back). Cold app:
+all 36 handled (15 replaced, 3 wrapped and replaced, the sample module removed), mx check 0 errors. Every item reads
+"Found / Searched / Candidates (one recommended) / Applied", never a bare "no replacement". The pipeline (build, row 37)
+runs replace, wrap and remove as separate repair commits (each undone if mx check gets worse; the route then proposes
+its next candidate) and asks one OK per item: "N charts replaced by Charts 6.x (Custom chart), M approximated: OK?";
+B (`route-b R`, `keep-module M`) reverts that commit on the rerun.
 
 ## 2. Teardown console errors after 9 to 10 (T8 FAIL)
 

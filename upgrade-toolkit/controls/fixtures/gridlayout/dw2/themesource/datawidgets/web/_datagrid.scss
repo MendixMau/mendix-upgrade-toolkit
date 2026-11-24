@@ -1,0 +1,13 @@
+// Trimmed from the Data Widgets 2 theme: .table is the wrapper, the grid sits on .table-content
+.table {
+    position: relative;
+
+    .table-content {
+        display: grid;
+        position: relative;
+    }
+
+    .tr {
+        display: contents;
+    }
+}

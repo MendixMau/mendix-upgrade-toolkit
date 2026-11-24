@@ -6,7 +6,7 @@ with the ways out, tries the cheapest safe mechanical one itself, gates again, a
 
 Why: the same blockers come back across apps, and so do the ways out. Notification service 9.24 to 10.24: Data Widgets
 3.11.7 lost the drop-down filter captions and doubled the paging text; the team reverted Data Widgets by hand. 10.24 to
-11.12: a private DropdownContainer widget calls findDOMNode and has no newer version. Asset Console 10.12 to 11.12:
+11.12: a private DropdownContainer widget calls findDOMNode and has no newer version. App H 10.12 to 11.12:
 3D Viewer 4.0.0 crashes with React error #525; the fix is a licensed download. Kept modules (local edits, an
 Administration update that drops Account rows) were listed and nothing said what to do next.
 
@@ -19,7 +19,7 @@ python3 $B/remedy.py --work $W --app app/ --next   # only the next action per op
 
 Optional inputs: `--gate F`, `--kept-file F`, `--release F`, `--replacements F.json` (replacement_check.py --json),
 `--dojo F.json` (dojo_report.py --json), `--finding TEXT` or `--findings F` (a blocker found outside the gate, such as a
-hand-opened page or an ASSUMPTIONS line), `--from VER --to VER`. Output: `$W/remedy-cards.md` and `$W/remediation.json` (QI-5: never `remediation.md`; on a case-insensitive disk it is the same file as the merged `REMEDIATION.md` a brief asks for). `--gate` takes the gate summary or the gate folder that holds it.
+hand-opened page or an ASSUMPTIONS line), `--from VER --to VER`. Output: `$W/remedy-cards.md` and `$W/remediation.json` (APPE-5: never `remediation.md`; on a case-insensitive disk it is the same file as the merged `REMEDIATION.md` a brief asks for). `--gate` takes the gate summary or the gate folder that holds it.
 remedy.py only reads; it never changes the app. `--keptdeps F` adds a saved keptdeps.py output (RT-8);
 `--kept-snapshot F` and `--reset-kept-snapshot` steer the kept-list snapshot (RT-9, below).
 
@@ -76,7 +76,7 @@ The pipeline may apply an AUTO-TRY option itself only when all of these hold:
 Everything else is HUMAN: the person picks an option on the card. D, a rebuild, licensed downloads, a private design
 system owner, and anything that touches data are always HUMAN.
 
-## Widget remedies (V3D-7 to V3D-10, QI-4)
+## Widget remedies (V3D-7 to V3D-10, APPE-4)
 
 - Triage a widget swap fast: replace `web/widgets/<path>` in a STARTED app's run folder with the candidate package's files
   (delete the `.gz` twins), reload, probe. It served exactly the package's files and predicted the built result (3D Viewer
@@ -132,7 +132,7 @@ A later stepupdate pass rewrites `APP/.stepupdate/kept.txt`; in the trial that d
 kept file is that default (or `--kept-snapshot F` is given), remedy.py keeps a snapshot (`$W/remedy-kept-snapshot.txt`
 by default). A module in the snapshot but not in the current list keeps its card with `WARN kept list shrank`, unless a
 tried PASS resolved it; `--reset-kept-snapshot` starts again from the current list. A tried line for a card the run no
-longer generates prints a WARN too. A kept line "skipped by --skip" is a choice, printed as `CHOICE`, not a gap (RT-13).
+longer generates prints a WARN too. A kept line "skipped by --skip" is a choice, printed as `CHOICE`, not a gap (RT-13). A reason given with `stepupdate.sh --skip-reason Mod=why` follows the words (`skipped by --skip: why`) and is printed as `(reason given: why)`; a reason that says "newest" does not hide the line.
 
 ## Done when
 

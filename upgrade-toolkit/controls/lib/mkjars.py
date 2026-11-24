@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mkjars.py: build the synthetic jar folders for the jarclash controls (Academy AC-6 shape, Apache names only).
+"""mkjars.py: build the synthetic jar folders for the jarclash controls (App C AC-6 shape, Apache names only).
 
   mkjars.py <out dir> clash|clean
 clash: userlib/markdown-all-0.50.jar carries lib/pdfbox-2.0.24.jar inside it (the hidden copy), and
