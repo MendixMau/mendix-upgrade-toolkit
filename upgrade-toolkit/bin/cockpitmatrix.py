@@ -234,7 +234,7 @@ def parked_act(n, running=None):
 
 def read_plan_txt(work):
     """Triage's module plan (plan.txt, written by modplan.py) for the rows that otherwise read only PROPOSAL.md, which exists only after
-    the propose step: between triage and the proposal (hours, with the owner's answer in between) both columns said "Not yet" (ABS, 2026-11-24).
+    the propose step: between triage and the proposal (hours, with the owner's answer in between) both columns said "Not yet" (field run, 2026-11-24).
     None when the file is not there; else {"picked": [(name, old, new)], "notpicked": [name]} from `<cid> <new> <Module>   # was <old>` and
     `# NOT PICKED <Module>: ...` lines."""
     t = cp.rd(os.path.join(work, "plan.txt"))
