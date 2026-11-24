@@ -3864,10 +3864,10 @@ cp -R $SH/old/shots-Administrator $J/old/before/; cp -R $SH/empty/shots-Administ
 for d in old/before new/after; do echo '{"journeys": {"dashboard-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}, "login-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $J/$d/summary.json; done
 ctl journeys-screen-catch 1 'PASS +dashboard-Administrator .*SCREEN REVIEW' '!login-Administrator .*SCREEN' '^screens: 1 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID' -- python3 $B/run_journeys.py x --label after --work $J/new --compare $J/old --rejudge
 # GF-54: one journey with a tone-only screen (step1) and a content-lost screen (step2): the journey's SCREEN line is the lost one
-J5=$T/rj5; mkdir -p $J5/old/before $J5/new/after
-cp -R $SH/jr-old/shots-Administrator $J5/old/before/; cp -R $SH/jr-new/shots-Administrator $J5/new/after/
-for d in old/before new/after; do echo '{"journeys": {"j-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $J5/$d/summary.json; done
-ctl journeys-screen-content-lost-first-catch 1 'PASS +j-Administrator .*SCREEN REVIEW\] screen REVIEW CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/run_journeys.py x --label after --work $J5/new --compare $J5/old --rejudge
+JLF=$T/rjlf; mkdir -p $JLF/old/before $JLF/new/after
+cp -R $SH/jr-old/shots-Administrator $JLF/old/before/; cp -R $SH/jr-new/shots-Administrator $JLF/new/after/
+for d in old/before new/after; do echo '{"journeys": {"j-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $JLF/$d/summary.json; done
+ctl journeys-screen-content-lost-first-catch 1 'PASS +j-Administrator .*SCREEN REVIEW\] screen REVIEW CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/run_journeys.py x --label after --work $JLF/new --compare $JLF/old --rejudge
 # T1-26 / T4-17: the screens line is printed when every pair passes too, so the gate can cite it
 J2=$T/rj2; mkdir -p $J2/old/before $J2/new/after
 cp -R $SH/old/shots-Administrator $J2/old/before/; cp -R $SH/same/shots-Administrator $J2/new/after/
