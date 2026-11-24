@@ -675,7 +675,7 @@ PY
     echo "$wout" | sed 's/^/      /'
     rec widgets.txt "$mod" "$mod $ver: $(echo "$wout" | sed 's/^widgets\///' | paste -sd ';' - | sed 's/;/; /g')"; widg_run="$widg_run $mod "
   fi
-  # PLM-26: a module role the update added and no user role holds. mx check is clean and the build is green; the smoke rung
+  # APPD-26: a module role the update added and no user role holds. mx check is clean and the build is green; the smoke rung
   # then fails with "Executing action failed for security reasons" (Atlas_Core 3.21 User/Administrator, 13 of 15 pages).
   # Listed now, repeated in the summary (exit 1) until each role is mapped or waived in .stepupdate/roles-waived.txt.
   python3 "$bin/rolecheck.py" "$prevmpr" "$app/$mpr" ${waived_roles[@]+"${waived_roles[@]}"} > "$st/step$n-$mod.roles" 2>&1; rcr=$?
@@ -831,7 +831,7 @@ if [ -n "$assoc_run" ] && [ -s "$st/assoc-saved.txt" ]; then
   done < "$st/assoc-saved.txt"
 fi
 if [ -n "$roles_run" ] && [ -s "$st/newroles.txt" ]; then
-  echo "stepupdate: NEW MODULE ROLES with no user role (PLM-26; rolecheck.py; waive with a reason in $st/roles-waived.txt):"
+  echo "stepupdate: NEW MODULE ROLES with no user role (APPD-26; rolecheck.py; waive with a reason in $st/roles-waived.txt):"
   while IFS= read -r l; do
     case "$roles_run" in *" ${l%% *} "*) echo "   NEW-ROLES: $l";; esac
   done < "$st/newroles.txt"

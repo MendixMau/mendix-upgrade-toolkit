@@ -2,8 +2,8 @@
 
 Source: the COMPARE.md of batch 1 (branches `origin/runs/<slug>`), where a worker compared its toolkit result with
 the publisher's own newer versions of the same Marketplace template. References existed for T1 (Purchase Request,
-publisher 2.0.0 on 10.0 and 3.3.0 on 10.24), T2 (Opcenter EF, 3.0.0 to 8.0.0 on 10.6 to 11.12), T3 (PFEP, 3.2.1 and
-3.3.1, a rebuild), T4 (Kanban with Opcenter 2.0.0, 10.24), T5 (Visual Inspection 4.0.0, 10.12), T6 (Checklist to go
+publisher 2.0.0 on 10.0 and 3.3.0 on 10.24), T2 (App A EF, 3.0.0 to 8.0.0 on 10.6 to 11.12), T3 (App B, 3.2.1 and
+3.3.1, a rebuild), T4 (Kanban with App A 2.0.0, 10.24), T5 (App G 4.0.0, 10.12), T6 (Checklist to go
 2.0.0, 10.6). T7 and T8 had no publisher upgrade. FEEDBACK.md row R1-2.
 
 Feature work (new modules, new pages, redesigns, new vendor widgets, demo-data loaders) is left out: it is not

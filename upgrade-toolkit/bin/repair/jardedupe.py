@@ -38,7 +38,7 @@ Three rules, all dry-run unless --apply (commit first: git is the undo). Every j
     OIDC module). A jar without a marker is the app's own and is kept. No .mpr found, or --modules naming it, means
     "cannot prove": kept. ADD-ON JAVA (T2R3-6): add-on modules (modules/*.mxmodule, unpacked by Studio Pro into
     .mendix-cache/modules/<name>.mxmodule/) carry their own javasource that is NOT under javasource/ and reuse jars of
-    modules the app does not have (EXFN_Authentication's DecodeJWT.java imports com.auth0.jwt from the OIDC-marked
+    modules the app does not have (MFN_Authentication's DecodeJWT.java imports com.auth0.jwt from the OIDC-marked
     java-jwt jar: removing it failed the build twice). A jar whose classes add-on Java imports is kept as "NEEDED BY
     ADD-ON", and with it every jar of the same absent module (its runtime dependencies, jackson and codec, show in no
     import line); when an add-on's Java cannot be read (unreadable zip, or classes/jars and no .java), no STALE jar is
@@ -350,7 +350,7 @@ def jar_packages(path):
 
 
 def has_classes(path):
-    """True when the jar holds at least one .class file (PLM-23: okio-3.5.0.jar is a Kotlin multiplatform metadata jar,
+    """True when the jar holds at least one .class file (APPD-23: okio-3.5.0.jar is a Kotlin multiplatform metadata jar,
     okio-jvm-3.5.0.jar holds the classes). False for an unreadable file too, so fake empty jars behave as before."""
     return bool(jar_packages(path))
 
@@ -362,7 +362,7 @@ def is_imported(path, imports):
 
 NEEDS_VENDORLIB = set()   # ids of userlib jars whose removal rests on a vendorlib copy (T5-16)
 SBOMS = ("vendorlib-sbom.json", "vendorlib/vendorlib-sbom.json", "vendorlib/sbom.json", ".stepupdate/vendorlib-sbom.json")
-SHADOWED = []  # (older userlib jar, newer vendorlib jar, owners): two majors of one library on the classpath (PLM-24)
+SHADOWED = []  # (older userlib jar, newer vendorlib jar, owners): two majors of one library on the classpath (APPD-24)
 UPDATED = {}   # --updated / --updated-from-git: module (lower case) -> where it was seen; their markers on older copies are leftovers
 
 
@@ -393,7 +393,7 @@ def needs_older_major(project, extra, r, g, top):
 
 
 def lone_class_packages(r, top):
-    """Packages (sorted) that jar r holds classes for and the kept jar top does not (PLM-23). Only when r is the same
+    """Packages (sorted) that jar r holds classes for and the kept jar top does not (APPD-23). Only when r is the same
     version as top, or top holds no classes at all: a newer version may legitimately drop a package (a split artifact is
     UNMATCHED's business). Empty for jars that are not zips."""
     mine = jar_packages(r["path"])
@@ -572,7 +572,7 @@ def plan(project, extra=frozenset()):
             for r in g:
                 out.append(("KEEP", r, f"AMBIGUOUS: {art} has {len(g)} copies and a version that cannot be read", 1))
             continue
-        top = max(g, key=lambda r: (vkey(r["ver"]), r["dir"] == "vendorlib", has_classes(r["path"])))   # PLM-23: same version, the one with classes wins
+        top = max(g, key=lambda r: (vkey(r["ver"]), r["dir"] == "vendorlib", has_classes(r["path"])))   # APPD-23: same version, the one with classes wins
         decl = sorted({f"{m} {r['ver']}" for r in g if r["dir"] == "userlib" for m in r["mods"] if module_known(project, m, extra)})
         dn = f"; declared by present modules: {', '.join(decl)}" if decl else ""
         out.append(("KEEP", top, f"newest of {len(g)} copies of {art} ({top['ver']}){dn}", 1))
@@ -580,7 +580,7 @@ def plan(project, extra=frozenset()):
             if r is top:
                 continue
             sole = lone_class_packages(r, top)
-            if sole:   # PLM-23: never drop the only jar that holds the classes of a package
+            if sole:   # APPD-23: never drop the only jar that holds the classes of a package
                 out.append(("KEEP", r, f"ONLY COPY WITH CLASSES for {', '.join(sole[:3])}{' ...' if len(sole) > 3 else ''}: "
                                        f"{top['id']} ({top['ver']}) has none of them; kept: review by hand", 1))
             elif r["dir"] == "vendorlib" and top["dir"] == "userlib" and vkey(r["ver"]) < vkey(top["ver"]):
@@ -670,7 +670,7 @@ def main():
                  f"{sum(1 for x in res if x[0] == 'KEEP')} listed as kept"
                  + (f", {sum(1 for x in res if x[0] == 'UNMATCHED')} UNMATCHED (review by hand)"
                     if any(x[0] == "UNMATCHED" for x in res) else ""))
-    # PLM-24: an older MAJOR kept in userlib while vendorlib has the newer one. The module that declares it may only be
+    # APPD-24: an older MAJOR kept in userlib while vendorlib has the newer one. The module that declares it may only be
     # a leftover marker of an old version (CommunityCommons 9 to 11: PDFBox 2 shadowed PDFBox 3, javac failed in
     # Misc.java). Only the module's installed package, a "step:" commit or --updated can prove that, so it is flagged,
     # never removed on a guess, and named loudly.

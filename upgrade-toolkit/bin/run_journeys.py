@@ -950,7 +950,7 @@ def check_unreachable(j, entry, refs, acts_file, acts):
       the file looks like that module (its name is in it) and names none of the documents that lead to the page: the
       host, via_pages and their whole readable caller chain in the OLD model (model=<.mpr>, else actions.json "model");
       a readable microflow only the add-on calls is a way in too, so the model is required whenever an add-on is.
-      On the Opcenter Starter Kit the inventory said "unreachable" for ClientConfiguration_NewEdit while the EXFN add-on
+      On the App A Starter Kit the inventory said "unreachable" for ClientConfiguration_NewEdit while the MFN add-on
       opens it (create-save walks it): the model alone is no proof when a module cannot be read."""
     if acts is None or not acts_file:
         return False, "UNREACHABLE is checked against --actions (the OLD model's actions.json): none given"

@@ -45,7 +45,7 @@ Env:
 Login override (T2-7, N1-4): an app whose web/login.html redirects to an external IdP (meta refresh, window.location, a form
 posting to an /auth/ path) cannot be signed into by smoke walks and journeys. --login-override (or UPG_LOGIN_OVERRIDE):
   auto (default)  replace login.html only when it redirects off-app, with web/login.old, web/login-stock.html or a
-                  web/*login*without*sso*.html (the app's own stock page; Academy ships login-without-sso.html, T4); a normal Mendix login page (also one with an SSO button) is never touched.
+                  web/*login*without*sso*.html (the app's own stock page; App C ships login-without-sso.html, T4); a normal Mendix login page (also one with an SSO button) is never touched.
                   No stock page: login.html stays, a HARNESS CONDITION says so, and sign-in journeys are INVALID
   off             never touch login.html
   <file>          always replace login.html with that file
@@ -57,7 +57,7 @@ such page: index.html stays and a HARNESS CONDITION says the client may land on 
 Same value and same result for old and new. Every replacement prints a HARNESS CONDITION line and writes
 run/<name>/harness-login-override.txt (original kept as login.html.orig) for the gate and scorecard to show.
 
-Harness files (T2R3-5, B4T2-13): an add-on that builds a Windows path at runtime (EXFN_Authentication reads
+Harness files (T2R3-5, B4T2-13): an add-on that builds a Windows path at runtime (MFN_Authentication reads
 `/w/run/<name>\model\metadata.json`) fails with FileNotFoundException on Linux (also on Mendix Cloud); workers copied
 the file by hand for old AND new, and forgetting it for new gave a convincing create-save FAIL that was no regression.
 --harness-file (or UPG_HARNESS_FILE):
@@ -206,7 +206,7 @@ def apply_login_override(base, mode="auto", name="app"):
         if not login_redirects_off_app(text):
             return None
         trusted = [web / "login.old", web / "login-stock.html"] + sorted(
-            f for f in web.glob("*.html") if re.search(r"login.*without.*sso", f.name, re.I))  # T4: Academy login-without-sso.html
+            f for f in web.glob("*.html") if re.search(r"login.*without.*sso", f.name, re.I))  # T4: App C login-without-sso.html
         # BT-3 (APPR): a backup of the stock page under another name (login_backup_2022-12-12_10-33.html) and the other
         # login*.html pages; accepted only when the page shows a username and a password field and does not redirect
         others = sorted((f for f in web.glob("login*.html") if f.name != "login.html" and f not in trusted),

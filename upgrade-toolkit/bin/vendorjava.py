@@ -20,7 +20,7 @@ Findings, per file:
   EMPTIED        a method (name and parameter count) whose body had statements at the base and has none now (only
                  comments or blanks)
 A file whose only commits since the base are module update commits (stepupdate's "step:" commits, or --update-commit
-REGEX) is skipped and counted: the vendor shipped that change, and a person did not write it (PLM-31: the OData connector
+REGEX) is skipped and counted: the vendor shipped that change, and a person did not write it (APPD-31: the OData connector
 7.1.7 package itself comments out two lines in HttpRequest.java and XPath.java). An uncommitted edit, or any later
 commit that touches the file, makes it a finding again.
 Each finding is a hand edit of vendor code: the feature it implemented is gone while the build stays green. Update
@@ -103,7 +103,7 @@ def git(app, *args):
 
 def update_only(app, base, rel_repo, pattern):
     """True when the file has commits since base, every one of them a module update commit, and no uncommitted change
-    (PLM-31). Anything else (no commit: a working-tree edit; a hand commit among them) is a hand edit."""
+    (APPD-31). Anything else (no commit: a working-tree edit; a hand commit among them) is a hand edit."""
     if git(app, "status", "--porcelain", "--", rel_repo).stdout.strip():
         return False
     subj = [x for x in git(app, "log", "--format=%s", f"{base}..HEAD", "--", rel_repo).stdout.split("\n") if x.strip()]

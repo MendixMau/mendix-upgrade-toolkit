@@ -13,6 +13,6 @@
 
 Two rules only:
 1. No customer data: no customer, app, person or host names, no real paths. Code names only (see FEEDBACK.md).
-   Internal Siemens notes go to the company brain, never here.
+   Internal the company notes go to the company brain, never here.
 2. Label hypotheses as hypotheses. "CE1613 gone after the repoint, mx check twice" is a finding; "I think the
    layout cache" is a hypothesis. Both welcome, just say which.>

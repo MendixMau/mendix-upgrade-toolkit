@@ -89,7 +89,7 @@ def db_snapshot(psql):
     out["assoc_ends"] = {name: [ents[pe][0], ents[ce][0]] for name, pe, ce in
                          q(psql, 'select association_name, parent_entity_id, child_entity_id from "mendixsystem$association"')
                          if pe in ents and ce in ents}
-    # PLM-27: the Mx10 runtime deletes session-less Anonymous_* users at start, so System.User rows, their attributes and
+    # APPD-27: the Mx10 runtime deletes session-less Anonymous_* users at start, so System.User rows, their attributes and
     # their role links always drop on a 9 to 10 data rung. Record the same figures for the NAMED users alone, so diff.py can
     # judge those and report the anonymous rows as one known behaviour.
     try:

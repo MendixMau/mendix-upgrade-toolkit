@@ -1,7 +1,7 @@
 # Key-user interview: processes (EXAMPLE)
 
 Example notes for the E2E-16 controls, written on templates/process-interview.md. Invented: no real user, customer or
-interview behind it. App: the Opcenter EX Starter Kit home cards (fixtures/actions/t2-home-cards.json).
+interview behind it. App: the vendor starter-kit home cards (fixtures/actions/t2-home-cards.json).
 
 ## Roles
 
@@ -24,7 +24,7 @@ Name: Configure a client
 2. [Administrator] Click "New"
 3. [Administrator] Click "Save"
 
-expect: EXFN_Authentication.ClientConfiguration where Alias = "Plant ${RUN_ID}"
+expect: MFN_Authentication.ClientConfiguration where Alias = "Plant ${RUN_ID}"
 
 ## What breaking looks like
 

@@ -359,7 +359,7 @@ LAYOUT_OF = re.compile(r"^\s*Layout:\s*([\w]+\.[\w]+)", re.M | re.I)
 def layout_route(qn, ours, orig):
     """-> (mdl or None, how) for an edited layout inside a Marketplace module. mxcli never writes a layout there (any build:
     the update would overwrite it), so the merged layout cannot go back in. WM1 (rerun 2026-11-16): Atlas_Default and
-    Atlas_TopBar were rewritten to sit on DISW_DesignSystem layouts; the replay stopped the run. What the app meant is
+    Atlas_TopBar were rewritten to sit on DesignSystemB layouts; the replay stopped the run. What the app meant is
     "pages use the company layout": repoint the pages to it. mxcli skips and names pages inside Marketplace modules;
     those show the vendor layout after the update."""
     m = LAYOUT_OF.search(ours or "")
@@ -385,7 +385,7 @@ def nav_copies(qn, company, orig, app_mpr):
     them, so they keep the vendor layout: WM1's Accounts menu opened Administration.Account_Overview on plain Atlas 4,
     sidebar and header gone, the mx logo over the title (screens REVIEW, 2026-11-17). Copy each into the module where
     the app already keeps its copies of that vendor module's pages (a page with the same title: WM1's
-    DISW_DesignSystem_Extention.MyAccount_Edit), on the company layout, grants mapped by role name, the menu pointed at
+    DesignSystemB_Extention.MyAccount_Edit), on the company layout, grants mapped by role name, the menu pointed at
     the copy. No such module, or a copy would drop a widget: the page's own layout set in place (ALTER PAGE), menu unchanged."""
     rc, out = mx(["-p", orig, "-c", "SHOW MODULES"])
     mods = table(out) if rc == 0 else []

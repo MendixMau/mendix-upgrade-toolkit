@@ -7,7 +7,7 @@ what the customer must supply when it cannot, and which verdict the run can reac
 
 Why: in the 13 and 14 Oct runs, rungs turned out unjudgeable only at the very end. notification-service R2: 233 of 406
 generated journeys failed on the OLD app (57%, bar 30%), so the journeys rung could never pass. R1: 19 consumed API
-endpoints UNKNOWN, the apis rung INVALID. PLM and PV360: guest access on and no confirmed key-user process as the
+endpoints UNKNOWN, the apis rung INVALID. APPD and App F: guest access on and no confirmed key-user process as the
 anonymous role, journeys INVALID. Teamcenter apps fall back to mock data without an error, so a rendered connector
 page proves nothing (TC-1, PV-10, MC-17). Each of those was knowable at triage from what triage already writes.
 

@@ -55,7 +55,7 @@
 #   widgets    WIDGETS_APP=<app dir|.mpr> [WIDGETS_WAIVE=<file> WIDGETS_RENDERED=<file>]   optional rung (MC-19): bin/widgetcover.py
 #              lists every widgets/*.mpk that a page uses and that no smoke step ($GATE_DIR/smoke-after.json) and no journey
 #              (JOURNEYS_DIR) renders; one of them is INVALID (rc 3, "not checked"), never PASS. A widget that crashes on the new
-#              client passes every other rung when no walked page holds it (Asset Console 3D viewer, React error #525).
+#              client passes every other rung when no walked page holds it (App H 3D viewer, React error #525).
 #              WIDGETS_WAIVE: lines "package or widget id # reason"; WIDGETS_RENDERED: pages a hand-written walk opens
 #   trail      TRAIL_REQUIRED=1   optional rung (STEP-RECORDS-PLAN.md slice 9), on whenever <work>/steps.jsonl exists: bin/steps.py trail asks that
 #              every step has a proposal, an approval (assumed counts, flagged), a change or a written gap, a test result or a written gap,
@@ -105,7 +105,7 @@
 #       FAILs or is INVALID, but N items are NOT CHECKED because they need an excluded system (E2E-14; never plain
 #       PASS, never 0), and/or "PASS (on stand-in APIs: <systems>)": APIMOCK is set and the stand-in answered for at
 #       least one endpoint, so real-system behaviour was not checked (E2E-15; a conditional PASS, to be run again on
-#       the vendors' test systems before go-live). Both: "PASS (on stand-in APIs: Opcenter; except Teamcenter: 3
+#       the vendors' test systems before go-live). Both: "PASS (on stand-in APIs: App A; except Teamcenter: 3
 #       items)". APIMOCK set but the stand-in's inventory unreadable = INVALID. --dry-run prints each rung's command and exits 0 when the inputs check out; it runs and
 #       writes nothing.
 # Env: UPG_GATE_BIN (instrument folder, default: this one; controls use stubs), UPG_PYTHON, UPG_NODE,

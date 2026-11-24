@@ -5,7 +5,7 @@ Why (T2-4, T2R3-7): a 9.x page calls a microflow with implicit arguments (empty 
 makes them explicit, but only for a flow it can read: a flow in a protected ADD-ON module (`modules/*.mxmodule`, a vendor
 binary that is not in app.mpr) keeps an empty list, and mx check says CE1571. mxcli cannot repair it either: `alter page
 ... set DataSource = microflow M(Param = $x)` prints "Altered page" and saves no mapping, because it cannot read M's
-parameters (Opcenter, batch 1 and T2R3: ClientConfiguration_NewEdit.dataView1, twice). Both runs fixed it by copying the
+parameters (App A, batch 1 and T2R3: ClientConfiguration_NewEdit.dataView1, twice). Both runs fixed it by copying the
 ParameterMappings of the same call from the publisher's newer page with a hand-written BSON script (dvfix.py). This is
 that script, for any page and any call.
 
@@ -14,7 +14,7 @@ that script, for any page and any call.
   copy_mappings.py <app dir|.mpr> --scan
 
 Call sites are matched like convertcheck.py --mappings keys them: the names of the named widgets down to the call, plus
-the called flow or page (`ClientConfiguration_NewEdit/dataView1:EXFN_Authentication.SUB_GetDefaultClientConfiguration`).
+the called flow or page (`ClientConfiguration_NewEdit/dataView1:MFN_Authentication.SUB_GetDefaultClientConfiguration`).
 A site is copied only when the reference calls the SAME flow at the same widget path with a non-empty mapping:
   COPY      target empty, reference mapped: the reference's mappings with fresh $IDs (--apply writes them)
   SAME      already equal (the $IDs aside)

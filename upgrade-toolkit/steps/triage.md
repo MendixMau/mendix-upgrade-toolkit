@@ -30,7 +30,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    E5b and one in E4 were pre-9.18 (NanoflowCommons 2.1.0 was made with 9.6.0). stepupdate.sh recognises the refusal:
    for the installed version it retries with `--no-baseline`, for a pre-9.18 TARGET it skips the line and keeps the
    module (E4-16, E5b-26). Drop pre-9.18 target versions from the pre-convert plan when the release notes say so.
-   STRANDED modules: no version at all whose min Mendix fits the target major (Academy: PDFReader, only 1.0.0, AC-5).
+   STRANDED modules: no version at all whose min Mendix fits the target major (App C: PDFReader, only 1.0.0, AC-5).
    List them in `$W/stranded.md` with their jars (the userlib `<jar>.<Module>.RequiredLib` markers) and their Java
    actions. The update cannot help them: plan the port (own Java on the new library), a replacement module, or
    removal, before step 3. Their old jars are the usual source of a jarclash CLASH after the other modules move on.
@@ -39,7 +39,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    playbook section 1 (N1-14). The 11.x MPR carries no content ids: `localedits.py --cid` (N1-1).
    ORDER for a 10.x below 10.24 going to 11: the 11-ready module versions need 10.24 or later, and Mendix 11 will not
    import packages made with older Studio Pro, so the module updates belong to the 10.24 rung, between the two
-   converts (Academy, AC-2; the team did the same). A 10.24 source is the same rung: Mendix 11 refuses any package made
+   converts (App C, AC-2; the team did the same). A 10.24 source is the same rung: Mendix 11 refuses any package made
    before Studio Pro 10.21 ("range from 10.21.0 to 10.24.99", exit 117), and that includes the INSTALLED baseline
    package stepupdate re-imports first (Purchase Request: the refusals named 9.24 to 10.17, the installed versions,
    not the targets). Split each module: its newest version that installs on 10.24 goes to `$W/plan-pre.txt`; the
@@ -286,8 +286,8 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    on the 10.24 rung). A newer version number is no evidence (5.3.0 still crashes; 2.2.2 and 2.7.0 mount): check any other copy of
    the package with row R36 BEFORE you swap it. A package a person patched keeps the dead copy in its file and still matches:
    `--accept <file>` with a line `<sha256 of that .mpk> <reason>` stops the report for exactly that file.
-   Widget calls mx.logger (QI-3, row R38, target 11.0 or above): the same reading for `\bmx\.logger\b` in widgets/*.mpk that a page
-   uses (Quality Inspection: List view controls 1.3.16, the newest release, throws a TypeError on 11.12.6 and its page never renders,
+   Widget calls mx.logger (APPE-3, row R38, target 11.0 or above): the same reading for `\bmx\.logger\b` in widgets/*.mpk that a page
+   uses (App E: List view controls 1.3.16, the newest release, throws a TypeError on 11.12.6 and its page never renders,
    while every gate rung passes). Own JavaScript is row R19. The remedy card is `widget-mxlogger`. A 10.x runtime log line
    DEPRECATED mx.logger names the same use (BACKLOG #102). A hit on an unrendered page is a risk the gate does not see (BACKLOG #101).
    Dojo to React client (B6-4): `python3 $B/dojo_report.py app/ --to <full ver> --out $W/dojo-react.md` lists every
@@ -353,7 +353,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    customer must supply, and the top line `best reachable verdict: PASS | PASS (on stand-in APIs ...) | INVALID unless
    <inputs>`. Exit 0 plain PASS, 4 qualified PASS, 3 INVALID unless inputs, 2 an input not read. Send the NEEDS rows
    to the customer now: in the 13 and 14 Oct runs, UNKNOWN consumed endpoints (notif R1), guest access without a
-   confirmed anonymous process (PLM, PV360) and connector pages without proof values (MC) were all knowable here and
+   confirmed anonymous process (APPD, App F) and connector pages without proof values (MC) were all knowable here and
    surfaced only at the gate. A rung that blocks stays INVALID however well the upgrade goes; do not start step 2
    promising PASS. Baseline item 9 runs it again on what the baseline measured.
 

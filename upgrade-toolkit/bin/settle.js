@@ -15,14 +15,14 @@
 // its mx-progress bar, an error page keeps one too). settle returns { ok: false, stuck: true } and the caller saves
 // <name>-STUCK.png: shotdiff keeps the pair INVALID, but a person may close it with an accept line after a look.
 // The full timeout is always waited first, so a slow page that is still fetching is never called STUCK early.
-// TOP BAR (B4N1-14, Opcenter EF on 10.24/11): a thin progress bar pinned to the top edge of the window (the UMC session
+// TOP BAR (B4N1-14, App A EF on 10.24/11): a thin progress bar pinned to the top edge of the window (the UMC session
 // renew nanoflow keeps one running) never goes away on pages that rendered fully, so StarterKit.HowTo, Contents and
 // three more were named -STUCK and only PASSed through shotdiff's "equal below the top 10 px" rule. A shown indicator
 // whose box lies within the top TOPBAR_PX (10, the same band shotdiff uses) and is at most TOPBAR_PX high is reported
 // apart (topbar) and ignored, bounded: only when it is the ONLY indicator, the DOM stood still for `topbarMs`
 // (SETTLE_TOPBAR_MS, default 3000) and the page content has visible text (the .mx-placeholder elements, or the body when
 // there are none). Then settle returns { ok: true, topbar: true, reason: 'top bar ignored: ...' }. A blank page under
-// the same bar (the Opcenter home pages, no text) and any page with another indicator stay STUCK / LOADING as before.
+// the same bar (the App A home pages, no text) and any page with another indicator stay STUCK / LOADING as before.
 // LAZY PLACEHOLDERS (GM-33): a lazy-loading widget (Marketplace "LazyloadingDataPlaceholder", In View Content Renderer,
 // Skeleton) draws a placeholder first and its content later, so the baseline shot showed a page with holes. A shown
 // placeholder (LAZY below) counts as busy like any loading indicator, bounded by the same timeout. On timeout the reason

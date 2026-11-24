@@ -6,7 +6,7 @@
 #
 # Three kinds, in this order:
 #   synthetic  fixtures/ (committed, Marketplace and System names only), models built by lib/mkmodel.py
-#   field      the real E1, E5, E4 and E5b evidence in ~/upgrade-lab (UPG_LAB), read-only, exported to a temp folder;
+#   field      the real E1, E5, E4 and E5b evidence in <workdir> (UPG_LAB), read-only, exported to a temp folder;
 #              SKIP when the folder is absent. Never copied into this repo. field-catalog-* also needs mxcli's local
 #              Marketplace catalog (~/.mxcli) and is SKIPped without it.
 # Since v3 (E4 and E5b): shotdiff-* and journeys-screen-* (screens rung), toolset-*, snapshot-ledger-*, gen-*, the
@@ -46,14 +46,14 @@
 # Since E2E-11/12: journeys-coverage-* (the coverage line, the journey-set hash, baseline-defect evidence, the 30% rule),
 #              fixture-check-* (bin/fixture_check.py: the four causes of an empty seed), gate-journey-actions-* / -coverage-*.
 # Since E2E-13/14: apimock-* (bin/apimock.py on fixtures/apimock/, captured with lib/capture_units.py from the Marketplace
-#              PFEP and Kanban apps; a stand-in on 127.0.0.1 only), journeys-apimock-* and gate-except-* / gate-apis-* / gate-smoke-*.
+#              App B and Kanban apps; a stand-in on 127.0.0.1 only), journeys-apimock-* and gate-except-* / gate-apis-* / gate-smoke-*.
 # Since E2E-16: process-* (bin/draft_processes.py drafts from the model, fixtures/processes/ manual and interview, always
 #              status: draft; bin/process_journeys.py compiles confirmed ones, unresolvable -> INVALID, drafts never; the
 #              process line and role order in run_journeys.py) and field-process-customer-* (customer + the customer spec as manual).
 # E2E-15: apimock-standin-* and gate-standin-* (a pass on the stand-in is "PASS (on stand-in APIs: ...)", exit 4, never
 #              plain PASS), gate-no-apimock-plain-pass.
 # Batch 4 (B4N1-11, B4N1-9, B4T2-5, B4T2-6): apimock-check-zero-traffic-* / -unexercised-* (requests seen: N; MOCKED and
-#              uncalled is INVALID), apimock-addon-* (fixtures/apimock/addon-exfn-auth.json: an add-on is UNKNOWN),
+#              uncalled is INVALID), apimock-addon-* (fixtures/apimock/addon-mfn-auth.json: an add-on is UNKNOWN),
 #              apimock-classify-location-* / -mocked-no-route-*, apimock-serve-public-host-bind-pass, gate-apis-zero-traffic-catch.
 # FN (field finish pass): gen-fn-* / action-inventory-branch-entry-* / impact-map-dropdown-container-* / impact-map-js-snippet-*
 #              (controls/generator_fn_control.py on fake models), journeys-verbs-fn-*, journeys-engine-fill-optional-pass,
@@ -98,7 +98,7 @@ set -u
 unset UPG_EXTRA UPG_UPDATE_CMD
 here=$(cd "$(dirname "$0")" && pwd)
 TK=$(cd "$here/.." && pwd); B=$TK/bin; FX=$here/fixtures; EXP=$here/expected
-LAB=${UPG_LAB:-$HOME/upgrade-lab}
+LAB=${UPG_LAB:-$HOME/field-lab}
 fast=0; only=""
 while [ $# -gt 0 ]; do
   case "$1" in --fast) fast=1; shift;; --only) only=$2; shift 2;; *) echo "usage: run-controls.sh [--fast] [--only REGEX]"; exit 2;; esac
@@ -799,7 +799,7 @@ t = sys.argv[1]
 s = json.load(open(f"{t}/sa.json")); s["db"]["idsets"]["assoc:System.owner"].remove("0001-owner-account"); json.dump(s, open(f"{t}/s-owner-lost.json", "w"))
 s = json.load(open(f"{t}/sa.json")); s["db"]["idsets"]["assoc:System.owner"].reverse(); json.dump(s, open(f"{t}/s-owner-order.json", "w"))
 EOF
-# PLM-26: module roles a module update added that no user role holds (Atlas_Core 3.21: User, Administrator)
+# APPD-26: module roles a module update added that no user role holds (Atlas_Core 3.21: User, Administrator)
 printf 'Atlas_Core.User # mapped by hand after the gate\n' > $T/roles-waive.txt; printf 'Atlas_Core.User\n' > $T/roles-waive-bad.txt
 ctl rolecheck-unmapped-catch 1 'UNMAPPED +Atlas_Core\.User .*Atlas_Core 3\.12\.6 -> 3\.12\.6.*held by no user role; proposal: user roles holding another Atlas_Core role: Clerk' 'UNMAPPED +Atlas_Core\.Administrator .*roles holding a role named Administrator in another module: Boss' '2 unmapped' 'verdict: REVIEW' '!Viewer' -- python3 $B/rolecheck.py $(model roles-old) $(model roles-new-unmapped)
 ctl rolecheck-mapped-pass 0 '2 module role\(s\) added by the update, 0 unmapped' 'mapped +Atlas_Core\.User +held by Clerk' '!UNMAPPED' -- python3 $B/rolecheck.py $(model roles-old) $(model roles-new-mapped)
@@ -813,7 +813,7 @@ ctl rolecheck-dangling-alone-catch 1 'DANGLING +Atlas_Core\.Ghost' -- python3 $B
 printf 'Atlas_Core.Viewer # replaced by User, mapping dropped in the next commit\n' > $T/roles-waive-gone.txt
 ctl rolecheck-removed-waived-pass 0 'WAIVED +Atlas_Core\.Viewer +\(replaced by User' '0 mapped role\(s\) that no longer exist' '!REMOVED-MAPPED' -- python3 $B/rolecheck.py $(model roles-old) $(model roles-new-removed) --waive $T/roles-waive-gone.txt
 ctl rolecheck-removed-unheld-pass 0 '0 mapped role\(s\) that no longer exist' '!REMOVED-MAPPED' -- python3 $B/rolecheck.py $(model roles-old) $(model roles-new-mapped)
-# PLM-27: the Mx10 runtime deletes Anonymous_* users at start: one known-behaviour row, named users judged apart.
+# APPD-27: the Mx10 runtime deletes Anonymous_* users at start: one known-behaviour row, named users judged apart.
 python3 - "$T" <<'EOF'
 import json, sys
 t = sys.argv[1]
@@ -1015,7 +1015,7 @@ ctl localedits-proxy-minor-pass 1 'PROXY: compared with 4\.0\.0' '!major version
 # E5b-19: pages and layouts of vendor modules, app vs package; E4-3: a module mxcli diff could not judge is UNKNOWN (exit 2)
 ctl localedits-ui-layout-catch 0 'ui +CHANGED +page +Administration\.Account_Overview +layout .*MyFirstModule\.Layout_App' 'ui +ADDED +page +Administration\.Account_Extra' 'force-ui: Administration' -- python3 $B/localedits.py $M/ui-edit/App.mpr --module Administration
 ctl localedits-ui-pass 0 'UI edits \(pages, layouts\): 0' 'force-ui: none' -- python3 $B/localedits.py $M/base/App.mpr --module Administration
-# PLM-29: a local edit INSIDE a vendor layout (a region replaced, a snippet call removed) with the page layout reference
+# APPD-29: a local edit INSIDE a vendor layout (a region replaced, a snippet call removed) with the page layout reference
 # unchanged and mxcli diff UNKNOWN (UPG_MXCLI=false stands for a package made before 9.18). The content signature sees it.
 model layout-edit-app > /dev/null; model layout-edit-pkg > /dev/null; model layout-same-app > /dev/null
 mkdir -p $T/cache-lay
@@ -1072,10 +1072,10 @@ print(sorted(L.content_signature(m,'app')))"
 model const-shadowed > /dev/null
 ctl mprmodel-constant-shadowed-catch 0 "^\{'default': 'True', 'type': 'Boolean', 'exposed': False\}$" '^Forms\$Page$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import mprmodel; m=mprmodel.Model.load('$M/const-shadowed'); print(m.constant('MFAmodule.Shared')); print(m.docs['MFAmodule.Shared'].type)"
 ctl mprmodel-constant-plain-pass 0 "^\{'default': 'False', 'type': 'Boolean', 'exposed': False\}$" '^None$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import mprmodel; m=mprmodel.Model.load('$M/const-shadowed'); print(m.constant('MFAmodule.EnabledMFA')); print(m.constant('MFAmodule.NoSuch'))"
-# PLM-1: --mxcli-diff on a 9.x model is refused with one line; on 10.x it is not
+# APPD-1: --mxcli-diff on a 9.x model is refused with one line; on 10.x it is not
 ctl localedits-mxcli-diff-9x-catch 2 'needs a model of Mendix 10\.0 or newer, this one is 9\.24\.32\.58223' -- python3 $B/localedits.py $M/v9/App.mpr --mxcli-diff
 ctl localedits-mxcli-diff-10x-pass 2 'UNKNOWN \(rc=0\)' '!needs a model of Mendix 10' -- env UPG_MXCLI=false python3 $B/localedits.py $M/base/App.mpr --module Administration --mxcli-diff --mxcli-cmd true
-# PLM-30: restoreunit puts a document back from a baseline MPR (v1 and v2); dry run first, refusals write nothing
+# APPD-30: restoreunit puts a document back from a baseline MPR (v1 and v2); dry run first, refusals write nothing
 RU=$T/ru; mkdir -p $RU; cp -R $M/layout-edit-pkg $RU/tgt1; cp -R $M/layout-edit-pkg $RU/tgt-dry
 python3 $here/lib/mkv2.py $M/layout-edit-app $RU/old2; python3 $here/lib/mkv2.py $M/layout-edit-pkg $RU/tgt2
 ctl restoreunit-dry-run-catch 0 'RESTORE Administration\.Layout_Main' 'dry run, 1 document' -- python3 $B/restoreunit.py $M/layout-edit-app/App.mpr $RU/tgt-dry/App.mpr Administration.Layout_Main
@@ -1408,7 +1408,7 @@ ctl jarclean-apply-stale-refused 2 'REFUSED: vendorlib is stale' -- python3 $B/r
 ctl jarclean-apply 0 'removed [0-9]+ jars' -- python3 $B/repair/jardedupe.py $JC --apply --vendorlib-synced --log $T/jarclean.log
 ctl jarclean-apply-result 0 -- bash -c "cd $JC; [ ! -f userlib/pdfbox-2.0.30.jar ] && [ ! -f userlib/jackson-core-2.14.1.jar ] && [ ! -f userlib/jackson-core-2.14.1.jar.OIDC.RequiredLib ] && [ ! -f vendorlib/commons-logging-1.2.jar ] && [ -f vendorlib/pdfbox-3.0.7.jar ] && [ -f vendorlib/commons-logging-1.3.5.jar ] && [ -f vendorlib/guava-33.0.jar ] && [ -f userlib/guava-32.0.jar ] && [ -f userlib/oldutil-1.0.jar ] && [ -f userlib/own-helper-1.0.jar ] && [ -f userlib/unknown-thing.jar ] && grep -q 'REMOVE' $T/jarclean.log"
 ctl jarclean-clean-after-apply 0 '!REMOVE' -- python3 $B/repair/jardedupe.py $JC
-# PLM-23: the same version under two names, one is a metadata jar with no classes (okio 3.5.0 / okio-jvm 3.5.0): the jar
+# APPD-23: the same version under two names, one is a metadata jar with no classes (okio 3.5.0 / okio-jvm 3.5.0): the jar
 # with classes is the one that stays, and the only jar holding the classes of a package is never removed.
 mkjarpom() { python3 -c "
 import sys,zipfile
@@ -1422,7 +1422,7 @@ JO2=$T/jarokio2; mkdir -p $JO2/userlib; printf 'Module SapMod' > $JO2/App.mpr
 mkjarpom $JO2/userlib/okio-3.5.0.jar okio/Buffer.class; mkjarpom $JO2/userlib/okio-jvm-3.5.0.jar okio/internal/Util.class
 ctl jardedupe-only-classes-kept-catch 0 'ONLY COPY WITH CLASSES for okio\.internal' '!REMOVE +userlib' -- python3 $B/repair/jardedupe.py $JO2
 ctl jardedupe-classes-covered-pass 1 'REMOVE +userlib/okio-3\.5\.0\.jar' '!ONLY COPY' -- python3 $B/repair/jardedupe.py $JO --modules SapMod
-# PLM-24: an older MAJOR kept in userlib next to the newer one in vendorlib is named SHADOWED, with the module that
+# APPD-24: an older MAJOR kept in userlib next to the newer one in vendorlib is named SHADOWED, with the module that
 # declares it, and the line says the module already moved other jars to vendorlib (a leftover of its old version).
 JH=$T/jarshadow; mkdir -p $JH/userlib $JH/vendorlib; printf 'Module ModX' > $JH/App.mpr
 for f in pdfbox-2.0.24.jar commons-io-2.11.0.jar; do : > $JH/userlib/$f; : > $JH/userlib/$f.ModX.RequiredLib; done
@@ -1465,10 +1465,10 @@ JS=$T/jarstale; for k in addon-cache addon-zip addon-unreadable no-addon sso t1r
 # NS-3: netty 4.2 split netty-codec; the old userlib copy has no match and got no line at all (a06afe60)
 ctl jarstale-netty-unmatched-catch 1 'UNMATCHED +userlib/netty-codec-4\.1\.119\.Final\.jar +no copy in vendorlib although MendixSSO moved its other jars there; vendorlib has netty-codec-base-4\.2\.5\.Final\.jar, netty-codec-compression-4\.2\.5\.Final\.jar' '1 UNMATCHED \(review by hand\)' '!REMOVE +userlib/netty-codec-4' -- python3 $B/repair/jardedupe.py $JS/netty
 ctl jarstale-netty-matched-pass 1 'REMOVE +userlib/netty-codec-http-4\.1\.119\.Final\.jar +DUPLICATE' '!UNMATCHED' -- python3 $B/repair/jardedupe.py $JS/netty-nocodec
-ctl jarstale-addon-cache-kept 1 'KEEP +userlib/java-jwt-3\.11\.0\.jar +NEEDED BY ADD-ON exfn_authentication' 'KEEP +userlib/jackson-core-2\.14\.1\.jar +NEEDED BY ADD-ON: OIDC jar set' 'KEEP +userlib/commons-codec-1\.15\.jar +NEEDED BY ADD-ON' \
+ctl jarstale-addon-cache-kept 1 'KEEP +userlib/java-jwt-3\.11\.0\.jar +NEEDED BY ADD-ON mfn_authentication' 'KEEP +userlib/jackson-core-2\.14\.1\.jar +NEEDED BY ADD-ON: OIDC jar set' 'KEEP +userlib/commons-codec-1\.15\.jar +NEEDED BY ADD-ON' \
     '!REMOVE +userlib/(java-jwt|jackson|json-|commons-codec)' 'REMOVE +userlib/pushy-0\.15\.2\.jar +STALE' -- python3 $B/repair/jardedupe.py $JS/addon-cache
-ctl jarstale-addon-zip-kept 1 'KEEP +userlib/jackson-databind-2\.14\.1\.jar +NEEDED BY ADD-ON EXFN_Authentication' '!REMOVE +userlib/(java-jwt|jackson|json-|commons-codec)' 'REMOVE +userlib/pushy' -- python3 $B/repair/jardedupe.py $JS/addon-zip
-ctl jarstale-addon-unreadable-unproven 0 'KEEP +userlib/java-jwt-3\.11\.0\.jar +UNPROVEN: .*EXFN_Authentication' 'KEEP +userlib/pushy.*UNPROVEN' '!REMOVE' -- python3 $B/repair/jardedupe.py $JS/addon-unreadable
+ctl jarstale-addon-zip-kept 1 'KEEP +userlib/jackson-databind-2\.14\.1\.jar +NEEDED BY ADD-ON MFN_Authentication' '!REMOVE +userlib/(java-jwt|jackson|json-|commons-codec)' 'REMOVE +userlib/pushy' -- python3 $B/repair/jardedupe.py $JS/addon-zip
+ctl jarstale-addon-unreadable-unproven 0 'KEEP +userlib/java-jwt-3\.11\.0\.jar +UNPROVEN: .*MFN_Authentication' 'KEEP +userlib/pushy.*UNPROVEN' '!REMOVE' -- python3 $B/repair/jardedupe.py $JS/addon-unreadable
 ctl jarstale-no-addon-stale-catch 1 'REMOVE +userlib/java-jwt-3\.11\.0\.jar +STALE: module\(s\) OIDC' 'summary: 7 jars to remove \(0 duplicate versions, 7 stale' '!NEEDED BY ADD-ON' -- python3 $B/repair/jardedupe.py $JS/no-addon
 ctl jarstale-addon-apply-keeps 0 'removed 1 jars and 1 markers' -- bash -c "python3 $B/repair/jardedupe.py $JS/addon-cache --apply --vendorlib-synced && cd $JS/addon-cache/userlib && [ -f java-jwt-3.11.0.jar ] && [ -f jackson-core-2.14.1.jar ] && [ -f json-20220924.jar ] && [ -f commons-codec-1.15.jar.OIDC.RequiredLib ] && [ ! -f pushy-0.15.2.jar ]"
 ctl jarstale-sso-old-version-catch 1 'REMOVE +userlib/accessors-smart-2\.4\.7\.jar +OLD-VERSION: MendixSSO 4\.1\.0 is an old version \(now 4\.2\.0' 'REMOVE +userlib/jcip-annotations-1\.0-1\.jar +OLD-VERSION' \
@@ -1526,9 +1526,9 @@ c.execute("insert into _MetaData values (?, ?, '')", (ver, ver)); c.commit(); c.
 z = zipfile.ZipFile(out, "w"); z.write(f, "project.mpr"); z.close()
 PYEOF
 }
-mkaddon $AD/modules/EXFN_Authentication.mxmodule 9.24.4.58223
+mkaddon $AD/modules/MFN_Authentication.mxmodule 9.24.4.58223
 mkaddon $AD/modules/NewVendor.mxmodule 10.24.26.123458
-ctl mxversion-mxmodule-pass 0 '^9\.24\.4\.58223$' -- python3 $B/mxversion.py $AD/modules/EXFN_Authentication.mxmodule
+ctl mxversion-mxmodule-pass 0 '^9\.24\.4\.58223$' -- python3 $B/mxversion.py $AD/modules/MFN_Authentication.mxmodule
 ctl mxversion-mxmodule-short-pass 0 '^10\.24\.26$' -- python3 $B/mxversion.py $AD/modules/NewVendor.mxmodule --short
 echo notazip > $AD/modules/Broken.mxmodule
 ctl mxversion-mxmodule-unreadable-catch 2 'no Mendix version found' -- python3 $B/mxversion.py $AD/modules/Broken.mxmodule
@@ -1626,13 +1626,13 @@ ctl modplan-widget-conflicts-with-assoc-says-cycle-widget-catch 0 '^CYCLE-WIDGET
 ctl modplan-widget-pair-judged-after-assoc-order-catch 0 '^ORDER WidgetProv before Administration: ' '^5555 7\.0\.6 Tmod' '^2888 7\.0\.6 WidgetProv' -- bash -c "python3 -I $B/modplan.py $MW/le-assoc.json --target 11.12.2 --versions-dir $MV --no-fetch --cache $MW/cache --app $M/modplan-wassoc/App.mpr --out $MW/plan-as.txt; cat $MW/plan-as.txt | grep -v '^#' | awk '{print \$1\" \"\$2\" \"\$3}'"
 ctl modplan-pipeline-stop-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $B/cloud/upgrade-pipeline.sh
 ctl modplan-triage-doc-names-script-pass 0 'modplan\.py' -- grep -o 'modplan\.py' $TK/steps/triage.md
-ctl test-inventory-addons-catch 0 'EXFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['EXFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
+ctl test-inventory-addons-catch 0 'MFN_Authentication.mxmodule built with 9\.24\.4\.58223' 'NewVendor.mxmodule built with 10\.24\.26\.123458' 'Broken.mxmodule built with UNKNOWN' "^\['MFN_Authentication.mxmodule', '9.24.4.58223', True\]" '!NewVendor.mxmodule.*True' -- python3 -c "
 import sys; sys.path.insert(0,'$B'); import mxversion as m, test_inventory as t
 for f, v in m.addons('$AD'): print([f, v, m.below(v, 10, 21)])
 print(*['%s built with %s' % (f, v or 'UNKNOWN') for f, v in m.addons('$AD')], sep='\n')"
 ctl test-inventory-addons-pass 0 '^\[\]$' -- python3 -c "import sys; sys.path.insert(0,'$B'); import mxversion as m; print(m.addons('$J2'))"
 # the real report: an empty catalog.db (tables exist, no rows) plus the add-on folder; the row says what blocks Mendix 11
-TI=$T/ti-app; mkdir -p $TI/.mxcli $TI/modules; cp $AD/modules/EXFN_Authentication.mxmodule $AD/modules/NewVendor.mxmodule $TI/modules/
+TI=$T/ti-app; mkdir -p $TI/.mxcli $TI/modules; cp $AD/modules/MFN_Authentication.mxmodule $AD/modules/NewVendor.mxmodule $TI/modules/
 python3 - $TI/.mxcli/catalog.db <<'PYEOF'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1])
@@ -1645,18 +1645,18 @@ for t, cols in {"modules_data": "Name, Source, AppStoreVersion", "entities_data"
     c.execute(f"create table {t} ({cols})")
 c.commit()
 PYEOF
-ctl test-inventory-addons-report-catch 0 '^\| Add-on modules \(\.mxmodule\) \| 2: EXFN_Authentication\.mxmodule built with 9\.24\.4\.58223; NewVendor\.mxmodule built with 10\.24\.26\.123458; BLOCKS MENDIX 11 \(built before 10\.21\): EXFN_Authentication\.mxmodule \|' -- python3 $B/test_inventory.py $TI
-rm $TI/modules/EXFN_Authentication.mxmodule
+ctl test-inventory-addons-report-catch 0 '^\| Add-on modules \(\.mxmodule\) \| 2: MFN_Authentication\.mxmodule built with 9\.24\.4\.58223; NewVendor\.mxmodule built with 10\.24\.26\.123458; BLOCKS MENDIX 11 \(built before 10\.21\): MFN_Authentication\.mxmodule \|' -- python3 $B/test_inventory.py $TI
+rm $TI/modules/MFN_Authentication.mxmodule
 ctl test-inventory-addons-report-pass 0 '^\| Add-on modules \(\.mxmodule\) \| 1: NewVendor\.mxmodule built with 10\.24\.26' '!BLOCKS MENDIX 11' -- python3 $B/test_inventory.py $TI
 # missing_deps: a module only an add-on provides is ADD-ON, not MISSING; the other missing module stays MISSING
 MD=$T/addon-missing; cp -R $M/missing-deps $MD; mkdir -p $MD/modules; mkaddon $MD/modules/UserCommons.mxmodule 9.24.4.58223
 AO=$T/addon-other; cp -R $M/missing-deps $AO; mkdir -p $AO/modules; mkaddon $AO/modules/Unrelated.mxmodule 10.24.26.123458
 ctl missing-deps-addon-catch 1 'ADD-ON \(\.mxmodule, built with 9\.24\.4\.58223\) UserCommons\.mxmodule: module UserCommons' '!MISSING module UserCommons' -- python3 $B/repair/missing_deps.py --catalog $FX/catalog/catalog.json $MD
-AB=$T/addon-blocked; cp -R $M/base $AB; mkdir -p $AB/modules; mkaddon $AB/modules/EXFN_Authentication.mxmodule 9.24.4.58223; mkaddon $AB/modules/NewVendor.mxmodule 10.24.26.123458
-ctl missing-deps-addon-below-1021-catch 1 'ADD-ON EXFN_Authentication.mxmodule built with 9\.24\.4\.58223: BLOCKS Mendix 11\.15\.0' '!NewVendor.mxmodule built with 10.*BLOCKS' -- python3 $B/repair/missing_deps.py --target 11.15.0 $AB
+AB=$T/addon-blocked; cp -R $M/base $AB; mkdir -p $AB/modules; mkaddon $AB/modules/MFN_Authentication.mxmodule 9.24.4.58223; mkaddon $AB/modules/NewVendor.mxmodule 10.24.26.123458
+ctl missing-deps-addon-below-1021-catch 1 'ADD-ON MFN_Authentication.mxmodule built with 9\.24\.4\.58223: BLOCKS Mendix 11\.15\.0' '!NewVendor.mxmodule built with 10.*BLOCKS' -- python3 $B/repair/missing_deps.py --target 11.15.0 $AB
 ctl missing-deps-addon-below-1021-target10-pass 0 '!BLOCKS' 'nothing missing' -- python3 $B/repair/missing_deps.py --target 10.24.26 $AB
 ctl missing-deps-addon-other-catch 1 '^MISSING module UserCommons' '!ADD-ON' -- python3 $B/repair/missing_deps.py --catalog $FX/catalog/catalog.json $AO
-# AC-6 (Academy 10.18 to 11.15): an old library copy hidden INSIDE another jar breaks the build; file names show nothing
+# AC-6 (App C 10.18 to 11.15): an old library copy hidden INSIDE another jar breaks the build; file names show nothing
 python3 $here/lib/mkjars.py $T/jarclash clash; python3 $here/lib/mkjars.py $T/jarclean clean
 ctl jarclash-hidden-catch 1 'hidden copy: userlib/markdown-all-0\.50\.jar!lib/pdfbox-2\.0\.24\.jar' 'pdfbox 2\.0\.24' 'pdfbox 3\.0\.3' -- python3 $B/repair/jarclash.py $T/jarclash
 ctl jarclash-owner-catch 1 'userlib/pdfreader-1\.0\.0\.jar \[no maven metadata; modules: PDFReader\]' -- python3 $B/repair/jarclash.py $T/jarclash
@@ -1894,7 +1894,7 @@ printf '%s\n' '/*C1*/UPDATE "demo$product" SET "stock"=1 WHERE "id"=1' > $T/snap
 ctl seed-snapshot-unknown-statement-catch 1 'UNMAPPED \(1\)' 'statement not understood: UPDATE "demo\$product"' -- $SS $T/snapbad --dry-run
 mkdir -p $T/snapbad2/d; sed '/^INSERT INTO "demo\$order_product" VALUES(1125899906842625,/s/)$/,7)/' $SNAP/data/database/hsqldb/default.script > $T/snapbad2/d/default.script
 ctl seed-snapshot-value-count-catch 1 'UNMAPPED' 'order_product has 3 values for 2 columns' -- $SS $T/snapbad2 --dry-run
-# PLM-4: HSQLDB internals in default.log (CREATE FUNCTION, INSERT INTO BLOCKS) are ignored, not UNMAPPED
+# APPD-4: HSQLDB internals in default.log (CREATE FUNCTION, INSERT INTO BLOCKS) are ignored, not UNMAPPED
 mkdir -p $T/snapint/d; cp $SNAP/data/database/hsqldb/default.script $T/snapint/d/
 printf '%s\n' '/*C1*/CREATE FUNCTION PUBLIC.MX_TOLOCALDATETIME(IN P1 TIMESTAMP) RETURNS TIMESTAMP LANGUAGE JAVA' '/*C1*/INSERT INTO BLOCKS VALUES(0,2147483647,0)' > $T/snapint/d/default.log
 ctl seed-snapshot-hsqldb-internals-pass 0 '!UNMAPPED \(' -- $SS $T/snapint --dry-run
@@ -2206,7 +2206,7 @@ ctl runapp-login-normal-bytes-pass 0 '!old' '!HARNESS' -- sh -c "cat $LO/normal/
 mklo sso-off '<meta http-equiv="refresh" content="0;url=./auth/v1/login">' '<form>old</form>'
 ctl runapp-login-off-pass 0 '^UNTOUCHED' -- lo sso-off off
 ctl runapp-login-off-bytes-pass 0 'refresh' '!old' -- cat $LO/sso-off/web/login.html
-# T4: Academy-style SSO app: login-without-sso.html is found by auto; the client's next hop, index.html, is replaced by index3.html
+# T4: App C-style SSO app: login-without-sso.html is found by auto; the client's next hop, index.html, is replaced by index3.html
 mklo4() { rm -rf $LO/$1; mkdir -p $LO/$1/web; printf '%s' '<meta http-equiv="refresh" content="0; url=./auth/v1/login">' > $LO/$1/web/login.html
   printf '%s' '<form><input id="usernameInput"></form>' > $LO/$1/web/login-without-sso.html
   printf '%s' '<script>window.location.href="/openid/login"</script>' > $LO/$1/web/index.html; [ -z "${2:-}" ] || printf '%s' '<html>plain index3</html>' > $LO/$1/web/index3.html
@@ -2275,7 +2275,7 @@ ctl runapp-const-bad-json-catch 1 'bad.json\) is not valid JSON' 'refused' -- co
 ctl runapp-const-missing-file-catch 1 'neither a JSON object nor an existing file' -- co $CO/none.json
 ctl runapp-const-not-object-catch 1 'must be a JSON object' -- co $CO/list.json
 ctl runapp-const-bad-before-start-catch 1 'not valid JSON' '!no runtime' -- env CONST_OVERRIDES=$CO/bad.json UPG_DB_PREFIX=fx_ UPG_TOOLS=$R python3 $B/runapp.py start ctl $T/none.mda 10.12.9.123 fx_ctl
-# T2R3-5, B4T2-13: EXFN_Authentication reads run/<name>\model\metadata.json (a Windows path built at runtime);
+# T2R3-5, B4T2-13: MFN_Authentication reads run/<name>\model\metadata.json (a Windows path built at runtime);
 # auto creates it from the app's own file, removes the previous start's copy, off creates none, a listed file the app
 # lacks stops the start
 HF=$T/hf; hfapp() { rm -rf $HF; mkdir -p $HF/run/ctl/model $HF/run/ctl/web; echo '{"Constants": []}' > $HF/run/ctl/model/metadata.json; echo w > $HF/run/ctl/web/x.json; }
@@ -2306,7 +2306,7 @@ mkdir -p $T/tools/runtime-11.0.0/11.0.0/runtime
 ctl mxversion-runtime11-outer-catch 0 '^11\.12\.2\.4711$' -- python3 $B/mxversion.py $V11
 ctl mxversion-runtime11-nojar-pass 2 'no Mendix version found' -- python3 $B/mxversion.py $T/tools/runtime-11.0.0
 ctl mxversion-mpr 0 '^9\.24\.32\.58223$' -- python3 $B/mxversion.py $M/v9/App.mpr
-# AC-1, AC-7 (Academy; E6 convert.log): mx convert exits 0 with errors and on a refused source; read the log and the mpr
+# AC-1, AC-7 (App C; E6 convert.log): mx convert exits 0 with errors and on a refused source; read the log and the mpr
 # python's sqlite3 module, not the sqlite3 CLI: the cloud image has no CLI, and the update failing silently left the
 # version at 9.24 so these three controls failed on a fresh container (B4T2-2, B4N1-1)
 for v in 10.24.16.96987 10.18.1.55792; do mkdir -p $T/conv/$v; cp $M/v9/App.mpr $T/conv/$v/App.mpr
@@ -2326,7 +2326,7 @@ ctl convertcheck-mappings-input-catch 2 -- python3 $B/convertcheck.py --mappings
 # the Argument-expression shape of real 10.x units (Forms$PageParameterMapping.Argument, empty PageVariable)
 ctl convertcheck-mappings-arg-review-catch 1 '^REVIEW +Shop\.Config_NewEdit: .*dataView1/saveButton' 'ClientConfiguration = \$ClientConfiguration \(ref\)' -- python3 $B/convertcheck.py --mappings $M/maps-old $M/maps-new-arg
 ctl convertcheck-mappings-arg-own-dataview-pass 1 '^INFO +Shop\.Phone_Edit: .*actionButton2' '!^REVIEW +Shop\.Phone_Edit' -- python3 $B/convertcheck.py --mappings $M/maps-old $M/maps-new-arg
-# T2R3-8 / B4T2-8: the repair.md row 12 fix (Opcenter save-fix.mdl: Save maps $currentObject) stayed REVIEW. $currentObject
+# T2R3-8 / B4T2-8: the repair.md row 12 fix (App A save-fix.mdl: Save maps $currentObject) stayed REVIEW. $currentObject
 # inside the data view is that view's object (INFO); a REVIEW checked and kept is answered in writing, pinned to the mapping
 CC="python3 $B/convertcheck.py --mappings $M/maps-old $M/maps-new-arg"
 ctl convertcheck-mappings-currentobject-pass 0 '^INFO +Shop\.Config_NewEdit: .*saveButton.*currentObject.*maps the object of data view dataView1' ' 0 REVIEW, 3 INFO' '!^REVIEW' -- python3 $B/convertcheck.py --mappings $M/maps-old $M/maps-new-current
@@ -3737,17 +3737,17 @@ ctl shotdiff-stuck-onesided-different-catch 2 '^INVALID .*dashboard.*STUCK: OLD 
 # B4N1-14: the STUCK and one-sided STUCK lines say how much of the page is there (ink), so a blank page is visible
 ctl shotdiff-stuck-ink-shown 2 '^INVALID .*dashboard.*STUCK: NEW .*ink OLD [0-9.]+% NEW [0-9.]+%' -- python3 $B/shotdiff.py $SH/old $SH/stuck
 ctl shotdiff-stuck-onesided-ink-shown 0 '^PASS +shots-Administrator/dashboard.*indicator only, ink [0-9.]+%\)' -- python3 $B/shotdiff.py $SH/stuckeq-old $SH/stuckeq-new
-if git -C "$RG" rev-parse -q --verify origin/runs/b4-opcenter-ef-11 > /dev/null; then
-  # field (Opcenter EF 10.24 to 11, B4N1-14): rendered StarterKit pages named -STUCK under the UMC session-renew bar vs
+if git -C "$RG" rev-parse -q --verify origin/runs/b4-app-a-ef-11 > /dev/null; then
+  # field (App A EF 10.24 to 11, B4N1-14): rendered StarterKit pages named -STUCK under the UMC session-renew bar vs
   # the truly blank home pages; the ink share tells them apart (0.3% blank, 12-50% rendered)
   FB4=$T/field/b4n1; mkdir -p $FB4
-  git -C "$RG" archive origin/runs/b4-opcenter-ef-11 runs/b4-opcenter-ef-11/evidence/baseline/smoke-before-shots \
-    runs/b4-opcenter-ef-11/evidence/gate-r2/smoke-after-shots | tar -x -C $FB4
-  FB4E=$FB4/runs/b4-opcenter-ef-11/evidence
+  git -C "$RG" archive origin/runs/b4-app-a-ef-11 runs/b4-app-a-ef-11/evidence/baseline/smoke-before-shots \
+    runs/b4-app-a-ef-11/evidence/gate-r2/smoke-after-shots | tar -x -C $FB4
+  FB4E=$FB4/runs/b4-app-a-ef-11/evidence
   ctl field-b4n1-stuck-ink-catch 2 '^INVALID +shots-User/smoke-home_page_.*STUCK: OLD and NEW .*ink OLD 0\.3% NEW 0\.3%' \
     '^PASS +shots-User/smoke-Starter_Kit_Contents_.*ink 12\.5%\)' '^screens: 4 PASS, 0 PASS\*, 0 REVIEW, 2 INVALID' -- python3 $B/shotdiff.py $FB4E/baseline/smoke-before-shots $FB4E/gate-r2/smoke-after-shots
 else
-  skip field-b4n1-stuck-ink-catch "no origin/runs/b4-opcenter-ef-11 ref"
+  skip field-b4n1-stuck-ink-catch "no origin/runs/b4-app-a-ef-11 ref"
 fi
 ctl shotdiff-stuck-equal-loading-still-catch 2 '^INVALID .*dashboard.*still loading \(-LOADING\)' -- python3 $B/shotdiff.py $SH/old $SH/stuckeq-loading-new
 # T7-28: an accept pinned to one image does not accept another image of the same name (the next rung)
@@ -4811,7 +4811,7 @@ ctl gen-journeys-signout-folded-login-ready-catch 0 '^ready #loginButton,.mx-nam
 ctl gen-journeys-signout-caption-catch 0 "^nav None Log out$" "^by inferred from the caption: caption 'Log out'" -- SO5 Caption
 ctl gen-journeys-signout-deep-catch 0 '^nav Account Leave$' '^by inferred from the flow: MicroflowAction reaches Shop.JS_SignOut' -- SO5 Deep
 ctl gen-journeys-signout-action-wins-pass 0 '^by None$' '^nav None Sign out$' '!Log out' -- SO5 Both
-ctl gen-journeys-signout-why-catch 0 'Shop.Layout_D.menuBar2 \(menu EXFN_Addon.User_Menu\): menu document not in the model' "Shop.Layout_E.menuBar2 \(menu Shop.User_Menu_None\): 3 items, none signs out: 'Help' FormAction" '!^sign-out\.journey\.json$' -- sh -c "ls $G5/Addon,None/journeys/*/ ; python3 -c \"import json; [print(t['id'], t['why']) for t in json.load(open('$G5/Addon,None/plan.json'))['todo'] if t['id']=='sign-out']\""
+ctl gen-journeys-signout-why-catch 0 'Shop.Layout_D.menuBar2 \(menu MFN_Addon.User_Menu\): menu document not in the model' "Shop.Layout_E.menuBar2 \(menu Shop.User_Menu_None\): 3 items, none signs out: 'Help' FormAction" '!^sign-out\.journey\.json$' -- sh -c "ls $G5/Addon,None/journeys/*/ ; python3 -c \"import json; [print(t['id'], t['why']) for t in json.load(open('$G5/Addon,None/plan.json'))['todo'] if t['id']=='sign-out']\""
 ctl gen-journeys-signout-probe-pass 0 "^Shop.Home_A flow \['menuBar2-0', 'menuBar2-0-1'\]$" '^Shop.Home_B caption ' '^Shop.Home_C flow ' '^Shop.Home_D None$' '^Shop.Home_E None$' '^Shop.Home_F action ' -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I, mprmodel; m=mprmodel.Model.load('$M/guard5'); [print(q, *((r['by'], r.get('clicks')) if (r:=I.layout_sign_out(m, q)) else (None,))) for q in ['Shop.Home_'+c for c in 'ABCDEF']]"
 # T6R-3: a data view on a microflow/nanoflow/association/association-path source renders only with data: no guard, nor
 # anything inside it; a widget around one is the last resort; a page-parameter data view stays a guard; nothing left: todo
@@ -5440,7 +5440,7 @@ printf 'notasha reason\n' > $T/accept-bad.txt
 ctl replace-react-bundled-accept-pass 1 '^clear +R36 ' 'accepted by checksum, not reported: widgets/Viewer\.mpk 4\.0\.0 \(sha256 [0-9a-f]{12}: spinner replaced, owner informed\)' '!^HIT +R36' '!^blockers:' -- $RC $M/replace-react-bundled --to 11.12.6 --no-newer Viewer --accept $T/accept-viewer.txt
 ctl replace-react-bundled-accept-other-file-catch 1 '^HIT +R36 ' 'evidence: BLOCKER \(no newer version: viewer\): widgets/Viewer\.mpk' '^blockers: R36' -- $RC $M/replace-react-bundled --to 11.12.6 --no-newer Viewer --accept $T/accept-other.txt
 ctl replace-accept-badline-catch 2 "want '<sha256 of the .mpk> <reason>'" -- $RC $M/replace-react-bundled --to 11.12.6 --accept $T/accept-bad.txt
-# QI-3: R38 reads the JavaScript of widgets/*.mpk for mx.logger (removed in 11.0) and joins it with the pages that use the widget.
+# APPE-3: R38 reads the JavaScript of widgets/*.mpk for mx.logger (removed in 11.0) and joins it with the pages that use the widget.
 ctl replace-mxlogger-catch 1 '^HIT +R38 ' 'evidence: widgets/Logger\.mpk 1\.3\.16 runs /.*mx.*logger.*/ in its JavaScript and widget Logger\.widget\.Logger is used 1 time\(s\) on MyOwn\.Home' '!widgets/Quiet' '!widgets/Spare\.mpk 1' -- $RC $M/replace-mxlogger --to 11.12.6
 ctl replace-mxlogger-blocker-catch 1 '^HIT +R38 ' 'evidence: BLOCKER \(no newer version: logger\): widgets/Logger\.mpk' '^blockers: R38: no update can fix these' -- $RC $M/replace-mxlogger --to 11.12.6 --no-newer Logger
 ctl replace-mxlogger-unused-pass 1 '^clear +R38 ' 'package\(s\) with /.*mx.*logger.* in their JavaScript, but no page uses them: widgets/Spare\.mpk' '!^HIT +R38' -- $RC $M/replace-mxlogger-quiet --to 11.12.6
@@ -5542,7 +5542,7 @@ for k in catch ported own; do rm -rf $VJ/$k; mkdir -p $VJ; cp -R $M/vendorjava $
 cp $VJF/DatadogConnector-076dca76.java $VJ/catch/$VJD; cp $VJF/DatadogConnector-ported.java $VJ/ported/$VJD
 sed 's/package datadogconnector.connector;/package myown.metrics;/; s/class DatadogConnector/class OwnMetrics/' $VJF/DatadogConnector-076dca76.java > $VJ/own/javasource/myown/metrics/OwnMetrics.java
 ctl vendorjava-commented-catch 1 '^COMMENTED-OUT javasource/datadogconnector/connector/DatadogConnector\.java \(datadogconnector\): 10 code line' '^EMPTIED +.*DatadogConnector\.java .*count\(3 parameters\)' '^EMPTIED +.*time\(3 parameters\)' '^EMPTIED +.*gauge\(3 parameters\)' 'Marketplace modules of the \.mpr' '^verdict: REVIEW' '!proxies' -- $VJB $VJ/catch --base HEAD
-# PLM-31: the same switched-off code arrives with a module update commit ("step:"): the vendor's own edit, skipped and
+# APPD-31: the same switched-off code arrives with a module update commit ("step:"): the vendor's own edit, skipped and
 # counted; a later hand commit on the same file is still a finding.
 for k in upd hand; do rm -rf $VJ/$k; cp -R $M/vendorjava $VJ/$k
   (cd $VJ/$k && git init -q && git add -A . && git -c user.email=c@c -c user.name=ctl commit -qm base && cp $VJF/DatadogConnector-076dca76.java $VJD \
@@ -5563,7 +5563,7 @@ else skip field-replace-customer-pass "no $CUSTM"; fi
 # --- RD-1: test-readiness scorecard (readiness.py): what triage can tell before any upgrade work -----------------------
 # Work dirs are copies (readiness.py writes readiness.md/json into the work dir); synthetic names only. Each case is
 # modelled on a 13 and 14 Oct run: notif R2 (57% of generated journeys fail on the OLD app), notif R1 (UNKNOWN consumed
-# endpoints), PLM and PV360 (guest access, no confirmed anonymous process), an empty frozen database, a Teamcenter app.
+# endpoints), APPD and App F (guest access, no confirmed anonymous process), an empty frozen database, a Teamcenter app.
 RD=$B/readiness.py; RDW=$T/readiness; rm -rf $RDW; cp -R $FX/readiness $RDW
 RDM=$(model rd-roles); RDG=$(model rd-guest); RDT=$(model rd-tc); echo dump > $T/rd-demo.sql
 ctl readiness-journeys-57-catch 3 '^# Test readiness \(baseline\)' '^best reachable verdict: INVALID unless journeys: confirmed key-user processes' \
@@ -5611,10 +5611,10 @@ if [ -f "$LAB/notif/r2/work/original/NotificationService.mpr" ]; then
   ctl field-readiness-notif-r2-catch 3 '233 of 406 actions fail on the OLD app \(57% > 30%\)' '\| apis \| NEEDS 34 UNKNOWN' \
     -- python3 $RD $LAB/notif/r2/work --app $LAB/notif/r2/work/original/NotificationService.mpr --md $T/rd-r2.md --json $T/rd-r2.json
 else skip field-readiness-notif-r2-catch "no $LAB/notif/r2"; fi
-if [ -f "$LAB/tc-apps/plm/work/original.mpr" ]; then
-  ctl field-readiness-plm-catch 3 'NEEDS a confirmed key-user process as Anonymous \(blocks\)' 'except Teamcenter: connector pages' \
-    -- python3 $RD $LAB/tc-apps/plm/work --app $LAB/tc-apps/plm/work/original.mpr --md $T/rd-plm.md --json $T/rd-plm.json
-else skip field-readiness-plm-catch "no $LAB/tc-apps/plm"; fi
+if [ -f "$LAB/apps/app-d/work/original.mpr" ]; then
+  ctl field-readiness-app-d-catch 3 'NEEDS a confirmed key-user process as Anonymous \(blocks\)' 'except Teamcenter: connector pages' \
+    -- python3 $RD $LAB/apps/app-d/work --app $LAB/apps/app-d/work/original.mpr --md $T/rd-app-d.md --json $T/rd-app-d.json
+else skip field-readiness-app-d-catch "no $LAB/apps/app-d"; fi
 
 # --- field controls on the E1 / E5 evidence -------------------------------------------------------------------------------
 echo "== field controls ($LAB)"
@@ -5985,8 +5985,8 @@ ctl gate-timeout-huge-refused-catch 0 'rc=2' 'GATE_TIMEOUT: a positive whole num
 ctl gate-timeout-leading-zero-watchdog-catch 0 'rc=2' 'timed out after 8s \(raise GATE_TIMEOUT\)' '!positive whole' -- gtc gtzw $GI/gt-ok.conf GATE_NO_TIMEOUT_BIN=1 GATE_TIMEOUT=008 GATE_STUB_SLEEP_smokewalk=20
 
 # --- external APIs (E2E-13, E2E-14): bin/apimock.py and its gate wiring -------------------------------------------------
-# Goldens captured from the public Marketplace PFEP 1.4.1 (MendixSSO roles call + the Teamcenter connector's SendService)
-# and Kanban 1.0.0 (a consumed OData service + an Opcenter REST call whose URL comes from data) by lib/capture_units.py,
+# Goldens captured from the public Marketplace App B 1.4.1 (MendixSSO roles call + the Teamcenter connector's SendService)
+# and Kanban 1.0.0 (a consumed OData service + an App A REST call whose URL comes from data) by lib/capture_units.py,
 # never hand-written. The stand-in listens on 127.0.0.1 only (port 0: the OS picks a free one); nothing real is called.
 # E2E-16: calls that share one route and template are told apart by what the request holds (apimock.discriminate): the
 # fixed pairs of a POST body template, the literal names of a {N} path segment, the query names. Synthetic inventory.
@@ -6033,24 +6033,24 @@ if len(sys.argv) > 6:
     sys.exit(1 if miss or not want else 0)
 EOF
 if python3 -c 'import bson' 2>/dev/null; then
-  for g in pfep-sso-tc kanban-odata-opc; do python3 "$here/lib/capture_units.py" build "$FX/apimock/$g.json" "$T/m/$g" > /dev/null; done
-  PF=$T/m/pfep-sso-tc/App.mpr; KB=$T/m/kanban-odata-opc/App.mpr
+  for g in app-b-sso-ext kanban-odata-app-a; do python3 "$here/lib/capture_units.py" build "$FX/apimock/$g.json" "$T/m/$g" > /dev/null; done
+  PF=$T/m/app-b-sso-ext/App.mpr; KB=$T/m/kanban-odata-app-a/App.mpr
   # inventory: a constant-routed REST call is MOCKED, the Teamcenter connector EXCLUDED by name, the coverage line exact
   ctl apimock-inventory-pass 0 '^MOCKED +rest:MendixSSO\.RetrieveUserRoles +GET /api/approles/v1/environment/\{2\}/user/\{3\} +via constant MendixSSO\.RolesLocation +\[mapping MendixSSO\.AppRolesResponse' \
     '^EXCLUDED \(Teamcenter\) +rest:TcConnector\.SendService .*matched TcConnector\*' '^apis 2 found · mocked 1 · excluded 1 \(Teamcenter\) · unknown 0$' -- python3 $B/apimock.py inventory $PF --exclude Teamcenter
   # catch: a location read from data is UNKNOWN (exit 3, INVALID) with the /a/ seed advice, never MOCKED
-  ctl apimock-unknown-invalid-catch 3 '^UNKNOWN +rest:OpcenterConnector\.ExecuteOpcenterQuery_Custom .*via data EXFN_Authentication\.ClientConfiguration\.OpcenterEXFNUrl' \
+  ctl apimock-unknown-invalid-catch 3 '^UNKNOWN +rest:ModuleBConnector\.ExecuteModuleBQuery_Custom .*via data MFN_Authentication\.ClientConfiguration\.ModuleAUrl' \
     '^MOCKED +odata:EmployeeManagement\.ODATA_EmployeeManagement .*via constant EmployeeManagement\.ODATA_EmployeeManagement_Location' '^apis 2 found · mocked 1 · excluded 0 · unknown 1$' -- python3 $B/apimock.py inventory $KB
   # catch: without --exclude the Teamcenter call is not quietly excluded: UNKNOWN, exit 3
   ctl apimock-no-exclude-catch 3 '^UNKNOWN +rest:TcConnector\.SendService' '!EXCLUDED' '· unknown 1$' -- python3 $B/apimock.py inventory $PF
   # --classify needs a reason; with one, the line classifies (the reason is printed)
-  echo 'rest:OpcenterConnector.* MOCKED' > "$AM/cls-noreason.txt"
+  echo 'rest:ModuleBConnector.* MOCKED' > "$AM/cls-noreason.txt"
   ctl apimock-classify-reason-catch 2 'reason' -- python3 $B/apimock.py inventory $KB --classify "$AM/cls-noreason.txt"
-  echo 'rest:OpcenterConnector.* MOCKED # control: the seed data points ClientConfiguration.OpcenterEXFNUrl at /a/' > "$AM/cls.txt"
-  ctl apimock-classify-pass 0 '^MOCKED +rest:OpcenterConnector\.ExecuteOpcenterQuery_Custom .*control: the seed data' '^apis 2 found · mocked 2 · excluded 0 · unknown 0$' -- python3 $B/apimock.py inventory $KB --classify "$AM/cls.txt"
+  echo 'rest:ModuleBConnector.* MOCKED # control: the seed data points ClientConfiguration.ModuleAUrl at /a/' > "$AM/cls.txt"
+  ctl apimock-classify-pass 0 '^MOCKED +rest:ModuleBConnector\.ExecuteModuleBQuery_Custom .*control: the seed data' '^apis 2 found · mocked 2 · excluded 0 · unknown 0$' -- python3 $B/apimock.py inventory $KB --classify "$AM/cls.txt"
   # B4T2-6 / B4N1-9: an add-on module (modules/*.mxmodule, a zip whose project.mpr is ONE bson document) is one UNKNOWN
   # endpoint naming its URL constants and URL attributes, so "unknown 0" is never claimed beside an add-on. Golden:
-  # fixtures/apimock/addon-exfn-auth.json, verbatim nodes of the public Opcenter EX Starter Kit's EXFN_Authentication.
+  # fixtures/apimock/addon-mfn-auth.json, nodes of the public vendor starter-kit's MFN_Authentication (constant-value prefix neutralised).
   cat > "$AM/mkxm.py" <<'EOF'
 # mkxm.py GOLDEN OUT.mxmodule: the golden's nodes packed the way Studio Pro packs an add-on (package.xml + bson project.mpr)
 import bson, sys, zipfile
@@ -6062,10 +6062,10 @@ with zipfile.ZipFile(sys.argv[2], "w") as z:
     z.writestr("package.xml", f'<package><modelerProject><module name="{g["module"]}" /><projectFile path="project.mpr" /></modelerProject></package>')
     z.writestr("project.mpr", bson.encode(doc))
 EOF
-  rm -rf "$AM/pfa"; cp -r "$T/m/pfep-sso-tc" "$AM/pfa"; mkdir -p "$AM/pfa/modules"; PFA=$AM/pfa/App.mpr
-  python3 "$AM/mkxm.py" "$FX/apimock/addon-exfn-auth.json" "$AM/pfa/modules/EXFN_Authentication.mxmodule"
-  ctl apimock-addon-unknown-catch 3 '^UNKNOWN +addon:EXFN_Authentication .*via constant EXFN_Authentication\.APPBaseUrl, constant EXFN_Authentication\.UMCBaseUrl' \
-    'URL-named attributes it reads: EXFN_Authentication\.ClientConfiguration\.OpcenterEXFNUrl' '^apis 3 found · mocked 1 · excluded 1 \(Teamcenter\) · unknown 1$' '!ClientId' '!unknown 0' \
+  rm -rf "$AM/pfa"; cp -r "$T/m/app-b-sso-ext" "$AM/pfa"; mkdir -p "$AM/pfa/modules"; PFA=$AM/pfa/App.mpr
+  python3 "$AM/mkxm.py" "$FX/apimock/addon-mfn-auth.json" "$AM/pfa/modules/MFN_Authentication.mxmodule"
+  ctl apimock-addon-unknown-catch 3 '^UNKNOWN +addon:MFN_Authentication .*via constant MFN_Authentication\.APPBaseUrl, constant MFN_Authentication\.UMCBaseUrl' \
+    'URL-named attributes it reads: MFN_Authentication\.ClientConfiguration\.ModuleAUrl' '^apis 3 found · mocked 1 · excluded 1 \(Teamcenter\) · unknown 1$' '!ClientId' '!unknown 0' \
     -- python3 $B/apimock.py inventory $PFA --exclude Teamcenter
   rm -rf "$AM/pfb"; cp -r "$AM/pfa" "$AM/pfb"; echo notazip > "$AM/pfb/modules/Broken.mxmodule"; PFB=$AM/pfb/App.mpr
   ctl apimock-addon-unreadable-catch 3 '^UNKNOWN +addon:Broken .*not readable as a zip' '· unknown 2$' -- python3 $B/apimock.py inventory $PFB --exclude Teamcenter
@@ -6074,13 +6074,13 @@ EOF
   ctl apimock-classify-mocked-no-route-catch 3 '^UNKNOWN +addon:Broken .*classified MOCKED \(addon:Broken\) but the stand-in has no route to it' '!^MOCKED +addon:Broken' \
     -- python3 $B/apimock.py inventory $PFB --exclude Teamcenter --classify "$AM/cls-noroute.txt"
   # a LOCATION line names where the URL comes from (const: overridden by serve, data: the /a/ URL to seed); then MOCKED holds
-  printf '%s\n' 'addon:EXFN_Authentication LOCATION const:EXFN_Authentication.APPBaseUrl # control: the add-on reads APPBaseUrl' \
-    'addon:EXFN_Authentication MOCKED # control: the stand-in answers its calls' > "$AM/cls-loc.txt"
-  ctl apimock-classify-location-pass 0 '^MOCKED +addon:EXFN_Authentication .*via constant EXFN_Authentication\.APPBaseUrl' 'location constant EXFN_Authentication\.APPBaseUrl declared' '· unknown 0$' \
+  printf '%s\n' 'addon:MFN_Authentication LOCATION const:MFN_Authentication.APPBaseUrl # control: the add-on reads APPBaseUrl' \
+    'addon:MFN_Authentication MOCKED # control: the stand-in answers its calls' > "$AM/cls-loc.txt"
+  ctl apimock-classify-location-pass 0 '^MOCKED +addon:MFN_Authentication .*via constant MFN_Authentication\.APPBaseUrl' 'location constant MFN_Authentication\.APPBaseUrl declared' '· unknown 0$' \
     -- python3 $B/apimock.py inventory $PFA --exclude Teamcenter --classify "$AM/cls-loc.txt"
-  printf '%s\n' 'addon:Broken LOCATION data:EXFN_Authentication.ClientConfiguration.OpcenterEXFNUrl # control: the protected microflow reads this' \
-    'addon:Broken MOCKED # control: seed data points it at /a/' 'addon:EXFN_Authentication MOCKED # control' > "$AM/cls-locdata.txt"
-  ctl apimock-classify-location-data-pass 0 '^MOCKED +addon:Broken .*via data EXFN_Authentication\.ClientConfiguration\.OpcenterEXFNUrl' '· unknown 0$' \
+  printf '%s\n' 'addon:Broken LOCATION data:MFN_Authentication.ClientConfiguration.ModuleAUrl # control: the protected microflow reads this' \
+    'addon:Broken MOCKED # control: seed data points it at /a/' 'addon:MFN_Authentication MOCKED # control' > "$AM/cls-locdata.txt"
+  ctl apimock-classify-location-data-pass 0 '^MOCKED +addon:Broken .*via data MFN_Authentication\.ClientConfiguration\.ModuleAUrl' '· unknown 0$' \
     -- python3 $B/apimock.py inventory $PFB --exclude Teamcenter --classify "$AM/cls-locdata.txt"
   echo 'addon:Broken LOCATION http://x # control' > "$AM/cls-locbad.txt"
   ctl apimock-classify-location-syntax-catch 2 'LOCATION wants const:<Module\.Constant> or data:<Module\.Entity\.Attribute>' -- python3 $B/apimock.py inventory $PFB --classify "$AM/cls-locbad.txt"
@@ -6103,14 +6103,14 @@ EOF
   ctl apimock-odata-pass 0 '^status 200$' '"@odata\.context": "\$metadata#Employees"' '"FirstName": "FirstName 1"' -- python3 $AM/fetch.py $B $S GET /c/EmployeeManagement.ODATA_EmployeeManagement_Location/Employees
   ctl apimock-excluded-503-pass 0 '^status 503$' 'EXCLUDED: Teamcenter' -- python3 $AM/fetch.py $B $S POST /a/TcConnector.SoaServiceRequest.ServiceURL
   ctl apimock-log-pass 0 '"endpoint": "rest:MendixSSO\.RetrieveUserRoles", "status": "MOCKED"' '"status": "EXCLUDED", "system": "Teamcenter"' -- cat $S/requests.jsonl
-  # check: everything answered, but the UNKNOWN Opcenter endpoint keeps the rung INVALID (exit 3)
+  # check: everything answered, but the UNKNOWN App A endpoint keeps the rung INVALID (exit 3)
   ctl apimock-check-unknown-catch 3 '^requests 3 · mocked 2 · excluded 1 · unknown 0 · unmatched 0$' 'verdict: INVALID: 1 endpoints UNKNOWN' '!verdict: PASS' -- python3 $B/apimock.py check --state $S --exclude-systems Teamcenter
   # a request no endpoint owns is UNMATCHED (404) and INVALID too, even with every endpoint classified
   [ -f $S/pid ] && python3 $B/apimock.py stop --state $S > /dev/null   # started by apimock-serve-pass unless --only skipped it
   S2=$AM/st2
   python3 $B/apimock.py serve $PF --exclude Teamcenter --state $S2 --port 0 --background > /dev/null
   ctl apimock-standin-uncalled-pass 0 '^  STAND-IN \(MendixSSO\) endpoint rest:MendixSSO\.RetrieveUserRoles: 0 requests answered$' '^stand-in endpoints 1 · requests answered 0$' -- python3 $B/apimock.py standin --state $S2
-  # B4N1-11: every endpoint MOCKED and nothing called is no proof at all (Opcenter b4: PASS on 0 requests): INVALID
+  # B4N1-11: every endpoint MOCKED and nothing called is no proof at all (App A b4: PASS on 0 requests): INVALID
   ctl apimock-check-zero-traffic-catch 3 '^requests seen: 0$' '^  NOT EXERCISED endpoint rest:MendixSSO\.RetrieveUserRoles: 0 requests answered: no proof' \
     'verdict: INVALID: 1 endpoints MOCKED and 0 requests answered' '!verdict: PASS' -- python3 $B/apimock.py check --state $S2 --exclude-systems Teamcenter
   python3 $AM/fetch.py $B $S2 GET /c/MendixSSO.RolesLocation/api/approles/v1/environment/env1/user/u1 > /dev/null
@@ -6124,21 +6124,21 @@ EOF
   # stand-in answers (they are NOT CHECKED or INVALID elsewhere). $S: apimock-serve-pass + the fetches above.
   ctl apimock-standin-pass 0 '^  STAND-IN \(MendixSSO\) endpoint rest:MendixSSO\.RetrieveUserRoles: 1 requests answered$' \
     '^  STAND-IN \(EmployeeManagement\) endpoint odata:EmployeeManagement\.ODATA_EmployeeManagement: 1 requests answered$' \
-    '^stand-in systems: EmployeeManagement, MendixSSO$' '^stand-in endpoints 2 · requests answered 2$' '!STAND-IN \((Teamcenter|OpcenterConnector)' -- python3 $B/apimock.py standin --state $S
+    '^stand-in systems: EmployeeManagement, MendixSSO$' '^stand-in endpoints 2 · requests answered 2$' '!STAND-IN \((Teamcenter|ModuleBConnector)' -- python3 $B/apimock.py standin --state $S
   # B4N1-11: a MOCKED endpoint nobody called is NOT EXERCISED; INVALID unless an UNEXERCISED line waives it with a reason.
-  # $S4: both models; Opcenter MOCKED (seed data) but never called, waived; the OData service reached under a path prefix.
+  # $S4: both models; App A MOCKED (seed data) but never called, waived; the OData service reached under a path prefix.
   S4=$AM/st4
-  printf '%s\n' 'rest:OpcenterConnector.* MOCKED # control: the seed data points ClientConfiguration.OpcenterEXFNUrl at /a/' \
-    'rest:OpcenterConnector.* UNEXERCISED # control: no journey opens the Opcenter query page' > "$AM/cls-unex.txt"
+  printf '%s\n' 'rest:ModuleBConnector.* MOCKED # control: the seed data points ClientConfiguration.ModuleAUrl at /a/' \
+    'rest:ModuleBConnector.* UNEXERCISED # control: no journey opens the App B query page' > "$AM/cls-unex.txt"
   python3 $B/apimock.py serve $PF $KB --exclude Teamcenter --classify "$AM/cls-unex.txt" --state $S4 --port 0 --background > /dev/null
   python3 $AM/fetch.py $B $S4 GET /c/MendixSSO.RolesLocation/api/approles/v1/environment/env1/user/u1 > /dev/null
   ctl apimock-odata-prefix-pass 0 '^status 200$' '"@odata\.context": "\$metadata#Employees"' -- python3 $AM/fetch.py $B $S4 GET /c/EmployeeManagement.ODATA_EmployeeManagement_Location/x/odata/Employees
   python3 $B/apimock.py stop --state $S4 > /dev/null
-  ctl apimock-check-unexercised-waived-pass 4 '^requests seen: 2$' '^  NOT EXERCISED endpoint rest:OpcenterConnector\.ExecuteOpcenterQuery_Custom: 0 requests answered \(waived: control: no journey' \
+  ctl apimock-check-unexercised-waived-pass 4 '^requests seen: 2$' '^  NOT EXERCISED endpoint rest:ModuleBConnector\.ExecuteModuleBQuery_Custom: 0 requests answered \(waived: control: no journey' \
     'verdict: PASS except Teamcenter' -- python3 $B/apimock.py check --state $S4 --exclude-systems Teamcenter
   rm -rf "$AM/st4u" "$AM/st4z"; cp -r "$S4" "$AM/st4u"; cp -r "$S4" "$AM/st4z"
   python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); [e.pop("unexercised", None) for e in d["endpoints"]]; json.dump(d, open(p, "w"))' "$AM/st4u/inventory.json"
-  ctl apimock-check-unexercised-catch 3 'NOT EXERCISED endpoint rest:OpcenterConnector\.ExecuteOpcenterQuery_Custom: 0 requests answered: no proof' \
+  ctl apimock-check-unexercised-catch 3 'NOT EXERCISED endpoint rest:ModuleBConnector\.ExecuteModuleBQuery_Custom: 0 requests answered: no proof' \
     'verdict: INVALID: 1 MOCKED endpoints NOT EXERCISED' '!verdict: PASS' -- python3 $B/apimock.py check --state $AM/st4u --exclude-systems Teamcenter
   # zero traffic is never waivable, even with every MOCKED endpoint waived
   python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); [e.update(unexercised="control") for e in d["endpoints"] if e["status"] == "MOCKED"]; json.dump(d, open(p, "w"))' "$AM/st4z/inventory.json"
@@ -6146,7 +6146,7 @@ EOF
   ctl apimock-check-zero-traffic-waived-catch 3 '^requests seen: 0$' '\(waived: control\)' 'verdict: INVALID: 3 endpoints MOCKED and 0 requests answered' '!verdict: PASS' \
     -- python3 $B/apimock.py check --state $AM/st4z --exclude-systems Teamcenter
   # end to end with the REAL apimock.py (other instruments stubbed): a gate whose every rung passes on the stand-in is
-  # never plain PASS. $S3: PFEP, Teamcenter excluded, the MendixSSO roles call answered once.
+  # never plain PASS. $S3: App B, Teamcenter excluded, the MendixSSO roles call answered once.
   S3=$AM/st3; GB3=$T/gate-bin-am; mkdir -p "$GB3"; cp "$GB"/* "$GB3"/; cp $B/apimock.py $B/mprmodel.py "$GB3"/
   python3 $B/apimock.py serve $PF --exclude Teamcenter --state $S3 --port 0 --background > /dev/null
   python3 $AM/fetch.py $B $S3 GET /c/MendixSSO.RolesLocation/api/approles/v1/environment/env1/user/u1 > /dev/null
@@ -6298,9 +6298,9 @@ amlog() { local d=$1; shift; : > "$AM/$d/requests.jsonl"; while [ $# -gt 0 ]; do
 amlog a1 02.000 rest:TcConnector.SendService EXCLUDED Teamcenter 03.000 rest:MendixSSO.RetrieveUserRoles MOCKED ''
 amlog a2 03.000 rest:MendixSSO.RetrieveUserRoles MOCKED ''
 amlog a3 05.500 rest:TcConnector.SendService EXCLUDED Teamcenter
-amlog a4 02.000 rest:TcConnector.SendService EXCLUDED Teamcenter 03.000 rest:OpcenterConnector.ExecuteOpcenterQuery_Custom UNKNOWN ''
-echo '{"roles": [{"role": "Administrator", "steps": [{"caption": "Parts", "target": "PFEP.Part_Overview", "verdict": "FAIL", "t0": "2026-01-01T10:00:00.000Z", "t1": "2026-01-01T10:00:05.000Z"}, {"caption": "Home", "target": "PFEP.Home", "verdict": "PASS", "t0": "2026-01-01T10:00:06.000Z", "t1": "2026-01-01T10:00:07.000Z"}]}]}' > "$AM/smoke-after.json"
-ctl apimock-attribute-smoke-except 4 '^  NOT CHECKED \(excluded: Teamcenter\) smoke Administrator: Parts -> PFEP\.Part_Overview: .*POST /a/x \(rest:TcConnector\.SendService\)' 'every FAIL step \(1\) called only an excluded system' \
+amlog a4 02.000 rest:TcConnector.SendService EXCLUDED Teamcenter 03.000 rest:ModuleBConnector.ExecuteModuleBQuery_Custom UNKNOWN ''
+echo '{"roles": [{"role": "Administrator", "steps": [{"caption": "Parts", "target": "AppB.Part_Overview", "verdict": "FAIL", "t0": "2026-01-01T10:00:00.000Z", "t1": "2026-01-01T10:00:05.000Z"}, {"caption": "Home", "target": "AppB.Home", "verdict": "PASS", "t0": "2026-01-01T10:00:06.000Z", "t1": "2026-01-01T10:00:07.000Z"}]}]}' > "$AM/smoke-after.json"
+ctl apimock-attribute-smoke-except 4 '^  NOT CHECKED \(excluded: Teamcenter\) smoke Administrator: Parts -> AppB\.Part_Overview: .*POST /a/x \(rest:TcConnector\.SendService\)' 'every FAIL step \(1\) called only an excluded system' \
   -- python3 $B/apimock.py attribute-smoke $AM/smoke-after.json --state $AM/a1 --exclude-systems Teamcenter
 ctl apimock-attribute-smoke-mocked-only-catch 1 '^  still FAIL Administrator: Parts .*fails with no call into an excluded system' '!NOT CHECKED \(' -- python3 $B/apimock.py attribute-smoke $AM/smoke-after.json --state $AM/a2 --exclude-systems Teamcenter
 ctl apimock-attribute-smoke-outside-window-catch 1 '^  still FAIL Administrator: Parts' '!NOT CHECKED \(' -- python3 $B/apimock.py attribute-smoke $AM/smoke-after.json --state $AM/a3 --exclude-systems Teamcenter
@@ -6347,23 +6347,23 @@ ctl gate-except-needs-apimock-catch 2 'EXCLUDE_SYSTEMS' -- gcase exa EXCLUDE_SYS
 ctl gate-apis-invalid-catch 2 '\| 12 \| apis \| INVALID \| 3 \|' 'Overall: \*\*INVALID' -- gcase api3 GATE_STUB_RC_apimock=3 'GATE_STUB_OUT_apimock=apis 3 found · mocked 2 · excluded 0 · unknown 1'
 # smoke: rc 1 whose FAIL steps attribute-smoke clears (exit 4 + a named item) is EXCEPT; a plain smoke FAIL stays FAIL
 ctl gate-smoke-except-pass 4 '\| 7 \| smoke \| EXCEPT \| 4 \|' '\| 12 \| apis \| EXCEPT \| 4 \|' 'Overall: \*\*PASS \(except Teamcenter: 2 items\)\*\*' \
-  -- gcase sme GATE_STUB_RC_smokewalk=1 GATE_STUB_RC_apimock=4 'GATE_STUB_OUT_apimock=  NOT CHECKED (excluded: Teamcenter) smoke Administrator: Parts -> PFEP.Part_Overview: POST /a/x' EXCLUDE_SYSTEMS=Teamcenter
+  -- gcase sme GATE_STUB_RC_smokewalk=1 GATE_STUB_RC_apimock=4 'GATE_STUB_OUT_apimock=  NOT CHECKED (excluded: Teamcenter) smoke Administrator: Parts -> AppB.Part_Overview: POST /a/x' EXCLUDE_SYSTEMS=Teamcenter
 ctl gate-smoke-fail-stays-catch 1 '\| 7 \| smoke \| FAIL \| 1 \|' 'Overall: \*\*FAIL' -- gcase smf GATE_STUB_RC_smokewalk=1 GATE_STUB_RC_apimock=1 EXCLUDE_SYSTEMS=Teamcenter
 # E2E-15: the stand-in is a stopgap. Any endpoint it answered for = "PASS (on stand-in APIs: <systems>)", exit 4, the
 # endpoints listed by name and "real-system behaviour was NOT checked"; never plain PASS, never 0. FAIL/INVALID still win.
-SI1='  STAND-IN (OpcenterConnector) endpoint rest:OpcenterConnector.ExecuteOpcenterQuery: 4 requests answered
+SI1='  STAND-IN (ModuleBConnector) endpoint rest:ModuleBConnector.ExecuteModuleBQuery: 4 requests answered
   STAND-IN (EmployeeManagement) endpoint odata:EmployeeManagement.ODATA_EmployeeManagement: 0 requests answered
-stand-in systems: EmployeeManagement, OpcenterConnector
+stand-in systems: EmployeeManagement, ModuleBConnector
 stand-in endpoints 2 · requests answered 4'
-ctl gate-standin-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, OpcenterConnector\)\*\* \(exit 4\)' '\| 12 \| apis \| PASS \|' \
+ctl gate-standin-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, ModuleBConnector\)\*\* \(exit 4\)' '\| 12 \| apis \| PASS \|' \
   '^ON STAND-IN APIs \(E2E-15\): 2 endpoints were answered by apimock\.py' 'Real-system behaviour was NOT checked' \
-  '^- STAND-IN \(OpcenterConnector\) endpoint rest:OpcenterConnector\.ExecuteOpcenterQuery: 4 requests answered$' '!Overall: \*\*PASS\*\*' -- gcase si "GATE_STUB_OUT_apimock_standin=$SI1"
-ctl gate-standin-except-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, OpcenterConnector; except Teamcenter: 1 items\)\*\*' '^- journeys: NOT CHECKED \(excluded: Teamcenter\)' \
+  '^- STAND-IN \(ModuleBConnector\) endpoint rest:ModuleBConnector\.ExecuteModuleBQuery: 4 requests answered$' '!Overall: \*\*PASS\*\*' -- gcase si "GATE_STUB_OUT_apimock_standin=$SI1"
+ctl gate-standin-except-pass 4 'Overall: \*\*PASS \(on stand-in APIs: EmployeeManagement, ModuleBConnector; except Teamcenter: 1 items\)\*\*' '^- journeys: NOT CHECKED \(excluded: Teamcenter\)' \
   '^- STAND-IN \(EmployeeManagement\)' -- gcase sie GATE_STUB_RC_run_journeys=4 "GATE_STUB_OUT_run_journeys=$NC1" "GATE_STUB_OUT_apimock_standin=$SI1" EXCLUDE_SYSTEMS=Teamcenter
 # catch: every rung PASS and the apis rung "verdict: PASS", one endpoint on the stand-in (no systems line: the driver
 # takes the name from the item) -> still exit 4, never "Overall: **PASS**" or exit 0
-ctl gate-standin-not-plain-catch 4 'Overall: \*\*PASS \(on stand-in APIs: OpcenterConnector\)\*\*' '!Overall: \*\*PASS\*\*' '!\(exit 0\)' \
-  -- gcase sinp GATE_STUB_OUT_apimock='verdict: PASS' "GATE_STUB_OUT_apimock_standin=$(printf '  STAND-IN (OpcenterConnector) endpoint rest:OpcenterConnector.Q: 1 requests answered\nstand-in endpoints 1 · requests answered 1')"
+ctl gate-standin-not-plain-catch 4 'Overall: \*\*PASS \(on stand-in APIs: ModuleBConnector\)\*\*' '!Overall: \*\*PASS\*\*' '!\(exit 0\)' \
+  -- gcase sinp GATE_STUB_OUT_apimock='verdict: PASS' "GATE_STUB_OUT_apimock_standin=$(printf '  STAND-IN (ModuleBConnector) endpoint rest:ModuleBConnector.Q: 1 requests answered\nstand-in endpoints 1 · requests answered 1')"
 ctl gate-standin-unreadable-catch 2 'Overall: \*\*INVALID\*\*' 'apimock\.py standin --state .* failed \(rc 2' '!Overall: \*\*PASS' -- gcase siu GATE_STUB_RC_apimock_standin=2 GATE_STUB_OUT_apimock_standin='apimock: no inventory.json'
 ctl gate-standin-fail-wins-catch 1 'Overall: \*\*FAIL\*\*' '\| 6 \| logdiff \| FAIL \|' '!Overall: \*\*PASS' -- gcase sif GATE_STUB_RC_logdiff=1 "GATE_STUB_OUT_apimock_standin=$SI1"
 # without APIMOCK nothing is stood in: a clean gate stays plain PASS, exit 0, and the driver never asks apimock.py
@@ -6371,7 +6371,7 @@ ctl gate-no-apimock-plain-pass 0 'Overall: \*\*PASS\*\* \(exit 0\)' '\| 12 \| ap
 ctl gate-no-apimock-not-asked-pass 0 'not asked' -- sh -c "! grep -q '^apimock' $GI/stub-noam.log && echo 'not asked'"
 
 # E2E-8: bin/action_inventory.py, every clickable action of the old model (the journey denominator). The golden is
-# captured from the real Marketplace Opcenter EX Starter Kit 2.1.0 (lib/capture_units.py), never hand-written: the four
+# captured from the real Marketplace vendor starter-kit 2.1.0 (lib/capture_units.py), never hand-written: the four
 # home-page cards of T2R3 HANDWORK row 14, the add-on card, and the Client Configuration grid New button (create-spec).
 AI=$T/ai; mkdir -p "$AI"
 aimut() {  # aimut NAME DOC WIDGET NEW_TYPE: the golden with one widget's OnClickAction type replaced, built to $T/m/NAME
@@ -6401,36 +6401,36 @@ if python3 -c 'import bson' 2>/dev/null; then
     '^StarterKit\.Home_Gallery\.container5 \[DivContainer\] nanoflow -> open-page StarterKit\.ACT_Open_HowTo \| roles User \| as User: home Responsive \(User\) -> StarterKit\.Home_Web -> click container5$' \
     '^StarterKit\.Home_Gallery\.container9 \[DivContainer\] open-page -> open-page StarterKit\.LinksAndInfos .*click container9$' \
     '^StarterKit\.Home_Gallery\.container13 \[DivContainer\] open-page -> open-page StarterKit\.Widgets .*click container13$' \
-    '^StarterKit\.Home_Gallery\.container14 .*UNKNOWN flow EXFN_Authentication\.Nav_ClientConfiguration_Overview is not in the model \(module EXFN_Authentication unreadable: protected add-on\)' \
+    '^StarterKit\.Home_Gallery\.container14 .*UNKNOWN flow MFN_Authentication\.Nav_ClientConfiguration_Overview is not in the model \(module MFN_Authentication unreadable: protected add-on\)' \
     '^actions 9 found · by kind create 1, delete 1, open-page 5, unknown 2 · todo 4 by reason no-click-path 4 · unknown 5 ' \
     -- python3 $B/action_inventory.py $T/m/t2cards/App.mpr
   # create-spec.json's newButton1 is a Mendix 9 grid New button: no Action key, entity and page on the widget itself.
   # Only an add-on microflow opens its page, so the path is unknown, never reported as absent.
   ctl action-inventory-newbutton-pass 0 \
-    '^OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 \[GridNewButton\] create -> create OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit .*the click path is unknown, not absent' \
-    'ClientConfiguration_NewEdit\.actionButton1 .*UNKNOWN part of the flow is not in the model: EXFN_Authentication\.ACT_ClientConfiguration_NewEdit \(kind is a lower bound\)' \
+    '^VendorDesignSystemA\.Snippet_Configuration\.newButton1 \[GridNewButton\] create -> create VendorDesignSystemA\.ClientConfiguration_NewEdit .*the click path is unknown, not absent' \
+    'ClientConfiguration_NewEdit\.actionButton1 .*UNKNOWN part of the flow is not in the model: MFN_Authentication\.ACT_ClientConfiguration_NewEdit \(kind is a lower bound\)' \
     '"summary_line": "actions 9 found' -- sh -c "python3 $B/action_inventory.py $T/m/t2cards/App.mpr --out $AI/a.json && cat $AI/a.json"
   # B4T2-14: a no-click-path plan row is UNREACHABLE (PASS*, its own count) only with checked evidence. On this real
-  # golden the protected EXFN_Authentication add-on opens ClientConfiguration_Overview (create-save walks it on the
+  # golden the protected MFN_Authentication add-on opens ClientConfiguration_Overview (create-save walks it on the
   # field run): an add-on that names any document on the way to the page refuses it; the add-on files are stand-ins
   UR=$T/unr; mkdir -p $UR/gen $UR/w/after $UR/addon-opens $UR/addon-silent
   python3 $B/action_inventory.py $T/m/t2cards/App.mpr --out $UR/a.json > /dev/null
   python3 -c "import json; d=json.load(open('$UR/a.json')); [x.update(todo=['no-click-path (a non-click caller reaches it: entry_reach)']) for x in d['actions']]; json.dump(d, open('$UR/a-caller.json', 'w'))
 d=json.load(open('$UR/a.json')); d['model']='$UR/gone.mpr'; json.dump(d, open('$UR/a-nomodel.json', 'w'))"
-  echo '{"skipped": [{"id": "act-OpcenterEXFN_VendorDesignSystem.Snippet_Configuration.newButton1", "action": "OpcenterEXFN_VendorDesignSystem.Snippet_Configuration.newButton1", "why": "action todo: no-click-path"}, {"id": "act-OpcenterEXFN_VendorDesignSystem.ClientConfiguration_NewEdit.actionButton1", "action": "OpcenterEXFN_VendorDesignSystem.ClientConfiguration_NewEdit.actionButton1", "why": "action todo: no-click-path"}]}' > $UR/gen/plan.json
+  echo '{"skipped": [{"id": "act-VendorDesignSystemA.Snippet_Configuration.newButton1", "action": "VendorDesignSystemA.Snippet_Configuration.newButton1", "why": "action todo: no-click-path"}, {"id": "act-VendorDesignSystemA.ClientConfiguration_NewEdit.actionButton1", "action": "VendorDesignSystemA.ClientConfiguration_NewEdit.actionButton1", "why": "action todo: no-click-path"}]}' > $UR/gen/plan.json
   echo '{"journeys": {}, "roles": {}}' > $UR/w/after/summary.json
-  printf 'EXFN_Authentication.Nav_ClientConfiguration_Overview -> OpcenterEXFN_VendorDesignSystem.ClientConfiguration_Overview\n' > $UR/addon-opens/flows.txt
-  printf 'EXFN_Authentication.Login -> EXFN_Authentication.Home\n' > $UR/addon-silent/flows.txt
-  ure() { printf 'act-OpcenterEXFN_VendorDesignSystem.* UNREACHABLE %s # control\n' "$2" > $UR/$1.txt; }
-  ure ev-ok "$UR/a.json EXFN_Authentication=addon-silent"; ure ev-opens "$UR/a.json EXFN_Authentication=addon-opens"
-  ure ev-noaddon "$UR/a.json"; ure ev-caller "$UR/a-caller.json EXFN_Authentication=addon-silent"; ure ev-nomodel "$UR/a-nomodel.json EXFN_Authentication=addon-silent"
+  printf 'MFN_Authentication.Nav_ClientConfiguration_Overview -> VendorDesignSystemA.ClientConfiguration_Overview\n' > $UR/addon-opens/flows.txt
+  printf 'MFN_Authentication.Login -> MFN_Authentication.Home\n' > $UR/addon-silent/flows.txt
+  ure() { printf 'act-VendorDesignSystemA.* UNREACHABLE %s # control\n' "$2" > $UR/$1.txt; }
+  ure ev-ok "$UR/a.json MFN_Authentication=addon-silent"; ure ev-opens "$UR/a.json MFN_Authentication=addon-opens"
+  ure ev-noaddon "$UR/a.json"; ure ev-caller "$UR/a-caller.json MFN_Authentication=addon-silent"; ure ev-nomodel "$UR/a-nomodel.json MFN_Authentication=addon-silent"
   RJU="python3 $B/run_journeys.py $UR/gen --label after --work $UR/w --rejudge"
-  ctl journeys-unreachable-pass 0 '^  UNREACHABLE act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 +UNREACHABLE: actions\.json: no entry point reaches .*named in EXFN_Authentication \(1 files\)' \
+  ctl journeys-unreachable-pass 0 '^  UNREACHABLE act-VendorDesignSystemA\.Snippet_Configuration\.newButton1 +UNREACHABLE: actions\.json: no entry point reaches .*named in MFN_Authentication \(1 files\)' \
     '^journeys: 0 PASS, 0 FAIL, 0 INVALID, 2 PASS\* \(unreachable in the OLD UI, evidence checked\)$' '^actions 9 found .*coverage 0/9 \(0%\) · 2 todo unreachable in the OLD UI \(evidenced, PASS\*\)$' \
     -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-ok.txt
-  ctl journeys-unreachable-addon-opens-catch 3 'ClientConfiguration_NewEdit\.actionButton1 .*UNREACHABLE refused, .*EXFN_Authentication names OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_Overview \(flows\.txt\), which leads to OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit' \
+  ctl journeys-unreachable-addon-opens-catch 3 'ClientConfiguration_NewEdit\.actionButton1 .*UNREACHABLE refused, .*MFN_Authentication names VendorDesignSystemA\.ClientConfiguration_Overview \(flows\.txt\), which leads to VendorDesignSystemA\.ClientConfiguration_NewEdit' \
     '^journeys: 0 PASS, 0 FAIL, 2 INVALID$' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-opens.txt
-  ctl journeys-unreachable-no-addon-catch 3 'UNREACHABLE refused, .*give EXFN_Authentication=<its project.mpr' '!PASS\* \(unreachable' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-noaddon.txt
+  ctl journeys-unreachable-no-addon-catch 3 'UNREACHABLE refused, .*give MFN_Authentication=<its project.mpr' '!PASS\* \(unreachable' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-noaddon.txt
   ctl journeys-unreachable-no-actions-catch 3 'UNREACHABLE refused, .*--actions .*none given' '!PASS\* \(unreachable' -- $RJU --baseline-evidence $UR/ev-ok.txt
   ctl journeys-unreachable-other-inventory-catch 3 'UNREACHABLE refused, .*a-caller\.json: not the --actions file' -- $RJU --actions $UR/a.json --baseline-evidence $UR/ev-caller.txt
   ctl journeys-unreachable-caller-catch 3 'UNREACHABLE refused, .*a non-click caller reaches it.*reachable, not dead in the UI' -- $RJU --actions $UR/a-caller.json --baseline-evidence $UR/ev-caller.txt
@@ -6677,7 +6677,7 @@ if python3 -c 'import bson' 2>/dev/null; then
   ctl gen-actions-walk-pass 0 '"persona": "Administrator"' '"do": "nav"' '"item": "Home"' '"ready": "\.mx-name-container1"' '"do": "click"' '"widget": "container1"' '"_guard": "StarterKit\.Contents: no landing widget' \
     -- cat $T/gen-act/journeys/Administrator/act-StarterKit.Home_Gallery.container1.journey.json
   ctl gen-actions-role-pass 0 'act-StarterKit\.Home_Gallery\.container5\.journey\.json' -- ls $T/gen-act/journeys/User
-  ctl gen-actions-todo-skipped-catch 0 "skipped act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1 \['no-click-path'\] action todo: no-click-path" '^skipped 4$' \
+  ctl gen-actions-todo-skipped-catch 0 "skipped act-VendorDesignSystemA\.Snippet_Configuration\.newButton1 \['no-click-path'\] action todo: no-click-path" '^skipped 4$' \
     -- python3 -c "import json; s=json.load(open('$T/gen-act/plan.json'))['skipped']; [print('skipped', e['id'], e['reasons'], e['why']) for e in s]; print('skipped', len(s))"
   # catch: a todo added to one action turns its journey into a skipped entry; the count still follows the model
   python3 -c "import json; d=json.load(open('$AI/a.json')); [a.update(todo=['combobox: mutant']) for a in d['actions'] if a['id'].endswith('.container1')]; json.dump(d, open('$AI/a-todo.json', 'w'))"
@@ -6689,13 +6689,13 @@ if python3 -c 'import bson' 2>/dev/null; then
   # the T2R3 create-spec (copied from the run branch) walks newButton1 + the form's actionButton1: it wins per action
   ctl gen-actions-override-pass 0 '^actions 9 found · 5 generated · 2 by --create override · 2 not generated by reason no-click-path 2$' \
     -- $GAJ --out-dir $T/gen-act-ov --create $FX/actions/t2r3-create-spec.json
-  ctl gen-actions-override-closes-pass 0 "closes \['act-OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1', 'act-OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit\.actionButton1'\]" 'covered .*newButton1 create-save' \
+  ctl gen-actions-override-closes-pass 0 "closes \['act-VendorDesignSystemA\.Snippet_Configuration\.newButton1', 'act-VendorDesignSystemA\.ClientConfiguration_NewEdit\.actionButton1'\]" 'covered .*newButton1 create-save' \
     -- python3 -c "import json; print('closes', json.load(open('$T/gen-act-ov/journeys/Administrator/create-save.journey.json'))['closes']); [print('covered', c['id'], c['closed_by']) for c in json.load(open('$T/gen-act-ov/plan.json'))['covered']]"
   # E2E-11 link: run_journeys counts coverage by each journey's "action" / "covers" (raw action ids). Before the r7
   # integration the generator wrote only "_action" / "closes" (act- ids), so every action stayed ungenerated (G=0).
   JSL="import sys,json; sys.path.insert(0,'$B'); import run_journeys as r; l=r.journey_set(sys.argv[1])['links']; [print(k, v) for k, v in sorted(l.items())]; print('linked', sum(1 for v in l.values() if v))"
   ctl gen-actions-coverage-link-pass 0 "^act-StarterKit\.Home_Gallery\.container1 \['StarterKit\.Home_Gallery\.container1'\]" \
-    "^create-save \['OpcenterEXFN_VendorDesignSystem\.ClientConfiguration_NewEdit\.actionButton1', 'OpcenterEXFN_VendorDesignSystem\.Snippet_Configuration\.newButton1'\]" '^linked 6$' \
+    "^create-save \['VendorDesignSystemA\.ClientConfiguration_NewEdit\.actionButton1', 'VendorDesignSystemA\.Snippet_Configuration\.newButton1'\]" '^linked 6$' \
     -- python3 -c "$JSL" $T/gen-act-ov
   # catch: a generated journey without the link is counted as linking nothing
   rm -rf $T/gen-act-nolink && cp -r $T/gen-act-ov $T/gen-act-nolink && python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop('action'); json.dump(d, open(p,'w'))" $T/gen-act-nolink/journeys/Administrator/act-StarterKit.Home_Gallery.container1.journey.json
@@ -7227,7 +7227,7 @@ if python3 -c 'import bson' 2>/dev/null; then
     -- sh -c "$DP --out $T/pd-man.md --manual $PF/manual-starterkit.md && cat $T/pd-man.md"
   ctl process-draft-interview-pass 0 '^drafted 3 \(model 0, manual 0, interview 3\)' '!^status: confirmed' \
     '^1\. \[User\] Click the "How To" card  => StarterKit\.Home_Gallery\.container5$' 'item 2 \(line 15\)' \
-    '^expect: EXFN_Authentication\.ClientConfiguration where Alias = "Plant \$\{RUN_ID\}"$' '^notes: breaking: The configuration grid stays empty after Save\.$' \
+    '^expect: MFN_Authentication\.ClientConfiguration where Alias = "Plant \$\{RUN_ID\}"$' '^notes: breaking: The configuration grid stays empty after Save\.$' \
     -- sh -c "$DP --out $T/pd-int.md --interview $PF/interview-starterkit.md && cat $T/pd-int.md"
   ctl process-draft-never-confirmed-pass 0 '^ *3 status: draft$' '!confirmed' -- sh -c "grep '^status:' $T/pd-int.md | sort | uniq -c"
   cp $T/pd-int.md $T/pd-both.md
@@ -7448,8 +7448,8 @@ if python3 -c 'import bson' 2>/dev/null; then
   ctl impact-actions-convertcheck-pass 0 '^TOUCHED Shop\.Other\.btnOther: convertcheck Shop\.Other \(call-site mappings rewritten \(INFO\)\)$' \
     '^untouched Shop\.Home\.btnDeep$' -- $IAC $IA/shop.json --convertcheck $IAF/convert-mappings.json
   # unknown reach is TOUCHED whatever the sources say: the golden's add-on flow (container14) and the add-on module itself
-  ctl impact-actions-unknown-reach-catch 0 '^TOUCHED StarterKit\.Home_Gallery\.container14: reach \(unknown reach: EXFN_Authentication\.Nav_ClientConfiguration_Overview\)' \
-    '^TOUCHED StarterKit\.Home_Gallery\.container14: .*addons EXFN_Authentication \(unreadable add-on module in reach\)' \
+  ctl impact-actions-unknown-reach-catch 0 '^TOUCHED StarterKit\.Home_Gallery\.container14: reach \(unknown reach: MFN_Authentication\.Nav_ClientConfiguration_Overview\)' \
+    '^TOUCHED StarterKit\.Home_Gallery\.container14: .*addons MFN_Authentication \(unreadable add-on module in reach\)' \
     '^untouched StarterKit\.Home_Gallery\.container1$' '^source not provided: impact' -- $IAC $IA/t2.json
   ctl impact-actions-no-reach-catch 0 '^TOUCHED Shop\.Home\.btnPlain: reach \(unknown reach: the inventory gives no reach for this action\)$' \
     '^touched 3 of 3 actions \(sources provided: 1 of 7\)$' -- $IAC $IA/shop-noreach.json
@@ -8385,7 +8385,7 @@ ctl remedy-tried-bad-invalid 2 "want '<card key> <option> PASS\|FAIL <evidence>'
 ctl remedy-dropdown-human-catch 1 '^C1 HUMAN    react19-dropdowncontainer' '^    B3  HUMAN ' '!^ +[A-D][0-9]? +AUTO-TRY' 'GAP .*journeys' -- $RM --work $RF/dropdown --gate $RF/dropdown/gate-a/gate-summary.md --release $RF/dropdown/release-impact.md --out $RT/dd.md --json $RT/dd.json
 ctl remedy-regression-generic-catch 1 '^C1 HUMAN    generic-regression:smoke' 'stay on 10\.24 LTS' '!react19-dropdowncontainer' -- $RM --work $RF/regression --gate $RF/regression/gate-a/gate-summary.md --release $RF/regression/release-impact.md --out $RT/rg.md --json $RT/rg.json
 ctl remedy-viewer3d-gate-pass-still-catch 1 'gate PASS' '^C1 HUMAN    react-bundled-viewer3d' 'stay on 10\.24 LTS \(the source is 10\.12\.2\.41995' '!^ +[A-D][0-9]? +AUTO-TRY' -- $RM --work $RF/viewer3d --gate $RF/viewer3d/gate-a/gate-summary.md --release $RF/viewer3d/release-impact.md --kept-file $RF/viewer3d/kept.txt --findings $RF/viewer3d/findings.txt --out $RT/v3.md --json $RT/v3.json
-# QI-4: a widget package that calls mx.logger gets its own card (no more "no remedy row"); R38 is the replacement row
+# APPE-4: a widget package that calls mx.logger gets its own card (no more "no remedy row"); R38 is the replacement row
 mkdir -p $RT/mxl; : > $RT/mxl/tried-none.txt
 ctl remedy-mxlogger-card-catch 1 '^C1 HUMAN    widget-mxlogger' '^    B   HUMAN ' '^    B2  HUMAN ' '^    B3  HUMAN ' '^    D   HUMAN .*stay on 10\.24 LTS' '!no remedy row' '!^ +[A-D][0-9]? +AUTO-TRY' -- $RM --work $RT/mxl --finding 'replacement: R37 HIT evidence: widgets/ListViewControls.mpk 1.3.16 runs /mx.logger/ in its JavaScript' --from 10.24.27 --to 11.12.6 --out $RT/mxl/o.md --json $RT/mxl/o.json
 # V3D-3/4/5: the 3D viewer card names the cause, offers B2 (another licensed version, R36 first), C2 (spinner patch, HUMAN only) and
@@ -8396,7 +8396,7 @@ ctl remedy-viewer3d-d-evidence-pass 0 'the blocked page renders on the stay vers
 printf 'react-bundled-viewer3d X:patch-spinner PASS mc/remedy-3dv/probe.json # lab patch\nreact-bundled-viewer3d B FAIL licence-404\n' > $RT/tried-x.txt
 ctl remedy-tried-extra-catch 1 '^    X:patch-spinner EXTRA +\(not on the card\) \[tried PASS mc/remedy-3dv/probe\.json\]' '^C1 HUMAN    react-bundled-viewer3d' 'extra tried and PASS, not on the card: X:patch-spinner' '!RESOLVED' '^    B +HUMAN .*\[tried FAIL licence-404\]' -- $RM --work $RF/viewer3d --gate $RF/viewer3d/gate-a/gate-summary.md --release $RF/viewer3d/release-impact.md --kept-file $RF/viewer3d/kept.txt --findings $RF/viewer3d/findings.txt --tried $RT/tried-x.txt --out $RT/v3d.md --json $RT/v3d.json
 ctl remedy-tried-extra-md-pass 0 '^- extra, not an option of this card: X:patch-spinner, tried: PASS' -- sh -c "cat $RT/v3d.md"
-# QI-5: the default output is remedy-cards.md (never REMEDIATION.md: one file on a case-insensitive disk), and a gate FOLDER is accepted
+# APPE-5: the default output is remedy-cards.md (never REMEDIATION.md: one file on a case-insensitive disk), and a gate FOLDER is accepted
 rm -rf $RT/dflt; mkdir -p $RT/dflt; cp -R $RF/viewer3d/. $RT/dflt/; echo merged > $RT/dflt/REMEDIATION.md
 ctl remedy-default-name-catch 1 '^C1 HUMAN    react-bundled-viewer3d' -- $RM --work $RT/dflt --gate $RT/dflt/gate-a --release $RT/dflt/release-impact.md --kept-file $RT/dflt/kept.txt --findings $RT/dflt/findings.txt
 ctl remedy-default-name-pass 0 '^remedy-cards.md$' '^remediation.json$' '^merged$' -- sh -c "ls $RT/dflt | grep -E '^(remedy-cards.md|remediation.json)$'; cat $RT/dflt/REMEDIATION.md"
