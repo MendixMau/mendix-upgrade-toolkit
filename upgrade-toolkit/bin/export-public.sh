@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Export the HARNESS of the upgrade toolkit to a folder that can become a public repo. Whitelist only: a path not
-# listed here never leaves. Run data, field notes and research stay in this (private) repo.
+# listed here never leaves. Run data and research stay private. The scrubbed brain notes ship in the repo itself
+# (company-brain-test/brain/internal/upgrade/, confidentiality: public) and are not part of this export.
 # Usage: export-public.sh [DEST]   (default ~/upgrade-toolkit-public). Writes and commits locally; never pushes.
 # Refuses when the export holds a private name (bin/private_names.sh, required here), a token, a home-folder path,
 # a real deployment or internal hostname, an e-mail address other than example/test/noreply, or an app model, package, archive or .env file.
