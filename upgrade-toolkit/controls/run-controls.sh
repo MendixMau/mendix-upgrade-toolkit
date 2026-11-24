@@ -10370,29 +10370,45 @@ mkassoc() { python3 -c "
 import json,sys
 sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
 for d in (sb,sa):
+    if len(sys.argv)>4: d['db']['assoc_ends']={asn:sys.argv[4].split(',')}
     for e in ('Shop.Customer','Shop.Order','Shop.Sales_Item','Shop.Product'): d['db']['entities'][e]=3
     d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
 for e in ('Shop.Order','Shop.Sales_Item','Shop.Product'): sa['db']['entities'][e]=2
 sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
 sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
-json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
-mkassoc as1 Shop.CustomerOrders; mkassoc as2 Shop.Sales_Item_Order; mkassoc as3 Shop.Customer_Order
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2 ${3:+"$3"}; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
+mkassoc as1 Shop.CustomerOrders; mkassoc as2 Shop.Sales_Item_Order Shop.Sales_Item,Shop.Order; mkassoc as3 Shop.Customer_Order Shop.Customer,Shop.Order
 ctl gf51-start-noise-entity-custom-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.CustomerOrders' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/as1-b.json $T/as1-a.json --restart $T/as1-r.json
 ctl gf51-start-noise-entity-underscore-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.Sales_Item_Order' 'FAIL \| db\.entity\.Shop\.Sales_Item \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as2-b.json $T/as2-a.json --restart $T/as2-r.json
 ctl gf51-start-noise-entity-attributable-assoc-pass 1 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Sales_Item' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as3-b.json $T/as3-a.json --restart $T/as3-r.json
 # an association can cross modules: Sales.Order_Account is owned by Sales but Account lives in Administration. Splitting only within Sales
 # found nothing and blocked Sales alone, so Administration.Account read START-NOISE although its association still FAILs
-python3 -c "
+mkxm() { python3 -c "
 import json,sys
 sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
 for d in (sb,sa):
-    for e in ('Sales.Order','Sales.Product','Administration.Account'): d['db']['entities'][e]=3
+    if len(sys.argv)>4: d['db']['assoc_ends']={asn:sys.argv[4].split(',')}
+    for e in ('Sales.Order','Sales.Customer','Sales.Product','Administration.Account'): d['db']['entities'][e]=3
     d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
 for e in ('Sales.Order','Sales.Product','Administration.Account'): sa['db']['entities'][e]=2
 sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
 sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
-json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/xm1 Sales.Order_Account; touch -t 200001010000 $T/xm1-b.json; touch $T/xm1-r.json
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2 ${3:+"$3"}; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
+mkxm xm1 Sales.Order_Account Sales.Order,Administration.Account
 ctl gf51-start-noise-entity-cross-module-assoc-catch 1 'FAIL \| db\.assoc\.Sales\.Order_Account' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' -- python3 $B/diff.py $T/xm1-b.json $T/xm1-a.json --restart $T/xm1-r.json
+# the rule pins a failing association on its REAL endpoints (snapshot assoc_ends), never on its name. Order lives in Sales, Account in
+# Administration, the association stays FAIL; Product is untouched by it and may read START-NOISE.
+# A: a custom name (CustomerOrders) that crosses modules; B: a custom name with an underscore (My_Accounts); C: Order_Customer was
+# renamed and really points at Administration.Account, although the name splits into two real Sales entities
+mkxm xa Sales.CustomerOrders Sales.Order,Administration.Account
+mkxm xb Sales.My_Accounts Sales.Order,Administration.Account
+mkxm xc Sales.Order_Customer Sales.Order,Administration.Account
+mkxm xd Sales.CustomerOrders
+ctl gf51-start-noise-endpoint-custom-name-catch 1 'FAIL \| db\.assoc\.Sales\.CustomerOrders' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xa-b.json $T/xa-a.json --restart $T/xa-r.json
+ctl gf51-start-noise-endpoint-underscore-custom-name-catch 1 'FAIL \| db\.assoc\.Sales\.My_Accounts' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xb-b.json $T/xb-a.json --restart $T/xb-r.json
+ctl gf51-start-noise-endpoint-renamed-assoc-catch 1 'FAIL \| db\.assoc\.Sales\.Order_Customer' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xc-b.json $T/xc-a.json --restart $T/xc-r.json
+# an old snapshot has no assoc_ends: a failing association cannot be pinned, so every db.entity row in every module stays FAIL
+ctl gf51-start-noise-no-endpoints-fallback-catch 1 'FAIL \| db\.assoc\.Sales\.CustomerOrders' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/xd-b.json $T/xd-a.json --restart $T/xd-r.json
 # a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
 GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
 ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }
