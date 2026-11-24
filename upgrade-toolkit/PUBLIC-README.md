@@ -28,6 +28,10 @@ Marketplace module updates, build, data diff, smoke walk, page layout compare, j
 repairs build errors, fixes journeys and compares results. Every rung ends in PASS, FAIL or INVALID, with evidence.
 A person follows the run on one cockpit page and signs off there.
 
+Headless end to end: nothing here opens Studio Pro. Point it at your app on your own machine (or a cloud
+container), tell the agent to upgrade it, and it runs the whole ladder in your terminal — Studio Pro, the latest
+version, is only for opening the finished app afterward to look at it.
+
 ```
 find ──> plan ──> upgrade ──> test ──> go-live
 triage    proposal   convert     smoke, layout,    gate verdict,

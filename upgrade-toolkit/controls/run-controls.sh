@@ -9945,6 +9945,15 @@ ctl cockpit-up-stale-pid-starts-server-catch 0 '^line: started$' '^port replaced
 # doctor.sh: a dead docker socket is a FAIL with its fix, never a pass; a missing toolset names the version
 ctl doctor-docker-down-catch 1 'FAIL  docker' 'fix: ' 'doctor: [1-9][0-9]* FAIL' -- env DOCKER_HOST=unix://$T/no.sock bash $B/doctor.sh
 ctl doctor-toolset-missing-catch 1 'FAIL  toolset     9\.24\.99\.1: no .*/mxbuild-9\.24\.99\.1' -- env DOCKER_HOST=unix://$T/no.sock UPG_TOOLS=$T bash $B/doctor.sh 9.24.99.1
+# doctor.sh with podman: the pipeline calls `docker`, so podman alone must FAIL with the shim hint; a docker that answers passes.
+# PATH shims only (no container runtime needed). The podman-only dir has a docker that is a dead stub, as on a machine with no docker daemon.
+PDO=$T/podman-only; mkdir -p $PDO; printf '#!/bin/sh\ncase "$1" in info) echo "5.0 x86_64";; *) exit 0;; esac\n' > $PDO/podman; printf '#!/bin/sh\nexit 1\n' > $PDO/docker; chmod +x $PDO/podman $PDO/docker
+PDK=$T/podman-docker; mkdir -p $PDK; cp $PDO/podman $PDK/podman; printf '#!/bin/sh\ncase "$1" in info) echo "5.0 x86_64";; context) exit 1;; *) exit 0;; esac\n' > $PDK/docker; chmod +x $PDK/podman $PDK/docker
+ctl doctor-podman-no-docker-shim-catch 1 'FAIL  docker +podman answers but docker info does not' 'fix: install the docker shim \(the podman-docker package\) or alias docker to podman' '!ok    docker' -- env UPG_CONTAINER_RUNTIME=podman PATH=$PDO:$PATH bash $B/doctor.sh
+ctl doctor-podman-with-docker-shim-pass 0 'ok    docker +podman daemon up' '!FAIL  docker' -- sh -c "env UPG_CONTAINER_RUNTIME=podman PATH=$PDK:\$PATH bash $B/doctor.sh; exit 0"
+# Darwin arm64, DOCKER_HOST unset: the old ${DOCKER_HOST#unix://} died with "unbound variable"; now the Rosetta check runs and says it cannot tell (WARN)
+UND=$T/darwin-arm64; mkdir -p $UND; printf '#!/bin/sh\n[ "$1" = "-sm" ] && { echo "Darwin arm64"; exit 0; }\nexec /usr/bin/env uname "$@"\n' > $UND/uname; sed -i.sedi 's|exec /usr/bin/env uname|exec "$(PATH=${PATH#*:} command -v uname)"|' $UND/uname; rm -f $UND/uname.sedi; cp $PDK/docker $UND/docker; chmod +x $UND/uname $UND/docker
+ctl doctor-darwin-arm64-docker-host-unset-pass 0 'WARN  rosetta +cannot tell whether amd64 runs through Rosetta' '!unbound variable' -- sh -c "env -u DOCKER_HOST PATH=$UND:\$PATH bash $B/doctor.sh; exit 0"
 ctl cockpit-flag-regenerates-only-pass 0 'COCKPIT\.html written' -- $CK cockpit-flag
 ctl decisions-add-last-wins-pass 0 'P-1 = o2 by Ana via chat' 'P-1 = rec by Ben via chat' '"by": "Ana"' '"by": "Ben"' -- $CK add
 ctl decisions-add-unknown-item-catch 2 'unknown item' -- $CK add-bad
