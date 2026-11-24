@@ -747,6 +747,23 @@ def tree_refs_constants(m, tree):
     return out
 
 
+def menu_positions(web, visible=None):
+    """(menu item, nth) per item of a navigation profile's menu, in model order. nth is set only for an item whose own
+    caption is blank (icon only): its position among the items with that same caption, the handle the nav verb clicks
+    by (helpers.navTo, #65), since the tree renders every item as a[title] in this order. A field run: every role-menu item
+    was " ", so all impact menu journeys navigated to the first one, and two icon items shared one candidate id.
+    visible: a predicate on an item. The tree a role sees holds only its visible items, so the position is counted over
+    those; a hidden item is neither counted nor yielded (a role with the first icon item hidden must click #1, not #2)."""
+    seen = collections.Counter()
+    for it in web.get("menu", []):
+        if visible is not None and not visible(it):
+            continue
+        cap = it["path"][-1] if it["path"] else ""
+        nth = seen[cap] if not (cap or "").strip() else None
+        seen[cap] += 1
+        yield it, nth
+
+
 class EntryFinder:
     """Walk callers upward from a document to the entry points that reach it (new project)."""
 
@@ -754,13 +771,23 @@ class EntryFinder:
         self.m, self.roles = m, roles
         self.callers = m.callers_index()
         self.menu_by_target = collections.defaultdict(list)
-        for it in web.get("menu", []):
+        self.web, self._nth_cache = web, {}
+        for it, nth in menu_positions(web):
             if it["target"]:
-                self.menu_by_target[it["target"]].append(it["path"])
+                self.menu_by_target[it["target"]].append((it["path"], nth, it))
         self.home_pages = {h["page"]: h["role"] for h in web.get("homes", []) if h.get("page")}
         self.home_pages.update({h["microflow"]: h["role"] for h in web.get("homes", []) if h.get("microflow")})
         self.startup_tree = startup_tree
         self.sched = sched  # microflow -> event name
+
+    def role_nth(self, role, it):
+        """The position of menu item it among the same-caption items role sees (None: not an icon item or not visible)."""
+        if role not in self._nth_cache:
+            def vis(x):
+                t = x.get("target")
+                return not t or t not in self.m.docs or role in self.roles.of_doc(t)
+            self._nth_cache[role] = {id(i): n for i, n in menu_positions(self.web, vis)}
+        return self._nth_cache[role].get(id(it))
 
     def entries(self, qn, max_nodes=600, max_depth=8):
         out, seen = [], {qn}
@@ -772,9 +799,14 @@ class EntryFinder:
                 d = self.m.docs.get(q)
                 typ = d.type if d else ""
                 if q in self.menu_by_target:
-                    for mp in self.menu_by_target[q]:
-                        out.append({"kind": "menu", "menu": mp, "target": q, "via": path,
-                                    "roles": sorted(self.roles.of_doc(q))})
+                    for mp, nth, it in self.menu_by_target[q]:
+                        # an icon item's position is per role: split the roles by the position they see it at
+                        groups = {}
+                        for r in sorted(self.roles.of_doc(q)):
+                            groups.setdefault(None if nth is None else self.role_nth(r, it), []).append(r)
+                        for n, rs in (groups.items() if groups else [(nth, [])]):
+                            out.append({"kind": "menu", "menu": mp, "target": q, "via": path,
+                                        "roles": rs, **({} if n is None else {"menu_nth": n})})
                 if q in self.home_pages:
                     out.append({"kind": "home", "target": q, "via": path, "home_role": self.home_pages[q],
                                 "roles": sorted(self.roles.of_doc(q))})
@@ -801,7 +833,7 @@ class EntryFinder:
         # one entry per (kind, target), shortest path kept
         best = {}
         for e in out:
-            k = (e["kind"], e["target"], tuple(e.get("menu") or ()))
+            k = (e["kind"], e["target"], tuple(e.get("menu") or ()), e.get("menu_nth"))
             if k not in best or len(e["via"]) < len(best[k]["via"]):
                 best[k] = e
         return list(best.values())
@@ -1271,9 +1303,10 @@ def candidates(old, new, changes, roles, rfacts, web):
                 ents = [e for e in ents if e["kind"] not in ("page", "client_microflow")] + fb[:2]
             for e in ents:
                 if e["kind"] == "menu":
-                    cid = "menu:" + " > ".join(e["menu"])
+                    nth = e.get("menu_nth")   # an icon-only item: its position (per role) and its target keep it apart from the other blank ones
+                    cid = "menu:" + " > ".join(e["menu"]) + ("" if nth is None else f" #{nth + 1} {e['target']}")
                     cand(cid, "menu", f"Open {' > '.join(e['menu'])} and use it", e["roles"], why, ch["severity"],
-                         menu=e["menu"], target=e["target"], via=e["via"])
+                         menu=e["menu"], target=e["target"], via=e["via"], **({} if nth is None else {"menu_nth": nth}))
                 elif e["kind"] == "home":
                     cand(f"home:{e['target']}", "home", f"Role home page {e['target']} works",
                          e["roles"] or ([e["home_role"]] if e["home_role"] != "*" else human), why, ch["severity"],

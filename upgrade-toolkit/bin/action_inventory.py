@@ -805,10 +805,17 @@ class Inventory:
                 for t in (h.get("page"), h.get("microflow")):
                     if t:
                         out.append((label, t, dict(base, via="home")))
-            for it in pr.get("menu", []):
+            # an icon-only item (blank caption) carries its position among items with that caption: the nav verb's handle
+            # the role's tree holds only the items it may open: count the position over those
+            vis = None if role is None else (lambda x: not x.get("target") or x["target"] not in self.m.docs
+                                             or role in self.roles.of_doc(x["target"]))
+            for it, nth in I.menu_positions(pr, vis):
                 if it.get("target"):
-                    out.append((f"menu {prof}: " + " > ".join(c or "?" for c in it["path"]), it["target"],
-                                dict(base, via="menu", menu=list(it["path"]))))
+                    hop = dict(base, via="menu", menu=list(it["path"]))
+                    if nth is not None:
+                        hop["menu_nth"] = nth
+                    out.append((f"menu {prof}: " + " > ".join(c or "?" for c in it["path"])
+                                + ("" if nth is None else f" #{nth + 1}"), it["target"], hop))
             if pr.get("login_page"):
                 out.append((f"login page {prof}", pr["login_page"], dict(base, via="login")))
         if role is not None:
