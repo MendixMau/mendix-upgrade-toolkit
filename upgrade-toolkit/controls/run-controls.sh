@@ -4798,6 +4798,36 @@ ctl gen-journeys-iconnav-old-impact-catch 0 '^click navigationTree3-2 Sign out$'
 # icon items shared one candidate id. impact_map gives a blank-caption item its position (menu_nth), the nav verb clicks it
 MJ="import sys; sys.path.insert(0,'$B'); import gen_journeys as G; j,t=G.menu_journey(eval(sys.argv[1]),'Desk',None); print(j['steps'][0]['actions'][0] if j else ('TODO', t['reasons'], t['why']))"
 ctl impact-menu-icon-position-catch 0 "^\[\('A.P1', 0\), \('A.P2', None\), \('A.P3', 1\), \('A.P4', 2\)\]$" -- python3 -c "import sys; sys.path.insert(0,'$B'); import impact_map as I; print([(i['target'], n) for i, n in I.menu_positions({'menu': [{'path': [' '], 'target': 'A.P1'}, {'path': ['Orders'], 'target': 'A.P2'}, {'path': [' '], 'target': 'A.P3'}, {'path': ['G', ' '], 'target': 'A.P4'}]})])"
+# the position is the one in the tree the role sees: an earlier icon item hidden for the role is not counted (review of #93).
+# Fixture: menu [" " -> M.A (Admin only), "Orders" -> M.B, " " -> M.C]; Clerk may open B and C, Admin all three.
+ctl impact-menu-icon-position-role-catch 0 "^\[\(.M.C., 0\)\]\$" "^\[\(.M.A., 0\), \(.M.C., 1\)\]\$" "^admin M.C 1 clerk M.C 0\$" -- python3 -c "
+import sys, types; sys.path.insert(0,'$B'); import impact_map as I
+web = {'menu': [{'path': [' '], 'target': 'M.A'}, {'path': ['Orders'], 'target': 'M.B'}, {'path': [' '], 'target': 'M.C'}]}
+may = {'M.A': {'Admin'}, 'M.B': {'Admin', 'Clerk'}, 'M.C': {'Admin', 'Clerk'}}
+print([(i['target'], n) for i, n in I.menu_positions(web, lambda x: 'Clerk' in may[x['target']] and x['target'] != 'M.B')])
+print([(i['target'], n) for i, n in I.menu_positions(web, lambda x: 'Admin' in may[x['target']] and x['target'] != 'M.B')])
+m = types.SimpleNamespace(docs={q: types.SimpleNamespace(type='Forms\$Page') for q in may}, callers_index=lambda: {}, page_roles=lambda q: [])
+ef = I.EntryFinder(m, types.SimpleNamespace(of_doc=lambda q: may.get(q, set())), web, set(), {})
+e = {r: x['menu_nth'] for x in ef.entries('M.C') for r in x['roles']}
+print('admin M.C', e['Admin'], 'clerk M.C', e['Clerk'])"
+# a role that sees every item keeps the all-items position (the per-role count changes nothing when nothing is hidden)
+ctl actions-entries-icon-nth-all-visible-pass 0 '^Clerk M\.A 0 #1$' '^Clerk M\.C 1 #2$' -- python3 -c "
+import sys, types; sys.path.insert(0, '$B'); import action_inventory as A
+m = types.SimpleNamespace(docs={'M.A': 1, 'M.C': 1}, navigation=lambda: {'Web': {'kind': 'Responsive', 'menu': [
+    {'path': [' '], 'target': 'M.A'}, {'path': [' '], 'target': 'M.C'}]}})
+inv = types.SimpleNamespace(m=m, roles=types.SimpleNamespace(of_doc=lambda q: {'Clerk'}))
+for label, t, hop in A.Inventory.entries(inv, 'Clerk'):
+    print('Clerk', t, hop.get('menu_nth'), label.split()[-1])"
+ctl actions-entries-icon-nth-role-catch 0 '^Clerk M\.C 0 #1$' '^Admin M\.A 0 #1$' '^Admin M\.C 1 #2$' '!Clerk M\.A' -- python3 -c "
+import sys, types; sys.path.insert(0, '$B'); import action_inventory as A
+may = {'M.A': {'Admin'}, 'M.B': {'Admin', 'Clerk'}, 'M.C': {'Admin', 'Clerk'}}
+m = types.SimpleNamespace(docs={q: 1 for q in may}, navigation=lambda: {'Web': {'kind': 'Responsive', 'menu': [
+    {'path': [' '], 'target': 'M.A'}, {'path': ['Orders'], 'target': 'M.B'}, {'path': [' '], 'target': 'M.C'}]}})
+inv = types.SimpleNamespace(m=m, roles=types.SimpleNamespace(of_doc=lambda q: may[q]))
+for r in ('Admin', 'Clerk'):
+    for label, t, hop in A.Inventory.entries(inv, r):
+        if t != 'M.B':
+            print(r, t, hop.get('menu_nth'), label.split()[-1])"
 ctl gen-journeys-menu-icon-nth-catch 0 "'item': ' '" "'nth': 1" -- python3 -c "$MJ" "{'id': 'menu:  #2', 'menu': [' '], 'menu_nth': 1, 'target': 'A.P3', 'title': 't'}"
 ctl gen-journeys-menu-icon-group-todo-catch 0 "^\('TODO', \['icon-menu'\], .*a group without a caption" -- python3 -c "$MJ" "{'id': 'm', 'menu': [' ', 'x'], 'target': 'A.P5', 'title': 't'}"
 ctl gen-journeys-menu-icon-no-position-todo-catch 0 "^\('TODO', \['icon-menu'\], .*regenerate it" -- python3 -c "$MJ" "{'id': 'm', 'menu': [' '], 'target': 'A.P1', 'title': 't'}"

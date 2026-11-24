@@ -806,7 +806,10 @@ class Inventory:
                     if t:
                         out.append((label, t, dict(base, via="home")))
             # an icon-only item (blank caption) carries its position among items with that caption: the nav verb's handle
-            for it, nth in I.menu_positions(pr):
+            # the role's tree holds only the items it may open: count the position over those
+            vis = None if role is None else (lambda x: not x.get("target") or x["target"] not in self.m.docs
+                                             or role in self.roles.of_doc(x["target"]))
+            for it, nth in I.menu_positions(pr, vis):
                 if it.get("target"):
                     hop = dict(base, via="menu", menu=list(it["path"]))
                     if nth is not None:
