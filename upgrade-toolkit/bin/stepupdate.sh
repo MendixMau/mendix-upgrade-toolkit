@@ -191,7 +191,7 @@ st="$app/.stepupdate"
 # GF-31: .stepupdate/ran.txt names the modules THIS invocation really ran an update for; editroute.py plan holds a module as
 # "kept again for the same reason" only when it ran (a module the pass never reached keeps its stale kept.txt line)
 [ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; }
-jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; roles_run=""; assoc_run=""
+jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; wval_run=""; roles_run=""; assoc_run=""
 # PV-2: a target of a cross-module association updated AFTER the module that owns it loses the association (the owner's
 # import would have restored it); planorder.py says so before anything runs. A warning, not a stop: the cheap fix after
 # the fact is to reimport the owner (steps/upgrade.md item 1).
@@ -675,6 +675,18 @@ PY
     echo "$wout" | sed 's/^/      /'
     rec widgets.txt "$mod" "$mod $ver: $(echo "$wout" | sed 's/^widgets\///' | paste -sd ';' - | sed 's/;/; /g')"; widg_run="$widg_run $mod "
   fi
+  # GF-44: a step (its update-widgets passes) can put a widget's configured settings back to the package defaults; mx check
+  # names only the properties that became required. Compare the property values of every widget whose package the step
+  # changed, old model (prevtree) against new; a reset is a finding (exit 1 at the end), a property the new package dropped is named.
+  unrec widgetvalues.txt "$mod"
+  if [ -n "$wout" ]; then
+    echo "$wout" > "$st/step$n-$mod.widgets"
+    python3 "$bin/widgetvalues.py" "$prevmpr" "$app/$mpr" --changed "$st/step$n-$mod.widgets" > "$st/step$n-$mod.widgetvalues" 2>&1; wvrc=$?
+    grep -E '^(WIDGET-RESET|WIDGET-PROP-GONE|widgetvalues:)' "$st/step$n-$mod.widgetvalues" | sed 's/^/   /'
+    if [ $wvrc = 1 ]; then
+      rec widgetvalues.txt "$mod" "$mod $ver: $(grep -c '^WIDGET-RESET' "$st/step$n-$mod.widgetvalues") widget setting(s) reset to the package default, see .stepupdate/step$n-$mod.widgetvalues"; wval_run="$wval_run $mod "
+    elif [ $wvrc != 0 ]; then echo "   WIDGET-VALUES: widgetvalues.py could not judge $mod ($(head -1 "$st/step$n-$mod.widgetvalues")); widget settings NOT compared"; fi
+  fi
   # APPD-26: a module role the update added and no user role holds. mx check is clean and the build is green; the smoke rung
   # then fails with "Executing action failed for security reasons" (Atlas_Core 3.21 User/Administrator, 13 of 15 pages).
   # Listed now, repeated in the summary (exit 1) until each role is mapped or waived in .stepupdate/roles-waived.txt.
@@ -829,6 +841,13 @@ if [ -n "$assoc_run" ] && [ -s "$st/assoc-saved.txt" ]; then
   while IFS= read -r l; do
     case "$assoc_run" in *" ${l%% *} "*) echo "   $l";; esac
   done < "$st/assoc-saved.txt"
+fi
+if [ -n "$wval_run" ] && [ -s "$st/widgetvalues.txt" ]; then
+  echo "stepupdate: WIDGET SETTINGS RESET by a step (GF-44; widgetvalues.py; write the old values back, then mx check):"
+  while IFS= read -r l; do
+    case "$wval_run" in *" ${l%% *} "*) echo "   WIDGET-VALUES: $l";; esac
+  done < "$st/widgetvalues.txt"
+  [ -z "$kdout" ] && exit 1
 fi
 if [ -n "$roles_run" ] && [ -s "$st/newroles.txt" ]; then
   echo "stepupdate: NEW MODULE ROLES with no user role (APPD-26; rolecheck.py; waive with a reason in $st/roles-waived.txt):"

@@ -162,14 +162,18 @@ def cwidget(owner, i, w):
     if w.get("props"):
         pts, ps = [], []
         for j, (key, v) in enumerate(w["props"].items()):
-            kind = ("Attribute" if isinstance(v, dict) and "attr" in v else "Form" if isinstance(v, dict) and "form" in v
+            kind = ("Attribute" if isinstance(v, dict) and "attr" in v else "Microflow" if isinstance(v, dict) and "mf" in v else "Form" if isinstance(v, dict) and "form" in v
                     else "Widgets" if isinstance(v, dict) and "widgets" in v else "TranslatableString" if isinstance(v, dict) else "String")
             pt = {"$ID": gid(f"wpt:{k}.{key}"), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": key,
                   "ValueType": {"$ID": gid(f"wvt:{k}.{key}"), "$Type": "CustomWidgets$WidgetValueType", "Type": kind}}
+            if (w.get("defaults") or {}).get(key) is not None:   # GF-44: the package default the widget type declares
+                pt["ValueType"]["DefaultValue"] = w["defaults"][key]
             val = {"$ID": gid(f"wv:{k}.{key}"), "$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "",
                    "TranslatableValue": None, "AttributeRef": None}
             if kind == "String":
                 val["PrimitiveValue"] = v
+            elif kind == "Microflow":   # GF-44: a microflow property (WidgetValue.Microflow, a qualified name; "" = none)
+                val["Microflow"] = v["mf"]
             elif kind == "Form":   # GM-19: the page a form property points at is WidgetValue.Form, a qualified name ("" = none)
                 val["Form"] = v["form"]
             elif kind == "Widgets":   # GM-19: v["widgets"] child widgets, as a Widgets list

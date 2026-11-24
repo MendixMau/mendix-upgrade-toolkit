@@ -1992,8 +1992,19 @@ storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes t
 }
 mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
 update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
-  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR"
-  else heavy update-widgets "$TARGET" mx update-widgets "$MPR"; fi
+  local rc=0 wv="$WORK/widgetvalues-before" mdir
+  # GF-44: a pass can put a widget's configured settings back to the package defaults; keep the model it started from
+  rm -rf "$wv"; mkdir -p "$wv"; cp "$MPR" "$wv/" 2> /dev/null; mdir=$(dirname "$MPR")/mprcontents
+  [ ! -d "$mdir" ] || cp -R "$mdir" "$wv/" 2> /dev/null
+  if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR" || rc=$?
+  else heavy update-widgets "$TARGET" mx update-widgets "$MPR" || rc=$?; fi
+  if [ "$rc" = 0 ] && [ -f "$wv/$(basename "$MPR")" ]; then
+    python3 "$B/widgetvalues.py" "$wv/$(basename "$MPR")" "$MPR" > "$WORK/widgetvalues.out" 2>&1; local wrc=$?
+    grep -E '^(WIDGET-RESET|WIDGET-PROP-GONE|widgetvalues:)' "$WORK/widgetvalues.out" | sed 's/^/        /'
+    [ "$wrc" = 0 ] || note "widgetvalues exit $wrc after update-widgets: configured widget settings may have been reset to the package defaults, see $WORK/widgetvalues.out (steps/repair.md row 5)"
+  fi
+  rm -rf "$wv"
+  return $rc
 }
 try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
   if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP

@@ -1192,6 +1192,20 @@ ctl widgetroute-charts6-missing-catch 1 '^ROUTE Shop: Any Chart 3\.x .*-> instal
   '^  Applied: will apply A on your OK: install Charts 6\.x' -- $WRP $(model widgetroute-nocharts6) --target 11.12.7
 ctl widgetroute-outside-data-view-catch 1 '^ROUTE Shop: Any Chart 3\.x used 1x outside a data view in SNIP_Total -> put a data view around each, then rerun.*\[ASK\]' '^  OUTSIDE-DATA-VIEW Shop\.SNIP_Total anyChart4$' \
   '^  Applied: not yet: the snippet has no object parameters' '!WOULD-(REPLACE|WRAP) Shop\.SNIP_Total' -- $WRP $(model widgetroute-bare) --target 11.12.7
+# widgetvalues.py (GF-44, a field run): two update-widgets passes put a widget's configured settings (two microflow references,
+# two URL values) back to the package defaults; mx check named only the two now-required ones and no rung compared values.
+# A value set before and empty after FAILs naming document, widget and property; an unchanged value passes; a property the
+# new package dropped or renamed is named and does not fail; only widgets of a package the step changed are compared
+echo 'widgets/Dock.mpk Dock 12.0.0 -> 10.0.0' > $T/wv-changed.txt; echo 'widgets/Other.mpk Other 1.0.0 -> 2.0.0' > $T/wv-other.txt
+WV=$T/wv; for n in old reset same gone; do python3 $here/lib/mkmodel.py $FX/models/widgetvalues-$n.json $WV/$n > /dev/null || { echo "mkmodel widgetvalues-$n failed"; exit 2; }; done
+ctl widgetvalues-reset-catch 1 '^WIDGET-RESET Shop\.Home dock1 \(com\.example\.widget\.web\.Dock\) getMf: was Shop\.DS_Options, now empty$' '^WIDGET-RESET Shop\.Home dock1 .* userMf: was Shop\.DS_User, now empty$' '^WIDGET-RESET Shop\.Home dock1 .* prodUrl: was https://one\.example/a, now empty$' '!title' '^widgetvalues: FAIL, 3 of 3 configured value\(s\) reset on 1 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/reset --changed $T/wv-changed.txt
+ctl widgetvalues-unchanged-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 3 configured value\(s\) reset on 1 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/same --changed $T/wv-changed.txt
+ctl widgetvalues-gone-catch 0 '^WIDGET-PROP-GONE Shop\.Home dock1 .* getMf: was Shop\.DS_Options; the new package removed it$' '^WIDGET-PROP-GONE Shop\.Home dock1 .* prodUrl: was https://one\.example/a; renamed to serviceUrl' '!WIDGET-RESET' '2 property\(ies\) gone' -- python3 $B/widgetvalues.py $WV/old $WV/gone
+ctl widgetvalues-unrelated-package-pass 0 '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 0 configured value\(s\) reset on 0 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/reset --changed $T/wv-other.txt
+ctl widgetvalues-noproject-pass 2 'no such project' -- python3 $B/widgetvalues.py $WV/old $WV/none
+# the producers: stepupdate runs it after widgetdiff on the step's prevtree, the pipeline's update_widgets around each pass
+ctl stepupdate-widgetvalues-wired-catch 0 'widgetvalues\.py" "\$prevmpr" "\$app/\$mpr" --changed' 'WIDGET SETTINGS RESET by a step' -- grep -nE 'widgetvalues\.py" "\$prevmpr"|WIDGET SETTINGS RESET by a step' $B/stepupdate.sh
+ctl pipeline-update-widgets-widgetvalues-catch 0 'widgetvalues\.py" "\$wv/' 'WIDGET-RESET\|WIDGET-PROP-GONE' -- sed -n '/^update_widgets() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
 # the item shape (owner's rule): every item a person sees says what was searched, the candidates with one recommended, and
 # what was applied; it never says only "no replacement"
 ctl widgetroute-item-shape-catch 1 '^## Any Chart 3\.x in Shop: 1 outside a data view, a data view by hand recommended$' '^Found: Any Chart 3\.x on 1 snippet \(1 use\) in module Shop' \
