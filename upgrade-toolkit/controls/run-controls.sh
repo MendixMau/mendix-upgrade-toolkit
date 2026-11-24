@@ -10462,6 +10462,105 @@ print(r.returncode, r.stdout + r.stderr, P)"
 ctl gf14-toolcheck-host-port-warning-catch 0 '^0 ' 'WARNING, port [0-9]+ is in use on this machine' 'host OK' -- python3 -c "$GFT"
 ctl gf14-toolcheck-host-ports-free-pass 0 '!is in use on this machine' 'host OK' -- env PORT_OFF=30000 UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
 
+# --- GF-50 (field run: 573 journeys, ~80 s each, summary.json written only at the end, 93 journeys lost) -----------------------
+# journeys_cap_control.sh drives the real run_journeys.py against a stand-in runner (a `node` on PATH) and a local HTTP probe target
+GC=$T/gf50cap; mkdir -p $GC
+ctl gf50-checkpoint-catch 0 '^summary 4 journeys, 4 PASS, 0 deferred, partial True$' '^resume: 3 journeys not run last time' '^summary 7 journeys, 7 PASS, 0 deferred, partial False$' -- bash $here/journeys_cap_control.sh $B $GC checkpoint
+ctl gf50-cap-catch 0 '^cap: running 4 of 7 journeys \(impact-picked 2, always-on 2, rest 0\); 3 deferred, NOT run' '^deferred: 3 journeys NOT run' '^summary 7 journeys, 4 PASS, 3 deferred' '^ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC cap
+ctl gf50-budget-catch 0 '^cap: running 1 of 7 journeys' '^deferred: 6 journeys NOT run' '^summary 7 journeys, 1 PASS, 6 deferred' -- bash $here/journeys_cap_control.sh $B $GC budget
+ctl gf50-nocap-pass 0 '^rc 0$' '^summary 7 journeys, 7 PASS, 0 deferred, partial False$' '!^cap:' '!^deferred:' -- bash $here/journeys_cap_control.sh $B $GC nocap
+ctl gf50-estimate-default-catch 0 '^  - estimate: 12 actions \(journeys are not generated yet, scope not measured; one journey per action is the plan\) x 80 s each \(default 80 s each, no earlier run measured\) = about 16 min per app; cap it with run_journeys\.py --max N or --budget-min M' -- cat $TP/w/PROPOSAL.md
+mkdir -p $TP/w2/state; cp $TP/w/actions.json $TP/w/apimock-inventory.json $TP/w2/; printf 'old\t10\t300\n' > $TP/w2/state/journeys-pace.tsv
+python3 $B/proposal.py --work $TP/w2 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
+ctl gf50-estimate-measured-pass 0 'estimate: 12 actions .* x 30 s each \(measured on an earlier run\) = about 6 min per app' -- cat $TP/w2/PROPOSAL.md
+mkdir -p $TP/w3/journeys/journeys/Admin $TP/w3/state; cp $TP/w/actions.json $TP/w/apimock-inventory.json $TP/w3/
+for i in 1 2 3; do echo '{"id":"j'$i'"}' > $TP/w3/journeys/journeys/Admin/j$i.journey.json; done
+python3 $B/proposal.py --work $TP/w3 --source 10.24.13 --target 11.12.6 --original $TP/none.mpr > /dev/null 2>&1
+ctl gf50-estimate-generated-journeys-catch 0 'estimate: 3 generated journeys x 80 s each' '!estimate: 12' -- cat $TP/w3/PROPOSAL.md
+ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new deferred: c1-act c2-act c3-act$' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
+ctl gf50-cap-parity-compare-catch 0 '^rc 3$' '^actions \? found .* 7 journeys .* 4 pass on baseline \(0 defect, 3 not run: deferred by the cap\)' 'coverage INVALID: not measured: 3 journeys not run: deferred by the cap' '!fail on the baseline' '!without evidence' -- bash $here/journeys_cap_control.sh $B $GC parity-compare
+ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
+
+# --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
+# restart.json = a second start of the old app: here sa.json (the Email row differs), so that row is START-NOISE; a row the control
+# does not show stays FAIL; no restart.json says "not measured"
+ctl gf51-start-noise-marked-catch 0 '^start noise: [1-9][0-9]* row\(s\) also differ in the restart control' 'START-NOISE \| db\.attr\.Administration\.Account\.Email \| values changed' 'FAIL 0 \| REVIEW 0' '!FAIL \| db\.attr\.Administration\.Account\.Email' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sa.json
+ctl gf51-start-noise-real-change-catch 1 'START-NOISE \| log\.new_error \| 1x ERROR Cache: NoiseError: cache warmup' 'FAIL \| log\.new_error \| 1x ERROR ACT_Save: NullPointerException' '!START-NOISE \| log\.new_error \| 1x ERROR ACT_Save' -- python3 $B/diff.py $T/sb.json $T/sa-npe.json --restart $T/sr-noise.json
+ctl gf51-start-noise-no-control-row-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-noise.json
+# the false green: the restart ALSO rewrote Email (same non-null count, other values: md5 b3); the upgrade changed it too (md5 b2). Same
+# check, same count detail, different values: must stay FAIL, never START-NOISE
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['attributes']['Administration.Account.Email']['md5']='b3'; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sr-other.json
+ctl gf51-start-noise-other-values-catch 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed \(non-null 3 -> 3\) \(also changes between two old starts; values differ from the control\)' 'FAIL 1' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-other.json
+# no md5 in the control's snapshot: the control diff cannot be read, nothing proves the values are the same, so FAIL
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); del d['db']['attributes']['Administration.Account.Email']['md5']; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sr-nomd5.json
+ctl gf51-start-noise-restart-without-md5-pass 1 '^start noise not measured' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \| db\.attr' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-nomd5.json
+# a restart.json older than before.json is a control of an earlier baseline: nothing is filtered (it would be START-NOISE if fresh)
+cp $T/sa.json $T/sr-stale.json; touch -t 200001010000 $T/sr-stale.json
+ctl gf51-start-noise-stale-control-catch 1 '^start noise not measured: restart\.json is older than before\.json' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/sr-stale.json
+# db.entity rows ("rows 3 -> 2") carry no fingerprint: noise only when no attribute / association of that entity stayed FAIL.
+# entity lost a row on the upgrade AND in the restart control, attributes untouched: START-NOISE. Same, but Email also changed on the
+# upgrade (md5 b2, control b3, same counts): the attr row stays FAIL, so the entity row stays FAIL too.
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['entities']['Administration.Account']=2; d['db']['attributes']['Administration.Account.Email']['md5']='b1'; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sa-ent.json
+ctl gf51-start-noise-entity-marked-catch 0 'START-NOISE \| db\.entity\.Administration\.Account \| rows 3 -> 2' 'FAIL 0 \| REVIEW 0' '!FAIL \| db\.entity' -- python3 $B/diff.py $T/sb.json $T/sa-ent.json --restart $T/sa-ent.json
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['entities']['Administration.Account']=2; json.dump(d, open(sys.argv[2],'w'))" $T/sa.json $T/sa-ent-attr.json
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['db']['attributes']['Administration.Account.Email']['md5']='b3'; json.dump(d, open(sys.argv[2],'w'))" $T/sa-ent-attr.json $T/sr-ent-attr.json
+ctl gf51-start-noise-entity-attr-fail-catch 1 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs between two old starts, but an attribute' 'FAIL \| db\.attr\.Administration\.Account\.Email' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/sb.json $T/sa-ent-attr.json --restart $T/sr-ent-attr.json
+# an association row that stays FAIL pins its entities only when its name splits EXACTLY as <Entity>_<Entity> of the module; a custom
+# name (CustomerOrders) or an underscore entity (Sales_Item_Order) is unattributable and keeps EVERY entity row of the module FAIL
+# (the restart control shows the entity loss but not the association change, so the assoc row stays FAIL)
+mkassoc() { python3 -c "
+import json,sys
+sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
+for d in (sb,sa):
+    if len(sys.argv)>4: d['db']['assoc_ends']={asn:sys.argv[4].split(',')}
+    for e in ('Shop.Customer','Shop.Order','Shop.Sales_Item','Shop.Product'): d['db']['entities'][e]=3
+    d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+for e in ('Shop.Order','Shop.Sales_Item','Shop.Product'): sa['db']['entities'][e]=2
+sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
+sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2 ${3:+"$3"}; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
+mkassoc as1 Shop.CustomerOrders; mkassoc as2 Shop.Sales_Item_Order Shop.Sales_Item,Shop.Order; mkassoc as3 Shop.Customer_Order Shop.Customer,Shop.Order
+ctl gf51-start-noise-entity-custom-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.CustomerOrders' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/as1-b.json $T/as1-a.json --restart $T/as1-r.json
+ctl gf51-start-noise-entity-underscore-assoc-catch 1 'FAIL \| db\.assoc\.Shop\.Sales_Item_Order' 'FAIL \| db\.entity\.Shop\.Sales_Item \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as2-b.json $T/as2-a.json --restart $T/as2-r.json
+ctl gf51-start-noise-entity-attributable-assoc-pass 1 'FAIL \| db\.entity\.Shop\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Shop\.Sales_Item' 'START-NOISE \| db\.entity\.Shop\.Product' -- python3 $B/diff.py $T/as3-b.json $T/as3-a.json --restart $T/as3-r.json
+# an association can cross modules: Sales.Order_Account is owned by Sales but Account lives in Administration. Splitting only within Sales
+# found nothing and blocked Sales alone, so Administration.Account read START-NOISE although its association still FAILs
+mkxm() { python3 -c "
+import json,sys
+sb=json.load(open(sys.argv[1])); sa=json.load(open(sys.argv[1])); t,asn=sys.argv[2],sys.argv[3]
+for d in (sb,sa):
+    if len(sys.argv)>4: d['db']['assoc_ends']={asn:sys.argv[4].split(',')}
+    for e in ('Sales.Order','Sales.Customer','Sales.Product','Administration.Account'): d['db']['entities'][e]=3
+    d['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+for e in ('Sales.Order','Sales.Product','Administration.Account'): sa['db']['entities'][e]=2
+sa['db']['associations'][asn]={'pairs':2,'md5':'a2'}
+sr=json.loads(json.dumps(sa)); sr['db']['associations'][asn]={'pairs':3,'md5':'a1'}
+json.dump(sb,open(t+'-b.json','w')); json.dump(sa,open(t+'-a.json','w')); json.dump(sr,open(t+'-r.json','w'))" $T/sb.json $T/$1 $2 ${3:+"$3"}; touch -t 200001010000 $T/$1-b.json; touch $T/$1-r.json; }
+mkxm xm1 Sales.Order_Account Sales.Order,Administration.Account
+ctl gf51-start-noise-entity-cross-module-assoc-catch 1 'FAIL \| db\.assoc\.Sales\.Order_Account' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' -- python3 $B/diff.py $T/xm1-b.json $T/xm1-a.json --restart $T/xm1-r.json
+# the rule pins a failing association on its REAL endpoints (snapshot assoc_ends), never on its name. Order lives in Sales, Account in
+# Administration, the association stays FAIL; Product is untouched by it and may read START-NOISE.
+# A: a custom name (CustomerOrders) that crosses modules; B: a custom name with an underscore (My_Accounts); C: Order_Customer was
+# renamed and really points at Administration.Account, although the name splits into two real Sales entities
+mkxm xa Sales.CustomerOrders Sales.Order,Administration.Account
+mkxm xb Sales.My_Accounts Sales.Order,Administration.Account
+mkxm xc Sales.Order_Customer Sales.Order,Administration.Account
+mkxm xd Sales.CustomerOrders
+ctl gf51-start-noise-endpoint-custom-name-catch 1 'FAIL \| db\.assoc\.Sales\.CustomerOrders' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xa-b.json $T/xa-a.json --restart $T/xa-r.json
+ctl gf51-start-noise-endpoint-underscore-custom-name-catch 1 'FAIL \| db\.assoc\.Sales\.My_Accounts' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xb-b.json $T/xb-a.json --restart $T/xb-r.json
+ctl gf51-start-noise-endpoint-renamed-assoc-catch 1 'FAIL \| db\.assoc\.Sales\.Order_Customer' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Order \| rows 3 -> 2 \(also differs' 'START-NOISE \| db\.entity\.Sales\.Product' '!START-NOISE \| db\.entity\.Administration' -- python3 $B/diff.py $T/xc-b.json $T/xc-a.json --restart $T/xc-r.json
+# an old snapshot has no assoc_ends: a failing association cannot be pinned, so every db.entity row in every module stays FAIL
+ctl gf51-start-noise-no-endpoints-fallback-catch 1 'FAIL \| db\.assoc\.Sales\.CustomerOrders' 'FAIL \| db\.entity\.Administration\.Account \| rows 3 -> 2 \(also differs' 'FAIL \| db\.entity\.Sales\.Product \| rows 3 -> 2 \(also differs' '!START-NOISE \| db\.entity' -- python3 $B/diff.py $T/xd-b.json $T/xd-a.json --restart $T/xd-r.json
+# a failed twin removes the restart.json an earlier run left: baseline_twin run with a failing heal_twin
+GFW=$T/gf51twin; mkdir -p $GFW; : > $GFW/restart.json; : > $GFW/twin-old.md
+ctl gf51-failed-twin-removes-restart-catch 0 'restart control did not complete \(exit 3' '^left: $' -- bash -c 'DRY=0; WORK=$1; LOG=x; say() { :; }; note() { echo "$*"; }; app_down() { :; }; heal_twin() { return 3; }
+  eval "$(sed -n "/^baseline_twin() {/,/^}/p" $2)"; baseline_twin; echo "left: $(ls $WORK | tr "\n" " " | sed "s/ *$//")"' _ $GFW $B/cloud/upgrade-pipeline.sh
+ctl gf51-twin-start-failure-drops-copy-pass 0 '^ok$' -- awk '/^heal_twin\(\)/ {f=1} f && /app_up oldtwin .*heal_drop "\$db"; die4/ {print "ok"; exit} /^fixture_users_db/ {exit}' $B/cloud/upgrade-pipeline.sh
+ctl gf51-start-noise-unmeasured-catch 1 '^start noise not measured: no restart control' 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE \|' -- python3 $B/diff.py $T/sb.json $T/sa.json --restart $T/no-such-restart.json
+ctl gf51-no-flag-unchanged-pass 1 'FAIL \| db\.attr\.Administration\.Account\.Email \| values changed' '!START-NOISE [|]' '!start noise' -- python3 $B/diff.py $T/sb.json $T/sa.json
+ctl gf51-gate-passes-restart-pass 0 'CMD\+=\(--restart "\$V_WORK/restart\.json"\)' -- grep -o 'CMD+=(--restart "$V_WORK/restart.json")' $B/gate.sh
+ctl gf51-baseline-runs-twin-pass 0 '^ok$' -- awk '/^step_baseline\(\)/ {f=1} f && /^  baseline_twin$/ {print "ok"; exit} /^baseline_twin\(\)/ {exit}' $B/cloud/upgrade-pipeline.sh
+
 echo
 echo "controls: $npass passed, $nfail failed, $nskip skipped"
 [ -n "$failed" ] && echo "failed:$failed"

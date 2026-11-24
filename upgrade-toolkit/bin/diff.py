@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two snapshots (before / after an upgrade) and give each check a verdict: PASS, FAIL, INVALID or INFO.
 
-  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--idcheck-json idcheck.json] [--log-allow log-allow.txt] [--md report.md] [--db-only]
+  diff.py snap-before.json snap-after.json [--emit-allow noise.txt] [--allow allow.txt] [--idcheck-json idcheck.json] [--log-allow log-allow.txt] [--md report.md] [--db-only] [--restart restart.json]
 
 --db-only compares the db rows alone: the mutant control (a db-only snapshot of an unstarted copy) then shows the planted
 FAIL without http "endpoint not probed" and log rows next to it (E6-11, E7-18). System.User.Password and changedDate of
@@ -48,8 +48,17 @@ RENAMED (a rename or a move keeps the data), "transient" net-zero approvals (the
 log-allow.txt: the logdiff.py allow file ("<signature pattern> # reason"), applied to the log.start rows, so a line
 accepted once for logdiff is accepted here too and diff exits 0 with it (E4 23). A REVIEW row can also be accepted in
 allow.txt ("log.start.CHANGED *MFA* # reason").
+--restart restart.json (GF-51): the restart control. diff.py diffs before.json against it the same way (no allow file). A FAIL or
+REVIEW row of this diff with the SAME check and the SAME detail text is a candidate. A db.attr / db.assoc candidate is START-NOISE
+only when the after snapshot's md5 of that column (association) EQUALS the restart snapshot's md5: the detail holds counts alone,
+so the same count says nothing about which values changed. md5 missing on either side, or the md5s differ: the row stays FAIL,
+with "(also changes between two old starts; values differ from the control)". A db.entity candidate is START-NOISE only when no db.attr / db.assoc
+row of that entity stayed FAIL / REVIEW (no per-row fingerprint exists to compare); other candidates (log, http) are START-NOISE on
+check + detail. START-NOISE is a non-blocking NOTE (exit code ignores it), never hidden. A row the control lacks stays FAIL.
+restart.json absent, or older than before.json (a control of an earlier baseline): one INFO line "start noise not measured" and
+every row stands.
 """
-import argparse, fnmatch, json, os, sys
+import argparse, fnmatch, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import logdiff  # noqa: E402
@@ -131,6 +140,48 @@ def derive_idcheck_allows(path, want_old=None, want_new=None):
     return out, notes
 
 
+def control_rows(a):
+    """The (check, detail) of every FAIL / REVIEW row of before.json against restart.json, by this same script (no allow file:
+    the control is raw). None when restart.json is absent or the control diff cannot run, so the caller says "not measured"."""
+    import subprocess, tempfile
+    if not os.path.isfile(a.restart): return None
+    try:
+        if os.path.getmtime(a.restart) < os.path.getmtime(a.before): return "stale"   # a control of an earlier baseline measures nothing here
+    except OSError: return None
+    with tempfile.TemporaryDirectory() as td:
+        md = os.path.join(td, "control.md")
+        cmd = [sys.executable, os.path.abspath(__file__), a.before, a.restart, "--md", md, "--_control"]
+        if a.db_only: cmd.append("--db-only")
+        if a.log_allow: cmd += ["--log-allow", a.log_allow]
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode not in (0, 1, 2) or not os.path.isfile(md): return None
+        out, on = set(), False
+        for line in open(md, errors="replace"):
+            if line.startswith("## All rows"): on = True
+            elif on:
+                m = re.match(r"^- (FAIL|REVIEW) (\S+): (.*)$", line.rstrip("\n"))
+                if m: out.add((m.group(2), m.group(3)))
+        return out
+
+
+def fingerprint(snap, check, anon):
+    """md5 of the column or association a db.attr.<A> / db.assoc.<N> row is about, in this snapshot (the named-users section when
+    the comparison used it, as the rows above do). "gone" when the snapshot has a db section but not that element; None when no
+    fingerprint can be read (no db section, or an element without an md5): the caller keeps FAIL."""
+    db = snap.get("db")
+    if not isinstance(db, dict): return None
+    kind, _, name = check[3:].partition(".")          # "attr" / "assoc", then the name
+    sect = {"attr": "attributes", "assoc": "associations"}.get(kind)
+    if not sect: return None
+    rec = (db.get(sect) or {}).get(name)
+    if anon:
+        an = (snap.get("db") or {}).get("anonymous") or {}
+        rec = (an.get("attrs" if kind == "attr" else "assoc") or {}).get(name, rec)
+    if rec is None: return "gone"
+    h = rec.get("md5") if isinstance(rec, dict) else None
+    return h if isinstance(h, str) else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("before"); ap.add_argument("after")
@@ -147,6 +198,9 @@ def main():
     ap.add_argument("--module-jumps", dest="module_jumps",
                     help="module-jumps.txt (\"Mod a -> b\" per updated Marketplace module): a column gone or values changed in "
                          "such a module is the vendor's update, PASS* with the jump named, not FAIL")
+    ap.add_argument("--restart", help="restart.json (the restart control: a second start of the OLD app, GF-51). A FAIL or REVIEW row that "
+                    "the SAME check shows with the SAME detail when before.json is diffed against it is START-NOISE (a NOTE, never blocking)")
+    ap.add_argument("--_control", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     B, A = json.load(open(a.before)), json.load(open(a.after))
     jumps = {}
@@ -324,7 +378,55 @@ def main():
                      if t not in ("*", "?") and (c == t.rstrip("*") or ("." in t and fnmatch.fnmatch(c, t)))), None)
         unmatched.append(f"allow line {n} matched nothing: {text.split('#')[0].strip()}" + (f" (did you mean {mean}?)" if mean else
                          " (the form is <check id> [<detail pattern>] # reason; the check id is the second column of the table)"))
-    order = {"INVALID": 0, "FAIL": 1, "REVIEW": 2, "NEW_ENDPOINT": 3, "PASS*": 4, "PASS": 5, "INFO": 6}
+    noise_note = None
+    if a.restart and not a._control:
+        # GF-51: 29 rows read FAIL on a run where only the restart control (the same old app started twice) explained them.
+        # A row is noise only when the control, diffed the same way, shows the SAME check with the SAME detail; a changed
+        # value, a different check or a row the control does not have stays FAIL.
+        ctl = control_rows(a)
+        if ctl is None or ctl == "stale":
+            why = ("restart.json is older than before.json (a control of an earlier baseline)" if ctl == "stale"
+                   else "no restart control (restart.json missing or its diff failed)")
+            noise_note = f"start noise not measured: {why}; every FAIL and REVIEW row stands"
+            rows.append(("INFO", "start.noise", noise_note))
+        else:
+            R = json.load(open(a.restart))
+            anon_both = bool(((B.get("db") or {}).get("anonymous")) and ((A.get("db") or {}).get("anonymous")))
+            hit, ent = 0, []
+            for i, (v, c, d) in enumerate(rows):
+                if v not in ("FAIL", "REVIEW") or (c, d) not in ctl: continue
+                if c.startswith("db.entity."): ent.append(i); continue   # judged below, once the attr / assoc rows are
+                if c.startswith(("db.attr.", "db.assoc.")):
+                    # the detail is counts alone: same count, other values would match the control. Noise only if the AFTER
+                    # snapshot's fingerprint of this column / association equals the restart's.
+                    fa, fr = fingerprint(A, c, anon_both), fingerprint(R, c, anon_both)
+                    if fa is None or fr is None or fa != fr:
+                        rows[i] = (v, c, f"{d} (also changes between two old starts; values differ from the control)"); continue
+                rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
+            # a db.entity row (rows 10 -> 8) is noise only if no attribute or association of that entity stayed FAIL / REVIEW. The
+            # snapshot has no per-row fingerprint of an entity (ids are model ids, not row ids), so this is all it can check:
+            # an entity whose lost rows carry no non-null attribute and no association can still read as start noise.
+            # which entities a still-failing association row blocks: its two real endpoints, read from the snapshot's assoc_ends
+            # (parent and child entity of mendixsystem$association), whatever the association is called and whichever modules
+            # the two entities live in. An association with no recorded endpoints (an old snapshot, or one missing from the map)
+            # cannot be pinned, and then EVERY db.entity row of every module stays FAIL: the name is never used to guess.
+            ends = {**((B.get("db") or {}).get("assoc_ends") or {}), **((A.get("db") or {}).get("assoc_ends") or {})}
+            blocked_names, block_all = set(), False
+            for v2, c2, _ in rows:
+                if v2 not in ("FAIL", "REVIEW") or not c2.startswith("db.assoc."): continue
+                ep = ends.get(c2[len("db.assoc."):])
+                if isinstance(ep, list) and len(ep) == 2: blocked_names |= set(ep)
+                else: block_all = True
+            for i in ent:
+                v, c, d = rows[i]
+                en = c[len("db.entity."):]
+                if block_all or en in blocked_names or any(
+                        v2 in ("FAIL", "REVIEW") and c2.startswith(f"db.attr.{en}.") for v2, c2, _ in rows):
+                    rows[i] = (v, c, f"{d} (also differs between two old starts, but an attribute or association of this entity still fails)"); continue
+                rows[i] = ("START-NOISE", c, f"{d} (also differs between two starts of the old app: restart control)"); hit += 1
+            noise_note = f"start noise: {hit} row(s) also differ in the restart control (listed as START-NOISE, not blocking); control has {len(ctl)} differing row(s)"
+            rows.append(("INFO", "start.noise", noise_note))
+    order = {"INVALID": 0, "FAIL": 1, "REVIEW": 2, "NEW_ENDPOINT": 3, "START-NOISE": 3.5, "PASS*": 4, "PASS": 5, "INFO": 6}
     rows.sort(key=lambda r: (order[r[0]], r[1]))
     counts = {k: sum(1 for r in rows if r[0] == k) for k in order}
     head = f"# Upgrade regression diff: {B.get('label')} -> {A.get('label')}\n\n" + " | ".join(f"{k} {v}" for k, v in counts.items()) + "\n\n"
@@ -358,6 +460,7 @@ def main():
         if unmatched: open(side, "w").write("\n".join(unmatched) + "\n")
         elif os.path.exists(side): os.remove(side)
         open(a.md, "w").write(head + table + "\n## All rows\n\n" + "\n".join(f"- {v} {c}: {d}" for v, c, d in rows) + "\n")
+    if noise_note: print(noise_note)
     print(head + table)
     sys.exit(1 if counts["FAIL"] or counts["REVIEW"] else 2 if counts["INVALID"] or counts["NEW_ENDPOINT"] else 0)
 
