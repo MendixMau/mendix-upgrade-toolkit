@@ -1215,6 +1215,18 @@ ctl widgetvalues-prop-gone-catch 0 '^WIDGET-PROP-GONE Shop\.Home image1 .* image
 ctl widgetvalues-unchanged-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVO $WVS
 ctl widgetvalues-changed-package-catch 1 '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 ' '!image1' '^widgetvalues: FAIL, 1 of ' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/changed.txt
 ctl widgetvalues-unrelated-package-pass 0 '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 0 configured value\(s\) reset on 0 widget instance' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/other.txt
+# a direct WidgetValue.Microflow / Nanoflow (GF-44's getAdminOptionsMf shape: a widget property that IS a microflow, no Action
+# around it): the captured Image widget's WidgetValue node carries both keys (empty); the -flows-old model fills them in that
+# same node, the -flows-reset model empties them again. Dropping "Microflow" or "Nanoflow" from _full_value's key tuple makes it red.
+WVFO=$(model widgetvalues-real-flows-old); WVFR=$(model widgetvalues-real-flows-reset)
+ctl widgetvalues-direct-flow-value-catch 1 '^WIDGET-RESET Shop\.Home image1 .* imageObject: was Shop\.GetAdminOptions, now empty$' '^WIDGET-RESET Shop\.Home image1 .* onClick: was Shop\.NAN_Open, now empty$' \
+  '^widgetvalues: FAIL, 2 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVFO $WVFR
+ctl widgetvalues-direct-flow-value-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 15 configured' -- python3 $B/widgetvalues.py $WVFO $WVFO
+# Marketplace module documents (FromAppStore): a reset there is the module's own new default, reported apart and never an exit code
+WVMO=$(model widgetvalues-real-mkt-old); WVMV=$(model widgetvalues-real-mkt-vendor-reset); WVMW=$(model widgetvalues-real-mkt-own-reset)
+ctl widgetvalues-marketplace-reset-apart-catch 0 '^MARKETPLACE-WIDGET-RESET Atlas_Core\.Feedback image1 .* imageObject: was Shop\.Layout\.logo, now empty$' '!^WIDGET-RESET' \
+  '^widgetvalues: PASS, 0 of 4 .*1 reset\(s\) in Marketplace module documents reported apart, not counted' -- python3 $B/widgetvalues.py $WVMO $WVMV
+ctl widgetvalues-own-module-reset-still-fails-catch 1 '^WIDGET-RESET Shop\.Home image1 ' '!MARKETPLACE' '^widgetvalues: FAIL, 1 of 4 ' -- python3 $B/widgetvalues.py $WVMO $WVMW
 ctl widgetvalues-noproject-exit2-catch 2 'no such project' -- python3 $B/widgetvalues.py $WVO $WVD/none
 mkdir -p $WVD/junk; echo 'not a project' > $WVD/junk/App.mpr
 ctl widgetvalues-junk-model-exit2-catch 2 '!Traceback' '!^widgetvalues: PASS' -- python3 $B/widgetvalues.py $WVO $WVD/junk
@@ -1231,7 +1243,7 @@ note() { echo "NOTE: $*"; }
 mpr_v2() { return 1; }
 mxcli_bin() { echo mxcli; }
 heavy() { [ "${HRC:-0}" = 0 ] || return "$HRC"; local n=${NEWS[$PASS]:-=}; [ "$n" = = ] || cp "$n/App.mpr" "$MPR"; return 0; }
-eval "$(sed -n '/^update_widgets() {/,/^}/p; /^widgetvalues_note() {/,/^}/p' "$PIPE")"
+eval "$(sed -n '/^update_widgets() {/,/^}/p; /^wv_note() {/,/^}/p; /^widgetvalues_note() {/,/^}/p' "$PIPE")"
 for i in "${!NEWS[@]}"; do PASS=$i; echo "--- pass $((i + 1))"; update_widgets; echo "rc=$?"; done
 UWEOF
 UW() { local n=$1; shift; bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-$n "$@"; }
@@ -1239,7 +1251,9 @@ ctl pipeline-update-widgets-reset-catch 0 '^        WIDGET-RESET Shop\.Home imag
 ctl pipeline-update-widgets-round-trip-catch 0 '^--- pass 2$' '^NOTE: widgetvalues after update-widgets: configured widget settings were reset' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW trip $WVO $WVR = | sed -n '/^--- pass 2/,\$p'"
 ctl pipeline-update-widgets-prop-gone-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget propert\(ies\) no longer exist in the new package' '!configured widget settings were reset' -- UW gone $WVO $WVG
 ctl pipeline-update-widgets-missing-instance-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget instance\(s\) with configured values are missing in the new model' -- UW missing $WVO $WVM
-ctl pipeline-update-widgets-could-not-compare-catch 0 '^NOTE: widgetvalues could not compare the widget settings after update-widgets \(exit 2\)' '!configured widget settings were reset' '^rc=0$' -- UW junk $WVD/junk $WVR
+ctl pipeline-update-widgets-could-not-compare-catch 0 '^NOTE: widgetvalues NOT RUN: could not compare the widget settings after update-widgets \(exit 2\)' '^NOTE: .*NOT RUN' '!configured widget settings were reset' '^rc=0$' -- UW junk $WVD/junk $WVR
+ctl pipeline-update-widgets-marketplace-note-catch 0 '^NOTE: widgetvalues after update-widgets: 1 widget setting\(s\) in Marketplace module documents differ from the first model: the module.s new version changed its own default \(field: Atlas_Core\.FeedbackWidget app id to 1, DataGrid _WidgetsExporterSnippet filterOptions 2 to 0\)' \
+  '!configured widget settings were reset' '!put them back' '^rc=0$' -- UW mkt $WVMO $WVMV
 ctl pipeline-update-widgets-clean-pass 0 '^rc=0$' '!NOTE' '!WIDGET-' -- UW clean $WVO $WVS
 ctl pipeline-update-widgets-failed-pass-passes-rc-pass 0 '^rc=3$' '!NOTE' '!WIDGET-' -- env HRC=3 bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-fail $WVO $WVR
 ctl pipeline-update-widgets-no-copy-pass 0 '^no-copy$' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW nocopy $WVO $WVR > /dev/null; [ ! -e $WVD/w-nocopy/widgetvalues-before ] && [ -s $WVD/w-nocopy/widgetvalues-original.json ] && echo no-copy"
@@ -1259,6 +1273,26 @@ ctl stepupdate-widgetvalues-and-new-roles-catch 1 '^stepupdate: WIDGET SETTINGS 
 mkdir -p $WVD/bin-nowv; for f in $B/*; do ln -s $f $WVD/bin-nowv/$(basename $f); done; rm $WVD/bin-nowv/widgetvalues.py; printf 'import sys\nprint("widgetvalues: cannot read the project", file=sys.stderr)\nsys.exit(2)\n' > $WVD/bin-nowv/widgetvalues.py
 ctl stepupdate-widgetvalues-not-run-catch 1 '^   WIDGET-VALUES: widgetvalues\.py could not judge Dock' '^stepupdate: WIDGET-VALUES NOT RUN for: Dock' '!^stepupdate: WIDGET SETTINGS RESET' -- env SUB=$WVD/bin-nowv bash -c "$(declare -f SU); WVD=$WVD; B=$B; SU su-roles $WVR --baseline $WVO/App.mpr"
 ctl stepupdate-widgetvalues-first-snapshot-pass 0 '!WIDGET' -- SU su-snapclean $WVS
+# a two-step plan (GF-44 fix round): step A resets a value, step B leaves it as it is. Step B is compared with the RUN's first
+# model, so its own widgetvalues file still says FAIL (and the reset is said once, not again); against the model before step B
+# (wvold=$prevmpr) it would say PASS. A second invocation (the pipeline runs stepupdate once per batch) that changes nothing
+# must still exit 1: the reset is still there against the run baseline.
+mkdir -p $WVD/mods; ln -sfn $WVR $WVD/mods/StepA; ln -sfn $WVR $WVD/mods/StepB
+printf '1 1.0.0 StepA\n2 1.0.0 StepB\n' > $WVD/plan2.txt; printf '2 1.0.0 StepB\n' > $WVD/plan-b.txt
+wv_app su-two $WVO; wv_app su-two2 $WVO
+SU2() { local app=$1 plan=$2; shift 2; env UPG_UPDATE_CMD="cp $WVD/mods/{module}/App.mpr {mpr}" bash $B/stepupdate.sh $WVD/$app $WVD/$plan "$@"; }
+ctl stepupdate-widgetvalues-two-step-baseline-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^   WIDGET-RESET Shop\.Home image1 .* imageObject' '^step2-StepB-says-FAIL$' '^said-once$' \
+  -- bash -c "$(declare -f SU2); WVD=$WVD; B=$B; SU2 su-two plan2.txt --baseline $WVO/App.mpr > $WVD/su-two.out 2>&1; rc=\$?; cat $WVD/su-two.out; grep -q '^widgetvalues: FAIL' $WVD/su-two/.stepupdate/step2-StepB.widgetvalues && echo step2-StepB-says-FAIL; [ \$(grep -c '^   WIDGET-RESET Shop.Home image1 .* imageObject' $WVD/su-two.out) = 1 ] && echo said-once; exit \$rc"
+ctl stepupdate-widgetvalues-second-batch-baseline-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^   WIDGET-RESET Shop\.Home image1 .* imageObject' \
+  -- bash -c "$(declare -f SU2); WVD=$WVD; B=$B; SU2 su-two2 plan2.txt --baseline $WVO/App.mpr > /dev/null 2>&1; SU2 su-two2 plan-b.txt --baseline $WVO/App.mpr"
+# Marketplace module documents in stepupdate: labelled apart, exit 0 on their own; an own module's reset still exits 1
+wv_app su-mkt $WVMO; wv_app su-mktown $WVMO; wv_app su-mktold $WVMO
+ctl stepupdate-widgetvalues-marketplace-apart-catch 0 '^   MARKETPLACE-WIDGET-RESET Atlas_Core\.Feedback image1 ' '^stepupdate: MARKETPLACE WIDGET DEFAULTS changed by a module' '^   MARKETPLACE: Dock 1\.0\.0: 1 default' \
+  '!^stepupdate: WIDGET SETTINGS RESET' '!write the old values back' '!WIDGET-VALUES NOT RUN' -- SU su-mkt $WVMV --baseline $WVMO/App.mpr
+ctl stepupdate-widgetvalues-own-module-exits-1-catch 1 '^   WIDGET-RESET Shop\.Home image1 ' '^stepupdate: WIDGET SETTINGS RESET by a step' '!MARKETPLACE' -- SU su-mktown $WVMW --baseline $WVMO/App.mpr
+# the copied playbooks/ is replaced, not merged: a file a previous run left there is gone
+mkdir -p $WVD/su-mktold/.stepupdate/playbooks; echo old > $WVD/su-mktold/.stepupdate/playbooks/stale-from-last-run.txt
+ctl stepupdate-playbooks-copy-fresh-pass 0 '^stale-gone$' -- bash -c "$(declare -f SU); WVD=$WVD; B=$B; SU su-mktold $WVMV --baseline $WVMO/App.mpr > /dev/null 2>&1; [ ! -e $WVD/su-mktold/.stepupdate/playbooks/stale-from-last-run.txt ] && echo stale-gone"
 # the pipeline puts a stepupdate reset into the run notes (run_stepupdate), and a comparison that did not run too
 cat > $WVD/rs.sh <<'RSEOF'
 B=$1; PIPE=$2; WORK=$3; APP=$4; PLAN=$5; NEW=$6; BASE=$7; DRY=0; RUN=$WORK; LOG=$WORK/log; mkdir -p "$WORK"; : > "$LOG"
@@ -1275,7 +1309,7 @@ RSEOF
 RS() { local n=$1 app=$2 new=$3 base=$4 bd=${5:-$B}; wv_app rs-$n $app; bash $WVD/rs.sh $bd $B/cloud/upgrade-pipeline.sh $WVD/rw-$n $WVD/rs-$n $WVD/plan.txt $new $base; }
 ctl pipeline-stepupdate-widget-reset-noted-catch 0 '^NOTE: widget settings were reset to the package defaults by the post-convert batch' '^rc=0$' -- RS reset $WVO $WVR $WVO/App.mpr
 ctl pipeline-stepupdate-widget-clean-pass 0 '!^NOTE: widget' '^rc=0$' -- RS clean $WVO $WVS $WVO/App.mpr
-ctl pipeline-stepupdate-widget-not-compared-noted-catch 0 '^NOTE: widget settings not compared after the post-convert batch' '^rc=0$' -- RS notrun $WVO $WVR $WVO/App.mpr $WVD/bin-nowv
+ctl pipeline-stepupdate-widget-not-compared-noted-catch 0 '^NOTE: widget settings comparison NOT RUN after the post-convert batch' '^rc=0$' -- RS notrun $WVO $WVR $WVO/App.mpr $WVD/bin-nowv
 # the item shape (owner's rule): every item a person sees says what was searched, the candidates with one recommended, and
 # what was applied; it never says only "no replacement"
 ctl widgetroute-item-shape-catch 1 '^## Any Chart 3\.x in Shop: 1 outside a data view, a data view by hand recommended$' '^Found: Any Chart 3\.x on 1 snippet \(1 use\) in module Shop' \
@@ -2708,6 +2742,13 @@ ctl remedy-apply-commit-all-kept-pass 0 '^hash=[0-9a-f]{7,}$' '^commits=2$' '!ST
 # a fixer that keeps the format is kept: v1 and v2 both commit as before
 rm -rf $F42/v2k; cp -R $F42/v2 $F42/v2k; printf '#!/bin/sh\necho edit >> "$(dirname "$1")/note.txt"\n' > $F42/keep.sh
 ctl pipeline-tryfix-storage-kept-pass 0 '^ +repair: keeper' '^commits=2$' '!STORAGE' -- bash -c "$F42F; $F42E; APP=$F42/v2k; CHECK_LOG=$F42/before.log; try_fix keeper repair-row-5 CE0463 sh $F42/keep.sh $F42/v2k/App.mpr; echo commits=\$(git -C $F42/v2k rev-list --count HEAD)"
+# GF-44: update_widgets's widgetvalues notes are written only when try_fix KEEPS the change; a fix undone as worse leaves no note about it
+printf '[error] [CE0463] x\n[error] [CE0999] y\nThe app contains: 200 errors.\n' > $F42/worse.log
+F42W="eval \"\$(sed -n '/^wv_note() {/,/^}/p' $B/cloud/upgrade-pipeline.sh)\"; fxw() { wv_note 'widgetvalues after update-widgets: configured widget settings were reset'; echo edit >> \$1/note.txt; }"
+rm -rf $F42/v2w; cp -R $F42/v2 $F42/v2w
+ctl pipeline-tryfix-widgetvalues-note-kept-catch 0 '^NOTE widgetvalues after update-widgets: configured widget settings were reset$' '^ +repair: fxw' -- bash -c "$F42F; $F42E; $F42W; APP=$F42/v2w; CHECK_LOG=$F42/before.log; try_fix fxw repair-row-5 CE0463 fxw $F42/v2w"
+rm -rf $F42/v2u; cp -R $F42/v2 $F42/v2u
+ctl pipeline-tryfix-widgetvalues-note-undone-catch 0 '^NOTE fix .fxw. made mx check WORSE' '!widgetvalues after update-widgets' -- bash -c "$F42F; $F42E; $F42W; mxcheck() { CHECK_LOG=$F42/worse.log; }; APP=$F42/v2u; CHECK_LOG=$F42/before.log; try_fix fxw repair-row-5 CE0463 fxw $F42/v2u"
 # routing: on MPR v2 row 5 runs mxcli fix widgets (not mx update-widgets) and row 6 the mxcli fix design-properties fixer; on v1 the mx tools as before
 printf '#!/bin/sh\necho "FAKE-MXCLI $*"\n' > $F42/fake-mxcli.sh; chmod +x $F42/fake-mxcli.sh
 F42R="$F42F; $F42E; heavy() { echo \"HEAVY \$*\"; }; mxw() { echo MXW; }; try_fix() { echo \"TRYFIX \$*\"; }; MXCLI=$F42/fake-mxcli.sh TARGET=11.6.3 UPG_LOCK=$F42/lock"

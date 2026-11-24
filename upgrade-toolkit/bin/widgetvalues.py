@@ -22,6 +22,10 @@ an object list that lost or cleared items) is a finding: exit 1. A property the 
 and does not change the exit code (nothing can bring it back; check the page on the new widget):
 
   WIDGET-RESET <doc> <widget> (<widget id>) <list property>: was N item(s), now M
+  MARKETPLACE-WIDGET-RESET <doc> <widget> (<widget id>) <property>: the same, in a document of a Marketplace module
+                   (Projects$ModuleImpl FromAppStore). Reported apart and never an exit code: the module's new version
+                   changed its own default (a vendor page, nothing the app configured); writing the old value back would
+                   edit vendor content the next module update overwrites again. The own modules' resets stay WIDGET-RESET.
   WIDGET-MISSING <doc> <widget> (<widget id>): N configured value(s), no such widget instance in the new model
                    (counted in the summary line; not an exit code either: a page or module removed on purpose looks the same)
 
@@ -125,7 +129,8 @@ def widgets(model):
 
 
 def load_widgets(path, cache=None):
-    """widgets() of a project; with `cache` (a file) the result is kept there, keyed by the project file's path, size and time."""
+    """(widgets(), the Marketplace modules' names) of a project; with `cache` (a file) the result is kept there, keyed by the
+    project file's path, size and time."""
     key = None
     if cache:
         try:
@@ -133,19 +138,22 @@ def load_widgets(path, cache=None):
             key = [os.path.abspath(path), st.st_size, int(st.st_mtime)]
             c = json.load(open(cache, encoding="utf-8"))
             if c.get("key") == key:
-                return {(r[0], r[1]): (r[2], {k: tuple(v) for k, v in r[3].items()}, r[4], r[5]) for r in c["widgets"]}
+                return ({(r[0], r[1]): (r[2], {k: tuple(v) for k, v in r[3].items()}, r[4], r[5]) for r in c["widgets"]},
+                        set(c["appstore"]))
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             pass
-    w = widgets(Model.load(path))
+    model = Model.load(path)
+    w, store = widgets(model), {n for n, m in model.modules.items() if m.get("from_appstore")}
     if cache and key:
         try:
             tmp = f"{cache}.{os.getpid()}.tmp"
-            json.dump({"key": key, "widgets": [[k[0], k[1], v[0], v[1], v[2], v[3]] for k, v in w.items()]},
+            json.dump({"key": key, "widgets": [[k[0], k[1], v[0], v[1], v[2], v[3]] for k, v in w.items()],
+                       "appstore": sorted(store)},
                       open(tmp, "w", encoding="utf-8"))
             os.replace(tmp, cache)
         except OSError:
             pass
-    return w
+    return w, store
 
 
 def project_dir(p):
@@ -170,8 +178,9 @@ def run(a):
             installed_keys(project_dir(p), f)
             ids.update({wid: mpk for wid, mpk in f.items() if mpk in only})
         only = set(ids)
-    wo, wn = load_widgets(a.old, a.cache), load_widgets(a.new)
-    lines, seen, nvals, bad, gone, miss = [], 0, 0, 0, 0, 0
+    (wo, so), (wn, sn) = load_widgets(a.old, a.cache), load_widgets(a.new)
+    store = so | sn
+    lines, seen, nvals, bad, gone, miss, mkt = [], 0, 0, 0, 0, 0, 0
     for k in sorted(wo):
         wid, po, lo, _ = wo[k]
         if only is not None and wid not in only:
@@ -186,8 +195,11 @@ def run(a):
         _, pn, ln, keysn = wn[k]
         for path in sorted(lo):                  # object lists: an item lost or cleared is a reset of what it held
             if re.sub(r"\[\d+\]", "", path).split(".")[-1] in keysn and ln.get(path, 0) < lo[path]:
-                nvals += 1; bad += 1
-                lines.append(f"WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {lo[path]} item(s), now {ln.get(path, 0)}")
+                nvals += 1
+                if k[0].split(".")[0] in store:
+                    mkt += 1; lines.append(f"MARKETPLACE-WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {lo[path]} item(s), now {ln.get(path, 0)}")
+                else:
+                    bad += 1; lines.append(f"WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {lo[path]} item(s), now {ln.get(path, 0)}")
             else:
                 nvals += 1
         for path in sorted(po):
@@ -198,9 +210,11 @@ def run(a):
             if path in pn:
                 nv, nd = pn[path]
                 if not nv or (nv == nd and nv != ov):
-                    bad += 1
                     now = "empty" if not nv else f'the default "{nd}"'
-                    lines.append(f"WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {ov}, now {now}")
+                    if k[0].split(".")[0] in store:   # a Marketplace module's own document: its new version changed its own default
+                        mkt += 1; lines.append(f"MARKETPLACE-WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {ov}, now {now}")
+                    else:
+                        bad += 1; lines.append(f"WIDGET-RESET {k[0]} {k[1]} ({wid}) {path}: was {ov}, now {now}")
             elif re.sub(r"\[\d+\]", "", path).split(".")[-1] not in keysn:
                 gone += 1
                 moved = sorted(q for q, (v, _d) in pn.items() if v == ov and q not in po)
@@ -211,6 +225,7 @@ def run(a):
     if lines:
         print("\n".join(lines))
     print(f"widgetvalues: {'FAIL' if bad else 'PASS'}, {bad} of {nvals} configured value(s) reset on {seen} widget instance(s)"
+          + (f"; {mkt} reset(s) in Marketplace module documents reported apart, not counted (the module's new version changed its own default)" if mkt else "")
           + (f"; {gone} property(ies) gone from the new package (check those pages)" if gone else "")
           + (f"; {miss} widget instance(s) with configured values missing in the new model" if miss else ""))
     return 1 if bad else 0

@@ -126,7 +126,7 @@ if [ "${STEPUPDATE_SNAPSHOT:-}" = "" ]; then
   mkdir -p "$app/.stepupdate"
   rm -rf "$app/.stepupdate/bin"; cp -R "$src" "$app/.stepupdate/bin"
   # the copied scripts find playbooks/ beside their bin/ (missing_deps.py, which widgetdrop.py and widgetvalues.py import, dies without it)
-  [ ! -d "$src/../playbooks" ] || { mkdir -p "$app/.stepupdate/playbooks"; cp -R "$src/../playbooks/." "$app/.stepupdate/playbooks/"; }
+  [ ! -d "$src/../playbooks" ] || { rm -rf "$app/.stepupdate/playbooks"; mkdir -p "$app/.stepupdate/playbooks"; cp -R "$src/../playbooks/." "$app/.stepupdate/playbooks/"; }
   STEPUPDATE_SNAPSHOT=1 STEPUPDATE_SRC="$src" exec bash "$app/.stepupdate/bin/stepupdate.sh" "$@"
 fi
 bin=$(cd "$(dirname "$0")" && pwd)
@@ -193,7 +193,7 @@ st="$app/.stepupdate"
 # GF-31: .stepupdate/ran.txt names the modules THIS invocation really ran an update for; editroute.py plan holds a module as
 # "kept again for the same reason" only when it ran (a module the pass never reached keeps its stale kept.txt line)
 [ "$dry" = 0 ] && { mkdir -p "$st"; : > "$st/ran.txt"; : > "$st/widgetvalues.last"; }
-jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; wval_run=""; wvexit=""; keptexit=""; wvnotrun=""; wvsnap=""; roles_run=""; assoc_run=""
+jcids=(); nkept=0; nnet=0; nrun=0; ncommit=0; files_run=""; lastnet=""; lastnetn=0; lastnetmod=""; nobase_run=""; widg_run=""; wval_run=""; wmkt_run=""; wvexit=""; keptexit=""; wvnotrun=""; wvsnap=""; roles_run=""; assoc_run=""
 # PV-2: a target of a cross-module association updated AFTER the module that owns it loses the association (the owner's
 # import would have restored it); planorder.py says so before anything runs. A warning, not a stop: the cheap fix after
 # the fact is to reimport the owner (steps/upgrade.md item 1).
@@ -685,7 +685,7 @@ PY
   # update does). A reset is a finding (exit 1 at the end); a property the new package dropped and a widget gone are named;
   # a comparison that could not run (exit 2) is said, never read as "nothing reset". Findings already said by an earlier step
   # of this invocation are not said again.
-  unrec widgetvalues.txt "$mod"
+  unrec widgetvalues.txt "$mod"; unrec widgetmkt.txt "$mod"
   if [ -n "$baseline" ] && [ -f "$baseline" ]; then wvold="$baseline"
   else
     if [ -z "$wvsnap" ]; then rm -rf "$st/wvbase"; mkdir -p "$st/wvbase"; cp -R "$st/prevtree/." "$st/wvbase/" 2> /dev/null; wvsnap="$st/wvbase/$mpr"; rm -f "$st/widgetvalues-base.json"; fi
@@ -693,11 +693,15 @@ PY
   fi
   python3 "$bin/widgetvalues.py" "$wvold" "$app/$mpr" --cache "$st/widgetvalues-base.json" > "$st/step$n-$mod.widgetvalues" 2>&1; wvrc=$?
   if [ $wvrc -le 1 ]; then
-    grep -E '^WIDGET-(RESET|PROP-GONE|MISSING)' "$st/step$n-$mod.widgetvalues" > "$st/widgetvalues.now" 2> /dev/null
+    grep -E '^(MARKETPLACE-)?WIDGET-(RESET|PROP-GONE|MISSING)' "$st/step$n-$mod.widgetvalues" > "$st/widgetvalues.now" 2> /dev/null
     [ -f "$st/widgetvalues.last" ] || : > "$st/widgetvalues.last"
     grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | sed 's/^/   /'
     nwv=$(grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | grep -c '^WIDGET-RESET')
+    nmk=$(grep -vxFf "$st/widgetvalues.last" "$st/widgetvalues.now" | grep -c '^MARKETPLACE-WIDGET-RESET')
     cat "$st/widgetvalues.now" >> "$st/widgetvalues.last"
+    if [ "${nmk:-0}" -gt 0 ]; then   # a Marketplace module's own document: reported apart, never an exit code
+      rec widgetmkt.txt "$mod" "$mod $ver: $nmk default(s) in Marketplace module documents changed by the module's new version, see .stepupdate/step$n-$mod.widgetvalues"; wmkt_run="$wmkt_run $mod "
+    fi
     if [ "${nwv:-0}" -gt 0 ]; then
       rec widgetvalues.txt "$mod" "$mod $ver: $nwv widget setting(s) reset to the package default (compared with the run's first model), see .stepupdate/step$n-$mod.widgetvalues"; wval_run="$wval_run $mod "
     fi
@@ -867,6 +871,12 @@ if [ -n "$wval_run" ] && [ -s "$st/widgetvalues.txt" ]; then
     case "$wval_run" in *" ${l%% *} "*) echo "   WIDGET-VALUES: $l";; esac
   done < "$st/widgetvalues.txt"
   wvexit=1   # the exit comes after the roles and kept-dependency blocks, so one run says everything it found
+fi
+if [ -n "$wmkt_run" ] && [ -s "$st/widgetmkt.txt" ]; then
+  echo "stepupdate: MARKETPLACE WIDGET DEFAULTS changed by a module's new version (GF-44; not a failure, no exit code): the Marketplace module's own pages carry the new version's default; leave them as the new version has them, the next module update overwrites them:"
+  while IFS= read -r l; do
+    case "$wmkt_run" in *" ${l%% *} "*) echo "   MARKETPLACE: $l";; esac
+  done < "$st/widgetmkt.txt"
 fi
 if [ -n "$wvnotrun" ]; then
   echo "stepupdate: WIDGET-VALUES NOT RUN for:$wvnotrun (widgetvalues.py could not read a model): the widget settings were NOT compared; do not read this as 'nothing was reset'"

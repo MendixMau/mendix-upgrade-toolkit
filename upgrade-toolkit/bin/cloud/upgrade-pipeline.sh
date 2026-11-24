@@ -1731,7 +1731,7 @@ run_stepupdate() { # run_stepupdate PLAN label
   if [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET SETTINGS RESET' "$WORK/stepupdate-$2.out" 2> /dev/null; then
     note "widget settings were reset to the package defaults by the $2 batch (compared with the run's first model), see $WORK/stepupdate-$2.out and $APP/.stepupdate/widgetvalues.txt"
   elif [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET-VALUES NOT RUN' "$WORK/stepupdate-$2.out" 2> /dev/null; then
-    note "widget settings not compared after the $2 batch (the comparison could not run), see $WORK/stepupdate-$2.out: do not read this as 'nothing was reset'"
+    note "widget settings comparison NOT RUN after the $2 batch (the comparison could not run), see $WORK/stepupdate-$2.out: do not read this as 'nothing was reset'"
   fi
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0
@@ -2008,20 +2008,25 @@ update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites t
 # first model ($WORK/original.mpr), never against the model one pass started from: a value that went 12 -> 10 in one pass and
 # back in the next would show as no change per pass. The old side is parsed once ($WORK/widgetvalues-original.json).
 # A reset, a gone property, a widget that vanished and a comparison that could not run are all run notes.
+wv_note() { # a note now, or held (WV_DEFER=1, inside try_fix) until the fix is kept: an undone fix leaves no note about its widgets
+  if [ "${WV_DEFER:-0}" = 1 ]; then WV_PENDING="${WV_PENDING:-}$*"$'\n'; else note "$*"; fi
+}
 widgetvalues_note() { # widgetvalues_note "after <what>"
   [ "$DRY" != 1 ] && [ -f "$WORK/original.mpr" ] || return 0
   local wrc=0 out="$WORK/widgetvalues.out" g
   python3 "$B/widgetvalues.py" "$WORK/original.mpr" "$MPR" --cache "$WORK/widgetvalues-original.json" > "$out" 2>&1 || wrc=$?
-  grep -E '^(WIDGET-RESET|WIDGET-PROP-GONE|WIDGET-MISSING|widgetvalues:)' "$out" | sed 's/^/        /'
+  grep -E '^(MARKETPLACE-WIDGET-RESET|WIDGET-RESET|WIDGET-PROP-GONE|WIDGET-MISSING|widgetvalues:)' "$out" | sed 's/^/        /'
   if [ "$wrc" = 1 ]; then
-    note "widgetvalues $1: configured widget settings were reset to the package defaults (compared with the run's first model), see $out; put them back before the build (steps/repair.md row 5)"
+    wv_note "widgetvalues $1: configured widget settings were reset to the package defaults (compared with the run's first model), see $out; put them back before the build (steps/repair.md row 5)"
   elif [ "$wrc" -gt 1 ]; then
-    note "widgetvalues could not compare the widget settings $1 (exit $wrc), see $out: do not read this as 'nothing was reset'; rerun bin/widgetvalues.py $WORK/original.mpr $MPR"
+    wv_note "widgetvalues NOT RUN: could not compare the widget settings $1 (exit $wrc), see $out: do not read this as 'nothing was reset'; rerun bin/widgetvalues.py $WORK/original.mpr $MPR"
   fi
+  g=$(grep -c '^MARKETPLACE-WIDGET-RESET' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget setting(s) in Marketplace module documents differ from the first model: the module's new version changed its own default (field: Atlas_Core.FeedbackWidget app id to 1, DataGrid _WidgetsExporterSnippet filterOptions 2 to 0); vendor content, not written back, see $out"
   g=$(grep -c '^WIDGET-PROP-GONE' "$out" 2> /dev/null || true)
-  [ "${g:-0}" = 0 ] || note "widgetvalues $1: $g widget propert(ies) no longer exist in the new package, their configured values are gone, see $out (steps/repair.md row 5)"
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget propert(ies) no longer exist in the new package, their configured values are gone, see $out (steps/repair.md row 5)"
   g=$(grep -c '^WIDGET-MISSING' "$out" 2> /dev/null || true)
-  [ "${g:-0}" = 0 ] || note "widgetvalues $1: $g widget instance(s) with configured values are missing in the new model, see $out"
+  [ "${g:-0}" = 0 ] || wv_note "widgetvalues $1: $g widget instance(s) with configured values are missing in the new model, see $out"
   return 0
 }
 try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
@@ -2030,15 +2035,17 @@ try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 
 }
 try_fix() { # try_fix "subject" RULE CODES cmd...: run a fixer, re-check, keep when checkdiff says not worse, else undo
   local subj=$1 rule=$2 codes=$3 prev rc=0; shift 3
-  prev=$CHECK_LOG
-  x "$@" || { note "fixer '$subj' failed (exit $?): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  prev=$CHECK_LOG; WV_DEFER=1; WV_PENDING=   # GF-44: update_widgets's widgetvalues notes wait until the fix is kept
+  x "$@" || { rc=$?; WV_DEFER=0; WV_PENDING=; note "fixer '$subj' failed (exit $rc): left undone"; [ "$DRY" = 1 ] || { git_app checkout -q -- . ; git_app clean -fdq; }; return 0; }
+  WV_DEFER=0
   # GF-42: a repair tool that rewrote MPR v2 as v1 lowers the error count too; the format is checked before the errors are
-  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then CHECK_LOG=$prev; return 0; fi
+  if [ "$DRY" != 1 ] && ! storage_ok "fix '$subj'"; then WV_PENDING=; CHECK_LOG=$prev; return 0; fi
   mxcheck
   [ "$DRY" = 1 ] && return 0
   python3 "$B/checkdiff.py" "$prev" "$CHECK_LOG" --fixed "$codes" >> "$LOG" 2>&1 || rc=$?
-  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { CHECK_LOG=$prev; return 0; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
-  else note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
+  if [ "$rc" = 0 ]; then commit_app "repair: $subj" repair "$rule" || { WV_PENDING=; CHECK_LOG=$prev; return 0; }
+    [ -z "$WV_PENDING" ] || { while IFS= read -r wl; do [ -z "$wl" ] || note "$wl"; done <<< "$WV_PENDING"; WV_PENDING=; }; say "        repair: $subj ($(open_errors "$prev") -> $(open_errors "$CHECK_LOG") errors)"
+  else WV_PENDING=; note "fix '$subj' made mx check WORSE (checkdiff exit $rc): undone"; git_app checkout -q -- . ; git_app clean -fdq; CHECK_LOG=$prev; fi
 }
 # row 37 (cold rung 2: 36 Any Chart uses stopped the build with "replace with Charts 6" and a list of documents): every
 # deprecated widget gets one route per module from playbooks/widget-routes.json (bin/repair/widgetroute.py). The toolkit
