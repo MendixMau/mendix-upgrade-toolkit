@@ -10363,7 +10363,8 @@ rm $SI/2026-01-02-HV1-deny.md; printf '# x\nlog at /home/jdoe/run/check.log\nlog
 ctl submit-home-path-catch 1 'HV1-home\.md:2:.*home folder path' '!HV1-home\.md:3:' -- sl toolkit --inbox $SI
 rm $SI/2026-01-02-HV1-home.md; cp $HV/bi/2026-01-02-HV1-upgrade.md $SI/
 ctl submit-internal-to-toolkit-catch 1 'internal text, belongs in the brain' -- sl toolkit --inbox $SI
-ctl submit-brain-in-toolkit-catch 1 'inside the toolkit repo' -- sl brain --inbox $TK/contrib/inbox
+git clone -q $SL/origin.git $SL/brain 2> /dev/null
+ctl submit-brain-in-toolkit-catch 1 'inside the toolkit repo' -- env UPG_BRAIN=$SL/brain bash $B/submit-learnings.sh brain --inbox $TK/contrib/inbox
 rm $SI/2026-01-02-HV1-upgrade.md; cp $HV/tk/2026-01-02-HV1-harvest.md $SI/
 ctl submit-dry-run-pass 0 'checks clean, 1 file' 'branch learnings/[0-9-]+-HV1-harvest off main' '^dry run: nothing committed or pushed$' -- sl toolkit --inbox $SI --dry-run
 ctl submit-dry-run-no-branch-pass 0 '^none$' -- sh -c "git -C $SL/origin.git branch --list 'learnings/*' | grep . || echo none"
@@ -10371,6 +10372,74 @@ ctl submit-push-pass 0 '^submitted: learnings/[0-9-]+-HV1-harvest \(1 file\(s\) 
 ctl submit-pushed-branch-pass 0 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-harvest\.md' -- sh -c "git -C $SL/origin.git ls-tree -r --name-only \$(git -C $SL/origin.git branch --list 'learnings/*' --format='%(refname)' | head -1)"
 ctl submit-inbox-emptied-pass 0 '^README\.md TEMPLATE\.md $' -- sh -c "ls $SI | tr '\n' ' '"
 ctl submit-checkout-untouched-pass 0 '^main$' -- git -C $SL/repo branch --show-current
+
+# central intake (the public repo takes every user's learnings): fork fallback, brain notes to the public inbox, a run's
+# learnings/ folder as the inbox, the end-of-run line, and the triage workflow's labels.
+# 1. no write access: origin is the public repo's URL (rewritten to a bare repo whose pre-receive refuses), gh is a stand-in on PATH
+SF=$T/sfork; mkdir -p $SF/bin; git init -q --bare -b main $SF/up.git; git init -q --bare -b main $SF/fork.git
+git clone -q $SF/up.git $SF/repo 2> /dev/null; mkdir -p $SF/repo/upgrade-toolkit/contrib/inbox
+cp $TK/contrib/inbox/README.md $SF/repo/upgrade-toolkit/contrib/inbox/
+git -C $SF/repo add -A && git -C $SF/repo -c user.email=ctl@example.invalid -c user.name=ctl commit -qm init && git -C $SF/repo push -q origin main 2> /dev/null
+git -C $SF/repo remote set-head origin main
+printf '#!/bin/sh\necho "remote: Permission denied" >&2\nexit 1\n' > $SF/up.git/hooks/pre-receive; chmod +x $SF/up.git/hooks/pre-receive
+git -C $SF/repo config remote.origin.url https://github.com/MendixMau/mendix-upgrade-toolkit
+git -C $SF/repo config url.$SF/up.git.insteadOf https://github.com/MendixMau/mendix-upgrade-toolkit
+cat > $SF/bin/gh <<'GHEOF'
+#!/bin/bash
+echo "gh $* (cwd=$(basename "$PWD"))" >> "$FAKEGH_LOG"
+case "$1 $2" in
+  "auth status") exit "${FAKEGH_AUTH:-0}";;
+  "repo fork") git remote add fork https://github.com/forkuser/mendix-upgrade-toolkit
+               git config "url.$FAKEGH_FORK.insteadOf" https://github.com/forkuser/mendix-upgrade-toolkit; exit 0;;
+  "pr create") echo "https://example.invalid/pull/1"; exit 0;;
+esac
+exit 0
+GHEOF
+chmod +x $SF/bin/gh
+SFI=$SF/repo/upgrade-toolkit/contrib/inbox; : > $SF/gh.log
+sf() { env PATH=$SF/bin:$PATH FAKEGH_LOG=$SF/gh.log FAKEGH_FORK=$SF/fork.git GIT_AUTHOR_NAME=ctl GIT_AUTHOR_EMAIL=ctl@example.invalid GIT_COMMITTER_NAME=ctl GIT_COMMITTER_EMAIL=ctl@example.invalid "$@" bash $B/submit-learnings.sh toolkit --inbox $SFI; }
+printf '# CE9987 frob\nfixed by the repoint\n' > $SFI/2026-01-02-HV1-fork.md
+ctl submit-no-gh-manual-steps-catch 3 'no write access to MendixMau/mendix-upgrade-toolkit' 'press Fork' 'push fork learnings/[0-9-]+-HV1-fork' 'pull/new/learnings/' 'issues/new' -- sf FAKEGH_AUTH=1
+ctl submit-no-gh-branch-kept-pass 0 'learnings/[0-9-]+-HV1-fork$' -- git -C $SF/repo branch --list 'learnings/*' --format='%(refname:short)'
+ctl submit-no-gh-draft-kept-pass 0 '2026-01-02-HV1-fork\.md' -- ls $SFI
+ctl submit-fork-fallback-catch 0 'pushed to your fork instead \(forkuser/mendix-upgrade-toolkit\)' '^submitted: learnings/[0-9-]+-HV1-fork-2 ' -- sf FAKEGH_AUTH=0
+ctl submit-fork-gh-calls-pass 0 '^gh repo fork MendixMau/mendix-upgrade-toolkit --remote --remote-name fork \(cwd=repo\)$' '^gh pr create -R MendixMau/mendix-upgrade-toolkit --head forkuser:learnings/[0-9-]+-HV1-fork-2 --base main ' -- cat $SF/gh.log
+ctl submit-fork-branch-on-fork-pass 0 'learnings/[0-9-]+-HV1-fork-2' -- git -C $SF/fork.git branch --list 'learnings/*' --format='%(refname:short)'
+# 5. brain notes with no private brain go to the public inbox; an internal one still does not; a private brain keeps its own route
+cp $HV/bi/2026-01-02-HV1-upgrade.md $SFI/
+ctl submit-brain-public-internal-refused-catch 1 'internal text, belongs in the brain' -- env -u UPG_BRAIN bash $B/submit-learnings.sh brain --repo $SF/repo
+rm $SFI/2026-01-02-HV1-upgrade.md; sed 's/^confidentiality: internal$/confidentiality: public/' $HV/bi/2026-01-02-HV1-upgrade.md > $SFI/2026-01-02-HV1-note.md
+ctl submit-brain-public-route-catch 0 'sending these brain-format notes to the public toolkit inbox' 'checks clean, 1 file' 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-note\.md' 'remote origin \(github\)' -- env -u UPG_BRAIN bash $B/submit-learnings.sh brain --repo $SF/repo --dry-run
+ctl submit-brain-shipped-is-public-pass 0 'sending these brain-format notes to the public toolkit inbox' 'checks clean, 1 file' -- env UPG_BRAIN=$TK/../company-brain-test/brain bash $B/submit-learnings.sh brain --repo $SF/repo --dry-run
+mkdir -p $SL/brain/inbox; cp $HV/bi/2026-01-02-HV1-upgrade.md $SL/brain/inbox/
+ctl submit-brain-private-keeps-route-pass 0 '!public toolkit inbox' 'checks clean, 1 file' 'repo .*/brain, remote origin' -- env UPG_BRAIN=$SL/brain bash $B/submit-learnings.sh brain --inbox $SL/brain/inbox --dry-run
+rm -f $SL/brain/inbox/*.md; rm $SFI/2026-01-02-HV1-note.md
+# a run's learnings/ folder (no git) is the inbox: its drafts land in the toolkit's contrib/inbox on the PR branch, brain/ stays out
+LS=$T/loose/learnings; mkdir -p $LS/brain; cp $HV/tk/2026-01-02-HV1-harvest.md $LS/; cp $HV/bi/2026-01-02-HV1-upgrade.md $LS/brain/
+ctl submit-loose-inbox-catch 0 'checks clean, 1 file' '^submitted: learnings/[0-9-]+-HV1-harvest-2 ' -- sl toolkit --inbox $LS --repo $SL/repo
+ctl submit-loose-inbox-lands-in-contrib-pass 0 'upgrade-toolkit/contrib/inbox/2026-01-02-HV1-harvest\.md' '!brain' -- sh -c "git -C $SL/origin.git ls-tree -r --name-only \$(git -C $SL/origin.git branch --list 'learnings/*-2' --format='%(refname)' | head -1)"
+ctl submit-loose-inbox-draft-left-pass 0 '^2026-01-02-HV1-upgrade.md$' '!harvest' -- ls $LS/brain
+# 4. the line at the end of a run
+cp -R $HV/run $FB/eol; fbr --work $FB/eol --exit 4 --step build --code HV1 --source 9.24.0 --target 10.24.0 > $FB/eol.out 2>&1
+ctl feedback-end-line-catch 0 '^1 learnings drafted .{1,3} send them back: bin/submit-learnings\.sh toolkit --inbox .*/eol/learnings --dry-run$' 'toolkit bug\? the issue summary is in .*FEEDBACK-REPORT\.md' -- cat $FB/eol.out
+ctl feedback-end-line-is-last-pass 0 'learnings drafted' -- tail -n 1 $FB/eol.out
+fbr --work $FB/eol --exit 0 --step x --code HV1 > $FB/eol0.out 2>&1
+ctl feedback-end-line-pass-run-no-bug-line-pass 0 '^1 learnings drafted' '!toolkit bug' -- cat $FB/eol0.out
+ctl feedback-end-line-no-drafts-quiet-pass 0 '^feedback: ' '!learnings drafted' -- fbr --work $FB/nocode --exit 13
+ctl feedback-end-line-command-works-pass 0 'checks clean, 1 file' '^dry run: nothing committed or pushed$' -- sl toolkit --inbox $FB/eol/learnings --repo $SL/repo --dry-run
+# 6. the triage workflow: a stand-in gh, the labelling block of the workflow file run as written
+WF=$TK/../.github/workflows/triage.yml; TRI=$T/triage; mkdir -p $TRI/bin
+awk '/# --- triage begin/{f=1;next}/# --- triage end/{f=0}f' $WF | sed 's/^ \{10\}//' > $TRI/label.sh
+printf '#!/bin/bash\nif [ "$1" = api ]; then cat "$TRI_FILES"; exit 0; fi\necho "gh $*" >> "$TRI_LOG"\n' > $TRI/bin/gh; chmod +x $TRI/bin/gh
+tri() { : > $TRI/log; printf '%s\n' "${TRI_F:-README.md}" > $TRI/files; env PATH=$TRI/bin:$PATH TRI_LOG=$TRI/log TRI_FILES=$TRI/files GH_REPO=o/r NUMBER=7 "$@" bash $TRI/label.sh; cat $TRI/log; }
+ctl triage-issue-title-prefix-catch 0 '^gh issue edit 7 --add-label learning$' '!needs-triage' -- tri KIND=issues 'TITLE=[Learning] a lesson' LABELS=
+ctl triage-issue-template-label-catch 0 '^gh issue edit 7 --add-label bug$' '!needs-triage' -- tri KIND=issues 'TITLE=Run stopped' LABELS=help,Bug
+ctl triage-issue-unknown-needs-triage-pass 0 '^gh issue edit 7 --add-label needs-triage$' '!add-label (bug|learning|feature)' -- tri KIND=issues 'TITLE=hello' LABELS=
+TRI_F=upgrade-toolkit/contrib/inbox/2026-01-02-X-note.md ctl triage-pr-inbox-catch 0 '^gh pr edit 7 --add-label contrib-inbox$' -- tri KIND=pull_request_target 'TITLE=learnings: 1 draft' LABELS=
+ctl triage-pr-other-files-pass 0 '!contrib-inbox' '!needs-triage' -- tri KIND=pull_request_target 'TITLE=fix a thing' LABELS=
+printf 'jobs:\n  x:\n    steps:\n      - uses: actions/checkout@v4\n' > $TRI/bad.yml
+ctl triage-workflow-unpinned-action-catch 0 'checkout@v4' -- sh -c "grep -E '^[[:space:]-]*uses:' $TRI/bad.yml | grep -vE '@[0-9a-f]{40}( |\$)'"
+ctl triage-workflow-pinned-and-tokenless-pass 0 '^ok$' -- sh -c "! { grep -E '^[[:space:]-]*uses:' $WF | grep -vE '@[0-9a-f]{40}( |\$)'; grep -E 'secrets\.' $WF; } | grep . && echo ok"
 
 # apidirect names its database copy so smoke_users accepts it (the old name _apid_<side> was refused: "not a copy")
 ctl apidirect-db-name-refused-catch 2 'REFUSED upg_t_apid_old: not a copy' -- python3 $B/smoke_users.py upg_t_apid_old --roles Administrator --container no-such-ctr

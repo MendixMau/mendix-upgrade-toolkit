@@ -115,9 +115,10 @@ def main():
         "",
         "## Send it back",
         "",
-        f"1. **Learnings.** Read each draft in `{rel_learn}/`, then copy the toolkit drafts to `contrib/inbox/` of your toolkit",
-        "   checkout and run `bin/submit-learnings.sh toolkit --dry-run`, then without `--dry-run`: one branch, one PR.",
-        "   Brain drafts (`learnings/brain/`) go with `bin/submit-learnings.sh brain`, never to the toolkit.",
+        f"1. **Learnings.** Read each draft in `{rel_learn}/`, then run `bin/submit-learnings.sh toolkit --inbox {rel_learn} --dry-run`,",
+        "   then without `--dry-run`: one branch, one PR to the public toolkit (no write access: it forks for you with `gh`, or",
+        "   prints the manual steps). Brain drafts (`learnings/brain/`) go with `bin/submit-learnings.sh brain --inbox learnings/brain`:",
+        "   to your private brain, or, with none, to the public toolkit unless marked `confidentiality: internal`.",
         f"2. **A toolkit bug** (exit 3 or 4 that is not your machine, a wrong verdict, a crash): open {issues_url()}",
         "   and paste the summary below. Read it first: no customer, app, host or person names.",
         "",
@@ -130,6 +131,14 @@ def main():
     ]
     (work / "FEEDBACK-REPORT.md").write_text("\n".join(out))
     print(f"feedback: {work / 'FEEDBACK-REPORT.md'} ({len(drafts)} draft(s))")
+    # the last lines the person sees: where to send it (the public toolkit takes every user's learnings; exit codes unchanged)
+    if a.exit in (3, 4) or a.exit not in MEANING:
+        print(f"toolkit bug? the issue summary is in {work / 'FEEDBACK-REPORT.md'} (section 'Summary for an issue'): read it for names, then paste it into {issues_url()}")
+    tk = [d for d in drafts if d.parts[:2] != ("learnings", "brain")]
+    if tk:
+        print(f"{len(tk)} learnings drafted \u2014 send them back: bin/submit-learnings.sh toolkit --inbox {learn} --dry-run")
+    elif drafts:
+        print(f"{len(drafts)} learnings drafted \u2014 send them back: bin/submit-learnings.sh brain --inbox {learn / 'brain'} --dry-run")
     return 0
 
 
