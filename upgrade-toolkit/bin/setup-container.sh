@@ -6,7 +6,7 @@
 #   e.g. bash setup-container.sh ~/run1 9.24.3.8044 10.24.26.123458 11.15.0
 #
 # Versions are the full CDN names (Mendix 9/10 carry a build number; see https://cdn.mendix.com/?prefix=runtime/mxbuild-).
-# Then: `source <run folder>/upg-env.sh` and follow ../SKILL.md.
+# Then: `source <run folder>/env.sh` and follow ../SKILL.md (GF-5: the one env file; upg-env.sh only sources it).
 # The controls (`make fast`) also want a 10.24 toolset: add a 10.24.x version to the list (B4N1-3).
 # Exit: 0 = ready; non-zero = NOT ready, the failing step says what is missing (B4T2-1, B4N1-3: python modules and rsync
 #   used to be "installed" with `|| true` and the REFUSED toolcheck ran BEFORE the pip step, exit 0 either way).
@@ -27,11 +27,11 @@
 #
 # Why this file (SETUP-1): every batch-1 to batch-3 worker copied T1's runs/t1-purchase-request/setup.sh by hand and
 # re-learned its traps. Each step below was needed in a real run (T1, T2, N1 JOURNAL.md):
-#  1 ~/Mendix/mxcli-project-toolkit symlink (old-style link)        6 mxbuild + runtime per version from cdn.mendix.com
+#  1 ~/Mendix/mendix-upgrade-toolkit symlink (old-style link)       6 mxbuild + runtime per version from cdn.mendix.com
 #  2 zsh (the bin/*.sh wrappers are zsh scripts)                7 python modules (pymongo for bson, bcrypt), rsync
 #  3 dockerd (installed but not running in the cloud image)    8 Playwright module (Chromium is preinstalled there)
 #  4 base images via mirror.gcr.io (Docker Hub 429), toolkit   9 mxcli marketplace auth from $MENDIX_PAT
-#    images built with --network host                         10 upg-env.sh: proxy + CA for mxcli in its container
+#    images built with --network host                         10 env.sh: proxy + CA for mxcli in its container
 #  5 mxcli built from source (rsync is installed first: its Makefile needs it; GitHub release downloads 403); the ANTLR jar pre-placed in ~/.m2 first: Maven Central
 #    answers 429 from a shared egress IP and `make build` then fails (B4T2-1); mirror fallback
 #  11 check: toolcheck.sh --host AFTER step 7; REFUSED or no rsync = exit 1 (B4T2-1, B4N1-3)
@@ -69,7 +69,7 @@ dk_hung_die() { dk_hung_msg; exit 1; }
 have_image() { local rc=0; dk image inspect "$1" >/dev/null 2>&1 || rc=$?; [ "$rc" != 124 ] || dk_hung_die; [ "$rc" = 0 ]; }
 want(){ [ -z "${UPG_SETUP_STEPS:-}" ] || [[ ",$UPG_SETUP_STEPS," == *",$1,"* ]]; }
 PY=${UPG_PYTHON:-python3}
-MX_HOME=$HOME/Mendix; TK_LINK=$MX_HOME/mxcli-project-toolkit   # step 1
+MX_HOME=$HOME/Mendix; TK_LINK=$MX_HOME/mendix-upgrade-toolkit   # step 1 (GF-1: not mxcli-project-toolkit, the build toolkit's own clone path)
 MXCLI_SRC=${MXCLI_SRC:-$HOME/mendixlabs/mxcli}                   # step 5: the mxcli source build folder
 MXCLI_REF=${MXCLI_REF:-78bdfa51a2e0a84b971093ebd7b6b82e7596c950}
 MXCLI_HOSTBIN=$HOME/.local/bin/mxcli                             # step 5: only a Linux host with no mxcli gets this link
@@ -133,7 +133,11 @@ antlr_jar() {  # B4T2-1: pre-place the jar; repo1.maven.org answers 429, so try 
 # 1 toolkit path
 if want link; then
   [ -e "$TK_LINK" ] || ln -sfn "$REPO" "$TK_LINK"
-  log "toolkit at $(readlink -f "$TK_LINK")"
+  # GF-1: a path that is another checkout is warned about, never replaced; no path in the docs depends on it
+  if [ "$(readlink -f "$TK_LINK")" != "$(readlink -f "$REPO")" ]; then
+    log "WARNING: $TK_LINK is not this repo (it is $(readlink -f "$TK_LINK"), this repo is $REPO): left alone. Nothing needs it: every path comes from where this script lives ($TK)"
+  fi
+  log "toolkit at $TK"
 fi
 
 # 2 zsh
@@ -153,6 +157,11 @@ if want docker; then
     for _ in $(seq 1 30); do dk info >/dev/null 2>&1 && break; sleep 1; done
   fi
   dk info --format 'docker {{.ServerVersion}} {{.Driver}}' || { [ $? != 124 ] || dk_hung_die; echo "setup: docker is not answering (dockerd did not start; log $R/dockerd.log)" >&2; exit 1; }
+  # GF-6: the pipeline refuses a docker that runs amd64 under qemu (dockerhost.sh, exit 2 at its first call). Say so here, before
+  # the images are pulled and built on it. Not Apple Silicon: dockerhost.sh prints the current DOCKER_HOST and exits 0.
+  dh_rc=0; dh=$(bash "$TK/bin/dockerhost.sh" 2>&1) || dh_rc=$?
+  if [ $dh_rc != 0 ]; then echo "setup: NOT READY: $dh" >&2; exit 2; fi
+  [ -z "$dh" ] || [ "$dh" = "${DOCKER_HOST:-}" ] || { export DOCKER_HOST="$dh"; log "containers run on $dh (Rosetta)"; }
 fi
 
 # 4 images: Docker Hub answers 429 from a shared egress IP, so pull from a mirror and retag
@@ -192,7 +201,22 @@ mxcli_checkout() {  # $1 = source dir: MXCLI_REF (tag, branch or commit) at dept
   git -C "$1" remote get-url origin >/dev/null 2>&1 || git -C "$1" remote add origin https://github.com/mendixlabs/mxcli
   GIT_LFS_SKIP_SMUDGE=1 git -C "$1" fetch -q --depth 1 origin "$MXCLI_REF" && git -C "$1" checkout -q -f --detach FETCH_HEAD
 }
-if want antlr && [ ! -x "$R/tools/mxcli-linux" ]; then antlr_jar; fi
+# GF-3: the jar can be placed and still unreadable by the java the build runs (a wrapper that runs Java in a dev container cannot see
+# ~/.m2). antlr4-tools starts the java found on PATH and ignores JAVA_HOME, so a working $JAVA_HOME/bin goes first on PATH here, for this
+# smoke test and for the grammar/build steps after it; the test then runs the very java `command -v java` finds.
+java_home_first() {
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] && "$JAVA_HOME/bin/java" -version >/dev/null 2>&1; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+  fi
+}
+antlr_smoke() {
+  local j out; j=$(command -v java 2>/dev/null) || return 0   # no java: antlr4-tools fetches its own
+  out=$("$j" -cp "$ANTLR_JAR" org.antlr.v4.Tool 2>&1) && return 0
+  echo "setup: the java the build will use ($j) cannot read $ANTLR_JAR (java -cp ... org.antlr.v4.Tool failed: $(echo "$out" | grep -v "^Picked up" | head -1 | cut -c1-120)). Put a host JDK's bin folder (a JDK 17 or newer, not a wrapper that runs Java elsewhere) first on PATH, or set JAVA_HOME to that JDK (setup puts \$JAVA_HOME/bin first), and rerun" >&2
+  exit 2
+}
+if want antlr || want mxcli; then java_home_first; fi
+if want antlr && [ ! -x "$R/tools/mxcli-linux" ]; then antlr_jar; antlr_smoke; fi
 if want mxcli; then
   # our own earlier build of another ref is rebuilt; a binary somebody put at tools/mxcli-linux is theirs: warned, not replaced
   if [ -x "$R/tools/mxcli-linux" ] && [ "$(readlink -f "$R/tools/mxcli-linux")" = "$(readlink -f "$R/tools/mxcli-bin/mxcli" 2>/dev/null || echo -)" ]; then
@@ -204,9 +228,13 @@ if want mxcli; then
     mxcli_checkout "$src" || { echo "setup: could not fetch mxcli $MXCLI_REF from github.com/mendixlabs/mxcli" >&2; exit 1; }
     "$PY" -m pip install -q 'antlr4-tools==0.2.2'
     # S1: tools/mxcli-linux runs in the linux/amd64 container (mxcli-container.sh), so cross-build it even on a Mac.
+    # GF-4: only the final go build carries GOOS/GOARCH. The prerequisites (grammar, sync-all, completions) `go run` a generator
+    # that must run on THIS host; a linux/amd64 generator fails on a Mac with "exec format error". So they run natively first,
+    # then `make build -o <each>` skips them (a GNU make 3.81 on macOS knows -o too).
     # `make build` runs the generate steps itself (prerequisites grammar = make -C mdl/grammar generate, sync-all, completions;
     # the checkout ships no generated parser). VERSION= stamps the binary: a depth-1 checkout has no tag to describe.
-    (cd "$src" && GOOS=linux GOARCH=amd64 ANTLR4_TOOLS_ANTLR_VERSION=$ANTLR_VER GOTOOLCHAIN=auto make build VERSION="$MXCLI_VER" BUILD_DIR="$R/tools/mxcli-bin")
+    (cd "$src" && export ANTLR4_TOOLS_ANTLR_VERSION=$ANTLR_VER GOTOOLCHAIN=auto && make grammar sync-all completions &&
+      GOOS=linux GOARCH=amd64 make build -o grammar -o sync-all -o completions VERSION="$MXCLI_VER" BUILD_DIR="$R/tools/mxcli-bin")
     ln -sfn "$R/tools/mxcli-bin/mxcli" "$R/tools/mxcli-linux"
   fi
   rs=0; ref_state "$R/tools/mxcli-linux" || rs=$?
@@ -288,18 +316,30 @@ want auth && [ ! -f "$MXCLI_AUTH" ] && log "WARNING: no MENDIX_PAT and no $MXCLI
 
 # 10 environment for the container wrappers (cloud: the agent proxy and its CA; harmless where they are absent)
 ca=/root/.ccr/ca-bundle.crt
-want env && {
-  echo "export UPG_ROOT=$R UPG_TOOLS=$R/tools WORKDIR=$R/work"
-  if [ -f $ca ]; then
-    echo "export UPG_EXTRA=\"--network host -e HTTPS_PROXY=\${HTTPS_PROXY:-} -e SSL_CERT_FILE=/etc/upg-ca.crt -v $ca:/etc/upg-ca.crt:ro\""
-  fi
-  echo "export UPG_SESSION_TIMEOUT=30000"
-  # FR-2: the pipeline stops at triage with "brain: none found" on a fresh box; the release-note brain ships in this repo
-  b=$(python3 "$TK/bin/brainpath.py" 2>/dev/null || true)
-  [ -z "$b" ] && [ -d "$REPO/company-brain-test/brain/baseline/versions" ] && b=$REPO/company-brain-test/brain
-  [ -n "$b" ] && echo "export UPG_BRAIN=$b"
-  true
-} > "$R/upg-env.sh"
+# GF-5: ONE env file, <run>/env.sh, the one upgrade-pipeline.sh sources (bin/cloud/setup.sh writes it too). This script owns only the
+# block between the two marker lines; the rest of an existing env.sh (written by bin/cloud/setup.sh) is kept. upg-env.sh stays as a
+# one-line file that sources it, for run folders and notes that name it.
+BEG='# >>> setup-container.sh (rewritten on every run; edit outside these lines) >>>'; END='# <<< setup-container.sh <<<'
+if want env; then
+  {
+    echo "$BEG"
+    echo "export UPG_ROOT=$R UPG_TOOLS=$R/tools WORKDIR=$R/work"
+    if [ -f $ca ]; then
+      echo "export UPG_EXTRA=\"--network host -e HTTPS_PROXY=\${HTTPS_PROXY:-} -e SSL_CERT_FILE=/etc/upg-ca.crt -v $ca:/etc/upg-ca.crt:ro\""
+    fi
+    echo "export UPG_SESSION_TIMEOUT=30000"
+    # FR-2: the pipeline stops at triage with "brain: none found" on a fresh box; the release-note brain ships in this repo
+    b=$(python3 "$TK/bin/brainpath.py" 2>/dev/null || true)
+    [ -z "$b" ] && [ -d "$REPO/company-brain-test/brain/baseline/versions" ] && b=$REPO/company-brain-test/brain
+    [ -n "$b" ] && echo "export UPG_BRAIN=$b"
+    echo "$END"
+  } > "$R/env.block.$$"
+  # the block goes FIRST: env.sh is sourced top to bottom, so bin/cloud/setup.sh's lines (its UPG_EXTRA carries https_proxy and NO_PROXY) win over ours
+  { cat "$R/env.block.$$"; [ ! -f "$R/env.sh" ] || awk -v b="$BEG" -v e="$END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$R/env.sh"; } > "$R/env.sh.$$" &&
+    mv "$R/env.sh.$$" "$R/env.sh"
+  rm -f "$R/env.block.$$"
+  printf '# GF-5: the one env file is env.sh\n. "%s/env.sh"\n' "$R" > "$R/upg-env.sh"
+fi
 
 # 11 check, AFTER step 7 (B4T2-1: it ran before the pip step and printed REFUSED for modules installed a step later;
 #   B4N1-3: REFUSED and no rsync were only printed, exit 0)
@@ -308,4 +348,4 @@ if want check; then
   command -v rsync >/dev/null || { echo "setup: NOT READY: rsync missing (apt-get install rsync failed); design_props_guard.sh needs it" >&2; exit 1; }
   ls -d "$R"/tools/mxbuild-10.24.* >/dev/null 2>&1 || log "NOTE: no 10.24 toolset in $R/tools: the controls (make fast) want one; rerun with a 10.24.x version added"
 fi
-log "done: source $R/upg-env.sh, then follow $TK/SKILL.md"
+log "done: source $R/env.sh, then follow $TK/SKILL.md"

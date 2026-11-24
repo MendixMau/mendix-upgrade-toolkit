@@ -30,7 +30,7 @@
 # Judgment stops write $WORK/NEEDS-JUDGMENT.md. Exit codes:
 #    0 gate PASS, nothing left for a person
 #    2 usage / version-path error
-#    3 missing tool or setup (run bin/cloud/setup.sh), an mxcli of another version than the run's (bin/mxcli_pin.sh), or the app dir
+#    3 missing tool or setup (run bin/cloud/setup.sh in a cloud container, bin/setup-container.sh elsewhere), an mxcli of another version than the run's (bin/mxcli_pin.sh), or the app dir
 #      is not a working git tree at a step start (bin/apptree.sh, GM-10)
 #    4 a fixed step failed unexpectedly (see the log named in the message)
 #   10 mx check / mxbuild / quick start errors after convert+update: repair needed (steps/repair.md)
@@ -167,7 +167,7 @@ mkdir -p "$WORK/state" "$WORK/logs"
 [ "$(basename "$WORK")" = rung2 ] || [ "$DRY" = 1 ] ||
   printf '{"route": ["%s", "%s"%s]}\n' "$SOURCE" "$TARGET" "${TARGET2:+, \"$TARGET2\"}" > "$WORK/ladder.json"
 
-# ---- env.sh from bin/cloud/setup.sh: TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
+# ---- env.sh from bin/cloud/setup.sh or bin/setup-container.sh (one file, GF-5): TK RUN MXCLI UPG_EXTRA UPG_UPDATE_CMD UPG_TOOLS ----
 _tk=${TK:-}   # cold rfq run: env.sh's stale TK (~/Mendix/mxcli-project-toolkit/...) replaced this pipeline's own; exit 2
 # A RUN from the caller's environment counts only when --work lies inside it (setup.sh exports it so). Cold WM1: a
 # wrapper's own RUN=13 became the run folder, "missing source mxbuild toolset: 13/tools/..." and exit 3.
@@ -248,13 +248,13 @@ note() { [ "$DRY" = 1 ] || printf '%s: %s\n' "$STEP" "$*" >> "$WORK/state/notes.
 need_tool() { # need_tool CMD  -> exit 3 when missing (dry-run: warn)
   command -v "$1" > /dev/null 2>&1 && return 0
   if [ "$DRY" = 1 ]; then say "WARN missing tool: $1"; return 0; fi
-  echo "upgrade-pipeline.sh: missing tool '$1'. Run: bash $B/cloud/setup.sh --run-dir $RUN --source $SOURCE --target $TARGET${TARGET2:+ --target2 $TARGET2}" >&2
+  echo "upgrade-pipeline.sh: missing tool '$1'. Run: bash $B/cloud/setup.sh --run-dir $RUN --source $SOURCE --target $TARGET${TARGET2:+ --target2 $TARGET2} (a Claude Code cloud container), or on a laptop or any other Linux box: bash $B/setup-container.sh $RUN <full versions>. Both write $RUN/env.sh." >&2
   exit 3
 }
 need_path() { # need_path PATH WHAT
   [ -e "$1" ] && return 0
   if [ "$DRY" = 1 ]; then say "WARN missing $2: $1"; return 0; fi
-  echo "upgrade-pipeline.sh: missing $2: $1. Run: bash $B/cloud/setup.sh --run-dir $RUN --source $SOURCE --target $TARGET${TARGET2:+ --target2 $TARGET2}" >&2
+  echo "upgrade-pipeline.sh: missing $2: $1. Run: bash $B/cloud/setup.sh --run-dir $RUN --source $SOURCE --target $TARGET${TARGET2:+ --target2 $TARGET2} (a Claude Code cloud container), or on a laptop or any other Linux box: bash $B/setup-container.sh $RUN <full versions>. Both write $RUN/env.sh." >&2
   exit 3
 }
 
@@ -2766,8 +2766,9 @@ record_grade() {
     --app "${UPG_APP_NAME:-unnamed app}" --path "$SOURCE > $TARGET" --kept "${kept:-0}" 2>&1 | sed 's/^/  /' || true
 }
 
-# run log (steps/report.md): append this run's row to FIELD-RUNS.md ($UPG_FIELD_RUNS, default the toolkit checkout) with
-# bin/runlog.py. Never fails the run: the exit code and the gate verdict stay as they are. When runlog.py refuses (a run id
+# run log (steps/report.md): append this run's row to FIELD-RUNS.md with
+# bin/runlog.py. GF-53: the row goes to $WORK/FIELD-RUNS.md (the run folder); the toolkit checkout is never written unless
+# UPG_FIELD_RUNS=toolkit (its FIELD-RUNS.md) or a path says so. Never fails the run: the exit code and the gate verdict stay as they are. When runlog.py refuses (a run id
 # already in the log, exit 3; a customer name, exit 4; no app code name, exit 2) the reason goes to the console, to the gate
 # output (a `Run log:` line in gate-summary.md) and to NEEDS-JUDGMENT.md as an information section, and the run continues.
 # App code name: app_code (UPG_APP_CODE, state/app-code, else a neutral app-<hex> from the .mpr name); type: UPG_APP_TYPE,
@@ -2775,13 +2776,16 @@ record_grade() {
 record_runlog() {
   RUNLOG_DONE=1
   [ -f "$WORK/gate-summary.md" ] || return 0
-  local log="${UPG_FIELD_RUNS:-$TK/FIELD-RUNS.md}" out rc=0 app typ="${UPG_APP_TYPE:-}" why
+  local log="${UPG_FIELD_RUNS:-$WORK/FIELD-RUNS.md}" out rc=0 app typ="${UPG_APP_TYPE:-}" why
+  [ "$log" != toolkit ] || log=$TK/FIELD-RUNS.md
   app=$(app_code)
   [ -n "$typ" ] || typ=$(head -n 1 "$WORK/state/app-type" 2> /dev/null || true)
   python3 -I "$B/runlog.py" --stamp-time --work "$WORK" > /dev/null 2>&1 || true
   out=$(python3 -I "$B/runlog.py" --work "$WORK" --log "$log" --require-app ${UPG_RUN_ID:+--run-id "$UPG_RUN_ID"} \
         ${app:+--app "$app"} ${typ:+--type "$typ"} 2>&1) || rc=$?
-  if [ "$rc" = 0 ]; then
+  if [ "$rc" = 0 ] && [ "$log" = "$WORK/FIELD-RUNS.md" ]; then
+    echo "runlog: row added to $log (the run folder; the toolkit checkout was not touched). To put rows in the toolkit's own log, set UPG_FIELD_RUNS=toolkit and rerun the gate, then commit FIELD-RUNS.md through a toolkit PR."
+  elif [ "$rc" = 0 ]; then
     echo "runlog: row added to $log. Commit FIELD-RUNS.md and CHANGES.md ($WORK/CHANGES.md) with explicit paths (git commit -- <paths>), then open a toolkit PR: the row is not in the toolkit until that PR is merged."
   else
     case "$rc" in
@@ -2796,7 +2800,7 @@ record_runlog() {
       { printf '\nRun log: no row added to FIELD-RUNS.md (runlog.py exit %s). %s\n' "$rc" "$why"; } >> "$WORK/gate-summary.md" 2> /dev/null || true
       [ -f "$WORK/NEEDS-JUDGMENT.md" ] || printf '# NEEDS JUDGMENT: information only, the run result is unchanged\n\nwork: %s\n' "$WORK" >> "$WORK/NEEDS-JUDGMENT.md" 2> /dev/null || true
       {
-        printf '\n## Run log not added (information; the exit code and the verdict are unchanged)\n\nFIELD-RUNS.md has no row for this run: %s\nFix the cause and run: python3 -I %s/runlog.py --work %s --app <CODE> --type <TEXT>\nThen commit FIELD-RUNS.md through a toolkit PR.\n' "$why" "$B" "$WORK"
+        printf '\n## Run log not added (information; the exit code and the verdict are unchanged)\n\nFIELD-RUNS.md has no row for this run: %s\nFix the cause and run: python3 -I %s/runlog.py --work %s --log "%s" --app <CODE> --type <TEXT>\nThen commit FIELD-RUNS.md through a toolkit PR.\n' "$why" "$B" "$WORK" "$log"
       } >> "$WORK/NEEDS-JUDGMENT.md" 2> /dev/null || true
     fi
   fi
