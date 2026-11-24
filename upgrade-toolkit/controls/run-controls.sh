@@ -1192,20 +1192,90 @@ ctl widgetroute-charts6-missing-catch 1 '^ROUTE Shop: Any Chart 3\.x .*-> instal
   '^  Applied: will apply A on your OK: install Charts 6\.x' -- $WRP $(model widgetroute-nocharts6) --target 11.12.7
 ctl widgetroute-outside-data-view-catch 1 '^ROUTE Shop: Any Chart 3\.x used 1x outside a data view in SNIP_Total -> put a data view around each, then rerun.*\[ASK\]' '^  OUTSIDE-DATA-VIEW Shop\.SNIP_Total anyChart4$' \
   '^  Applied: not yet: the snippet has no object parameters' '!WOULD-(REPLACE|WRAP) Shop\.SNIP_Total' -- $WRP $(model widgetroute-bare) --target 11.12.7
-# widgetvalues.py (GF-44, a field run): two update-widgets passes put a widget's configured settings (two microflow references,
-# two URL values) back to the package defaults; mx check named only the two now-required ones and no rung compared values.
-# A value set before and empty after FAILs naming document, widget and property; an unchanged value passes; a property the
-# new package dropped or renamed is named and does not fail; only widgets of a package the step changed are compared
-echo 'widgets/Dock.mpk Dock 12.0.0 -> 10.0.0' > $T/wv-changed.txt; echo 'widgets/Other.mpk Other 1.0.0 -> 2.0.0' > $T/wv-other.txt
-WV=$T/wv; for n in old reset same gone; do python3 $here/lib/mkmodel.py $FX/models/widgetvalues-$n.json $WV/$n > /dev/null || { echo "mkmodel widgetvalues-$n failed"; exit 2; }; done
-ctl widgetvalues-reset-catch 1 '^WIDGET-RESET Shop\.Home dock1 \(com\.example\.widget\.web\.Dock\) getMf: was Shop\.DS_Options, now empty$' '^WIDGET-RESET Shop\.Home dock1 .* userMf: was Shop\.DS_User, now empty$' '^WIDGET-RESET Shop\.Home dock1 .* prodUrl: was https://one\.example/a, now empty$' '!title' '^widgetvalues: FAIL, 3 of 3 configured value\(s\) reset on 1 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/reset --changed $T/wv-changed.txt
-ctl widgetvalues-unchanged-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 3 configured value\(s\) reset on 1 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/same --changed $T/wv-changed.txt
-ctl widgetvalues-gone-catch 0 '^WIDGET-PROP-GONE Shop\.Home dock1 .* getMf: was Shop\.DS_Options; the new package removed it$' '^WIDGET-PROP-GONE Shop\.Home dock1 .* prodUrl: was https://one\.example/a; renamed to serviceUrl' '!WIDGET-RESET' '2 property\(ies\) gone' -- python3 $B/widgetvalues.py $WV/old $WV/gone
-ctl widgetvalues-unrelated-package-pass 0 '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 0 configured value\(s\) reset on 0 widget instance' -- python3 $B/widgetvalues.py $WV/old $WV/reset --changed $T/wv-other.txt
-ctl widgetvalues-noproject-pass 2 'no such project' -- python3 $B/widgetvalues.py $WV/old $WV/none
-# the producers: stepupdate runs it after widgetdiff on the step's prevtree, the pipeline's update_widgets around each pass
-ctl stepupdate-widgetvalues-wired-catch 0 'widgetvalues\.py" "\$prevmpr" "\$app/\$mpr" --changed' 'WIDGET SETTINGS RESET by a step' -- grep -nE 'widgetvalues\.py" "\$prevmpr"|WIDGET SETTINGS RESET by a step' $B/stepupdate.sh
-ctl pipeline-update-widgets-widgetvalues-catch 0 'widgetvalues\.py" "\$wv/' 'WIDGET-RESET\|WIDGET-PROP-GONE' -- sed -n '/^update_widgets() {/,/^}/p' $B/cloud/upgrade-pipeline.sh
+# widgetvalues.py (GF-44, a field run): two update-widgets passes put a widget's configured settings back to the package
+# defaults; mx check named only the two now-required ones and no rung compared values. The fixtures are built from widgets
+# captured verbatim from a starter app model (fixtures/models/widgetvalues-real-widgets.json, its header says how): an Image
+# widget, a Language selector, a data grid drop-down filter with an object list, and a real microflow action. The captures hold
+# no widget whose datasource or action IS a microflow, so those two are the captured microflow nodes spliced into a captured
+# widget (the -old model). A reset names document, widget and property; a list that lost or cleared items is a reset; a gone
+# property and a missing widget instance are named and are not exit codes; a model that cannot be read is exit 2, never 1.
+WVD=$T/wvd; mkdir -p $WVD
+echo 'widgets/DropdownFilter.mpk DropdownFilter 1.0.0 -> 2.0.0' > $WVD/changed.txt; echo 'widgets/Other.mpk Other 1.0.0 -> 2.0.0' > $WVD/other.txt
+WVO=$(model widgetvalues-real-old); WVS=$(model widgetvalues-real-same); WVR=$(model widgetvalues-real-reset); WVC=$(model widgetvalues-real-cleared)
+WVM=$(model widgetvalues-real-missing); WVG=$(model widgetvalues-real-gone)
+ctl widgetvalues-reset-catch 1 '^WIDGET-RESET Shop\.Home image1 \(.*Image\) imageObject: was Shop\.Layout\.logo, now empty$' \
+  '^WIDGET-RESET Shop\.Home image1 .* onClick: was Multi, now empty$' '^WIDGET-RESET Shop\.Home imgAct .* onClick: was Shop\.ACT_Save, now empty$' \
+  '^WIDGET-RESET Shop\.Home langMf .* languageOptions: was Shop\.ACT_Save, now empty$' '^WIDGET-RESET Shop\.Home languageSelector1 .* languageOptions: was System\.Language, now empty$' \
+  '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 .* filterOptions: was 2 item\(s\), now 1$' '^widgetvalues: FAIL, 6 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVO $WVR
+ctl widgetvalues-list-cleared-catch 1 '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 .* filterOptions: was 2 item\(s\), now 0$' '^widgetvalues: FAIL, 1 of 15 configured value' -- python3 $B/widgetvalues.py $WVO $WVC
+ctl widgetvalues-missing-instance-catch 0 '^WIDGET-MISSING Shop\.Home imgAct \(.*Image\): 3 configured value\(s\), no such widget instance in the new model$' \
+  '^WIDGET-MISSING Shop\.Home dataGridDrop_downFilter1 .*: 5 configured value\(s\), no such widget' '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 7 .* 2 widget instance\(s\) with configured values missing in the new model' -- python3 $B/widgetvalues.py $WVO $WVM
+ctl widgetvalues-prop-gone-catch 0 '^WIDGET-PROP-GONE Shop\.Home image1 .* imageObject: was Shop\.Layout\.logo; the new package removed it$' \
+  '^WIDGET-PROP-GONE Shop\.Home languageSelector1 .* languageCaption: was \$currentObject/Description; renamed to captionExpr' '!WIDGET-RESET' '2 property\(ies\) gone' -- python3 $B/widgetvalues.py $WVO $WVG
+ctl widgetvalues-unchanged-pass 0 '!WIDGET-' '^widgetvalues: PASS, 0 of 15 configured value\(s\) reset on 5 widget instance' -- python3 $B/widgetvalues.py $WVO $WVS
+ctl widgetvalues-changed-package-catch 1 '^WIDGET-RESET Shop\.Home dataGridDrop_downFilter1 ' '!image1' '^widgetvalues: FAIL, 1 of ' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/changed.txt
+ctl widgetvalues-unrelated-package-pass 0 '!WIDGET-RESET' '^widgetvalues: PASS, 0 of 0 configured value\(s\) reset on 0 widget instance' -- python3 $B/widgetvalues.py $WVO $WVR --changed $WVD/other.txt
+ctl widgetvalues-noproject-exit2-catch 2 'no such project' -- python3 $B/widgetvalues.py $WVO $WVD/none
+mkdir -p $WVD/junk; echo 'not a project' > $WVD/junk/App.mpr
+ctl widgetvalues-junk-model-exit2-catch 2 '!Traceback' '!^widgetvalues: PASS' -- python3 $B/widgetvalues.py $WVO $WVD/junk
+ctl widgetvalues-junk-old-model-exit2-catch 2 '!Traceback' '!^widgetvalues: PASS' -- python3 $B/widgetvalues.py $WVD/junk $WVR
+# the old side is parsed once and kept (--cache): the second run says the same, and a cache made for another old model is never trusted
+ctl widgetvalues-cache-pass 0 '^cache-written$' '^cache-same$' '^cache-not-stale$' -- bash -c "python3 $B/widgetvalues.py $WVO $WVR --cache $WVD/c.json > $WVD/c1.txt; python3 $B/widgetvalues.py $WVO $WVR --cache $WVD/c.json > $WVD/c2.txt; [ -s $WVD/c.json ] && echo cache-written; cmp -s $WVD/c1.txt $WVD/c2.txt && echo cache-same; python3 $B/widgetvalues.py $WVR $WVS --cache $WVD/c.json > $WVD/c3.txt; grep -q '^WIDGET-RESET' $WVD/c3.txt || echo cache-not-stale"
+# the pipeline's update_widgets compares with the RUN's first model (\$WORK/original.mpr), never the model one pass started from:
+# a value that went 12 -> 10 in one pass and back in the next is no change per pass. heavy() stands in for the update-widgets pass
+cat > $WVD/uw.sh <<'UWEOF'
+B=$1; PIPE=$2; WORK=$3; OLD=$4; shift 4
+APP=$WORK/app; mkdir -p "$APP"; cp "$OLD/App.mpr" "$WORK/original.mpr"; cp "$OLD/App.mpr" "$APP/App.mpr"
+MPR=$APP/App.mpr; DRY=${DRY:-0}; TARGET=11.12.7; NEWS=("$@"); PASS=0
+note() { echo "NOTE: $*"; }
+mpr_v2() { return 1; }
+mxcli_bin() { echo mxcli; }
+heavy() { [ "${HRC:-0}" = 0 ] || return "$HRC"; local n=${NEWS[$PASS]:-=}; [ "$n" = = ] || cp "$n/App.mpr" "$MPR"; return 0; }
+eval "$(sed -n '/^update_widgets() {/,/^}/p; /^widgetvalues_note() {/,/^}/p' "$PIPE")"
+for i in "${!NEWS[@]}"; do PASS=$i; echo "--- pass $((i + 1))"; update_widgets; echo "rc=$?"; done
+UWEOF
+UW() { local n=$1; shift; bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-$n "$@"; }
+ctl pipeline-update-widgets-reset-catch 0 '^        WIDGET-RESET Shop\.Home image1 ' '^NOTE: widgetvalues after update-widgets: configured widget settings were reset to the package defaults' '^rc=0$' -- UW reset $WVO $WVR
+ctl pipeline-update-widgets-round-trip-catch 0 '^--- pass 2$' '^NOTE: widgetvalues after update-widgets: configured widget settings were reset' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW trip $WVO $WVR = | sed -n '/^--- pass 2/,\$p'"
+ctl pipeline-update-widgets-prop-gone-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget propert\(ies\) no longer exist in the new package' '!configured widget settings were reset' -- UW gone $WVO $WVG
+ctl pipeline-update-widgets-missing-instance-catch 0 '^NOTE: widgetvalues after update-widgets: 2 widget instance\(s\) with configured values are missing in the new model' -- UW missing $WVO $WVM
+ctl pipeline-update-widgets-could-not-compare-catch 0 '^NOTE: widgetvalues could not compare the widget settings after update-widgets \(exit 2\)' '!configured widget settings were reset' '^rc=0$' -- UW junk $WVD/junk $WVR
+ctl pipeline-update-widgets-clean-pass 0 '^rc=0$' '!NOTE' '!WIDGET-' -- UW clean $WVO $WVS
+ctl pipeline-update-widgets-failed-pass-passes-rc-pass 0 '^rc=3$' '!NOTE' '!WIDGET-' -- env HRC=3 bash $WVD/uw.sh $B $B/cloud/upgrade-pipeline.sh $WVD/w-fail $WVO $WVR
+ctl pipeline-update-widgets-no-copy-pass 0 '^no-copy$' -- bash -c "$(declare -f UW); WVD=$WVD; B=$B; UW nocopy $WVO $WVR > /dev/null; [ ! -e $WVD/w-nocopy/widgetvalues-before ] && [ -s $WVD/w-nocopy/widgetvalues-original.json ] && echo no-copy"
+# stepupdate: the old side is --baseline (the run's original.mpr) or, with none, a snapshot of the first step's start; every step is
+# compared (stepupdate never runs update-widgets itself: a step's own update does); the exit comes after the roles block
+wv_app() { mkdir -p $WVD/$1; cp -R $2/. $WVD/$1/; (cd $WVD/$1 && git init -q && git add . && git -c user.email=c@c -c user.name=ctl commit -qm base); }
+wv_app su-reset $WVO; wv_app su-clean $WVO; wv_app su-nobase $WVO; wv_app su-roles $WVO; wv_app su-snapclean $WVO
+printf '1 1.0.0 Dock\n' > $WVD/plan.txt
+WVRO=$(model widgetvalues-real-roles-old); WVRR=$(model widgetvalues-real-roles-reset); wv_app su-both $WVRO
+SU() { local app=$1 new=$2; shift 2; env UPG_UPDATE_CMD="cp $new/App.mpr {mpr}" bash ${SUB:-$B}/stepupdate.sh $WVD/$app $WVD/plan.txt "$@"; }
+ctl stepupdate-widgetvalues-reset-catch 1 '^   WIDGET-RESET Shop\.Home image1 .* imageObject: was Shop\.Layout\.logo, now empty$' '^stepupdate: WIDGET SETTINGS RESET by a step' \
+  '^   WIDGET-VALUES: Dock 1\.0\.0: 6 widget setting\(s\) reset to the package default \(compared with the run' -- SU su-reset $WVR --baseline $WVO/App.mpr
+ctl stepupdate-widgetvalues-first-snapshot-catch 1 '^   WIDGET-RESET Shop\.Home imgAct ' '^stepupdate: WIDGET SETTINGS RESET by a step' -- SU su-nobase $WVR
+ctl stepupdate-widgetvalues-clean-pass 0 '!WIDGET' '!stepupdate: WIDGET' -- SU su-clean $WVS --baseline $WVO/App.mpr
+ctl stepupdate-widgetvalues-and-new-roles-catch 1 '^stepupdate: WIDGET SETTINGS RESET by a step' '^stepupdate: NEW MODULE ROLES with no user role' -- SU su-both $WVRR --baseline $WVRO/App.mpr
+# a bin folder whose widgetvalues.py cannot read the models (exit 2): the comparison did not run, which is never "nothing reset"
+mkdir -p $WVD/bin-nowv; for f in $B/*; do ln -s $f $WVD/bin-nowv/$(basename $f); done; rm $WVD/bin-nowv/widgetvalues.py; printf 'import sys\nprint("widgetvalues: cannot read the project", file=sys.stderr)\nsys.exit(2)\n' > $WVD/bin-nowv/widgetvalues.py
+ctl stepupdate-widgetvalues-not-run-catch 1 '^   WIDGET-VALUES: widgetvalues\.py could not judge Dock' '^stepupdate: WIDGET-VALUES NOT RUN for: Dock' '!^stepupdate: WIDGET SETTINGS RESET' -- env SUB=$WVD/bin-nowv bash -c "$(declare -f SU); WVD=$WVD; B=$B; SU su-roles $WVR --baseline $WVO/App.mpr"
+ctl stepupdate-widgetvalues-first-snapshot-pass 0 '!WIDGET' -- SU su-snapclean $WVS
+# the pipeline puts a stepupdate reset into the run notes (run_stepupdate), and a comparison that did not run too
+cat > $WVD/rs.sh <<'RSEOF'
+B=$1; PIPE=$2; WORK=$3; APP=$4; PLAN=$5; NEW=$6; BASE=$7; DRY=0; RUN=$WORK; LOG=$WORK/log; mkdir -p "$WORK"; : > "$LOG"
+note() { echo "NOTE: $*"; }
+die4() { echo "DIE4: $*"; exit 4; }
+stepcheck_stop() { :; }
+project_version() { echo 11.12.7; }
+nj_meta() { :; }; nj_add() { :; }; nj_flush() { :; }
+cp "$BASE" "$WORK/original.mpr"
+export UPG_NO_STEPCHECK=1 UPG_UPDATE_CMD="cp $NEW/App.mpr {mpr}"
+eval "$(sed -n '/^xo() {/,/^}/p; /^quoted() {/,/^}/p; /^run_stepupdate() {/,/^}/p' "$PIPE")"
+run_stepupdate "$PLAN" post-convert; echo "rc=$?"
+RSEOF
+RS() { local n=$1 app=$2 new=$3 base=$4 bd=${5:-$B}; wv_app rs-$n $app; bash $WVD/rs.sh $bd $B/cloud/upgrade-pipeline.sh $WVD/rw-$n $WVD/rs-$n $WVD/plan.txt $new $base; }
+ctl pipeline-stepupdate-widget-reset-noted-catch 0 '^NOTE: widget settings were reset to the package defaults by the post-convert batch' '^rc=0$' -- RS reset $WVO $WVR $WVO/App.mpr
+ctl pipeline-stepupdate-widget-clean-pass 0 '!^NOTE: widget' '^rc=0$' -- RS clean $WVO $WVS $WVO/App.mpr
+ctl pipeline-stepupdate-widget-not-compared-noted-catch 0 '^NOTE: widget settings not compared after the post-convert batch' '^rc=0$' -- RS notrun $WVO $WVR $WVO/App.mpr $WVD/bin-nowv
 # the item shape (owner's rule): every item a person sees says what was searched, the candidates with one recommended, and
 # what was applied; it never says only "no replacement"
 ctl widgetroute-item-shape-catch 1 '^## Any Chart 3\.x in Shop: 1 outside a data view, a data view by hand recommended$' '^Found: Any Chart 3\.x on 1 snippet \(1 use\) in module Shop' \

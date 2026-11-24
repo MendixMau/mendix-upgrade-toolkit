@@ -1727,6 +1727,12 @@ run_stepupdate() { # run_stepupdate PLAN label
   elif [ "$DRY" != 1 ] && grep -q '^stepupdate: BATCH-IDCHECK could not run' "$WORK/stepupdate-$2.out" 2> /dev/null; then
     note "batch idcheck not run after the $2 batch, see $WORK/stepupdate-$2.out; the total idcheck after the routes and replays still runs"
   fi
+  # GF-44: stepupdate compares the widget settings with the run's first model; its reset (exit 1) is said in the run notes too
+  if [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET SETTINGS RESET' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "widget settings were reset to the package defaults by the $2 batch (compared with the run's first model), see $WORK/stepupdate-$2.out and $APP/.stepupdate/widgetvalues.txt"
+  elif [ "$DRY" != 1 ] && grep -q '^stepupdate: WIDGET-VALUES NOT RUN' "$WORK/stepupdate-$2.out" 2> /dev/null; then
+    note "widget settings not compared after the $2 batch (the comparison could not run), see $WORK/stepupdate-$2.out: do not read this as 'nothing was reset'"
+  fi
   if [ "$rc" -gt 1 ]; then die4 "stepupdate ($2) failed (exit $rc), output: $WORK/stepupdate-$2.out"; fi
   return 0
 }
@@ -1992,19 +1998,31 @@ storage_ok() { # storage_ok "what": 0 = format unchanged, else says so, undoes t
 }
 mxcli_bin() { if [ -n "${MXCLI:-}" ] && [ -x "$MXCLI" ]; then echo "$MXCLI"; else echo "$B/mxcli-container.sh"; fi; }
 update_widgets() { # row 5: mx update-widgets on MPR v1; on MPR v2 it rewrites the project as v1 (GF-42, NR2-14), so mxcli fix widgets
-  local rc=0 wv="$WORK/widgetvalues-before" mdir
-  # GF-44: a pass can put a widget's configured settings back to the package defaults; keep the model it started from
-  rm -rf "$wv"; mkdir -p "$wv"; cp "$MPR" "$wv/" 2> /dev/null; mdir=$(dirname "$MPR")/mprcontents
-  [ ! -d "$mdir" ] || cp -R "$mdir" "$wv/" 2> /dev/null
+  local rc=0
   if mpr_v2; then "$B/heavy-lock.sh" fix-widgets "$(mxcli_bin)" fix widgets -p "$MPR" || rc=$?
   else heavy update-widgets "$TARGET" mx update-widgets "$MPR" || rc=$?; fi
-  if [ "$rc" = 0 ] && [ -f "$wv/$(basename "$MPR")" ]; then
-    python3 "$B/widgetvalues.py" "$wv/$(basename "$MPR")" "$MPR" > "$WORK/widgetvalues.out" 2>&1; local wrc=$?
-    grep -E '^(WIDGET-RESET|WIDGET-PROP-GONE|widgetvalues:)' "$WORK/widgetvalues.out" | sed 's/^/        /'
-    [ "$wrc" = 0 ] || note "widgetvalues exit $wrc after update-widgets: configured widget settings may have been reset to the package defaults, see $WORK/widgetvalues.out (steps/repair.md row 5)"
-  fi
-  rm -rf "$wv"
+  [ "$rc" = 0 ] && widgetvalues_note "after update-widgets"
   return $rc
+}
+# GF-44: a pass can put a widget's configured settings back to the package defaults. The comparison is always against the run's
+# first model ($WORK/original.mpr), never against the model one pass started from: a value that went 12 -> 10 in one pass and
+# back in the next would show as no change per pass. The old side is parsed once ($WORK/widgetvalues-original.json).
+# A reset, a gone property, a widget that vanished and a comparison that could not run are all run notes.
+widgetvalues_note() { # widgetvalues_note "after <what>"
+  [ "$DRY" != 1 ] && [ -f "$WORK/original.mpr" ] || return 0
+  local wrc=0 out="$WORK/widgetvalues.out" g
+  python3 "$B/widgetvalues.py" "$WORK/original.mpr" "$MPR" --cache "$WORK/widgetvalues-original.json" > "$out" 2>&1 || wrc=$?
+  grep -E '^(WIDGET-RESET|WIDGET-PROP-GONE|WIDGET-MISSING|widgetvalues:)' "$out" | sed 's/^/        /'
+  if [ "$wrc" = 1 ]; then
+    note "widgetvalues $1: configured widget settings were reset to the package defaults (compared with the run's first model), see $out; put them back before the build (steps/repair.md row 5)"
+  elif [ "$wrc" -gt 1 ]; then
+    note "widgetvalues could not compare the widget settings $1 (exit $wrc), see $out: do not read this as 'nothing was reset'; rerun bin/widgetvalues.py $WORK/original.mpr $MPR"
+  fi
+  g=$(grep -c '^WIDGET-PROP-GONE' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || note "widgetvalues $1: $g widget propert(ies) no longer exist in the new package, their configured values are gone, see $out (steps/repair.md row 5)"
+  g=$(grep -c '^WIDGET-MISSING' "$out" 2> /dev/null || true)
+  [ "${g:-0}" = 0 ] || note "widgetvalues $1: $g widget instance(s) with configured values are missing in the new model, see $out"
+  return 0
 }
 try_dprops() { # row 6: the guard around mx rename-design-properties; on MPR v2 the fixer is mxcli fix design-properties (GF-42)
   if mpr_v2; then try_fix "$1" repair-row-6 CE6087 "$B/repair/design_props_guard.sh" "$APP" "$TARGET" --fixed CE6087 -- "$(mxcli_bin)" fix design-properties -p APP
