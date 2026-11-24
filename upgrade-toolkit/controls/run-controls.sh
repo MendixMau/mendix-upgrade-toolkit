@@ -2652,6 +2652,18 @@ ctl stepupdate-storage-guard-unsure-not-undone-pass 0 'committed [0-9a-f]{7}' '!
 S5=$T/step-chk; mkdir -p $S5/app $S5/step1-adds; cp $M/base/App.mpr $S5/app/App.mpr; cp $M/step1-adds/App.mpr $S5/step1-adds/
 printf '120743 1.6.0 step1-adds\n' > $S5/plan.txt
 (cd $S5/app && git init -q && git add App.mpr && git -c user.email=c@c -c user.name=ctl commit -qm base)
+# SW-7: the module-update-added-errors stop is a decision item the owner is asked, also when decisions-open.json already holds an
+# agent item of the same step (a closed one hid the stop: "Nothing needed from you now" over a run blocked on the owner)
+SW7=$T/sw7; mkdir -p $SW7/w $SW7/w2
+printf '%s\n' 'nj_file() { nj_add "$1" "$2" "file: $3"; }' 'NJ_CODE=0; NJ_TMP='"$SW7"'/nj.tmp; : > $NJ_TMP; STEP=update' \
+  'nj_flush() { { printf "# NEEDS JUDGMENT: step update, exit 13\n\nrerun:\n\n    ./x --from update\n"; cat $NJ_TMP; } > $WORK/NEEDS-JUDGMENT.md; exit 13; }' > $SW7/stub.sh
+bash -c ". $SW7/stub.sh; . $SK/fns.sh; APP=$SK/app WORK=$SW7/w; stepcheck_stop x" > /dev/null 2>&1 || true
+cp $SW7/w/NEEDS-JUDGMENT.md $SW7/w2/; echo ModZ > $SW7/w2/step-keep.txt
+echo '{"items":[{"id":"mod-ModX","step":"update","question":"Update ModX?","options":[{"key":"keep","label":"keep"},{"key":"accept","label":"accept"}],"recommended":"keep","write_to":"step-keep.txt"}]}' > $SW7/w2/decisions-open.json
+ctl sw7-module-errors-stop-listed-pass 0 '^open items \(1\)' '^stop:update:[0-9]+  Updating ModX to 2\.0\.0 breaks the model: .*CE6085 x' 'keep \(recommended\)' 'accept: Carry on with the update' -- python3 $B/decisions.py pending --work $SW7/w
+ctl sw7-module-errors-stop-listed-with-closed-agent-item-catch 0 '^open items \(1\)' '^stop:update:[0-9]+  Updating ModX to 2\.0\.0 breaks the model' -- python3 $B/decisions.py pending --work $SW7/w2
+ctl sw7-module-errors-answer-writes-file-pass 0 '^ModX # \[item:stop:update:[0-9]+\] by Owner via chat: Keep ModX at the installed version' -- sh -c "python3 $B/decisions.py add --work $SW7/w --item \$(python3 $B/decisions.py pending --work $SW7/w | awk '/^stop:/{print \$1; exit}') --choice keep --by Owner --source chat > /dev/null && python3 $B/decisions.py apply --work $SW7/w; cat $SW7/w/step-keep.txt"
+
 printf '#!/bin/sh\nif cmp -s "$1" %s/step1-adds/App.mpr; then cp %s/after-worse.log "$2"; else cp %s/before.log "$2"; fi\n' $S5 $FX/check $FX/check > $S5/chk.sh
 printf '#!/bin/sh\ncp %s/before.log "$2"\n' $FX/check > $S5/chk-clean.sh
 printf '#!/bin/sh\nexit 0\n' > $S5/chk-none.sh

@@ -668,7 +668,10 @@ def build_model(work):
         seq = stop_seq(work, stopped[0])
         sid = f".{seq}" if seq > 1 else ""   # see stop_seq
     # exit 14 / 15 (the plan awaits sign-off, or is paused): the sign-off and the P-n items are the questions, no stop rows
-    if stopped and stopped[1] not in (14, 15) and not any(j.get("step") == stopped[0] for j in djo):
+    # SW-7: a person section with its own question and options (the module-update-added-errors stop, the widget-drop stop) is a
+    # decision the run waits on; an agent item of the same step in decisions-open.json (even a closed one) must not hide it
+    step_has_items = any(j.get("step") == stopped[0] for j in djo) if stopped else False
+    if stopped and stopped[1] not in (14, 15):
         for k, ((title, code, body), mt) in enumerate(zip(secs, meta), 1):
             if mt["owner"] in ("agent", "info"):
                 continue   # the agent's own task or a result listing: nothing for a person to answer
@@ -678,6 +681,8 @@ def build_model(work):
                      "problem": short(mt["body"], 400), "rec": mt["rec"], "rec_text": mt["rec_text"], "norec_why": mt["why"],
                      "options": [dict({"key": o[0], "label": o[1], "causes": o[2]}, **({"writes": [{"file": w[1], "line": w[2]} for w in mt["writes"] if w[0] == o[0]]} if any(w[0] == o[0] for w in mt["writes"]) else {})) for o in mt["options"]]})
                 continue
+            if step_has_items:
+                continue   # a plain section: the step's items in decisions-open.json already ask it (WM1)
             add({"id": f"stop:{stopped[0]}:{k}{sid}", "kind": "judgment", "dot": "bad", "title": title, "step": stopped[0],
                  "meta": f"The run stopped at {stopped[0]} (exit {code}) and waits for you",
                  "problem": short(re.sub(r"```.*?```", "", body, flags=re.S).strip() or body.strip(), 400),
