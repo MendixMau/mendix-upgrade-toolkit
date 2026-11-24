@@ -3707,6 +3707,11 @@ ctl shotdiff-texture-gone-catch 1 '^REVIEW +shots-Administrator/tex.*CONTENT LOS
 # one of three charts removed measures ~6.7%: above LOST_SEVERE (5%), below the earlier 8%
 ctl shotdiff-one-chart-removed-catch 1 '^REVIEW +shots-Administrator/dashboard.*CONTENT LOST .*7% of the page had content before' -- python3 $B/shotdiff.py $SH/onechart-old $SH/onechart-new
 # the count line carries the content-lost number (the gate row and the cockpit read it); the plain tone-only line has none
+# GF-54 r2: a pure reflow (the same amount of content moved: ~17% lost and ~17% gained) is CONTENT MOVED?, not CONTENT LOST;
+# the vanished-chart pair and the table-as-list shape (gained 1.4x lost) keep CONTENT LOST; a moved pair is not counted
+ctl shotdiff-reflow-moved-not-lost-pass 1 '^REVIEW +shots-Administrator/reflow.*CONTENT MOVED\?' '!CONTENT LOST' '!content lost\)' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new
+ctl shotdiff-reflow-json-moved-pass 1 '"severity": "moved"' '!content-lost' -- bash -c "python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new --json $T/reflow.json >/dev/null; r=\$?; cat $T/reflow.json; exit \$r"
+ctl shotdiff-list-for-table-still-lost-catch 1 '^REVIEW +shots-Administrator/listtable.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/listtable-old $SH/listtable-new
 ctl shotdiff-counts-line-content-lost-catch 1 '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/rank-old $SH/rank-new
 ctl shotdiff-counts-line-tone-only-pass 1 '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
 ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old $SH/same
@@ -10422,7 +10427,8 @@ ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmn
 ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
 ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
 # GF-54: the screens count line ends "(N content lost)": the brief and the rung sentence both say so
-ctl cockpit-screens-content-lost-named-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 lost content that was on the old screen\)\.$' '^3 screens changed and need a look \(2 lost content that was on the old screen\)' -- $CK lb-screens-lost
+ctl cockpit-screens-content-lost-named-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty, open those first\)' -- $CK lb-screens-lost
+ctl cockpit-screens-content-lost-with-unpinned-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty' -- $CK lb-screens-lost-unpinned
 ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
 # --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
 # terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end

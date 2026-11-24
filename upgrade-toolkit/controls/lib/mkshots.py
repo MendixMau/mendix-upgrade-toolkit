@@ -136,12 +136,34 @@ def texture_pairs(out, sd):
     png(f"{out}/jr-new/{sd}/j-Administrator-step2.png", page(charts=False))
 
 
+def reflow_pairs(out, sd):
+    """GF-54 r2. reflow-old/new: one striped block moved from the left to the right of the page (the same share lost
+    and gained, ~17% each: a reflow). listtable-old/new: a table block shrunk to a strip, with a wider block of list
+    rows added below it (lost ~5.5%, gained ~1.4x that, as on the field page where a table became a list)."""
+    def block(rows, x0, x1, y0, y1, step):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                rows[y][x] = 60 if (y // step) % 2 == 0 else 200
+    a, b = page(charts=False), page(charts=False)
+    block(a, 20, 160, 90, 300, 6)
+    block(b, 300, 440, 90, 300, 6)
+    png(f"{out}/reflow-old/{sd}/reflow-Administrator-step1.png", a)
+    png(f"{out}/reflow-new/{sd}/reflow-Administrator-step1.png", b)
+    c, d = page(charts=False), page(charts=False)
+    block(c, 20, 170, 100, 200, 5)          # old table
+    block(d, 20, 60, 100, 200, 5)           # the list keeps a strip of it ...
+    block(d, 20, 440, 230, 270, 5)          # ... and gains a wider block below
+    png(f"{out}/listtable-old/{sd}/listtable-Administrator-step1.png", c)
+    png(f"{out}/listtable-new/{sd}/listtable-Administrator-step1.png", d)
+
+
 def main():
     out = sys.argv[1]
     sd = "shots-Administrator"
     text_pairs(out, sd)
     rank_pairs(out, sd)
     texture_pairs(out, sd)
+    reflow_pairs(out, sd)
     login = page(charts=False)
     for v in ("old", "same", "empty", "missing", "notreach", "taller", "loading", "loadname"):
         png(f"{out}/{v}/{sd}/login-Administrator-step1.png", login)

@@ -1747,9 +1747,9 @@ def brief(work, model, rows, g, tl):
                 for m in [re.search(r"(\d+) REVIEW", r["detail"])] if m), 0)
     if scr:
         scl = next((int(m.group(1)) for r in cp.parse_gate(gs)["rungs"] if r["rung"] == "screens"
-                    for m in [re.search(r"\((\d+) content lost\)", r["detail"])] if m), 0)
+                    for m in [re.search(r"(\d+) content lost\)", r["detail"])] if m), 0)
         sc = (f"{scr} {'screen' if scr == 1 else 'screens'} changed and {'waits' if scr == 1 else 'wait'} for your look"
-              + (f" ({scl} lost content that was on the old screen)" if scl else "") + ".")
+              + (f" ({scl} had content where the new screen is empty, open those first)" if scl else "") + ".")
         broken = ("bad" if broken[0] == "bad" else "wait", ("Nothing counted as broken. " if broken[0] != "bad" else broken[1] + " ") + sc)
     if unm is None:
         if reg is not None:
