@@ -1409,11 +1409,23 @@ ENTRY_MIN_GROUP = 10   # SW-15 ASSUMED: a wave with at least this many journeys 
 
 
 def entry_key(d):
-    """The entry step of a journey: its first step without the counter. Journeys with the same key start the same way."""
+    """The entry step of a journey: where it goes (the step's name and actions), not what it checks next. Journeys with the same key
+    start the same way. Left out: the counter, `shown_if`, and `ui.ready`: gen_journeys.py makes the first step's ready the widget
+    of the journey's OWN next click, so 3 action journeys on one page would otherwise get 3 keys and never be probed together."""
     st = d.get("steps") or []
     if not st or not isinstance(st[0], dict):
         return None
-    return json.dumps({k: v for k, v in st[0].items() if k != "n"}, sort_keys=True)
+    k = {a: v for a, v in st[0].items() if a not in ("n", "shown_if")}
+    if isinstance(k.get("ui"), dict):
+        k["ui"] = {a: v for a, v in k["ui"].items() if a != "ready"}
+    return json.dumps(k, sort_keys=True)
+
+
+def entry_failures(w):
+    """The checks of the first step that say the step did not take the journey where it goes: the landing guard ("<step>: reached")
+    or an action that did not complete ("<step>: actions completed"). A data/OQL check of step 1 that is not PASS is not an entry failure."""
+    return [c for c in w["steps"][0].get("checks", [])
+            if c.get("verdict") != "PASS" and str(c.get("name", "")).endswith((": reached", ": actions completed"))]
 
 
 def entry_note(state, jid, w, ek):
@@ -1421,7 +1433,7 @@ def entry_note(state, jid, w, ek):
     if ek is None or not w or not w.get("steps"):
         return
     st = state.setdefault(ek, {"fail": 0, "ok": 0, "sigs": set(), "probes": [], "first": None})
-    bad = [c for c in w["steps"][0].get("checks", []) if c.get("verdict") != "PASS"]
+    bad = entry_failures(w)
     if not bad:
         st["ok"] += 1
         return
@@ -1436,9 +1448,12 @@ def entry_broken(st):
     return st["fail"] >= ENTRY_PROBE_K and st["ok"] == 0 and len(st["sigs"]) == 1
 
 
-def entry_suspect(state):
-    """Some first step has failed on every journey that tried it, but not yet ENTRY_PROBE_K times: keep the next batch small."""
-    return any(0 < st["fail"] < ENTRY_PROBE_K and st["ok"] == 0 and len(st["sigs"]) == 1 for st in state.values())
+def entry_suspect(state, left):
+    """Some first step has failed on every journey that tried it, but not yet ENTRY_PROBE_K times, and MORE than ENTRY_PROBE_K journeys
+    with that step are still to run in this batch (left = {entry key: how many}): keep the next batch small. A key nothing is left
+    behind is not worth a small batch: one stray step-1 failure among 100 journeys cost 28 runner processes, not 4."""
+    return any(0 < st["fail"] < ENTRY_PROBE_K and st["ok"] == 0 and len(st["sigs"]) == 1 and left.get(ek, 0) > ENTRY_PROBE_K
+               for ek, st in state.items())
 
 
 def write_summary(out, summary):
@@ -1712,12 +1727,13 @@ def main():
                 ap.error(f"--resume: no {out / 'summary.json'} to continue")
             prev = json.load(open(out / "summary.json"))
             capped = a.max_n is not None or a.budget_min is not None   # the pipeline's own --resume keeps its cap: it must not undo it
-            left = {j for j, s in prev["journeys"].items() if s.get("app_down") or (s.get("deferred") and not capped)}
+            # SW-15: a journey not walked because its entry step failed is walked again: the entry may be fixed, and a still-broken one is re-probed and blocked again
+            left = {j for j, s in prev["journeys"].items() if s.get("app_down") or s.get("blocked_by_entry") or (s.get("deferred") and not capped)}
             # GF-50: a run stopped before it finished (killed, reboot) wrote summary.json after each batch; the journeys it never
             # reached are not in it at all, and they are what --resume runs
             left |= {read_journey(f)["id"] for w in data_waves(Path(a.gen_dir) / "journeys", a.gen_dir) for f in w[3]} - set(prev["journeys"])
             only = (only & left) if only else left
-            print(f"resume: {len(only)} journeys not run last time (app went down, deferred by a cap, or never reached)", file=sys.stderr)
+            print(f"resume: {len(only)} journeys not run last time (app went down, deferred by a cap, entry step broken, or never reached)", file=sys.stderr)
 
         backend, pgenv = data_backend(a.psql, eng)
         summary = {"label": a.label, "port": a.port, "login_path": a.login_path, "engine_patches": patches,
@@ -1826,7 +1842,7 @@ def main():
                         continue
                 big = collections.Counter(entry_key(read_journey(f)) for f in files)
                 big.pop(None, None)
-                if len(files) > ENTRY_PROBE_K and (entry_suspect(st_k) or (key not in chunk_no and max(big.values(), default=0) >= ENTRY_MIN_GROUP)):
+                if len(files) > ENTRY_PROBE_K and (entry_suspect(st_k, big) or (key not in chunk_no and max(big.values(), default=0) >= ENTRY_MIN_GROUP)):
                     queue.appendleft((key, role, role_dir, files[ENTRY_PROBE_K:]))   # a small batch first: same order, same wave, a login more
                     files = files[:ENTRY_PROBE_K]
             first_chunk = key not in chunk_no
@@ -1948,6 +1964,7 @@ def main():
                 summary["roles"][key]["control_rows"] = rows
                 continue
             walked = {w["journey"]: w for w in F.get("walks", [])}
+            noted = []   # SW-15: (journey id, walk, entry key), folded into the entry state AFTER the app_alive check below
             for f in files:
                 jid = read_journey(f)["id"]
                 w = walked.get(jid)
@@ -1962,7 +1979,7 @@ def main():
                         summary["journeys"][jid]["why"] = seed[0]["detail"]
                     continue
                 if probing:
-                    entry_note(estate[key], jid, w, entry_key(read_journey(f)))
+                    noted.append((jid, w, entry_key(read_journey(f))))
                     walk_s += t_walk / max(1, len(walked)); walk_n += 1
                 checks = [c for s in w["steps"] for c in s["checks"]]
                 failed = [f"{c['verdict']} {c['name']} {c['detail']}".strip() for c in checks if c["verdict"] != "PASS"]
@@ -1985,6 +2002,9 @@ def main():
                         s.update(verdict="INVALID", why=DOWN_WHY, app_down=True, before_down=s.get("not_pass", [])[:2]); n += 1
                 summary["roles"][key]["app_down"] = True
                 print(f"app down: died during {key}; {n} journeys not judged", file=sys.stderr)
+            for jid, w, ek in noted:   # SW-15: a journey the app's death made INVALID says nothing about its entry step
+                if not summary["journeys"].get(jid, {}).get("app_down"):
+                    entry_note(estate[key], jid, w, ek)
         if prog:
             prog.finish(prog.base)
         if eblocked:   # SW-15: what was not walked, why, and what that saved; the journeys themselves are INVALID BLOCKED-BY-ENTRY above

@@ -1,0 +1,543 @@
+{
+ "tool": "action_inventory.py",
+ "model": "sw15-model/App.mpr",
+ "summary": {
+  "actions": 13
+ },
+ "summary_line": "actions 13 found",
+ "actions": [
+  {
+   "id": "Shop.Home.btn01",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn01",
+   "widget_type": "ActionButton",
+   "caption": "btn01",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn01",
+     "id": "Shop.Home.btn01",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn01",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn02",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn02",
+   "widget_type": "ActionButton",
+   "caption": "btn02",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn02",
+     "id": "Shop.Home.btn02",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn02",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn03",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn03",
+   "widget_type": "ActionButton",
+   "caption": "btn03",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn03",
+     "id": "Shop.Home.btn03",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn03",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn04",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn04",
+   "widget_type": "ActionButton",
+   "caption": "btn04",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn04",
+     "id": "Shop.Home.btn04",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn04",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn05",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn05",
+   "widget_type": "ActionButton",
+   "caption": "btn05",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn05",
+     "id": "Shop.Home.btn05",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn05",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn06",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn06",
+   "widget_type": "ActionButton",
+   "caption": "btn06",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn06",
+     "id": "Shop.Home.btn06",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn06",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn07",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn07",
+   "widget_type": "ActionButton",
+   "caption": "btn07",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn07",
+     "id": "Shop.Home.btn07",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn07",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn08",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn08",
+   "widget_type": "ActionButton",
+   "caption": "btn08",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn08",
+     "id": "Shop.Home.btn08",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn08",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn09",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn09",
+   "widget_type": "ActionButton",
+   "caption": "btn09",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn09",
+     "id": "Shop.Home.btn09",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn09",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn10",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn10",
+   "widget_type": "ActionButton",
+   "caption": "btn10",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn10",
+     "id": "Shop.Home.btn10",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn10",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn11",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn11",
+   "widget_type": "ActionButton",
+   "caption": "btn11",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn11",
+     "id": "Shop.Home.btn11",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn11",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Home.btn12",
+   "host": "Shop.Home",
+   "host_type": "Page",
+   "widget": "btn12",
+   "widget_type": "ActionButton",
+   "caption": "btn12",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Home",
+     "via": "menu",
+     "menu": [
+      "Home"
+     ],
+     "page": "Shop.Home",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btn12",
+     "id": "Shop.Home.btn12",
+     "on": "Shop.Home"
+    }
+   ],
+   "path_text": "as Clerk: menu: Home -> click btn12",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Home"
+   ],
+   "path_role": "Clerk"
+  },
+  {
+   "id": "Shop.Other.btnZ",
+   "host": "Shop.Other",
+   "host_type": "Page",
+   "widget": "btnZ",
+   "widget_type": "ActionButton",
+   "caption": "btnZ",
+   "action": "microflow",
+   "target": null,
+   "kind": "no-db-effect",
+   "effects": [],
+   "path": [
+    {
+     "entry": "Other",
+     "via": "menu",
+     "menu": [
+      "Other"
+     ],
+     "page": "Shop.Other",
+     "profile": "Responsive",
+     "profile_kind": "Responsive"
+    },
+    {
+     "click": "btnZ",
+     "id": "Shop.Other.btnZ",
+     "on": "Shop.Other"
+    }
+   ],
+   "path_text": "as Clerk: menu: Other -> click btnZ",
+   "roles": [
+    "Clerk"
+   ],
+   "fields": [],
+   "needs": [],
+   "todo": [],
+   "unknown": [],
+   "via_pages": [
+    "Shop.Other"
+   ],
+   "path_role": "Clerk"
+  }
+ ]
+}
