@@ -12,6 +12,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 PY="${PY:-python3}"
 DOCS="${DOCS:?set DOCS to a clone of github.com/mendix/docs}"
+[ -d "$DOCS/content/en/docs/releasenotes/studio-pro" ] || { echo "DOCS=$DOCS has no content/en/docs/releasenotes/studio-pro" >&2; exit 2; }
+: "${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY (extract_sp.py calls the API)}"
 cd "$HERE"
 echo "== 1. Studio Pro release notes"
 "$PY" extract_sp.py --docs "$DOCS"

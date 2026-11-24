@@ -1,6 +1,6 @@
 # Studio Pro 10: what an upgrader must know
 
-Source: docs.mendix.com release notes, extracted by Haiku, layer baseline. 1046 rows.
+Source: docs.mendix.com release notes, extracted by Haiku (rows whose record says model session-agent: by an agent session reading each bullet, same rules), layer baseline. 1046 rows.
 
 | version | date | type | area | change | affected | source |
 |---|---|---|---|---|---|---|

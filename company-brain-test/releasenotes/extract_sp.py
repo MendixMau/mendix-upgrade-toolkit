@@ -121,6 +121,8 @@ def main():
     root = Path(a.docs) / "content/en/docs/releasenotes/studio-pro"
     secs = [s for mj in a.majors.split(",") for f in sorted((root / mj.strip()).glob("*.md")) if f.name != "_index.md" for s in sections(f)]
     out_f = Path(a.out)
+    if not secs:
+        print(f"ERROR: no patch sections found under {root}", file=sys.stderr); sys.exit(1)
     done = set()
     if out_f.exists() and not a.force:
         done = {json.loads(l)["version"] for l in out_f.read_text().splitlines() if l.strip()}
@@ -144,6 +146,8 @@ def main():
             fh.flush(); n_items += len(items); toks[0] += ti; toks[1] += to
             if i % 25 == 0: print(f"  {i}/{len(todo)} sections, {n_items} items, {time.time()-t0:.0f}s", flush=True)
     print(f"done: {n_items} items, {n_err} errors, {toks[0]/1000:.0f}k in / {toks[1]/1000:.0f}k out, ~${toks[0]/1e6+toks[1]/1e6*5:.2f}, {time.time()-t0:.0f}s -> {out_f}")
+    if n_err:
+        print(f"ERROR: {n_err} section(s) failed; rerun to retry them", file=sys.stderr); sys.exit(1)
 
 
 if __name__ == "__main__":

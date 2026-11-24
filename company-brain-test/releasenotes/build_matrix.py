@@ -49,7 +49,7 @@ def main():
     for mj, rows in sorted(by_major.items()):
         rows.sort(key=lambda r: (vkey(r["version"]), r["change_type"]), reverse=True)
         lines = [f"# Studio Pro {mj}: what an upgrader must know\n",
-                 f"Source: docs.mendix.com release notes, extracted by Haiku, layer baseline. {len(rows)} rows.\n",
+                 f"Source: docs.mendix.com release notes, extracted by Haiku (rows whose record says model session-agent: by an agent session reading each bullet, same rules), layer baseline. {len(rows)} rows.\n",
                  "| version | date | type | area | change | affected | source |", "|---|---|---|---|---|---|---|"]
         for r in rows:
             lines.append(f"| {r['version']} | {esc(r.get('release_date'))} | {r['change_type']} | {r['area']} | {esc(r['text'])} | {esc(', '.join(r.get('affected') or []))} | [notes]({r['source']}) |")

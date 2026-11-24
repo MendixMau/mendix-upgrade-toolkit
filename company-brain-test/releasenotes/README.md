@@ -12,6 +12,7 @@ All input is public (docs.mendix.com release notes).
 
 Refresh: `DOCS=/path/to/docs-clone ./refresh_versions.sh` (needs the `anthropic` package and `ANTHROPIC_API_KEY`).
 Step 1 is incremental: only patch sections whose version is not yet in `sp-changes.jsonl` are extracted; `--force` rebuilds.
+Incremental mode skips a version once it is in `sp-changes.jsonl`, so later edits to the docs for that patch are missed; run `--force` (rewrites the whole file) from time to time.
 Copy the resulting `matrix/studio-pro-upgrade-*.md` into `../brain/baseline/versions/` (the script does).
 
 ## Record shape
