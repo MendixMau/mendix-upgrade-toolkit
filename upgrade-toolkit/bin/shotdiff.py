@@ -78,6 +78,7 @@ content appeared where the lost content was, so the detail starts "CONTENT MOVED
 prove a reflow: the same shares also read this way when a widget was swapped for a different one in the same place,
 and it never says that nothing is missing. Open both images. Field: 6 layout-only pairs measured gained 22-25% against
 lost 22-24% (moved); a table rendered as a list measured 7.6% gained against 5.4% lost (29% apart, still CONTENT LOST).
+Only gained cells on the rows that lost content (+-MOVED_ROWS, not the span between two separate losses) count.
 Gained content on other rows (a banner, a feedback button, a language selector added elsewhere) does not offset a loss:
 a removed chart plus an unrelated banner below stays CONTENT LOST. Known misses, both quiet: a block that moved to
 other rows (down the page) is not matched and reads CONTENT LOST, a false alarm; and a widget replaced in place by
@@ -309,8 +310,9 @@ def compare(old, new):
     extra = abs(len(og) - len(ng)) * GRID_W   # rows on one side only count as changed
     total += extra; changed += extra
     # GF-54 r3: a reflow puts the content back on the same rows (or the lost box spans the page); gained cells on rows
-    # well away from the lost rows (a banner or button added elsewhere) are not the lost content coming back
-    near = sum(1 for r in gr if lr and min(lr) - MOVED_ROWS <= r <= max(lr) + MOVED_ROWS)
+    # well away from every lost row (a banner or button added elsewhere) are not the lost content coming back
+    lrs = {x + d for x in lr for d in range(-MOVED_ROWS, MOVED_ROWS + 1)}   # the rows that lost content, +-MOVED_ROWS
+    near = sum(1 for r in gr if r in lrs)
     return {"old_size": [ow, oh], "new_size": [nw, nh], "changed": round(changed / total, 4) if total else 1.0,
             "lost": round(lost / total, 4) if total else 0.0,
             "gained": round(gained / total, 4) if total else 0.0,

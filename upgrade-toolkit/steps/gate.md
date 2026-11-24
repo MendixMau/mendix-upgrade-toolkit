@@ -111,8 +111,8 @@ endpoints listed by name (E2E-15); both together: `PASS (on stand-in APIs: App A
    PASS, or PASS* with a reason per accepted pair; REVIEW means open both images and decide: an expected change
    (new styling, a moved widget) goes into shot-accept.txt with the reason, anything else (an empty chart, missing
    rows, a lost widget) is a regression to repair; a REVIEW that starts "CONTENT LOST" (5% or more of the page
-   had content where the new screen is empty and no matching amount appeared elsewhere, GF-54; a field-calibrated guess,
-   not a proof) is listed first and is the one to open first, and the screens line ends "(N content lost)", which the gate
+   had content where the new screen is empty and no matching amount appeared on the same rows, GF-54; a field-calibrated guess,
+   not a proof; a block that moved down to other rows reads CONTENT LOST too, a known false alarm: open both images) is listed first and is the one to open first, and the screens line ends "(N content lost)", which the gate
    row and the cockpit repeat; "CONTENT MOVED?" means about as much content appeared on the same rows as vanished (it may be a reflow, or a widget swapped
    for another of the same size: it proves neither, and it can hide a real loss of that kind): still look, but it is
    not ranked first, and content added on other rows (a banner, a button) does not make a loss read MOVED?; a darkening or colour change that only scales the grey levels gets neither word.

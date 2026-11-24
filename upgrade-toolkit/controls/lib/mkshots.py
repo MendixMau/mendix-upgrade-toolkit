@@ -22,6 +22,8 @@ OUT/tex-old, tex-f30, tex-f25, tex-f50: a light low-contrast texture (spread ~10
 OUT/tex-gone: the same texture replaced by a flat page of the same mean (content really gone)
 OUT/onechart-old, onechart-new: the page with one of its three charts removed (~6.7% of the page)
 OUT/band4-old/-new, band28-old/-new: the reflow block moved right, 4.8 % / 28.6 % fewer cells gained than lost (GF-54 r3 band pins)
+OUT/twoloss-old/-new: chart removed + banner added below it + a separate small footer loss below the banner (GF-54 r4)
+OUT/rowoff-old/-new: a reflow whose gained bars sit one grid row below the lost bars (pins MOVED_ROWS)
 OUT/banner-old/-new: one of three charts removed (lost ~6.7 %) and an unrelated striped banner added below (gained 6.4 %, 4 % under the lost share globally, none on the lost rows)
 OUT/jr-old, jr-new: ONE journey, step1 tone-only, step2 content vanished (GF-54, run_journeys picks the worse screen)
 """
@@ -172,6 +174,24 @@ def reflow_pairs(out, sd):
     block(two, 0, 150, 340, 350, 4)             # a banner with a short second line
     png(f"{out}/banner-old/{sd}/banner-Administrator-step1.png", one)
     png(f"{out}/banner-new/{sd}/banner-Administrator-step1.png", two)
+    # GF-54 r4: two SEPARATE losses (a chart, and a footer item at y 345-358) with an unrelated banner between them: the
+    # span from the chart rows to the footer rows must not open the window to the banner
+    fo, fn = page(), page()
+    block(fo, 0, 150, 345, 358, 4)               # the footer item, gone in the new page
+    for y in range(90, 301):
+        for x in range(20, 161):
+            fn[y][x] = 245
+    block(fn, 0, W, 318, 338, 4)                 # the unrelated banner, two grid rows, between the two losses
+    # GF-54 r4: the lost bars sit on grid rows 10, 12, 14, 16, the gained bars (same size, other columns) on rows 11, 13, 15, 17:
+    # a reflow one row off, which reads MOVED? only while gained cells within one row of a lost row count (MOVED_ROWS=0 turns it LOST)
+    ro, rn = page(charts=False), page(charts=False)
+    for i in range(4):
+        block(ro, 20, 240, 100 + i * 20, 110 + i * 20, 4)
+        block(rn, 240, 460, 110 + i * 20, 120 + i * 20, 4)
+    png(f"{out}/rowoff-old/{sd}/rowoff-Administrator-step1.png", ro)
+    png(f"{out}/rowoff-new/{sd}/rowoff-Administrator-step1.png", rn)
+    png(f"{out}/twoloss-old/{sd}/twoloss-Administrator-step1.png", fo)
+    png(f"{out}/twoloss-new/{sd}/twoloss-Administrator-step1.png", fn)
 
 
 def main():

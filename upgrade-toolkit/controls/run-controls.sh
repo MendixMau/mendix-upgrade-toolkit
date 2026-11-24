@@ -3713,9 +3713,14 @@ ctl shotdiff-reflow-moved-not-lost-pass 1 '^REVIEW +shots-Administrator/reflow.*
 ctl shotdiff-reflow-json-moved-pass 1 '"severity": "moved"' '!content-lost' -- bash -c "python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new --json $T/reflow.json >/dev/null; r=\$?; cat $T/reflow.json; exit \$r"
 ctl shotdiff-list-for-table-still-lost-catch 1 '^REVIEW +shots-Administrator/listtable.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/listtable-old $SH/listtable-new
 # GF-54 r3: the moved rule counts only gained cells on the rows of the lost content (+-1 row): the same chart removal with an
-# unrelated banner added below stays CONTENT LOST (the global shares, 6.7 % lost / 5.2 % gained, used to read MOVED)
+# unrelated banner added below stays CONTENT LOST (the global shares, 6.7 % lost / 6.4 % gained, used to read MOVED)
 ctl shotdiff-removed-plus-unrelated-banner-catch 1 '^REVIEW +shots-Administrator/banner.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/banner-old $SH/banner-new
 # the band itself: 4.8 % apart is a reflow (MOVED_BAND=0.0 turns this red), 28.6 % apart is a loss (MOVED_BAND=0.30 turns this red)
+# GF-54 r4: the window is the rows that lost content +-1, not the span between two separate losses: a chart removed, a banner
+# added below it and a small footer item lost below the banner stays CONTENT LOST (the span used to open to the banner: 8.5 % lost / 8.3 % gained read MOVED?)
+ctl shotdiff-two-losses-banner-between-catch 1 '^REVIEW +shots-Administrator/twoloss.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/twoloss-old $SH/twoloss-new
+# the lower side of the window: bars gained one grid row off the lost bars still read MOVED? (MOVED_ROWS=0 turns this red)
+ctl shotdiff-moved-rows-one-row-off-moved-pass 1 '^REVIEW +shots-Administrator/rowoff.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/rowoff-old $SH/rowoff-new
 ctl shotdiff-moved-band-4pct-moved-pass 1 '^REVIEW +shots-Administrator/band4.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/band4-old $SH/band4-new
 ctl shotdiff-moved-band-28pct-lost-catch 1 '^REVIEW +shots-Administrator/band28.*CONTENT LOST' '!CONTENT MOVED' -- python3 $B/shotdiff.py $SH/band28-old $SH/band28-new
 ctl shotdiff-counts-line-content-lost-catch 1 '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/rank-old $SH/rank-new
