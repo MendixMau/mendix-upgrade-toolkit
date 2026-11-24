@@ -119,6 +119,9 @@ unset UPG_EXTRA UPG_ENV_FILE UPG_CA UPG_DRYRUN UPG_NAME
 # .../copilot-chat/debugCommand") split it, and 11 controls failed exit 127 on a healthy toolkit (2026-11-17)
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v ' ' | paste -sd: -); export PATH
 export UPG_COCKPIT_OPEN=0   # a control run never opens browser tabs (the live-cockpit controls turn it on with a stub opener)
+# Two suites on one machine share the mig-pg container: with fixed database names one run dropped the other's fixture
+# mid-control and 3 park/smoke-users controls FAILed on healthy branches (2026-11-19). Each run has its own names.
+export CTLDB=$$
 npass=0; nfail=0; nskip=0; failed=""; skipped=""
 
 # ctl NAME EXIT [PATTERN ...] -- CMD ...      PATTERN: egrep regex that must occur; !REGEX must not occur
@@ -2082,7 +2085,7 @@ ctl app-up-runtime-log-cmd-pass 0 'export UPG_RUNTIME_LOG_CMD="docker logs' -- g
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to
 # MendixSSO.MendixSSOUser by role); real Postgres, because the choice is made inside the DO block
 # PR-F32: --sole-target leaves each role with its smoke user only (the workflow targets "all users with role X")
-holders() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f28 -tA <<'SQL'
+holders() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f28_$CTLDB -tA <<'SQL'
 select 'holders ' || string_agg(r.name || '=' || u.name, ',' order by r.name, u.name) from "system$userroles" ur
   join "system$user" u on u.id = ur."system$userid" join "system$userrole" r on r.id = ur."system$userroleid";
 SQL
@@ -2093,53 +2096,55 @@ elif [ -n "$only" ] && ! printf '%s\n' smoke-users-spec-defaults-pass smoke-user
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then
   skip smoke-users-spec-defaults-pass "no running mig-pg or no python bcrypt"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 && docker exec mig-pg createdb -U mendix fx_ctl_gm30 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30 -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_gm30_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_gm30_$CTLDB -v ON_ERROR_STOP=1 < $FX/smoke-users/spec-defaults.sql > /dev/null
   ctl smoke-users-spec-defaults-pass 0 'smoke user smoke_clerk -> role Clerk \(Spec\.Staff\)' 'smoke user smoke_old -> role Old' '!ERROR' \
-    -- python3 $B/smoke_users.py fx_ctl_gm30 --entity Spec.Staff --apply
+    -- python3 $B/smoke_users.py fx_ctl_gm30_$CTLDB --entity Spec.Staff --apply
   ctl smoke-users-spec-defaults-row-pass 0 '^row f\|t\|0\|North\|$' '^acct Smoke Clerk\|t\|f$' '^stamp 1$' '^old f\|t\|f$' \
-    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30 -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff where id <> 900" -c "select 'stamp ' || count(*) from spec\$staff where id <> 900 and stamp is null" -c "select 'old ' || concat_ws('|', isactive, notify, opted) from spec\$staff where id = 900" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30 > /dev/null
+    -- docker exec -i mig-pg psql -U mendix -d fx_ctl_gm30_$CTLDB -tA -c "select 'row ' || concat_ws('|', isactive, notify, grade, region, coalesce(badge,'')) from spec\$staff where id <> 900" -c "select 'stamp ' || count(*) from spec\$staff where id <> 900 and stamp is null" -c "select 'old ' || concat_ws('|', isactive, notify, opted) from spec\$staff where id = 900" -c "select 'acct ' || concat_ws('|', fullname, islocaluser, ismanager) from administration\$account"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_gm30_$CTLDB > /dev/null
 fi
 if [ $fast = 1 ]; then skip smoke-users-per-role-pass "--fast"
 elif [ -n "$only" ] && ! printf '%s\n' smoke-users-per-role-pass smoke-users-shared-roles-catch smoke-users-sole-target-pass | grep -Eq "$only"; then :
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg || ! python3 -c "import bcrypt" 2> /dev/null; then
   skip smoke-users-per-role-pass "no running mig-pg or no python bcrypt"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28 && docker exec mig-pg createdb -U mendix fx_ctl_f28 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f28 -v ON_ERROR_STOP=1 < $FX/smoke-users/per-role.sql > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_f28_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f28_$CTLDB -v ON_ERROR_STOP=1 < $FX/smoke-users/per-role.sql > /dev/null
   ctl smoke-users-per-role-pass 0 'smoke_approver -> role Approver \(MendixSSO\.MendixSSOUser\)' 'smoke_viewer -> role Viewer \(Administration\.Account\)' \
     'smoke_admin -> role Admin \(Administration\.Account\)' \
     'smoke_ops -> role Ops \(MendixSSO\.MendixSSOUser\)' \
-    -- python3 $B/smoke_users.py fx_ctl_f28 --apply
+    -- python3 $B/smoke_users.py fx_ctl_f28_$CTLDB --apply
   ctl smoke-users-shared-roles-catch 0 'Approver=demo_approver,' '!sole target' -- sh -c "cat $T/out/smoke-users-per-role-pass.txt; $(declare -f holders); holders"
   ctl smoke-users-sole-target-pass 0 'sole target: role Approver taken from 2 other' 'smoke_approver took 2 domain link\(s\) of user id 14' 'sole target: role Admin taken from 3 other' \
     'holders Admin=smoke_admin,Approver=smoke_approver,Ops=smoke_ops,Viewer=smoke_viewer$' \
-    -- sh -c "python3 $B/smoke_users.py fx_ctl_f28 --sole-target --apply && $(declare -f holders); holders"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28 > /dev/null
+    -- sh -c "python3 $B/smoke_users.py fx_ctl_f28_$CTLDB --sole-target --apply && $(declare -f holders); holders"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f28_$CTLDB > /dev/null
 fi
 # PR-F33: the park fixture assigns a waiting task whose only target is one user to that user, and nothing else (a
 # task two users may take, one already assigned, one completed); real Postgres, the statement is one CTE
-assignees() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f33 -tA -c "select 'assignees ' || string_agg(t.name || '=' || u.name, ',' order by t.name) from \"system\$workflowusertask_assignees\" a join \"system\$workflowusertask\" t on t.id = a.\"system\$workflowusertaskid\" join \"system\$user\" u on u.id = a.\"system\$userid\""; }
+assignees() { docker exec -i mig-pg psql -U mendix -d fx_ctl_f33_$CTLDB -tA -c "select 'assignees ' || string_agg(t.name || '=' || u.name, ',' order by t.name) from \"system\$workflowusertask_assignees\" a join \"system\$workflowusertask\" t on t.id = a.\"system\$workflowusertaskid\" join \"system\$user\" u on u.id = a.\"system\$userid\""; }
 if [ $fast = 1 ]; then skip journeys-park-assign-pass "--fast"
 elif [ -n "$only" ] && ! printf '%s\n' journeys-park-assign-pass journeys-park-assign-again-pass | grep -Eq "$only"; then :
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mig-pg; then skip journeys-park-assign-pass "no running mig-pg"
 else
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33 && docker exec mig-pg createdb -U mendix fx_ctl_f33 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f33 -v ON_ERROR_STOP=1 < $FX/park/tasks.sql > /dev/null
-  PKA="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_f33', 0))"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_f33_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_f33_$CTLDB -v ON_ERROR_STOP=1 < $FX/park/tasks.sql > /dev/null
+  PKA="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_f33_$CTLDB', 0))"
   ctl journeys-park-assign-pass 0 '^assigned \(1, None\)$' '^assignees t1=smoke_approver,t3=demo_receiver$' \
     -- sh -c "python3 -c \"\$0\" && $(declare -f assignees); assignees" "$PKA"
   ctl journeys-park-assign-again-pass 0 '^assigned \(0, None\)$' -- python3 -c "$PKA"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33 > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_f33_$CTLDB > /dev/null
   # PR-P1 on the real statement: the newest waiting task of each user stays unassigned
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1 && docker exec mig-pg createdb -U mendix fx_ctl_p1 \
-    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_p1 -v ON_ERROR_STOP=1 < $FX/park/tasks-many.sql > /dev/null
-  PKP="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_p1'))"
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1_$CTLDB && docker exec mig-pg createdb -U mendix fx_ctl_p1_$CTLDB \
+    && docker exec -i mig-pg psql -q -U mendix -d fx_ctl_p1_$CTLDB -v ON_ERROR_STOP=1 < $FX/park/tasks-many.sql > /dev/null
+  PKP="import sys; sys.path.insert(0, '$B'); import run_journeys as r; print('assigned', r.assign_sole_targets('docker exec -i mig-pg psql -U mendix -d fx_ctl_p1_$CTLDB'))"
   ctl journeys-park-keep-pg-pass 0 '^assigned \(3, None\)$' -- python3 -c "$PKP"
   ctl journeys-park-keep-pg-again-pass 0 '^assigned \(0, None\)$' -- python3 -c "$PKP"
-  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1 > /dev/null
+  docker exec mig-pg dropdb -U mendix --if-exists fx_ctl_p1_$CTLDB > /dev/null
 fi
+# every database a control creates in mig-pg carries this run's suffix, so two suites side by side never share one
+ctl controls-db-per-run-pass 0 '^fixed 0$' -- sh -c "grep -oE 'createdb -U [m]endix fx_[^ ]+' '$here/run-controls.sh' | grep -vc '_[$]CTLDB$' | sed 's/^/fixed /'"
 # PR-P1: the park step leaves the newest M waiting tasks of each user unassigned (default 1), so "Assign to me" /
 # "Assign to user" (rendered only for a task nobody holds) has a target. Purchase Request: "park: assigned 14" left every
 # card on "Unassign" and 10 baseline defects. SQLite runs the selection (ASSIGN_PICK: the same CTEs and WHERE as the
@@ -4394,13 +4399,14 @@ case ${FAKE_CURL:-} in
 esac
 printf 'PK\003\004fake-jar' > "$out"
 EOF
+printf '#!/bin/sh\n[ "${FAKE_JAVA:-}" != fail ] || { echo "Error: Could not find or load main class org.antlr.v4.Tool" >&2; exit 1; }\necho "ANTLR Parser Generator  Version 4.13.2"\n' > $SC/bin/java   # GF-3: the java the jar smoke test runs
 printf '#!/bin/sh\necho "argv: $*" >> %s/mxcli.log; read -r t; echo "stdin: $t" >> %s/mxcli.log; mkdir -p "$HOME/.mxcli"; echo "{}" > "$HOME/.mxcli/auth.json"\n' $SC $SC > $SC/bin/mxcli
 printf '#!/bin/sh\ncase "$*" in *install*rsync*) printf "#!/bin/sh\\nexit 0\\n" > %s/rsync; chmod +x %s/rsync;; esac\nexit 0\n' $SC/bin2 $SC/bin2 > $SC/bin2/apt-get
 printf '#!/bin/sh\necho "E: Unable to locate package rsync" >&2; exit 100\n' > $SC/bin3/apt-get
 printf '#!/bin/sh\ncase "$*" in *"import sys"*) echo /fake/python3;; *"-m pip install"*) for a; do p=$a; done; touch %s/pip-$p;; *"import bson"*) [ -f %s/pip-pymongo ];; *"import bcrypt"*) [ -f %s/pip-bcrypt ];; *) exit 0;; esac\n' $SC $SC $SC > $SC/py-state
 chmod +x $SC/bin/* $SC/bin2/* $SC/bin3/* $SC/py-state
 JAR=4.13.2/antlr4-4.13.2-complete.jar; JD=$SC/home/.m2/repository/org/antlr/antlr4
-setup() { local h=$1; shift; env HOME=$SC/$h "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
+setup() { local h=$1; shift; env -u JAVA_HOME HOME=$SC/$h "$@" bash $B/setup-container.sh $SC/run-$h 11.6.3; }
 ctl setup-antlr-mirror-catch 0 'antlr jar: https://repo1\.maven\.org/maven2 failed' 'antlr jar placed from https://maven-central\.storage-download\.googleapis\.com/maven2' -- setup home PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
 ctl setup-antlr-jar-pass 0 '^PK' '!\.part' -- sh -c "head -c 2 $JD/$JAR; echo; ls $JD/4.13.2"
 ctl setup-antlr-present-pass 0 'antlr jar present' '!placed from|failed' -- setup home PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
@@ -4484,9 +4490,9 @@ rm -f $SC/bin2/rsync $SC/pip-*
 ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and bcrypt, rsync present\)' '!REFUSED' 'NOTE: no 10\.24 toolset' 'done: source' -- setup home-ok PATH=$SC/bin2:$NR UPG_PYTHON=$SC/py-state UPG_SETUP_STEPS=host,check
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
 ctl setup-check-no-rsync-catch 1 'NOT READY: rsync missing' '!done: source' -- setup home-nr PATH=$SC/bin3:$NR UPG_PYTHON=$T/py-ok UPG_SETUP_STEPS=host,check
-ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
-ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
-ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/upg-env.sh"
+ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
+ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
+ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
 # S1-S3 (Apple Silicon / laptop): setup-container.sh through stubbed uname (Darwin/arm64), docker, make, npm and npx; no real
 # Docker or Mac. S1 mxcli is cross-built GOOS=linux GOARCH=amd64 and a Mac's own mxcli is never replaced; S2 every docker
 # pull/build in step 4 carries --platform linux/amd64; S3 no /opt/pw-browsers = install Chromium (or a NEXT-STEP line
@@ -4494,7 +4500,8 @@ ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/h
 MAC=$T/mac; mkdir -p $MAC
 printf '#!/bin/sh\ncase "$1" in -m) echo ${FAKE_ARCH:-arm64};; *) echo ${FAKE_UNAME:-Darwin};; esac\n' > $MAC/uname
 printf '#!/bin/sh\necho "$*" >> "$HOME/docker.log"\ncase "$1 $2" in "image inspect") exit 1;; esac\nexit 0\n' > $MAC/docker
-printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
+cp $SC/bin/java $MAC/java
+printf '#!/bin/sh\nd=; v=; for a; do case $a in BUILD_DIR=*) d=${a#BUILD_DIR=};; VERSION=*) v=${a#VERSION=};; esac; done\necho "GOOS=$GOOS GOARCH=$GOARCH $*" >> "$HOME/make.log"\necho "java=$(command -v java)" >> "$HOME/make-java.log"\n[ -n "$d" ] || exit 0\nmkdir -p "$d"; printf "#!/bin/sh\\necho mxcli version $v\\n" > "$d/mxcli"; chmod +x "$d/mxcli"\n' > $MAC/make
 # MXCLI_REF: the source is fetched at the ref (never HEAD) by git, which is stubbed here; the stub make prints the VERSION it was given
 printf '#!/bin/sh\necho "git $*" >> "$HOME/git.log"\nexit 0\n' > $MAC/git
 printf '#!/bin/sh\nmkdir -p node_modules/playwright\n' > $MAC/npm
@@ -4531,6 +4538,95 @@ ctl setup-rsync-before-mxcli-apt-once-pass 0 '^apt-get update -q$' '^apt-get ins
 printf '#!/bin/sh\n' > $MR/rsync; chmod +x $MR/rsync
 ctl setup-rsync-present-no-apt-pass 0 '!rsync installed' -- mrsetup mr-has UPG_SETUP_STEPS=mxcli
 ctl setup-rsync-present-no-apt-log-pass 1 -- test -e $SC/mr-has/apt.log
+# GF-1: the old-style link is ~/Mendix/mendix-upgrade-toolkit; ~/Mendix/mxcli-project-toolkit (the build toolkit's clone) is never
+# touched, and an existing other checkout at the link path is warned about, not replaced
+mkdir -p $SC/gf1a/Mendix/mxcli-project-toolkit $SC/gf1b/Mendix/mendix-upgrade-toolkit
+ctl setup-gf1-link-own-name-pass 0 'toolkit at ' '!WARNING' -- setup gf1a UPG_SETUP_STEPS=link
+ctl setup-gf1-link-made-pass 0 '^same$' -- sh -c "[ \"\$(readlink -f $SC/gf1a/Mendix/mendix-upgrade-toolkit)\" = \"\$(readlink -f $B/../..)\" ] && echo same"
+ctl setup-gf1-build-toolkit-path-untouched-pass 0 '^none$' -- sh -c "ls -A $SC/gf1a/Mendix/mxcli-project-toolkit | grep . || echo none"
+ctl setup-gf1-link-other-checkout-catch 0 'WARNING: .*mendix-upgrade-toolkit is not this repo' 'left alone' -- setup gf1b UPG_SETUP_STEPS=link
+ctl setup-gf1-link-other-checkout-kept-pass 0 '^dir$' -- sh -c "[ -d $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && [ ! -L $SC/gf1b/Mendix/mendix-upgrade-toolkit ] && echo dir"
+# GF-3: the jar is smoke-tested with the java on PATH; a java that cannot read it stops setup and says what to set
+ctl setup-gf3-antlr-java-cannot-read-catch 2 'the java the build will use \(.*/bin/java\) cannot read .*antlr4-4\.13\.2-complete\.jar' 'first on PATH, or set JAVA_HOME' '!antlr jar present' -- setup gf3a PATH=$SC/bin:$NR FAKE_JAVA=fail UPG_SETUP_STEPS=antlr
+ctl setup-gf3-antlr-java-reads-pass 0 'antlr jar placed|antlr jar present' '!JAVA_HOME' -- setup gf3b PATH=$SC/bin:$NR UPG_SETUP_STEPS=antlr
+# the java on PATH is the broken wrapper, JAVA_HOME has a working one: setup puts JAVA_HOME first and smoke-tests that one
+mkdir -p $SC/jh/bin; cp $SC/bin/java $SC/jh/bin/java; printf '#!/bin/sh\necho "wrapper java: $*" >> %s/wrapper.log; echo "Error: Could not find or load main class org.antlr.v4.Tool" >&2; exit 1\n' $SC > $SC/wbin-java; mkdir -p $SC/wbin; cp $SC/wbin-java $SC/wbin/java; chmod +x $SC/jh/bin/java $SC/wbin/java
+ctl setup-gf3-java-home-first-pass 0 'antlr jar placed|antlr jar present' '!cannot read' -- setup gf3c JAVA_HOME=$SC/jh PATH=$SC/wbin:$SC/bin:$NR UPG_SETUP_STEPS=antlr
+ctl setup-gf3-java-home-first-wrapper-unused-pass 1 -- test -e $SC/wrapper.log
+# JAVA_HOME that does not run is ignored: the PATH java is the one tested and named
+ctl setup-gf3-java-home-broken-ignored-catch 2 "the java the build will use \\($SC/wbin/java\\) cannot read" -- setup gf3d JAVA_HOME=$SC/nonexistent-jdk PATH=$SC/wbin:$SC/bin:$NR UPG_SETUP_STEPS=antlr
+# the make steps (grammar generate, build) run the JAVA_HOME java too, not the PATH one: antlr4-tools inside make starts the java on PATH
+mkdir -p $SC/jhm/bin; cp $SC/bin/java $SC/jhm/bin/java; chmod +x $SC/jhm/bin/java
+ctl setup-gf3-make-steps-java-home-first-pass 0 -- macsetup mac-jh JAVA_HOME=$SC/jhm UPG_SETUP_STEPS=mxcli
+ctl setup-gf3-make-steps-see-java-home-catch 0 '^other=0$' '^lines=2$' -- sh -c "echo other=\$(grep -vc '^java=$SC/jhm/bin/java\$' $SC/mac-jh/make-java.log); echo lines=\$(wc -l < $SC/mac-jh/make-java.log | tr -d ' ')"
+# GF-4: the make prerequisites (a `go run` generator) run natively; only the final build carries GOOS/GOARCH
+ctl setup-gf4-prereqs-native-catch 0 '^GOOS= GOARCH= grammar sync-all completions$' -- cat $SC/mac-own/make.log
+ctl setup-gf4-build-cross-only-catch 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=' -- cat $SC/mac-own/make.log
+ctl setup-gf4-one-cross-call-pass 0 '^1$' -- sh -c "grep -c 'GOOS=linux' $SC/mac-own/make.log"
+# GF-5: one env file; setup-container.sh keeps what is outside its block (cloud/setup.sh's lines), never doubles its own, and
+# upg-env.sh only sources it; cloud/setup.sh keeps the block when it rewrites env.sh
+mkdir -p $SC/run-gf5; printf '# from cloud setup.sh\nexport KEEP_ME=1\n' > $SC/run-gf5/env.sh
+gf5() { env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-gf5 11.6.3 > /dev/null; }
+ctl setup-gf5-one-env-file-catch 0 '^export KEEP_ME=1$' '^export UPG_ROOT=.*/run-gf5 UPG_TOOLS=' -- sh -c "$(declare -f gf5); SC=$SC B=$B; gf5; cat $SC/run-gf5/env.sh"
+ctl setup-gf5-rerun-no-double-pass 0 '^1$' -- sh -c "$(declare -f gf5); SC=$SC B=$B; gf5; gf5; grep -c '^# >>> setup-container.sh' $SC/run-gf5/env.sh"
+ctl setup-gf5-upg-env-sources-pass 0 "^\\. \"$SC/run-gf5/env\\.sh\"\$" -- cat $SC/run-gf5/upg-env.sh
+mkdir -p $SC/run-gf5c; printf '# >>> setup-container.sh (x) >>>\nexport KEEP_BLOCK=1\n# <<< setup-container.sh <<<\n' > $SC/run-gf5c/env.sh
+ctl cloudsetup-gf5-envsh-keeps-block-catch 0 '^export KEEP_BLOCK=1$' '^export TK=' -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $SC/run-gf5c --source 9.24.10.18073 --target 10.24.28.129343 --only envsh > /dev/null; cat $SC/run-gf5c/env.sh"
+# when both wrote env.sh, the cloud lines come last (sourced last = win): its UPG_EXTRA carries https_proxy and NO_PROXY, the block's does not
+mkdir -p $SC/run-gf5d; printf '# >>> setup-container.sh (x) >>>\nexport UPG_EXTRA="from-block"\n# <<< setup-container.sh <<<\n' > $SC/run-gf5d/env.sh
+ctl cloudsetup-gf5-envsh-cloud-extra-wins-catch 0 '^extra=--network host .*https_proxy=.*NO_PROXY=localhost' '!from-block' -- sh -c "env HOME=$CS/home PATH=$CS/bin:\$PATH bash $B/cloud/setup.sh --run-dir $SC/run-gf5d --source 9.24.10.18073 --target 10.24.28.129343 --only envsh > /dev/null; sh -c '. $SC/run-gf5d/env.sh; echo extra=\$UPG_EXTRA'"
+mkdir -p $SC/run-gf5e; printf 'export UPG_EXTRA="from-cloud"\n' > $SC/run-gf5e/env.sh
+ctl setup-gf5-block-before-cloud-lines-catch 0 '^block-first$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-gf5e 11.6.3 > /dev/null; awk '/^# >>> setup-container.sh/{b=NR} /from-cloud/{c=NR} END{print (b && c && b<c) ? \"block-first\" : \"wrong-order\"}' $SC/run-gf5e/env.sh"
+# GF-6, GF-7: dockerhost.sh on Apple Silicon (stub uname and docker): Docker Desktop passes when an amd64 container shows Rosetta;
+# otherwise it stops with both ways out, the VM size, and the command that puts the docker context back; setup stops there too
+DHB=$T/dhb; mkdir -p $DHB $SC/dhhome
+printf '#!/bin/sh\ncase "$1" in -sm) echo Darwin arm64;; -m) echo arm64;; *) echo Darwin;; esac\n' > $DHB/uname
+cat > $DHB/docker <<'DOCK'
+#!/bin/sh
+case "$1 $2" in
+  "image inspect") [ "${FAKE_INSPECT:-}" != hang ] || { trap '' TERM; exec sleep 30; }
+                   [ "${FAKE_IMG:-0}" = 0 ] || exit 1; echo "${FAKE_ARCH:-amd64}"; echo "$3 $4 $5" >> "$HOME/inspect.log"; exit 0;;
+  "context inspect") echo unix:///nonexistent/docker.sock;;
+  "context show") echo desktop-linux;;
+  pull*) echo "$*" >> "$HOME/pull.log"; exit ${FAKE_PULL:-0};;
+  "rm -f") echo "$*" >> "$HOME/rm.log"; exit 0;;
+  run*) echo "$*" >> "$HOME/run.log"
+        # the field container ignores TERM: an attached `docker run` is not stopped by it either (ignored signals survive exec)
+        [ "${FAKE_RUN:-1}" != hang ] || { trap '' TERM; exec sleep 30; }
+        exit ${FAKE_RUN:-1};;
+esac
+exit 0
+DOCK
+chmod +x $DHB/*
+ctl dockerhost-gf6-desktop-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=0 bash $B/dockerhost.sh
+ctl dockerhost-gf6-desktop-qemu-catch 1 'no running container VM with Rosetta' 'Use Rosetta for x86_64/amd64 emulation' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
+# fresh Mac (setup calls dockerhost at step 3, before step 4 pulls anything): no image present, Rosetta on = passes, via a small amd64 probe image it pulls itself
+rm -rf $SC/dhfresh; mkdir -p $SC/dhfresh
+ctl dockerhost-gf6-fresh-mac-rosetta-pass 0 '^$' -- env PATH=$DHB:$NR HOME=$SC/dhfresh FAKE_IMG=1 FAKE_RUN=0 bash $B/dockerhost.sh
+ctl dockerhost-gf6-fresh-mac-pulled-amd64-probe-pass 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dhfresh/pull.log
+ctl dockerhost-gf6-fresh-mac-probe-ran-amd64-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- cat $SC/dhfresh/run.log
+rm -rf $SC/dhq; mkdir -p $SC/dhq
+ctl dockerhost-gf6-fresh-mac-qemu-catch 1 'no running container VM with Rosetta' '!could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhq FAKE_IMG=1 FAKE_RUN=1 bash $B/dockerhost.sh
+# no image and the pull fails: no probe is guessed, the refusal says why
+ctl dockerhost-gf6-no-image-pull-fails-no-probe-catch 1 'no running container VM with Rosetta' 'alpine:3 could not be pulled .*Rosetta could not be checked' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_IMG=1 FAKE_PULL=1 FAKE_RUN=0 bash $B/dockerhost.sh
+# a probe container that hangs (amd64 under qemu) is refused within the bound, not waited for
+# the hung probe (a container that ignores TERM, as the field one does) is stopped within the bound and its named container removed
+ctl dockerhost-gf6-probe-hang-bounded-catch 0 'no running container VM with Rosetta' '^done$' -- sh -c "rm -f $SC/dhhome/rm.log; env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo done"
+# the bound is a time bound: a probe that ignores TERM is KILLed 2 s after it (took= is whole seconds, 1 + 2 expected, 30 if the KILL is missing)
+ctl dockerhost-gf6-probe-hang-elapsed-bounded-catch 0 '^took=[0-9]$' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh > /dev/null 2>&1; echo took=\$((\$(date +%s) - t0))"
+# a hung `docker image inspect` (Docker Desktop wedged) is bounded too: the pipeline start must not hang on it
+rm -rf $SC/dhhang; mkdir -p $SC/dhhang
+ctl dockerhost-gf6-inspect-hang-bounded-catch 0 '^took=(1?[0-9])$' 'no running container VM with Rosetta' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhang FAKE_INSPECT=hang FAKE_RUN=1 UPG_PROBE_INSPECT_TIMEOUT=1 UPG_PROBE_PULL_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo took=\$((\$(date +%s) - t0))"
+ctl dockerhost-gf6-probe-hang-removes-container-catch 0 '^rm -f upg-rosetta-probe-[0-9]+-[0-9]+$' -- cat $SC/dhhome/rm.log
+ctl dockerhost-gf6-probe-named-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 ' -- head -1 $SC/dhhome/run.log
+# a local image is a probe only when it is amd64: an arm64 postgres:16 must not be chosen, alpine is pulled instead
+rm -rf $SC/dharm; mkdir -p $SC/dharm
+ctl dockerhost-gf6-arm64-local-image-not-probe-catch 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 --entrypoint sh alpine:3 ' -- sh -c "env PATH=$DHB:$NR HOME=$SC/dharm FAKE_ARCH=arm64 FAKE_RUN=0 bash $B/dockerhost.sh > /dev/null 2>&1; cat $SC/dharm/run.log"
+ctl dockerhost-gf6-arm64-local-image-pulls-amd64-catch 0 '^pull --platform linux/amd64 -q alpine:3$' -- cat $SC/dharm/pull.log
+ctl dockerhost-gf7-context-back-catch 1 'colima start -p upgrade --vm-type vz --vz-rosetta --cpu 6 --memory 12 --disk 60' 'docker context use desktop-linux' 'export DOCKER_HOST=unix://' -- env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=1 bash $B/dockerhost.sh
+ctl dockerhost-not-arm-mac-quiet-pass 0 '^$' -- env -u DOCKER_HOST PATH=$NR HOME=$SC/dhhome bash $B/dockerhost.sh
+ctl setup-gf6-docker-step-stops-catch 2 'NOT READY: dockerhost: no running container VM with Rosetta' -- env HOME=$SC/gf6a PATH=$DHB:$NR FAKE_RUN=1 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6a 11.6.3
+ctl setup-gf6-docker-step-rosetta-pass 0 'docker ' '!NOT READY' -- env HOME=$SC/gf6b PATH=$DHB:$NR FAKE_RUN=0 UPG_SETUP_STEPS=docker bash $B/setup-container.sh $SC/run-gf6b 11.6.3
 rm -f $MR/rsync
 mkdir -p $SC/tc-home
 ctl toolcheck-host-chromium-warn-catch 0 'WARNING, no Chromium for Playwright .*cd ~/mendix-playwright && npx --yes playwright@1\.56\.1 install chromium' 'host OK' '!REFUSED' -- env HOME=$SC/tc-home PLAYWRIGHT_BROWSERS_PATH= UPG_PW_OPT=$SC/nopw UPG_PYTHON=$T/py-ok zsh $B/toolcheck.sh --host
@@ -5379,8 +5475,8 @@ ctl reln-ev-cockpit-later-lane-pass 0 '^At deploy \| Go-live environment checkli
 ctl reln-ev-pipeline-pass 0 'riauto=\(--auto --evidence --facts-from-mpr' -- grep -n 'riauto=(' $B/cloud/upgrade-pipeline.sh
 # no brain at all: --evidence says so exactly as a run without it does (exit 2, no file written), never closing a row on nothing
 mkdir -p $RI/nohome
-ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
-ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
+ctl reln-ev-no-brain-says-so-catch 0 '^release_impact: no brain version tables under ' '!^evidence:' '!not relevant \(auto\)' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
+ctl reln-ev-no-brain-plain-same-pass 0 '^release_impact: no brain version tables under ' 'rc=2 file-written: no' -- sh -c "rm -f $RI/nb.md; env HOME=$RI/nohome UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/release_impact.py --from 10.0.0 --to 10.1.0 --out $RI/nb.md 2>&1; echo rc=\$? file-written: \$(test -f $RI/nb.md && echo yes || echo no)"
 BRV=${UPG_BRAIN:-$HOME/Mendix/<company>-brain}
 if [ -f $BRV/baseline/versions/studio-pro-upgrade-10.md ] && [ -f $BRV/baseline/versions/modules/task-queue-helpers.md ]; then
   # the real brain, read only. The 3.1.0 jump has no ShowSystemQueuesInCharts row in the brain (a gap, FEEDBACK V31-RI),
@@ -7893,16 +7989,21 @@ ctl gate-changes-unlabelled-keeps-rungs-pass 0 '\| 1 \| build \| PASS \|' '!\| F
 ctl gate-changes-no-repo-pass 0 'Overall: \*\*PASS\*\*' '!Changes:' -- gcase chno
 # DV-3: which brain was found is one line from brainpath.py --describe, at triage and in the gate summary
 BPH=$T/bph; mkdir -p $BPH/empty
-BPD() { env -u UPG_BRAIN HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix
-ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
+BPD() { env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME="$BPH/empty" "$@"; }   # an empty home: no local.env, no ~/Mendix; the brain this repo ships is skipped (the GF-10 controls use it)
+ctl brainpath-describe-none-catch 0 '^brain: none found \(looked: UPG_BRAIN unset, local\.env no entry, ~/Mendix/\*-brain none, this repo none\) - set UPG_BRAIN=<path>$' -- BPD python3 $B/brainpath.py --describe
 ctl brainpath-describe-upg-brain-pass 0 "^brain: $RB \(from UPG_BRAIN\)\$" '!none found' -- env HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-describe-bad-upg-brain-catch 0 '^brain: none found \(looked: UPG_BRAIN /nowhere/x has no baseline/versions tables' -- env HOME="$BPH/empty" UPG_BRAIN=/nowhere/x python3 $B/brainpath.py --describe
 mkdir -p $BPH/h2/.config/upgrade-toolkit; echo "UPG_BRAIN=$RB" > $BPH/h2/.config/upgrade-toolkit/local.env
 ctl brainpath-describe-local-env-pass 0 "^brain: $RB \(from local\.env\)\$" -- env -u UPG_BRAIN HOME="$BPH/h2" python3 $B/brainpath.py --describe
 mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
-ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
-gbr() ( export HOME="$BPH/empty"; unset UPG_BRAIN; gcase "$@" )
+ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
+# GF-10: without UPG_BRAIN and with no brain under ~/Mendix, the brain this repo ships is found
+ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from this repo\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
+ctl brainpath-gf10-shipped-plain-pass 0 '/company-brain-test/brain$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
+ctl brainpath-gf10-upg-brain-first-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
+ctl brainpath-gf10-home-brain-first-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $B/brainpath.py --describe
+gbr() ( export HOME="$BPH/empty" UPG_BRAIN_SHIPPED=0; unset UPG_BRAIN; gcase "$@" )
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
@@ -8299,7 +8400,7 @@ printf 'TaskQueueHelpers 2.0.2 -> 3.1.0\nFakeModuleXyz 1.0.0 -> 2.0.0\n' > $PR/u
 python3 $B/release_impact.py --brain $RB --from 10.24.16 --to 11.12.2 --plan $FX/release-impact/plan-unknown.txt --out $PR/unk/release-impact.md > /dev/null || true
 # extra Not covered rows (appended like release_impact writes them): a Studio Pro gap, a row with a handled entry, a held module, another cause
 cp $PR/kept/kept.txt $PR/unk/kept.txt
-sed -i '/^| [0-9]* | FakeModuleXyz | UNKNOWN /a\
+sedi '/^| [0-9]* | FakeModuleXyz | UNKNOWN /a\
 | 90 | Studio Pro | UNKNOWN | no release-note rows above the brain version | |\
 | 91 | HandledMod | UNKNOWN | no brain file for HandledMod | not relevant: read by hand, nothing applies |\
 | 92 | DataWidgets | UNKNOWN | no brain file for DataWidgets | |\
@@ -8628,6 +8729,10 @@ export UPG_PRIVATE_NAMES=$T/cn-names.txt   # every later control: the made-up li
 RL=$T/runlog; mkdir -p $RL; RLF=$TK/controls/fixtures/runlog/b6checklist
 rl() { python3 -I $B/runlog.py "$@"; }
 cp -R $RLF $RL/w1
+# GF-53: by hand without --log the row goes into the run folder (as the pipeline does), the toolkit checkout's FIELD-RUNS.md is not written
+cp -R $RLF $RL/wdef; TKLOG=$B/../FIELD-RUNS.md; TKSUM=$([ -f $TKLOG ] && cksum < $TKLOG || echo none)
+ctl runlog-default-log-run-folder-catch 0 '^rows=1$' -- sh -c "python3 -I $B/runlog.py --work $RL/wdef --app CODE-A --type 'template app' > /dev/null 2>&1; echo rows=\$(grep -c '^| 2' $RL/wdef/FIELD-RUNS.md)"
+ctl runlog-default-log-toolkit-untouched-pass 0 '^same$' -- sh -c "[ \"\$([ -f $TKLOG ] && cksum < $TKLOG || echo none)\" = \"$TKSUM\" ] && echo same"
 ctl runlog-append-row-pass 0 '^\| 20261013041248 \| CODE-A \| template app \| 10\.24\.27\.128337 → 11\.12\.5 \| yes \| yes \| 7 of 10 \(70%\) · INVALID \(exit 2\) \| 0 \| old app 53 pass / 126 fail; 0 regression\(s\); coverage 53/295 \(17%\) \| .* \| smoke NOT RUN; journeys INVALID; owner sign-off pending \| 2026-10-13 \| not recorded \| not recorded \|$' 'rows=1' \
   -- sh -c "python3 -I $B/runlog.py --work $RL/w1 --log $RL/log1.md --app CODE-A --type 'template app' > /dev/null 2>&1; grep -E '^\| 2' $RL/log1.md; echo rows=\$(grep -c '^| 2' $RL/log1.md)"
 # no Progress line in the summary (an older run): the cell says so, it does not compute one
@@ -8815,7 +8920,8 @@ arcase() { # arcase NAME EXITCODE [VAR=VALUE...]: a new work folder (golden gate
   [ -z "${AR_LOG:-}" ] || cp "$AR_LOG" $AR/$n/FIELD-RUNS.md
   [ -z "${AR_APP:-}" ] || printf '%s\n' "$AR_APP" > $AR/$n/work/state/app-code
   [ -z "${AR_NJ:-}" ] || printf '# NEEDS JUDGMENT: step gate, exit 12\n' > $AR/$n/work/NEEDS-JUDGMENT.md
-  env ${1:+"$@"} UPG_FIELD_RUNS=$AR/$n/FIELD-RUNS.md bash -c "set -Eeu; trap 'exit 4' ERR; . $RP/fn.sh; APPS_UP=(); B=$B; WORK=$AR/$n/work; TK=$RP/tk; STEP=gate; DRY=0; trap cleanup EXIT; exit $ec"; echo "gate-rc=$?"
+  local lg=UPG_FIELD_RUNS=$AR/$n/FIELD-RUNS.md; [ -z "${AR_DEFLOG:-}" ] || lg=AR_DEFLOG_DEFAULT=1   # AR_DEFLOG: the pipeline's own default log (GF-53)
+  env -u UPG_FIELD_RUNS ${1:+"$@"} $lg bash -c "set -Eeu; trap 'exit 4' ERR; . $RP/fn.sh; APPS_UP=(); B=$B; WORK=$AR/$n/work; TK=$RP/tk; STEP=gate; DRY=0; trap cleanup EXIT; exit $ec"; echo "gate-rc=$?"
 }
 arshow() { echo "summary-run-log=$(grep -c '^Run log: no row added' $AR/$1/work/gate-summary.md)"; echo "nj=$(cat $AR/$1/work/NEEDS-JUDGMENT.md 2> /dev/null | grep -c '^## Run log not added')"; echo "rows=$(cat $AR/$1/FIELD-RUNS.md 2> /dev/null | grep -c '^| 2')"; }
 # ok: the row carries timing, the Time: line is stamped, the commit hint is printed
@@ -8824,11 +8930,19 @@ ctl pipeline-autorunlog-ok-row-pass 0 '^\| 20261022075034 \| PR \| pr-type \| .*
 # the older name and the state file stand in when UPG_APP_CODE is unset
 ctl pipeline-autorunlog-app-name-fallback-pass 0 'gate-rc=0' '^runlog: row added' -- arcase oldname 0 UPG_APP_NAME=PR
 AR_APP=PR ctl pipeline-autorunlog-state-file-pass 0 'gate-rc=0' '^runlog: row added' -- arcase state 0
+# GF-53: the default log is the run folder's; the toolkit checkout is written only on UPG_FIELD_RUNS=toolkit
+mkdir -p $RP/tk
+AR_DEFLOG=1 ctl pipeline-gf53-default-run-folder-catch 0 'gate-rc=0' "^runlog: row added to $AR/gf53/work/FIELD-RUNS\\.md \\(the run folder; the toolkit checkout was not touched\\)" -- arcase gf53 0 UPG_APP_CODE=PR UPG_APP_TYPE=pr-type
+ctl pipeline-gf53-row-in-run-folder-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $AR/gf53/work/FIELD-RUNS.md
+ctl pipeline-gf53-toolkit-untouched-catch 1 -- test -e $RP/tk/FIELD-RUNS.md
+AR_DEFLOG=1 ctl pipeline-gf53-opt-in-toolkit-pass 0 'gate-rc=0' "^runlog: row added to $RP/tk/FIELD-RUNS\\.md\\. Commit FIELD-RUNS\\.md" -- arcase gf53b 0 UPG_APP_CODE=PR UPG_APP_TYPE=pr-type UPG_FIELD_RUNS=toolkit
+ctl pipeline-gf53-opt-in-row-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $RP/tk/FIELD-RUNS.md
+rm -f $RP/tk/FIELD-RUNS.md
 ctl pipeline-autorunlog-state-file-row-pass 0 '^\| 20261022075034 \| PR \|' -- grep '^| 2' $AR/state/FIELD-RUNS.md
 # refusals: duplicate (exit 3), customer name (exit 4), no app code name (exit 2): reason shown, gate exit code unchanged
 AR_LOG=$FX/runlog/old-12col-log.md ctl pipeline-autorunlog-duplicate-refused-catch 0 'gate-rc=0' '!gate-rc=3' '^WARN +runlog: no row added \(runlog\.py exit 3\): the run id is already in the log' -- arcase dup 0 UPG_APP_CODE=PR
 ctl pipeline-autorunlog-duplicate-reported-catch 0 'summary-run-log=1' 'nj=1' 'rows=2' -- arshow dup
-ctl pipeline-autorunlog-duplicate-needs-judgment-text-catch 0 'information only, the run result is unchanged' 'already in the log' 'toolkit PR' -- cat $AR/dup/work/NEEDS-JUDGMENT.md
+ctl pipeline-autorunlog-duplicate-needs-judgment-text-catch 0 'information only, the run result is unchanged' 'already in the log' 'toolkit PR' "runlog\\.py --work $AR/dup/work --log \"$AR/dup/FIELD-RUNS\\.md\" --app <CODE>" -- cat $AR/dup/work/NEEDS-JUDGMENT.md
 CNAME="the Acmecorp app"
 ctl pipeline-autorunlog-customer-name-refused-catch 0 'gate-rc=12' '!gate-rc=4' '^WARN +runlog: no row added \(runlog\.py exit 4\): the row holds a customer name' -- arcase cname 12 "UPG_APP_CODE=$CNAME"
 ctl pipeline-autorunlog-customer-name-reported-catch 0 'summary-run-log=1' 'nj=1' 'rows=0' -- arshow cname
@@ -9362,7 +9476,7 @@ ctl pipeline-assoc-replayed-pass 0 '!NOT replayed' -- bash -c "WORK=$AU DRY=0; n
 # MXCLI_REF: both setup scripts build the pinned ref (never HEAD) and stamp it
 ctl setup-mxcli-ref-default-catch 0 'mxcli: mxcli version 78bdfa5 \(MXCLI_REF=78bdfa51a2e0a84b971093ebd7b6b82e7596c950\)' '!WARNING' -- macsetup ref1 FAKE_UNAME=Linux UPG_SETUP_STEPS=mxcli
 ctl setup-mxcli-ref-fetched-pass 0 '^fetch -q --depth 1 origin 78bdfa51a2e0a84b971093ebd7b6b82e7596c950$' '^checkout -q -f --detach FETCH_HEAD$' '!clone' '!origin HEAD' -- sh -c "sed 's/^git -C [^ ]* //' $SC/ref1/git.log"
-ctl setup-mxcli-ref-stamped-pass 0 '^GOOS=linux GOARCH=amd64 build VERSION=78bdfa5 BUILD_DIR=' -- cat $SC/ref1/make.log
+ctl setup-mxcli-ref-stamped-pass 0 '^GOOS=linux GOARCH=amd64 build -o grammar -o sync-all -o completions VERSION=78bdfa5 BUILD_DIR=' -- cat $SC/ref1/make.log
 ctl setup-mxcli-ref-env-catch 0 'mxcli: mxcli version v0\.27\.1 \(MXCLI_REF=v0\.27\.1\)' -- macsetup ref2 FAKE_UNAME=Linux MXCLI_REF=v0.27.1 UPG_SETUP_STEPS=mxcli
 ctl setup-mxcli-ref-env-fetched-pass 0 'origin v0\.27\.1$' '!v0\.28\.0' -- sh -c "grep fetch $SC/ref2/git.log"
 # an earlier build of another ref in the run folder is rebuilt; a binary somebody put there is kept and warned about
@@ -9631,6 +9745,8 @@ ctl pipeline-smoke-users-on-smoke-copy-catch 0 '^ok \$\{X\}_smoke_apid_\$side$' 
 
 # --- cockpit page (bin/cockpitpage.py) and the decision ledger (bin/decisions.py) on fixtures/cockpit (a made-up shop app) -------------
 CK="bash $here/cockpit_control.sh"
+# no GNU-only in-place sed (a bare -i before the script) in the control scripts: BSD sed on a Mac takes the script as a backup suffix
+ctl controls-sed-inplace-portable-pass 0 '^gnu-only 0$' -- sh -c "grep -E \"sed -[i] \" '$here'/*.sh | wc -l | tr -d ' ' | sed 's/^/gnu-only /'"
 ctl cockpit-render-five-phases-catch 0 '"id": "find"' '"id": "plan"' '"id": "upgrade"' '"id": "test"' '"id": "golive"' -- $CK render
 ctl cockpit-render-versions-from-run-pass 0 '10\.24\.1\.1 \\u2192 11\.1\.0|10\.24\.1\.1 .{1,3} 11\.1\.0' '!HTMLSnippet' -- $CK render
 ctl cockpit-render-needs-you-from-run-catch 0 '"id": "regression:overlay"' '"id": "regression:Gridmod"' '"id": "confirm:D2"' '"id": "signoff"' '"id": "P-1"' -- $CK render
@@ -10335,7 +10451,7 @@ ctl skill-widget-xml-lesson-catch 0 'package XML' 'removing it removes' 'GM-19' 
 # GM-39: the R4 (Deep Link) row of replacements.tsv, the card triage prints, names the role trap, UrlPrefix (no mxcli syntax, by hand) and the /p/ to /link/ move.
 ctl replacements-r4-card-three-items-catch 0 '^role trap$' '^UrlPrefix$' '^p-to-link$' '!MISSING' -- sh -c 'r=$(grep -P "^R4\t" "$1/playbooks/replacements.tsv"); for k in "role trap:allowed roles" "UrlPrefix:UrlPrefix: mxcli has no syntax for it" "p-to-link:/p/ to /link/.*breaks bookmarks"; do if printf "%s" "$r" | grep -Eq "${k#*:}"; then echo "${k%%:*}"; else echo "MISSING ${k%%:*}"; fi; done' _ "$TK"
 ctl docs-toolkit-path-from-skill-folder-pass 0 'TK. = the folder that holds this SKILL\.md' 'B=\$TK/bin' -- sh -c "cd $TK && grep -h 'Paths:' SKILL.md steps/triage.md"
-ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mxcli-project-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
+ctl setup-plan-lists-outside-writes-pass 0 '^This setup writes outside the run folder' "$DV1/h/Mendix/mendix-upgrade-toolkit" "$DV1/h/mendixlabs/mxcli" "$DV1/h/.m2/repository/org/antlr/antlr4/4.13.2/antlr4-4\\.13\\.2-complete" "$DV1/h/mendix-playwright" 'Go caches of the mxcli build: '"$DV1"'/h/go/pkg/mod' 'dockerd' -- env -u GOMODCACHE -u GOCACHE HOME=$DV1/h UPG_PW_OPT=$DV1/nopw bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-changes-nothing-pass 0 '^nothing$' -- sh -c "ls -A $DV1 | grep -vx nopw | grep . || echo nothing"
 ctl setup-plan-follows-variables-pass 0 "$DV1/src2" -- env HOME=$DV1/h MXCLI_SRC=$DV1/src2 bash $B/setup-container.sh --plan $DV1/run 11.6.3
 ctl setup-plan-no-args-refused-pass 2 'run folder' -- bash $B/setup-container.sh --plan
@@ -10421,7 +10537,7 @@ LU=$T/lecache-unknown; mkdir -p $LU/w/state; cp -r $LC/app $LU/app; echo 78bdfa5
 printf '%s\n' '## Mod 1.0 (content 1): UNKNOWN (package not readable: version "108746" not found)' 'modules: 1, RED data-bearing edits: 0, UNKNOWN (not judged): 1 ['"'"'Mod'"'"']: use x, NETWORK (not judged, transient): 0' > $LU/w/localedits.md
 ctl localedits-cache-unknown-kept-catch 0 '^2$' -- sh -c "bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-unknown-model-changed-redo-catch 1 -- sh -c "echo x > $LU/app/new.mpr; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff; rc=\$?; rm $LU/app/new.mpr; exit \$rc"
-ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i 's/transient): 0/transient): 1/' $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
+ctl localedits-cache-unknown-network-not-kept-catch 1 -- sh -c "sed -i.sedi 's/transient): 0/transient): 1/' $LU/w/localedits.md; rm -f $LU/w/localedits.md.sedi; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-unknown-no-report-not-kept-catch 1 -- sh -c "rm -f $LU/w/localedits.md; bash $B/localedits_cache.sh save $LU/app $LU/w 2 --mxcli-diff; echo '# x' > $LU/w/localedits.md; bash $B/localedits_cache.sh check $LU/app $LU/w --mxcli-diff"
 ctl localedits-cache-pipeline-clears-old-report-pass 0 'ok' -- awk '/rm -f "\$WORK\/localedits\.md"/ {r=NR} /localedits\.py" "\$APP"/ {d=NR} END {print (r && d && r<d) ? "ok" : "bad"}' $B/cloud/upgrade-pipeline.sh
 # a dry run prints the commands and runs nothing: it must not delete the saved report (then the next real run redoes ~14 minutes of diff)
@@ -10515,6 +10631,11 @@ for bm in timeout perl watchdog; do
   ctl gf34-bounded-hung-$bm-catch 0 '^rc=124$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 1 sleep 20; echo rc=\$?"
   ctl gf34-bounded-fast-$bm-pass 0 '^rc=3$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 5 sh -c 'exit 3'; echo rc=\$?"
 done
+ctl gf34-bounded-own-137-late-catch 0 "^rc=137$" -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 2 sh -c 'sleep 1.95; exit 137'; echo rc=\$?"
+# a command that ignores TERM needs the KILL: timeout mode still says 124 (callers check only 124), not 137
+ctl gf34-bounded-term-ignored-timeout-catch 0 '^rc=124$' -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
+ctl gf34-bounded-term-ignored-perl-catch 0 '^rc=124$' -- env BOUNDED_FORCE=perl bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
+ctl gf34-bounded-real-137-pass 0 '^rc=137$' -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 5 sh -c 'exit 137'; echo rc=\$?"
 # the pipeline's preflight (cut out of the script): a docker that never answers stops the run with the cause named, after a line that says
 # what it waits on
 GFD=$T/gfdocker; mkdir -p $GFD; printf '#!/bin/sh\nsleep 8\n' > $GFD/docker; chmod +x $GFD/docker

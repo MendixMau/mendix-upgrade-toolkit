@@ -20,7 +20,7 @@ coverage and the human handoff. Keep the machine verdict as evidence; explain th
    **The row reaches `runs/HISTORY.md` through a toolkit PR, with a generic app name, made by the person or the
    orchestrator.** Use a code name such as "field app F1"; no customer app name goes into the repo.
 3b. **Run log.** At the end of the gate step the pipeline runs `bin/runlog.py --work $WORK`, which appends one row to
-   `FIELD-RUNS.md` (the permanent run log: code names only, `not recorded` for anything the folder does not hold, a duplicate
+   `$WORK/FIELD-RUNS.md` (the run log, in the run folder; `UPG_FIELD_RUNS=toolkit` uses the toolkit checkout's own: code names only, `not recorded` for anything the folder does not hold, a duplicate
    run id or a customer name is refused, and so is a row with no app code name). Set `UPG_APP_CODE` (or `UPG_APP_NAME`) and
    `UPG_APP_TYPE` to code names before the run; commit `FIELD-RUNS.md` and `CHANGES.md` through a toolkit PR (the pipeline prints
    that reminder). A refusal or failure never changes the gate verdict or the exit code: the reason is printed, written as a
