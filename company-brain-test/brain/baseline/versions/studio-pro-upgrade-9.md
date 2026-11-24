@@ -1,9 +1,10 @@
 # Studio Pro 9: what an upgrader must know
 
-Source: docs.mendix.com release notes, extracted by Haiku, layer baseline. 852 rows.
+Source: docs.mendix.com release notes, extracted by Haiku (rows whose record says model session-agent: by an agent session reading each bullet, same rules), layer baseline. 853 rows.
 
 | version | date | type | area | change | affected | source |
 |---|---|---|---|---|---|---|
+| 9.24.45 | November 17, 2026 | improvement | data-storage | Upgraded the JDBC driver for SAP HANA to version 2.29.11. | JDBC driver, SAP HANA | [notes](https://docs.mendix.com/releasenotes/studio-pro/9.24/#92445) |
 | 9.24.44 | August 19, 2026 | security | studio-pro-ide | Improved security of module import process. CVE-2025-40592. | module import | [notes](https://docs.mendix.com/releasenotes/studio-pro/9.24/#92444) |
 | 9.24.44 | August 19, 2026 | security | runtime | Upgraded Jetty dependencies to fix CVE-2026-2332. | Jetty | [notes](https://docs.mendix.com/releasenotes/studio-pro/9.24/#92444) |
 | 9.24.44 | August 19, 2026 | security | runtime | Upgraded Netty dependencies to fix CVE-2026-42578, CVE-2026-42583, CVE-2026-42587, CVE-2026-42585, CVE-2026-42584, CVE-2026-42581, CVE-2026-42580, CVE-2026-41417, CVE-2026-42577, CVE-2026-42579. | Netty | [notes](https://docs.mendix.com/releasenotes/studio-pro/9.24/#92444) |
