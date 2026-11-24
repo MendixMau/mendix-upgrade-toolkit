@@ -19,7 +19,7 @@ Spec (all keys optional except modules):
                 "module_roles": ["User", "Administrator"],
                 "constants": [{"name": "Enabled", "type": "Boolean", "default": "true"}],
                 "pages": [{"name": "Home", "excluded": false, "layout": "Atlas_Core.Atlas_Default", "widgets": ["com.mendix.widget.web.markdown.Markdown"],
-                           (a widget is an id or {"id", "name", "props"}: see cwidget(); "docs" entries take "widgets" and "named"
+                           (a widget is an id or {"id", "name", "props"} or {"raw": WIDGET} (a captured widget, GF-44): see cwidget(); "docs" entries take "widgets" and "named"
                             too; a named entry {"custom": SPEC} is a pluggable widget inside, e.g., a data view's children)
                            "refs": {"Microflow": "UserCommons.ACT_Save"},
                            "named": [["DataGrid", "grid1"], {"type": "Label", "name": "label1", "text": "Hello", "conditional": false}]}],
@@ -156,6 +156,8 @@ def cwidget(owner, i, w):
     String property (PrimitiveValue), {"text"} a TranslatableString (Texts$Text), {"attr"} an Attribute: the Type's
     ObjectType declares each key, the Object's properties point at it (the shape of a 10.24 Any Chart unit)."""
     w = {"id": w} if isinstance(w, str) else w
+    if "raw" in w:   # GF-44: a pluggable widget exactly as a real model holds it (a captured excerpt, ops may edit its values)
+        return w["raw"]
     k = f"{owner}.{i}"
     x = {"$ID": gid(f"w:{k}"), "$Type": "CustomWidgets$CustomWidget", "Name": w.get("name", f"w{i}"),
          "Type": {"$ID": gid(f"wt:{k}"), "$Type": "CustomWidgets$CustomWidgetType", "WidgetId": w["id"]}}
@@ -444,8 +446,23 @@ def build(spec, out):
     return path
 
 
+def expand_raw(node, here):
+    """{"raw_file": F, "path": "a/0/b"} anywhere in a spec becomes that node of the JSON file F (relative to the spec):
+    a captured widget excerpt is kept once and every variant edits a copy of it (GF-44)."""
+    if isinstance(node, dict):
+        if "raw_file" in node:
+            cur = json.load(open(os.path.join(here, node["raw_file"])))
+            for k in [x for x in node.get("path", "").split("/") if x]:
+                cur = cur[int(k) if k.isdigit() else k]
+            return json.loads(json.dumps(cur))
+        return {k: expand_raw(v, here) for k, v in node.items()}
+    if isinstance(node, list):
+        return [expand_raw(v, here) for v in node]
+    return node
+
+
 def load_spec(path):
-    spec = json.load(open(path))
+    spec = expand_raw(json.load(open(path)), os.path.dirname(os.path.abspath(path)))
     if "from" not in spec:
         return spec
     base = load_spec(os.path.join(os.path.dirname(os.path.abspath(path)), spec["from"]))

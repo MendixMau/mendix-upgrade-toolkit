@@ -1,0 +1,10 @@
+{
+ "from": "widgetvalues-real-mkt-old.json",
+ "ops": [
+  [
+   "set",
+   "modules/1/pages/0/widgets/0/raw/Object/Properties/1/Value/Image",
+   ""
+  ]
+ ]
+}

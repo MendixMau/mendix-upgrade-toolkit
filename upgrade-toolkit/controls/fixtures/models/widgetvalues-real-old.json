@@ -1,0 +1,40 @@
+{
+ "from": "widgetvalues-real-base.json",
+ "ops": [
+  [
+   "set",
+   "modules/0/pages/0/widgets/3/raw/Name",
+   "langMf"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/4/raw/Name",
+   "imgAct"
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/3/raw/Object/Properties/1/Value/DataSource",
+   {
+    "$ID": "00000000000000000000000000000001",
+    "$Type": "Forms$MicroflowSource",
+    "MicroflowSettings": {
+     "raw_file": "widgetvalues-real-widgets.json",
+     "path": "flows/microflow_action/MicroflowSettings"
+    }
+   }
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/4/raw/Object/Properties/2/Value/Action",
+   {
+    "raw_file": "widgetvalues-real-widgets.json",
+    "path": "flows/microflow_action"
+   }
+  ],
+  [
+   "set",
+   "modules/0/pages/0/widgets/0/raw/Object/Properties/2/Value/Selection",
+   "Multi"
+  ]
+ ]
+}

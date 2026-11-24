@@ -1,0 +1,13 @@
+{
+ "from": "widgetvalues-real-old.json",
+ "ops": [
+  [
+   "delete",
+   "modules/0/pages/0/widgets/4"
+  ],
+  [
+   "delete",
+   "modules/0/pages/0/widgets/2"
+  ]
+ ]
+}
