@@ -37,7 +37,8 @@ listed as "needs a decision": check production configurations with an empty or w
 ## Rules
 
 - Heal the test, never the app. A row that may be a real defect is never accepted: it becomes one NEEDS-JUDGMENT item
-  (exit 12 from the diff step) with options and a recommendation (`heal.py nj`).
+  (exit 12 from the diff step) with options and a recommendation (`heal.py nj`). The stop's page starts with the brain's
+  matching notes (`brain notes:`, top 3, path + title, or `brain notes: none matched`; nothing without a brain): read them first.
 - At most 2 rounds. Round 2 only runs when round 1 changed something; a row whose heal already ran is not healed again
   (it becomes likely-real if it still fails). A round that changes nothing stops the loop.
 - No-test-data seeds both databases or neither: a seed on one side would be a difference of its own.

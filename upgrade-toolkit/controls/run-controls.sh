@@ -8173,7 +8173,7 @@ mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
 ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
 # GF-10: without UPG_BRAIN and with no brain under ~/Mendix, the brain this repo ships is found
-ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from this repo\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
+ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from shipped toolkit brain\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
 ctl brainpath-gf10-shipped-plain-pass 0 '/company-brain-test/brain$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
 ctl brainpath-gf10-upg-brain-first-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-gf10-home-brain-first-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $B/brainpath.py --describe
@@ -8181,6 +8181,41 @@ gbr() ( export HOME="$BPH/empty" UPG_BRAIN_SHIPPED=0; unset UPG_BRAIN; gcase "$@
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
+# the shipped brain is found with nothing set, in a repo that holds it as <repo>/brain (the planned name) or as company-brain-test/brain
+FR=$BPH/fr; mkdir -p $FR/upgrade-toolkit/bin $FR/brain/baseline/versions $FR/company-brain-test/brain/baseline/versions
+cp $B/brainpath.py $FR/upgrade-toolkit/bin/; : > $FR/brain/baseline/versions/studio-pro-upgrade-11.md; : > $FR/company-brain-test/brain/baseline/versions/studio-pro-upgrade-11.md
+ctl brainpath-shipped-repo-brain-first-catch 0 "^brain: $FR/brain \\(from shipped toolkit brain\\)\$" -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-old-name-pass 0 "^brain: $FR/company-brain-test/brain \\(from shipped toolkit brain\\)\$" -- sh -c "mv $FR/brain $FR/brain.off; env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$BPH/empty python3 $FR/upgrade-toolkit/bin/brainpath.py --describe; mv $FR/brain.off $FR/brain"
+ctl brainpath-shipped-upg-brain-wins-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!from shipped' -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-local-env-wins-pass 0 "^brain: $RB \\(from local\\.env\\)\$" '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h2" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+ctl brainpath-shipped-home-brain-wins-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
+# brain notes at a person-facing stop: path + title of the top matches, "none matched", or nothing without a brain
+BNB=$T/bnbrain; mkdir -p $BNB; cp -r $FX/brain-evidence/baseline $BNB/; cp -r $FX/brain-notes/internal $BNB/
+ctl brainnotes-stop-lists-note-catch 0 '^brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - Custom reason phrases in HTTP responses are no longer sent after the upgrade$' '!module-plan-order' -- env HOME="$BPH/empty" UPG_BRAIN=$BNB python3 $B/brainnotes.py --stop "10.1.0 removal custom reason phrases"
+ctl brainnotes-stop-none-matched-catch 0 '^brain notes: none matched$' '!^  - ' -- env HOME="$BPH/empty" UPG_BRAIN=$BNB python3 $B/brainnotes.py --stop "zzqqx unrelated words"
+ctl brainnotes-stop-no-brain-silent-catch 0 '^bytes=0$' -- sh -c "o=\$(env HOME=$BPH/empty UPG_BRAIN= UPG_BRAIN_SHIPPED=0 python3 $B/brainnotes.py --stop 'custom reason phrases' 2>&1); echo bytes=\${#o}"
+ctl brainnotes-stop-brain-without-notes-silent-catch 0 '^bytes=0$' -- sh -c "o=\$(env HOME=$BPH/empty UPG_BRAIN=$RB python3 $B/brainnotes.py --stop 'custom reason phrases' 2>&1); echo bytes=\${#o}"
+ctl brainnotes-stop-shipped-found-catch 0 '^brain notes:$' '^  - internal/upgrade/' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainnotes.py --stop "Community Commons update PDFBox JAR userlib"
+# a pipeline stop (the module plan is missing, exit 13) starts with the matching notes; without a brain it is unchanged
+mkdir -p $BPH/fakebin; printf '#!/bin/sh\nexit 0\n' > $BPH/fakebin/docker; chmod +x $BPH/fakebin/docker   # preflight asks `docker info`
+ctl pipeline-stop-brain-notes-catch 0 'needs judgment \(exit 13\)' '^brain notes:$' '^  - internal/upgrade/module-plan-order\.md - Write the module plan before the update step' -- bash -c "rm -rf $NJ/wbn; PATH=$BPH/fakebin:\$PATH MXCLI= UPG_BRAIN=$BNB bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wbn --from update --only update; cat $NJ/wbn/NEEDS-JUDGMENT.md"
+ctl pipeline-stop-no-brain-unchanged-pass 0 'needs judgment \(exit 13\)' '^# NEEDS JUDGMENT: step update, exit 13$' '!brain notes' -- bash -c "rm -rf $NJ/wnb; PATH=$BPH/fakebin:\$PATH MXCLI= HOME=$BPH/empty UPG_BRAIN= UPG_BRAIN_SHIPPED=0 bash $B/cloud/upgrade-pipeline.sh --app-dir $NJ/app --source 10.24.26.1 --target 11.15.0.1 --work $NJ/wnb --from update --only update; cat $NJ/wnb/NEEDS-JUDGMENT.md"
+# park_finish under set -Eeuo pipefail: a parked item with no `question:` line and no `## ` heading (parked.py writes `### `) made the
+# note query's grep exit 1 and the run end rc=4 with no NEEDS-JUDGMENT.md; it must still exit 12 and write it
+PF=$T/parkfin; mkdir -p $PF/w/parked
+printf '<!-- park exit 12 step update -->\n### Release impact: one open row\n\nRow 1 is still open.\n' > $PF/w/parked/update.md
+{ for fn in nj_brain_notes park_finish; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh; done
+  printf '%s\n' 'parked_any() { return 0; }' 'rerun_cmd() { echo rerun; }' 'cockpit_regen() { :; }' 'brief_say() { :; }' 'say() { echo "$*"; }' \
+    'set -Eeuo pipefail; trap "exit 4" ERR; DRY=0; STEP=""; STEPS=(update); WORK=$PF_WORK; park_finish'; } > $PF/fn.sh
+ctl pipeline-park-finish-no-question-line-catch 0 'rc=12' '^STOP    auto: 1 parked item' 'nj=present' -- sh -c "PF_WORK=$PF/w B=$B HOME=$BPH/empty UPG_BRAIN=$BNB bash $PF/fn.sh; echo rc=\$?; [ -s $PF/w/NEEDS-JUDGMENT.md ] && echo nj=present || echo nj=absent"
+# the release-impact page lists the notes under the open rows (row 1 of the evidence fixture stays open)
+ctl reln-brain-notes-open-row-catch 0 '^## Brain notes for the open rows \(1 of 1\)$' '^- row 1 \(10\.1\.0\): brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - ' -- sh -c "python3 $B/release_impact.py --brain $BNB --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn.md > /dev/null; cat $RI/bn.md; python3 $B/release_impact.py --check $RI/bn.md | tail -1"
+ctl reln-brain-notes-no-notes-silent-pass 0 '!Brain notes' -- sh -c "python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn2.md > /dev/null; cat $RI/bn2.md"
+# the notes the repo ships: INDEX.md lists every note under brain/internal/upgrade once, and links nothing that is not there
+SB=""; for d in "$here/../../brain" "$here/../../company-brain-test/brain"; do [ -f "$d/internal/upgrade/INDEX.md" ] && { SB=$d/internal/upgrade; break; }; done
+if [ -n "$SB" ]; then
+  ctl brain-index-lists-every-note-once-pass 0 '^notes=[1-9][0-9]* links=same$' '!listed' '!not a note' '!INDEX links' -- sh $here/brain-index-check.sh $SB
+else skip brain-index-lists-every-note-once-pass 'no brain/internal/upgrade in this checkout'; fi
 # a brainpath.py that crashes must not stop triage (the pipeline runs under set -Eeuo pipefail)
 TKB=$B; mkdir -p $BPH/crash; printf 'import sys\nsys.exit(3)\n' > $BPH/crash/brainpath.py
 ctl pipeline-triage-brain-crash-continues-catch 0 '^continued$' 'brain: not reported' -- bash -c "set -Eeuo pipefail; B=$BPH/crash; WORK=\$(mktemp -d); DRY=0; say() { printf '%s\n' \"\$*\"; }; eval \"\$(sed -n '/# DV-3: which company brain/,/brain.txt/p' \${PIPE:-$TKB/cloud/upgrade-pipeline.sh})\"; echo continued"
@@ -8970,7 +9005,7 @@ ctl pipeline-runlog-wired-pass 0 '^  record_runlog \|\| true$' 'STEP:-\}" = gate
 # the header and three real rows of FIELD-RUNS.md as they were with 12 columns.
 TM=$T/timing; mkdir -p $TM; GS=$here/fixtures/runlog/gate-summary.run6.md
 { sed -n '/^say() /p;/^quoted() /p;/^now_utc() /p;/^TIMING_STEP=/p' $B/cloud/upgrade-pipeline.sh
-  for f in nj_add rerun_cmd nj_flush timing_open timing_close cleanup run_step decisions_apply; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
+  for f in nj_add rerun_cmd nj_brain_notes nj_flush timing_open timing_close cleanup run_step decisions_apply; do sed -n "/^$f() {/,/^}/p" $B/cloud/upgrade-pipeline.sh; done; } > $TM/fn.sh
 cat > $TM/h.sh <<'HEOF'
 # h.sh WORK TIMES STEP...: run_step for each STEP the way main does, stub steps, a clock from the TIMES list
 set -Eeu
@@ -10480,6 +10515,16 @@ ctl harvest-denylist-catch 1 'Acmecorp' '!^harvest: wrote' -- sh -c "python3 -I 
 ctl harvest-denylist-wrote-nothing-pass 0 '^none$' -- sh -c "ls $HV/tk-deny/*.md 2>/dev/null || echo none"
 ctl harvest-bad-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code 'a b' --inbox $HV/tk-bad
 ctl harvest-denied-code-catch 2 'code' -- python3 -I $B/harvest.py --work $HV/run --code Acmecorp --inbox $HV/tk-bad
+# a brain inside the toolkit checkout is read, never written: its drafts go to <work>/learnings/brain
+cp -R $HV/run $HV/run-sh; cp -R $HV/run $HV/run-home; mkdir -p $HV/home/Mendix/x-brain/baseline/versions $HV/home/Mendix/x-brain/internal/upgrade
+: > $HV/home/Mendix/x-brain/baseline/versions/studio-pro-upgrade-11.md; cp $HV/brain/internal/upgrade/mx-logger.md $HV/home/Mendix/x-brain/internal/upgrade/
+# a stand-in toolkit checkout under $T (a copy of the bin and the brain fixture): a red run must not leave an inbox/ in the real checkout
+mkdir -p $HV/ftk/upgrade-toolkit; cp -R $B $HV/ftk/upgrade-toolkit/bin; cp -R $FX/brain-notes $HV/ftk/brain-copy
+ctl harvest-toolkit-brain-draft-to-work-catch 0 '^  brain: .* is the brain shipped in the toolkit \(read only\)' "learnings/brain/2026-01-03-HV1-upgrade\\.md" '^NOT-IN-BRAIN$' -- sh -c "env -u UPG_BRAIN python3 -I $HV/ftk/upgrade-toolkit/bin/harvest.py --code HV1 --brain $HV/ftk/brain-copy --date 2026-01-03 --work $HV/run-sh --inbox $HV/tk-sh --to brain; [ -d $HV/ftk/brain-copy/inbox ] && echo WROTE-INTO-BRAIN || echo NOT-IN-BRAIN"
+# a brain without internal/: the first `harvest:` line stays the summary (feedback_report.py shows the first one), the skip note follows, no path
+mkdir -p $HV/brain-noint/baseline; cp -R $HV/run $HV/run-noint
+ctl harvest-no-internal-summary-first-catch 0 '^harvest: 3 agent fixes' '^  brain: the brain has no internal/ folder' '!^harvest: .*no internal' '!brain-noint' -- sh -c "python3 -I $B/harvest.py --code HV1 --brain $HV/brain-noint --date 2026-01-05 --work $HV/run-noint --inbox $HV/tk-noint --to brain 2>&1"
+ctl harvest-brainpath-default-pass 0 "x-brain/inbox/2026-01-04-HV1-upgrade\\.md" '!not configured' -- sh -c "env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$HV/home python3 -I $B/harvest.py --code HV1 --date 2026-01-04 --work $HV/run-home --inbox $HV/tk-home --to brain"
 # feedback_report.py (cold WM1): harvest ran only when a person remembered steps/report.md 3c, so a stopped run taught the
 # toolkit nothing. Every exit now harvests into $WORK/learnings and writes FEEDBACK-REPORT.md with an issue summary
 # (metadata only, denylisted); the pipeline calls it from its exit trap, so a stop (exit 4 at build) gets one too.

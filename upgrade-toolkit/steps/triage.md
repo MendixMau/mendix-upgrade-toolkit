@@ -8,6 +8,7 @@ Paths: `B=$TK/bin` (`TK` = the folder that holds SKILL.md, see there),
 with version tables, else the brain this repo ships (`company-brain-test/brain`); the scripts find it the same way).
 Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <path> (from ...)` or
 `brain: none found (looked: ...)`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
+The brain's practice and pitfall notes are shown for you: every stop in `$W/NEEDS-JUDGMENT.md` (triage, repair, heal, gate) starts with `brain notes:` (top 3, `internal/<path>.md - <title>`) or `brain notes: none matched`, and `release-impact.md` has a "Brain notes for the open rows" section; nothing is printed when no brain with an `internal/` folder is found. Read a listed note before you decide that item; `python3 $B/brainnotes.py --stop "<words>"` asks by hand.
 
 1. Full versions of the project and of every toolset you will use:
    `python3 $B/mxversion.py app/` and `python3 $B/mxversion.py tools/mxbuild-<ver>` (and `tools/runtime-<ver>`).
