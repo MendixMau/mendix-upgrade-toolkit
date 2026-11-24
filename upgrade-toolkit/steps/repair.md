@@ -7,6 +7,7 @@ heavy-lock.sh always takes a label first; it refuses an executable path in that 
 WORSE (more errors, or a new error code) means undo that fix. CASCADE (exit 0) means every code the fix was for is
 gone and the rise comes from other codes that the old errors hid (E4: 121 CE1613 gone, 217 CE0463 revealed, E4-26):
 keep the fix and continue with the new class. Without `--fixed` a rise is always WORSE.
+A repair stop's `NEEDS-JUDGMENT.md` starts with the brain's matching notes (`brain notes:`, top 3, path + title, or `brain notes: none matched`; nothing without a brain): read them before the row's remedy.
 
 Errors a module update added are caught earlier than this list (GM-23 / A-1): stepupdate runs `mx check` after each update and
 undoes a step that added errors before it commits (steps/upgrade.md, "Model check per step"). A module whose errors a person

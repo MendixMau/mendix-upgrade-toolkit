@@ -321,12 +321,18 @@ rerun_cmd() { # the command that resumes at the current step: the run's own --fr
   done
   printf '%s%s%s --from %s' "$pre" "$SELF" "$(quoted ${a[@]+"${a[@]}"})" "$STEP"
 }
+nj_brain_notes() { # nj_brain_notes < STOP-TEXT: the company brain's notes that match a stop (path + title, top 3), read only; nothing without a brain
+  [ "$DRY" != 1 ] || return 0
+  local q; q="$STEP $(grep -E '^(## |question: )' 2> /dev/null | head -n 40 | tr '\n' ' ')"
+  python3 "$B/brainnotes.py" --stop "$q" 2> /dev/null || true
+}
 nj_flush() { # write NEEDS-JUDGMENT.md and exit with the first recorded code
   [ "$NJ_CODE" != 0 ] || return 0
   {
     printf '# NEEDS JUDGMENT: step %s, exit %s\n\nrun folder: %s\nwork: %s\nsource %s -> target %s\n' "$STEP" "$NJ_CODE" "$RUN" "$WORK" "$SOURCE" "$TARGET"
     printf 'Rule: the items below are pending, not passed: a REGRESSION is fixed, the rest are decided in writing (allow/approved files named in steps/*.md), then rerun:\n\n'
     printf '    %s\n' "$(rerun_cmd)"
+    local bn; bn=$(nj_brain_notes < "$NJ_TMP"); [ -z "$bn" ] || printf '\n%s\n' "$bn"   # triage, repair, heal and gate stops all end here
     cat "$NJ_TMP"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"   # the step has ended: the page written now must not say "Running now" (reviews 02 and 03 of a lane run)
@@ -356,8 +362,10 @@ park_finish() { # end of the run: every parked item in one NEEDS-JUDGMENT.md, ex
   out=$(python3 "$B/parked.py" report --work "$WORK" --steps "${STEPS[*]}" ${also[@]+"${also[@]}"}) || return 0
   first=$(printf '%s\n' "$out" | tail -n 1); code=$(echo "$first" | cut -d' ' -f2); step=$(echo "$first" | cut -d' ' -f3)
   STEP=$step
+  local bn; bn=$(printf '%s\n' "$out" | nj_brain_notes)
   { printf '%s\n' "$out" | sed '$d'
     printf '\nRerun once, after the answers, from the first parked step (%s; a rung-1 step: the rung-1 command with --from %s):\n\n    %s\n' "$step" "$step" "$(rerun_cmd)"
+    [ -z "$bn" ] || printf '\n%s\n' "$bn"
   } > "$WORK/NEEDS-JUDGMENT.md"
   rm -f "$WORK/state/running"
   cockpit_regen

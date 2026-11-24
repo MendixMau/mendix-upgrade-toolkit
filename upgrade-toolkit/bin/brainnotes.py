@@ -11,6 +11,7 @@ title x3, keywords x2, body x1), plain-word stems ("layouts" = "layout"). The br
 No brain on this machine: prints nothing, exit 0 (the toolkit runs without it).
 
   brainnotes.py "query text" [-k 3] [--brain DIR] [--json]    top notes: score, path under the brain, title
+  brainnotes.py --stop "query text" [-k 3] [--brain DIR]       the lines a person-facing stop prints (below)
   brainnotes.py --eval gold.tsv [-k 3] [--brain DIR]           hit@k against a labelled set (id, slugs, why; slugs
                                                                comma-separated paths without .md, or NONE); the queries
                                                                come from a second file column 'text' or --queries FILE
@@ -77,13 +78,36 @@ def brain_dir(arg):
         return None
 
 
+_NOTES = {}
+
+
+def stop_lines(query, k=3, brain=None):
+    """The lines a person-facing stop prints under its text: `brain notes:` and up to k `  - internal/<path>.md - <title>`
+    (path + title only, no note text), or `brain notes: none matched`, or [] when no brain with an internal/ folder is on
+    this machine. Read only. A far weaker second match (under half the top score) is noise and is dropped."""
+    b = brain_dir(brain)
+    if not b or not os.path.isdir(os.path.join(b, "internal")):
+        return []
+    if b not in _NOTES:
+        _NOTES[b] = load(b)
+    r = search(_NOTES[b], query, k)
+    r = [x for x in r if x[0] >= 0.5 * r[0][0]]
+    return ["brain notes:"] + [f"  - internal/{p}.md - {t}" for _, p, t in r] if r else ["brain notes: none matched"]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("query", nargs="?")
     ap.add_argument("-k", type=int, default=3)
     ap.add_argument("--brain"); ap.add_argument("--json", action="store_true")
     ap.add_argument("--eval"); ap.add_argument("--queries")
+    ap.add_argument("--stop", action="store_true", help="print the lines a stop shows (brain notes: ..., or none matched)")
     a = ap.parse_args()
+    if a.stop:
+        ls = stop_lines(a.query or "", a.k, a.brain)
+        if ls:
+            print("\n".join(ls))
+        return 0
     b = brain_dir(a.brain)
     if not b or not os.path.isdir(os.path.join(b, "internal")):
         return 0

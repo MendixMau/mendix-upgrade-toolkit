@@ -1521,6 +1521,19 @@ def generate(a):
               "write `handled: <evidence>` in the row once done, or `not relevant: <reason>` when it does not apply.", ""]
         L += [f"- row {num} ({ver}): " + (f"the app uses it: {evid[num]}. Do: " if num in evid else "") + r for num, ver, r in recs]
         L.append("")
+    # the brain's practice and pitfall notes for the open rows (path + title, top 3 each; read only; nothing without a brain)
+    try:
+        import brainnotes
+        shown = []
+        for num, ver, sec, cols in open_rows[:12]:
+            bl = brainnotes.stop_lines(f"{sec} {' '.join(cols)}", 3, a.brain)
+            if not bl:
+                break
+            shown.append(f"- row {num} ({ver}): {bl[0]}" + "".join("\n" + x for x in bl[1:]))
+        if shown:
+            L += [f"## Brain notes for the open rows ({len(shown)} of {len(open_rows)})", ""] + shown + [""]
+    except Exception:
+        pass
     # --evidence: rows about the deployment environment are one grouped item for a person before go-live, not open rows
     if later_rows:
         L += [f"## Go-live environment checklist ({len(later_rows)} items)", "",
