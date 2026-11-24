@@ -8731,7 +8731,7 @@ ctl pipeline-history-default-target-pass 0 '^\| .* \| 20260101000000 \| unnamed 
   -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/RUN-APP-NAME SOURCE=a TARGET=b record_grade > /dev/null 2>&1; grep -E '^\| 20' $PW/work/history-row.md; echo toolkit-runs=\$(ls $PW/tk/runs | wc -l | tr -d ' ')"
 ctl pipeline-history-override-pass 0 'UPG_HISTORY=ok' -- sh -c ". $PW/fn.sh; WORK=$PW/work B=$B TK=$PW/tk RUN=$PW/r SOURCE=a TARGET=b UPG_HISTORY=$PW/other.md UPG_APP_NAME=generic record_grade > /dev/null 2>&1; grep -q ' generic ' $PW/other.md && echo UPG_HISTORY=ok"
 # the committed runs/HISTORY.md: every row has 12 cells and a run id once
-ctl history-committed-shape-pass 0 'rows=17 bad=0 dup=0' -- python3 -I -c "
+ctl history-committed-shape-pass 0 'rows=[1-9][0-9]* bad=0 dup=0' -- python3 -I -c "
 import re,sys,collections
 ls=[l for l in open('$TK/runs/HISTORY.md').read().split('\n') if l.startswith('| ') and not l.startswith('| date |')]
 bad=sum(1 for l in ls if len(l.strip().strip('|').split(' | '))!=12)
