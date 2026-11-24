@@ -17,7 +17,7 @@ case $mode in
     # ignores TERM must still read as "timed out" (callers check only 124), so 137 after a full bound is mapped to 124.
     t0=$SECONDS; rc=0
     "$mode" -k 2 "$secs" "$@" || rc=$?
-    [ "$rc" -ne 137 ] || [ $((SECONDS - t0)) -lt "$secs" ] || rc=124
+    [ "$rc" -ne 137 ] || [ $((SECONDS - t0)) -lt $((secs + 1)) ] || rc=124
     exit "$rc" ;;
   perl)  # alarm kills the child with SIGALRM: shell status 142, mapped to 124
     perl -e '$s = shift; $p = fork(); if (!$p) { exec @ARGV or exit 127 } $SIG{ALRM} = sub { kill 9, $p; waitpid $p, 0; exit 124 }; alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"

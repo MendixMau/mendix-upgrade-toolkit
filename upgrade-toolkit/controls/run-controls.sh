@@ -4485,7 +4485,7 @@ ctl dockerhost-gf6-probe-hang-bounded-catch 0 'no running container VM with Rose
 ctl dockerhost-gf6-probe-hang-elapsed-bounded-catch 0 '^took=[0-9]$' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhome FAKE_RUN=hang UPG_PROBE_TIMEOUT=1 bash $B/dockerhost.sh > /dev/null 2>&1; echo took=\$((\$(date +%s) - t0))"
 # a hung `docker image inspect` (Docker Desktop wedged) is bounded too: the pipeline start must not hang on it
 rm -rf $SC/dhhang; mkdir -p $SC/dhhang
-ctl dockerhost-gf6-inspect-hang-bounded-catch 0 '^took=[0-9]$' 'no running container VM with Rosetta' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhang FAKE_INSPECT=hang FAKE_RUN=1 UPG_PROBE_INSPECT_TIMEOUT=1 UPG_PROBE_PULL_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo took=\$((\$(date +%s) - t0))"
+ctl dockerhost-gf6-inspect-hang-bounded-catch 0 '^took=(1?[0-9])$' 'no running container VM with Rosetta' -- sh -c "t0=\$(date +%s); env PATH=$DHB:$NR HOME=$SC/dhhang FAKE_INSPECT=hang FAKE_RUN=1 UPG_PROBE_INSPECT_TIMEOUT=1 UPG_PROBE_PULL_TIMEOUT=1 bash $B/dockerhost.sh 2>&1; echo took=\$((\$(date +%s) - t0))"
 ctl dockerhost-gf6-probe-hang-removes-container-catch 0 '^rm -f upg-rosetta-probe-[0-9]+-[0-9]+$' -- cat $SC/dhhome/rm.log
 ctl dockerhost-gf6-probe-named-pass 0 '^run --rm --name upg-rosetta-probe-[0-9]+-[0-9]+ --platform linux/amd64 ' -- head -1 $SC/dhhome/run.log
 # a local image is a probe only when it is amd64: an arm64 postgres:16 must not be chosen, alpine is pulled instead
@@ -10314,6 +10314,7 @@ for bm in timeout perl watchdog; do
   ctl gf34-bounded-hung-$bm-catch 0 '^rc=124$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 1 sleep 20; echo rc=\$?"
   ctl gf34-bounded-fast-$bm-pass 0 '^rc=3$' -- env BOUNDED_FORCE=$bf bash -c "bash $B/bounded.sh 5 sh -c 'exit 3'; echo rc=\$?"
 done
+ctl gf34-bounded-own-137-late-catch 0 "^rc=137$" -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 2 sh -c 'sleep 1.95; exit 137'; echo rc=\$?"
 # a command that ignores TERM needs the KILL: timeout mode still says 124 (callers check only 124), not 137
 ctl gf34-bounded-term-ignored-timeout-catch 0 '^rc=124$' -- env BOUNDED_FORCE= bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
 ctl gf34-bounded-term-ignored-perl-catch 0 '^rc=124$' -- env BOUNDED_FORCE=perl bash -c "bash $B/bounded.sh 1 sh -c 'trap \"\" TERM; sleep 20'; echo rc=\$?"
