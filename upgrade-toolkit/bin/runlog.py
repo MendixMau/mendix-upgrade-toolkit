@@ -293,7 +293,7 @@ def journeys(work, summ):
         texts.append(j[1])
     texts.append(read(os.path.join(work, "journeys-after.out")) or "")
     for t in texts:
-        m = re.search(r"actions (\d+) found .*? (\d+) pass on baseline \((\d+) defect\).*? (\d+) regression.*?coverage (\d+)/(\d+) \((\d+)%\)", t)
+        m = re.search(r"actions (\d+) found .*? (\d+) pass on baseline \((\d+) defect[^)]*\).*? (\d+) regression.*?coverage (\d+)/(\d+) \((\d+)%\)", t)
         if m:
             return "old app %s pass / %s fail; %s regression(s); coverage %s/%s (%s%%)" % (
                 m.group(2), m.group(3), m.group(4), m.group(5), m.group(6), m.group(7)), int(m.group(4))

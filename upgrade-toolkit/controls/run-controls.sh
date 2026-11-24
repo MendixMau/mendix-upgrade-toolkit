@@ -10926,6 +10926,37 @@ ctl gf50-estimate-generated-journeys-catch 0 'estimate: 3 generated journeys x 8
 ctl gf50-cap-parity-catch 0 '^old:$' '^summary 7 journeys, 4 PASS, 3 deferred, partial False$' '^parity: 3 journeys deferred on the old app are deferred here too' '^new deferred: c1-act c2-act c3-act$' '^new ran: a1-login-Admin a2-sign-out b1-menu b2-menu $' -- bash $here/journeys_cap_control.sh $B $GC parity
 ctl gf50-cap-parity-compare-catch 0 '^rc 3$' '^actions \? found .* 7 journeys .* 4 pass on baseline \(0 defect, 3 not run: deferred by the cap\)' 'coverage INVALID: not measured: 3 journeys not run: deferred by the cap' '!fail on the baseline' '!without evidence' -- bash $here/journeys_cap_control.sh $B $GC parity-compare
 ctl gf50-pipeline-cap-wired-pass 0 '^2$' -- sh -c "grep -c 'cap\[@\]' $B/cloud/upgrade-pipeline.sh"
+# --- SW-15 (field run: 424 of 495 journeys failed at the same first step on the old app and all were walked, about 2 h 15 per side) -------
+# entry_probe_control.sh drives the real run_journeys.py against a stand-in runner; K = ENTRY_PROBE_K (3, ASSUMED), leading batches of 3 for a wave with 10+ journeys on one first step
+EP=$T/sw15entry; mkdir -p $EP
+ctl sw15-entry-shared-catch 0 '^rc 1$' '^walked: 7 journeys$' '^summary 14 journeys: 5 FAIL, 7 INVALID, 2 PASS \| blocked_by_entry 7$' '^blocked lines: 7$' '^entry: 7 journeys of Admin BLOCKED-BY-ENTRY \(not walked\): first step "role home" failed the same way' '^  entry probe: 7 journeys BLOCKED-BY-ENTRY, not walked \(INVALID, not a pass\): time saved about N min \(7 x S s each, measured on this run\); 1 broken entry step\(s\): Admin "role home" \(7\)$' '^b12 INVALID probes b01,b02,b03 \| ok journeys walked: PASS PASS$' -- bash $here/entry_probe_control.sh $B $EP/shared shared
+ctl sw15-entry-optout-pass 0 '^rc 1$' '^walked: 14 journeys$' '^summary 14 journeys: 12 FAIL, 2 PASS \| blocked_by_entry 0$' '^blocked lines: 0$' -- bash $here/entry_probe_control.sh $B $EP/optout optout
+ctl sw15-entry-unique-step-pass 0 '^rc 1$' '^walked: 4 journeys$' '^summary 4 journeys: 4 FAIL \| blocked_by_entry 0$' '^blocked lines: 0$' '^  FAIL +w1 ' -- bash $here/entry_probe_control.sh $B $EP/unique unique
+ctl sw15-entry-compare-catch 0 '^old rc 1$' '^summary 14 journeys: 5 FAIL, 7 INVALID, 2 PASS \| blocked_by_entry 7$' '^new rc 3$' '^summary 14 journeys: 14 PASS \| blocked_by_entry 0$' '2 pass on baseline \(5 defect, 7 not run: entry step broken\) .* 14 pass on new' '^  coverage INVALID: not measured: 7 journeys BLOCKED-BY-ENTRY, not walked \(7 on the baseline, 0 on new\)' '^regression lines: 0$' -- bash $here/entry_probe_control.sh $B $EP/compare compare
+# review fixes (PR 204): each control below was run red against the mutant named in its comment, green on the fix
+# suspect: one stray step-1 failure on a step nothing else shares must not shrink every later batch (old entry_suspect: 28 processes)
+ctl sw15-entry-suspect-catch 0 '^rc 1$' '^walked: 100 journeys$' '^runner processes: 4$' '^summary 100 journeys: 1 FAIL, 99 PASS \| blocked_by_entry 0$' '^opt-out rc 1$' '^opt-out runner processes: 4$' -- bash $here/entry_probe_control.sh $B $EP/suspect suspect
+# gen: journeys from the real gen_journeys.py; 12 action journeys on one page have 12 different ui.ready and one entry (old key: 12 keys, nothing probed)
+ctl sw15-entry-gen-catch 0 '^rc 1$' '^walked: 4 journeys$' '^summary 13 journeys: 3 FAIL, 9 INVALID, 1 PASS \| blocked_by_entry 9$' '^btn12 probes act-Shop\.Home\.btn01,act-Shop\.Home\.btn02,act-Shop\.Home\.btn03$' '^entry keys for 12 journeys of one page: 1$' '^own ready widgets: 12$' '^Other page journey: PASS$' -- bash $here/entry_probe_control.sh $B $EP/gen gen
+# mixed: two failure signatures at one entry (mutant: len(sigs)==1 dropped)
+ctl sw15-entry-mixed-signatures-pass 0 '^rc 1$' '^walked: 14 journeys$' '^summary 14 journeys: 12 FAIL, 2 PASS \| blocked_by_entry 0$' -- bash $here/entry_probe_control.sh $B $EP/mixed mixed
+# flaky: the entry passed once, then failed (mutant: ok==0 dropped)
+ctl sw15-entry-flaky-pass 0 '^rc 1$' '^walked: 14 journeys$' '^summary 14 journeys: 11 FAIL, 3 PASS \| blocked_by_entry 0$' -- bash $here/entry_probe_control.sh $B $EP/flaky flaky
+# only: --only is a recheck, walked as asked (mutant: a.only no longer turns probing off)
+ctl sw15-entry-only-pass 0 '^rc 1$' '^walked: 14 journeys$' '^summary 14 journeys: 12 FAIL, 2 PASS \| blocked_by_entry 0$' -- bash $here/entry_probe_control.sh $B $EP/only only
+# datafail: step 1 landed and its data check is INVALID: no entry failure (mutant: every non-PASS check of step 1 counts)
+ctl sw15-entry-data-invalid-pass 0 '^rc 3$' '^walked: 14 journeys$' '^summary 14 journeys: 14 INVALID \| blocked_by_entry 0$' -- bash $here/entry_probe_control.sh $B $EP/datafail datafail
+# appdown: the app dies on b03 while the entry is probed (b01, b02 failed): nothing is BLOCKED-BY-ENTRY, --resume walks all 11 not run (old: 7 blocked, resume 4)
+ctl sw15-entry-app-down-catch 0 '^rc 75$' '^walked: 6 journeys$' '^summary 14 journeys: 2 FAIL, 11 INVALID, 1 PASS \| blocked_by_entry 0 \| app_down 11$' '^resume rc 1$' '^resume walked: 11 journeys$' '^summary 14 journeys: 2 FAIL, 12 PASS \| blocked_by_entry 0 \| app_down 0$' -- bash $here/entry_probe_control.sh $B $EP/appdown appdown
+# resumeblocked: --resume walks what was blocked at the entry, once the entry is fixed (mutant: blocked_by_entry not in the resume set)
+ctl sw15-entry-resume-blocked-catch 0 '^summary 14 journeys: 5 FAIL, 7 INVALID, 2 PASS \| blocked_by_entry 7$' '^resume walked: 7 journeys$' '^summary 14 journeys: 5 FAIL, 9 PASS \| blocked_by_entry 0$' -- bash $here/entry_probe_control.sh $B $EP/resumeblocked resumeblocked
+# comparefail: a new-app FAIL behind an old-app block is neither a regression nor a baseline defect (mutant: the BASELINE NOT WALKED branch removed)
+ctl sw15-entry-compare-not-walked-catch 0 '^compare BASELINE NOT WALKED: 7$' '^compare BASELINE DEFECT: 5$' '^compare REGRESSION: 2$' -- bash $here/entry_probe_control.sh $B $EP/comparefail comparefail
+# unit: coverage(): the 8 blocked journeys are out of the DEFECT_MAX base (5 of 12, not 5 of 20) and out of the defect list (mutants: base G-Y, blocked kept in the list)
+ctl sw15-entry-defect-max-boundary-catch 0 '^D Z: 5 8$' '^measuring: \[.instrument not measuring: 5 of 12 journeys fail on the baseline \(41% > 30%\).\]$' '^defects: \[.f0., .f1., .f2., .f3., .f4.\]$' '^walked all, measuring: \[\]$' -- bash $here/entry_probe_control.sh $B $EP/unit unit
+# runlog: the coverage line with ", N not run: entry step broken" still gives the defect count (old regex: no match, "not recorded")
+RLE=$T/runlog-entry; mkdir -p $RLE; printf '%s\n' 'actions 20 found · 20 generated (0 todo) · 2 pass on baseline (5 defect, 7 not run: entry step broken) · 14 pass on new · 0 regression · coverage 2/20 (10%)' > $RLE/journeys-after.out
+ctl runlog-journeys-entry-blocked-catch 0 "^\('old app 2 pass / 5 fail; 0 regression\(s\); coverage 2/20 \(10%\)', 0\)$" -- python3 -I -c "import sys; sys.path.insert(0, '$B'); import runlog; print(runlog.journeys('$RLE', {'rungs': {}}))"
 
 # --- GF-51 (field run: 29 rows FAIL that the restart control explained; the control only ran inside heal) -----------------------
 # restart.json = a second start of the old app: here sa.json (the Email row differs), so that row is START-NOISE; a row the control
