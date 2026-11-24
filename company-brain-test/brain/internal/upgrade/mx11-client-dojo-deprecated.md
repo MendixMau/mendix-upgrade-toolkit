@@ -28,6 +28,6 @@ status: draft-unreviewed
 **Source quotes:**
 
 - "We deprecated the Dojo Client and it will be removed in Mendix 12. Please switch to the React Client." ([Studio Pro 11.0 release notes](https://docs.mendix.com/releasenotes/studio-pro/11.0/))
-- "[Dojo-based Mendix Client](/refguide/mendix-client/): deprecated in 11.0" ([Upgrading from Mendix Studio Pro 10 to 11](https://docs.mendix.com/refguide/upgrading-from-10-to-11/))
+- "[Dojo-based Mendix Client](https://docs.mendix.com/refguide/mendix-client/): deprecated in 11.0" ([Upgrading from Mendix Studio Pro 10 to 11](https://docs.mendix.com/refguide/upgrading-from-10-to-11/))
 
 **Related catalog entries:** MX11-WIDGET-DOJO-PACKAGE, MX11-REACT19-FIND-DOM-NODE.
