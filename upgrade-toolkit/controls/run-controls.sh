@@ -2727,7 +2727,7 @@ ctl stepupdate-storage-collapse-tree-pass 0 '^units=[1-9][0-9]*$' '^last=stepupd
 
 # the guard exits 2 (cannot tell) is not a collapse: the step is committed, nothing undone (mutating the test to `!= 0` makes this red)
 rm -rf $F42/su3 $F42/bin2; mkdir -p $F42/su3 $F42/bin2; cp -R $S2/base/. $F42/su3/; (cd $F42/su3 && git init -q && git add -A && git -c user.email=c@c -c user.name=ctl commit -qm base)
-for f in $B/*; do ln -s $f $F42/bin2/$(basename $f); done; rm $F42/bin2/mprstorage.sh; printf '#!/bin/sh\necho "mprstorage: no .mpr" >&2\nexit 2\n' > $F42/bin2/mprstorage.sh
+for f in $B/*; do ln -s $f $F42/bin2/$(basename $f); done; ln -s $B/../playbooks $F42/playbooks; rm $F42/bin2/mprstorage.sh; printf '#!/bin/sh\necho "mprstorage: no .mpr" >&2\nexit 2\n' > $F42/bin2/mprstorage.sh
 ctl stepupdate-storage-guard-unsure-not-undone-pass 0 'committed [0-9a-f]{7}' '!STORAGE FORMAT' '!Step undone' -- env UPG_UPDATE_CMD="cp $M/step1-adds/App.mpr {mpr}" bash $F42/bin2/stepupdate.sh $F42/su3 $F42/su.plan
 
 # GM-23 / A-1: the model check after the step, read BEFORE the commit. The stub check reports the after-worse log for the step1-adds
