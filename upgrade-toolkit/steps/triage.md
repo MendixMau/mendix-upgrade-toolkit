@@ -5,7 +5,7 @@ Goal: know the version path, the module plan and the traps before anything chang
 Paths: `B=$TK/bin` (`TK` = the folder that holds SKILL.md, see there),
 `EA=$UPG_SCANNER` (the optional upgrade scanner's folder; also read from `UPG_SCANNER=` in `~/.config/upgrade-toolkit/local.env`),
 `BR=$(python3 $B/brainpath.py)` (company brain, plain markdown: $UPG_BRAIN, UPG_BRAIN= in local.env, else the ~/Mendix/*-brain
-with version tables, else the brain this repo ships (`company-brain-test/brain`); the scripts find it the same way).
+with version tables, else the brain this repo ships (`brain`); the scripts find it the same way).
 Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <path> (from ...)` or
 `brain: none found (looked: ...)`) in your first triage message and in `$W/brain.txt` (DV-3; the pipeline writes it there).
 The brain's practice and pitfall notes are shown for you: every stop in `$W/NEEDS-JUDGMENT.md` (triage, repair, heal, gate) starts with `brain notes:` (top 3, `internal/<path>.md - <title>`) or `brain notes: none matched`, and `release-impact.md` has a "Brain notes for the open rows" section; nothing is printed when no brain with an `internal/` folder is found. Read a listed note before you decide that item; `python3 $B/brainnotes.py --stop "<words>"` asks by hand.

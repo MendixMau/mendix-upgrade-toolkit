@@ -4665,7 +4665,7 @@ ctl setup-check-after-install-pass 0 'host OK \(.*/py-state has pymongo/bson and
 ctl setup-check-installed-pass 0 'pip-bcrypt' 'pip-pymongo' 'rsync' -- ls $SC $SC/bin2
 ctl setup-check-no-rsync-catch 1 'NOT READY: rsync missing' '!done: source' -- setup home-nr PATH=$SC/bin3:$NR UPG_PYTHON=$T/py-ok UPG_SETUP_STEPS=host,check
 ctl setup-env-file-pass 0 '^export UPG_ROOT=.*/run-home-env UPG_TOOLS=' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
-ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/company-brain-test/brain$' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
+ctl fr2-env-file-brain-catch 0 '^export UPG_BRAIN=.*/brain$' '!company-brain-test' -- sh -c "env HOME=$SC/home-env UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
 ctl fr2-env-file-brain-pass 0 '!UPG_BRAIN=/nonexistent' -- sh -c "env HOME=$SC/home-env UPG_BRAIN=/nonexistent UPG_SETUP_STEPS=env bash $B/setup-container.sh $SC/run-home-env 11.6.3 > /dev/null && cat $SC/run-home-env/env.sh"
 # S1-S3 (Apple Silicon / laptop): setup-container.sh through stubbed uname (Darwin/arm64), docker, make, npm and npx; no real
 # Docker or Mac. S1 mxcli is cross-built GOOS=linux GOARCH=amd64 and a Mac's own mxcli is never replaced; S2 every docker
@@ -8173,19 +8173,23 @@ mkdir -p $BPH/h3/Mendix; cp -R $RB $BPH/h3/Mendix/acme-brain
 ctl brainpath-describe-tools-folder-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN HOME="$BPH/h3" python3 $B/brainpath.py --describe
 ctl brainpath-plain-order-unchanged-pass 1 '!brain' -- sh -c "env -u UPG_BRAIN UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty python3 $B/brainpath.py 2>/dev/null"
 # GF-10: without UPG_BRAIN and with no brain under ~/Mendix, the brain this repo ships is found
-ctl brainpath-gf10-shipped-catch 0 '/company-brain-test/brain \(from shipped toolkit brain\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
-ctl brainpath-gf10-shipped-plain-pass 0 '/company-brain-test/brain$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
+ctl brainpath-gf10-shipped-catch 0 '/brain \(from shipped toolkit brain\)$' '!company-brain-test' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py --describe
+ctl brainpath-gf10-shipped-plain-pass 0 '/brain$' '!company-brain-test' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $B/brainpath.py
 ctl brainpath-gf10-upg-brain-first-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $B/brainpath.py --describe
 ctl brainpath-gf10-home-brain-first-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $B/brainpath.py --describe
 gbr() ( export HOME="$BPH/empty" UPG_BRAIN_SHIPPED=0; unset UPG_BRAIN; gcase "$@" )
 gbrset() ( export HOME="$BPH/empty" UPG_BRAIN=$RB; gcase "$@" )
 ctl gate-summary-brain-none-catch 0 'Overall: \*\*PASS\*\*' '^brain: none found \(looked: UPG_BRAIN unset' -- gbr brn
 ctl gate-summary-brain-found-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!none found' -- gbrset brf
-# the shipped brain is found with nothing set, in a repo that holds it as <repo>/brain (the planned name) or as company-brain-test/brain
+# the shipped brain is found with nothing set, in a repo that holds it as <repo>/brain or (old name, one release) as company-brain-test/brain
 FR=$BPH/fr; mkdir -p $FR/upgrade-toolkit/bin $FR/brain/baseline/versions $FR/company-brain-test/brain/baseline/versions
 cp $B/brainpath.py $FR/upgrade-toolkit/bin/; : > $FR/brain/baseline/versions/studio-pro-upgrade-11.md; : > $FR/company-brain-test/brain/baseline/versions/studio-pro-upgrade-11.md
 ctl brainpath-shipped-repo-brain-first-catch 0 "^brain: $FR/brain \\(from shipped toolkit brain\\)\$" -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
 ctl brainpath-shipped-old-name-pass 0 "^brain: $FR/company-brain-test/brain \\(from shipped toolkit brain\\)\$" -- sh -c "mv $FR/brain $FR/brain.off; env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME=$BPH/empty python3 $FR/upgrade-toolkit/bin/brainpath.py --describe; mv $FR/brain.off $FR/brain"
+# old path, one release: an UPG_BRAIN (env.sh written before the rename) naming <repo>/company-brain-test/brain is read as <repo>/brain
+FN=$BPH/fn; mkdir -p $FN/upgrade-toolkit/bin $FN/brain/baseline/versions; cp $B/brainpath.py $FN/upgrade-toolkit/bin/; : > $FN/brain/baseline/versions/studio-pro-upgrade-11.md
+ctl brainpath-old-upg-brain-path-renamed-catch 0 "^brain: $FN/brain \\(from UPG_BRAIN\\)\$" 'old path .*update UPG_BRAIN' -- sh -c "env -u UPG_BRAIN_SHIPPED HOME=$BPH/empty UPG_BRAIN=$FN/company-brain-test/brain python3 $FN/upgrade-toolkit/bin/brainpath.py --describe 2>&1"
+ctl brainpath-other-missing-path-not-renamed-pass 0 '^brain: none found \(looked: UPG_BRAIN .*/brainx has no' '!old path' -- sh -c "env UPG_BRAIN_SHIPPED=0 HOME=$BPH/empty UPG_BRAIN=$FN/company-brain-test/brainx python3 $FN/upgrade-toolkit/bin/brainpath.py --describe 2>&1"
 ctl brainpath-shipped-upg-brain-wins-pass 0 "^brain: $RB \\(from UPG_BRAIN\\)\$" '!from shipped' -- env -u UPG_BRAIN_SHIPPED HOME="$BPH/empty" UPG_BRAIN=$RB python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
 ctl brainpath-shipped-local-env-wins-pass 0 "^brain: $RB \\(from local\\.env\\)\$" '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h2" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
 ctl brainpath-shipped-home-brain-wins-pass 0 '^brain: .*/Mendix/acme-brain \(from tools folder\)$' '!from shipped' -- env -u UPG_BRAIN -u UPG_BRAIN_SHIPPED HOME="$BPH/h3" python3 $FR/upgrade-toolkit/bin/brainpath.py --describe
@@ -8212,7 +8216,7 @@ ctl pipeline-park-finish-no-question-line-catch 0 'rc=12' '^STOP    auto: 1 park
 ctl reln-brain-notes-open-row-catch 0 '^## Brain notes for the open rows \(1 of 1\)$' '^- row 1 \(10\.1\.0\): brain notes:$' '^  - internal/upgrade/reason-phrase-http-responses\.md - ' -- sh -c "python3 $B/release_impact.py --brain $BNB --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn.md > /dev/null; cat $RI/bn.md; python3 $B/release_impact.py --check $RI/bn.md | tail -1"
 ctl reln-brain-notes-no-notes-silent-pass 0 '!Brain notes' -- sh -c "python3 $B/release_impact.py --brain $FX/brain-evidence --from 10.0.0 --to 10.1.0 --auto --evidence --facts-from-mpr $T/m/reln-evidence/App.mpr --out $RI/bn2.md > /dev/null; cat $RI/bn2.md"
 # the notes the repo ships: INDEX.md lists every note under brain/internal/upgrade once, and links nothing that is not there
-SB=""; for d in "$here/../../brain" "$here/../../company-brain-test/brain"; do [ -f "$d/internal/upgrade/INDEX.md" ] && { SB=$d/internal/upgrade; break; }; done
+SB=""; for d in "$here/../../brain"; do [ -f "$d/internal/upgrade/INDEX.md" ] && { SB=$d/internal/upgrade; break; }; done
 if [ -n "$SB" ]; then
   ctl brain-index-lists-every-note-once-pass 0 '^notes=[1-9][0-9]* links=same$' '!listed' '!not a note' '!INDEX links' -- sh $here/brain-index-check.sh $SB
 else skip brain-index-lists-every-note-once-pass 'no brain/internal/upgrade in this checkout'; fi

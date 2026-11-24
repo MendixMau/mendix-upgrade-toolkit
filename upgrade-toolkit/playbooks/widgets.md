@@ -2,7 +2,7 @@
 
 Evidence: batch 1 template runs T3 (App B 9.24 to 10.24), T5 (App G 9.24 to 10.24), T7 (App E
 10.6 to 10.24 to 11.15) and T8 (FSM 9.24 to 10.24); branches `origin/runs/<slug>`, files SCORECARD, COMPARE, JOURNAL,
-TOOLKIT-FEEDBACK. Release facts from the brain version tables (`company-brain-test/brain/baseline/versions`) and the
+TOOLKIT-FEEDBACK. Release facts from the brain version tables (`brain/baseline/versions`) and the
 public sources named per section. Row ids (T7-29, ...) are the workers' TOOLKIT-FEEDBACK items; FEEDBACK.md row R1-1.
 
 mx check, mxbuild, quick start and the data diff cannot see these. Only the smoke walk (console errors) and shotdiff
