@@ -194,7 +194,7 @@ def main():
         renamed = {r["module"] for r in renamed_modules.find(mods)}
     except Exception:  # a table problem must not stop the plan: the proposal still lists the rename
         pass
-    plan, unresolved, ignored_total, notes = [], 0, 0, []
+    plan, unresolved, ignored_total, notes, current = [], 0, 0, [], []
 
     def not_picked(n, why):
         nonlocal unresolved
@@ -228,6 +228,7 @@ def main():
         if kind == "STRANDED":
             print(f"STRANDED {n} {inst}: no version at all has a min Mendix at or below {a.target} (list it in stranded.md, steps/triage.md)")
         elif kind == "CURRENT":
+            current.append((n, inst, cid))
             print(f"CURRENT {n} {inst}: no newer version fits {a.target} (newest that fits: {v})" + (" (cached)" if cached else ""))
         else:
             plan.append((n, cid, v[0], inst))
@@ -305,9 +306,11 @@ def main():
         else:  # "<Module> <old> -> <new> <cid>": the form diff.py, proposal.py and release_impact.py read
             body = "".join(f"{n} {o} -> {v} {c}\n" for n, c, v, o in plan)
         body = "".join(x + "\n" for x in notes) + body
+        if kind == "jumps":  # GF-23: a module already at the newest version that fits is a comment line, so no reader sees an update
+            body += "".join(f"# CURRENT {n} {o} {c}: installed version is the newest that fits the target\n" for n, o, c in current)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(body if plan or notes else "# no module update fits the target\n")
+            fh.write(body if plan or notes or (kind == "jumps" and current) else "# no module update fits the target\n")
         os.replace(tmp, path)
         print(f"modplan: wrote {path} ({len(plan)} line(s))")
     return 3 if unresolved else 0

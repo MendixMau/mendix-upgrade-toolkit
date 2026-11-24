@@ -715,6 +715,15 @@ PY
          nchknot=$((nchknot + 1)); chknotrun="${chknotrun:+$chknotrun,}$mod"; rm -f "$st/check-prev.log.next";;
     esac
   fi
+  # GF-42: a step never changes the storage format (MPR v2 -> v1 is what a rewriting tool does); refused and undone, not committed
+  # exit 1 = collapsed; exit 2 = could not tell (no .mpr): not a collapse, nothing is undone for it
+  smsg=$(bash "$bin/mprstorage.sh" guard "$app" 2> /dev/null); grc=$?
+  if [ $grc = 1 ]; then
+    revert; rm -f "$st/check-prev.log.next"
+    # an old stepcheck-stop.txt (an earlier model-check stop) would be shown as THIS stop's question: cleared, the STOP line below is the reason
+    rm -f "$st/stepcheck-stop.txt"
+    echo "STOP: $mod $ver: $smsg Step undone, nothing committed."; exit 4
+  fi
   git -C "$app" add -A . || { echo "STOP: git add failed"; exit 2; }
   if git -C "$app" diff --cached --quiet; then
     echo "   no change to commit"
