@@ -26,11 +26,11 @@ slug: feedback-module-major-skip
 
 ## Symptom
 
-A plan that moves the feedback module from 4.1.1 to 5.0.0 changes the module's own entities and nanoflows; the field run kept 4.1.1 and noted it as a held module.
+Hypothesis, from one run: a plan that moves the feedback module from 4.1.1 to 5.0.0 changes the module's own entities and nanoflows; the field run kept 4.1.1 and noted it as a held module.
 
 ## Root cause
 
-Hypothesis: the major step changes what the design-module snippet expects (see the neighbouring note).
+Hypothesis: the major step changes what the design-module snippet expects (see the note design-module-snippet-needs-feedback-module).
 
 ## Fix
 

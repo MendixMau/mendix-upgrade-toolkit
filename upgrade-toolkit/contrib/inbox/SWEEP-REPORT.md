@@ -1,6 +1,6 @@
 # Learnings sweep of the weekend field runs (2026-11-24)
 
-**From:** learnings sweep, run by an agent on the lead's brief
+**From:** learnings sweep, a learnings sweep
 **Date:** 2026-11-24
 **Kind:** report
 **Upgrade:** 9.x and 10.x to 10.24 to 11.12 (about 20 field runs, 2026-11-18 to 2026-11-21)
@@ -13,8 +13,8 @@
 
 | class | count | where it went |
 |---|---|---|
-| CAPTURED | 16 | already in FEEDBACK.md, CHANGELOG.md, steps/ or an open branch (cited below) |
-| TOOLKIT-GAP | 22 | FEEDBACK.md rows SW-1 to SW-22, status open |
+| CAPTURED | 18 | already in FEEDBACK.md, CHANGELOG.md, steps/ or an open branch (cited below) |
+| TOOLKIT-GAP | 20 | FEEDBACK.md rows SW-1 to SW-19 and SW-22, status open |
 | BRAIN | 7 | `contrib/inbox/2026-11-24-sweep-*.md`, brain frontmatter, `confidentiality: public` |
 | RUN-HISTORY | 19 | `runs/HISTORY.md`, metadata only (dates marked `~` are not recorded in the notes) |
 | NOISE | 3 | not kept |
@@ -22,21 +22,20 @@
 
 ## Files read (78)
 
-- 39 issue drafts (`issues/01a` to `issues/60`): all.
-- 12 STATUS files (5A, 5B, 6A, 6B, 6C, 7A, R4, PR, A, B, prB, C), 3 briefs (common, cockpit rubric, review), the house-rules brief, the field-feedback register (headline lines only).
+- 39 issue drafts: all.
+- 12 lane status files, 3 briefs, the house-rules brief, the field-feedback register (headline lines only).
 - 2 harvest run tables, the run claims file, the feedback report and harvest draft of one run.
 - The mining summary of the weekend runs and the NOTES heads of 16 runs (TLT, CHK, ERRH, RMS, SITS, SNOW, ORG, DVS, MTA, PSOP, PMNT, LDMS, STOR, TBUD, AIB, WTD).
 
-Not read in full, so learnings that live only there are not counted: the remainder of STATUS-A and the field-feedback register, the coaching text files, the cockpit work notes beyond STATUS-C, per-run notes of the remaining runs, the gate summary of one run, shared research notes (the folder holds none).
+Not read in full, so learnings that live only there are not counted: the remainder of one status file and the field-feedback register, the coaching text files, the cockpit work notes, per-run notes of the remaining runs, the gate summary of one run, shared research notes (the folder holds none).
 
 ## Skipped
 
 - Checkout dirs of the toolkit (several, confirmed by their git layout) and the worktree folder: the content is the toolkit itself.
-- Private dirs: three exist; their content was not read.
-- The refresh work folder: in use by another agent.
+- One work folder that was in use: not read.
 - Any .mpr, .mpk or binary; screenshots.
 
-## CAPTURED (16)
+## CAPTURED (18)
 
 1. MPK without vendorlib: MC-1, DV-5.
 2. afterwalk has no accept route for a baseline-equal smoke row: WK-4.
@@ -53,11 +52,13 @@ Not read in full, so learnings that live only there are not counted: the remaind
 13. `mxcli marketplace diff` UNKNOWN in triage: FR-8.
 14. R38 misses a bare global logger; allow.txt not applied until heal reruns: open branches, not yet on main.
 15. Journeys run with no progress line and no cap: CHANGELOG.md (GF-50).
-16. Add-on module cache case on Linux: open branch (issue 06), not yet on main.
+16. Add-on module cache case on Linux: open branch, not yet on main.
+17. Generated click lands on a layout footer link of the same name: fixed on main (#173).
+18. decisions.py placeholder choice and reused item ids: fixed on main (#174).
 
-## TOOLKIT-GAP (22): FEEDBACK.md SW-1 to SW-22
+## TOOLKIT-GAP (20): FEEDBACK.md SW-1 to SW-19 and SW-22
 
-SW-1 journey todo accept route; SW-2 screens count a skipped journey twice; SW-3 plan line for an absent module; SW-4 plan-pre below 10.24; SW-5 gate stop with no brain; SW-6 UNKNOWN wording for no release notes; SW-7 module-update stop not a decision item; SW-8 app icon CE1613 repair; SW-9 owner-only blocker wording; SW-10 apimock classify reload; SW-11 hand-processes.json undocumented; SW-12 allow line matches nothing; SW-13 widget-drop option for a standalone widget; SW-14 no time estimates; SW-15 shared entry step probed once; SW-16 chromium build mismatch; SW-17 two stops from one replay decision; SW-18 disabled button reported covered; SW-19 smoke users without a tenant; SW-20 ambiguous widget name; SW-21 decision ids reused; SW-22 cockpit top card follows a settled question.
+SW-1 journey todo accept route; SW-2 screens count a skipped journey twice; SW-3 plan line installs an absent module (GM-12 only reports it); SW-4 plan-pre below 10.24; SW-5 gate stop with no brain; SW-6 UNKNOWN wording for no release notes; SW-7 module-update stop not a decision item; SW-8 app icon CE1613 repair; SW-9 owner-only blocker wording; SW-10 apimock classify reload; SW-11 hand-processes.json undocumented; SW-12 allow line matches nothing; SW-13 widget-drop option for a standalone widget; SW-14 no time estimates; SW-15 shared entry step probed once; SW-16 chromium build mismatch; SW-17 two stops from one replay decision; SW-18 disabled button reported covered; SW-19 smoke users without a tenant; SW-22 cockpit top card follows a settled question.
 
 ## BRAIN (7): `contrib/inbox/2026-11-24-sweep-*.md`
 
@@ -69,7 +70,7 @@ TLT, CHK, PSOP, PMNT, LDMS, STOR, TBUD, SNOW, ORG, DVS, MTA, AIB, WTD, RMS, SITS
 
 ## NOISE (3)
 
-An agent hand-wrote a state marker and the lead made it revert it (a process lesson, not a toolkit change); several runs stopped on the shared disk guard (host, not toolkit); one app skipped because the Marketplace exposes no download URL.
+A hand-written state marker that had to be reverted (a process lesson, not a toolkit change); several runs stopped on the shared disk guard (host, not toolkit); one app skipped because the Marketplace exposes no download URL.
 
 ## HELD (2)
 

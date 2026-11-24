@@ -1,5 +1,5 @@
 ---
-title: A 10.6 app builds and runs only on JDK 11
+title: A 10.6 app does not build on JDK 21; use the JDK 11 image
 topic: upgrade
 kind: pitfall
 applies_to: Mendix runtime
@@ -13,7 +13,7 @@ status: draft-unreviewed
 slug: old-10-6-app-needs-jdk-11
 ---
 
-# A 10.6 app builds and runs only on JDK 11
+# A 10.6 app does not build on JDK 21; use the JDK 11 image
 
 **From:** learnings sweep of the weekend field runs
 **Date:** 2026-11-24
@@ -30,11 +30,11 @@ The old app (10.6.3) fails to build under the default JDK and its repair row for
 
 ## Root cause
 
-mxbuild for 10.6 uses Gradle 7.6, which needs JDK 11; the runtime image must be JDK 11 as well.
+mxbuild for 10.6 uses Gradle 7.6, which did not work on JDK 21 in the field run; the runtime image must be JDK 11 as well.
 
 ## Fix
 
-Use the Java 11 build image for the baseline build and the runtime of the old app, and only for it: a per-run override left set later broke the 10.24 build ("release version 21 not supported").
+Use the Java 11 build image for the baseline build and the runtime of the old app, and keep it for that app alone: a per-run override left set later broke the 10.24 build ("release version 21 not supported").
 
 ## Status
 

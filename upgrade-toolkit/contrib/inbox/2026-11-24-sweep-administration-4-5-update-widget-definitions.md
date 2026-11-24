@@ -34,7 +34,7 @@ The module ships newer widget definitions than the widgets the app has; the page
 
 ## Fix
 
-Accept the update stop (not keep: a kept module blocks the gate on a kept-ack) and run `mx update-widgets` in the build repair; 18 CE0463 went to 0 in one pass. Unmapped new roles of the module still need a person to map them.
+Accept the update stop (not keep: a kept module blocks the gate on a kept-ack) and run `mx update-widgets` in the build repair; the update-widgets repair cleared all 18 CE0463 of the app (the 11 above plus the ones from the other module updates of that run) to 0 in one pass. Unmapped new roles of the module still need a person to map them.
 
 ## Status
 
