@@ -1,0 +1,119 @@
+{
+ "version": "10.24.16.96987",
+ "modules": [
+  {
+   "name": "Sample_BuildingBlocks",
+   "docs": [
+    {
+     "type": "Forms$BuildingBlock",
+     "name": "Chart_Bar",
+     "widgets": [
+      {
+       "id": "com.mendix.widget.custom.AnyChart.AnyChart",
+       "name": "anyChart1",
+       "props": {
+        "dataStatic": {
+         "text": "[{\"type\": \"bar\", \"x\": [1, 2], \"y\": [3, 4]}]"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "type": "Forms$BuildingBlock",
+     "name": "Chart_Pie",
+     "widgets": [
+      "com.mendix.widget.custom.AnyChart.AnyChart"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Shop",
+   "entities": [
+    {
+     "name": "Chart",
+     "attributes": [
+      {
+       "name": "DataJSON",
+       "type": "String"
+      }
+     ]
+    }
+   ],
+   "pages": [
+    {
+     "name": "Dashboard",
+     "refs": {
+      "Form": "Shop.SNIP_Sales"
+     },
+     "widgets": [
+      "MicroflowTimer.widget.MicroflowTimer"
+     ]
+    }
+   ],
+   "docs": [
+    {
+     "type": "Forms$Snippet",
+     "name": "SNIP_Sales",
+     "named": [
+      {
+       "type": "DataView",
+       "name": "dataView1",
+       "datasource": {
+        "kind": "microflow",
+        "microflow": "Shop.DS_Chart"
+       },
+       "children": [
+        {
+         "custom": {
+          "id": "com.mendix.widget.custom.AnyChart.AnyChart",
+          "name": "anyChart2",
+          "props": {
+           "dataAttribute": {
+            "attr": "Shop.Chart.DataJSON"
+           },
+           "layoutStatic": {
+            "text": "{\"xaxis\": {\"title\": {\"text\": \"Day\"}}}"
+           },
+           "height": "300"
+          }
+         }
+        },
+        {
+         "custom": {
+          "id": "com.mendix.widget.custom.AnyChart.AnyChart",
+          "name": "anyChart3",
+          "props": {
+           "dataAttribute": {
+            "attr": "Shop.Chart.DataJSON"
+           },
+           "layoutStatic": {
+            "text": "{\"title\": \"Sales\", \"titlefont\": {\"size\": 14}}"
+           }
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "widget_packages": {
+  "AnyChart.mpk": [
+   "com.mendix.widget.custom.AnyChart.AnyChart"
+  ],
+  "Charts.mpk": [
+   "com.mendix.widget.web.customchart.CustomChart",
+   "com.mendix.widget.web.linechart.LineChart"
+  ],
+  "MicroflowTimer.mpk": {
+   "ids": [
+    "MicroflowTimer.widget.MicroflowTimer"
+   ],
+   "dojo": true
+  }
+ }
+}

@@ -1,0 +1,4 @@
+.kept-ok {
+  @include pds-ok-mixin;
+  color: $pds-ok;
+}

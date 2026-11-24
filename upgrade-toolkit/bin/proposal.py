@@ -12,6 +12,10 @@ Reads the triage outputs in W (each by the name triage writes it; an input that 
   localedits.json                                                   RED / logic / Java and theme file edits (item 5)
   release-impact.md                                                 rows whose "handled" cell is empty need a person (item 10)
   replacements.md                                                   replacement_check.py rows, HIT and UNKNOWN open (item 10)
+  absentmods.json                                                   absentmods.py --json: modules a planned update calls that the app lacks (GM-12; optional, an older run has none)
+  owngone.out                                                       crosscalls.py --own: own documents that use targets a planned package drops (GF-39; optional, an older run has none)
+  keptvendor.json                                                   keptvendor.py --json: kept themesource uses a planned package removes (GM-15; optional; rows for the app's own styling exist at triage, GF-56, rows for a kept module once kept.txt exists)
+  keptstyle.json                                                    keptstyle.py --json: platform widget selectors in a kept themesource (MC-11; optional, written once kept.txt exists)
   dojo-react.md                                                     dojo_report.py: can't move / not researched widgets (item 10)
   actions.json                                                      action_inventory.py summary (action count)
   journey-scope.json                                                journey_scope.py: reachable / out of scope split of the actions
@@ -28,13 +32,18 @@ human effort; sign-off). A comment line stores the hash of the plan inputs. Sect
   Signed-off: <name> <yyyy-mm-dd>        or        Status: PAUSED <reason>
 Exit: 0 signed (the section-3 items nobody answered take their recommendation, recorded P-n CONFIRMED in DECISIONS.md),
       or unattended (nothing signed; ASSUMED (unattended) lines in DECISIONS.md), 14 unsigned, 15 PAUSED, 2 usage.
+W/AGENT-NOTES.md (agent notes, free text) is shown in an "Agent notes" section; this script only reads it, so a rerun keeps the notes.
+GM-21: a rerun whose plan only SHRANK against the signed one (every current item was in the signed item set, which the file stores in an
+"items" comment; none added or changed) clears the sign-off the same way (same action, same exit, unattended handling unchanged) but writes a "Held back since signed" block
+that lists exactly the removed items, so the reading is lighter (the person signs section 6 again; nothing is carried over, no Signed-off
+line is written here; the cockpit page does not show the block). A file with no stored item set (written before GM-21) takes the full path below.
 A rerun after sign-off whose plan inputs hash differently rewrites the file with a "Changed since signed" block, clears the
 sign-off and exits 14 (asked again). kept.txt, DECISIONS.md and the count of open release rows are not in the hash: the
 update step writes kept.txt and people close release rows after the sign-off.
 Producer of the inputs: the pipeline steps fetch..basewalk (steps/triage.md) and step_propose, which runs
 action_inventory.py and apimock.py inventory on original.mpr.
 """
-import argparse, datetime, hashlib, json, os, re, sys
+import argparse, base64, datetime, hashlib, json, os, re, sys
 
 # cold test WM1 (2026-11-16): an edited Marketplace module is updated, not kept. Editing a module does not stop its update; an old
 # module misses fixes and may not run on the next Mendix version. editroute.py carries the edits over (bin/editroute.py routes).
@@ -48,6 +57,8 @@ import steps  # noqa: E402  step records (STEP-RECORDS-PLAN.md): the proposal op
 SIGNED = re.compile(r"^Signed-off:[ \t]+(\S.*?)[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$")
 PAUSED = re.compile(r"^Status:[ \t]+PAUSED[ \t]+(\S.*?)[ \t]*$")
 HASH = re.compile(r"^<!-- proposal inputs-hash: ([0-9a-f]{64}) -->$")
+# GM-21: the item set the hash was taken over, so a later plan can be compared with what was signed (base64 of a JSON list)
+ITEMS = re.compile(r"^<!-- proposal items: ([A-Za-z0-9+/=]*) -->$")
 # the toolkit's own assumption for the effort range, hours per touchpoint size; shown as an assumption, not a measurement
 HOURS = {"S": (0.5, 2), "M": (2, 8), "L": (8, 40)}
 NOT_BEFORE_CONVERT = [
@@ -123,10 +134,15 @@ class Facts:
         self.W = a.work
         self.measured, self.not_measured = [], []
         self.plan = []          # (module, from, to, when)
+        self.kv_seen = False    # keptvendor.json read (GM-15)
+        self.ks_seen = False    # keptstyle.json read (MC-11)
         self.kept = {}          # module -> reason
         self.stranded = {}      # module -> text
         self.items3 = []        # decision items
         self.items2 = []        # toolkit items
+        self.advisory = []      # advice that is not work of this run (GF-25)
+        self.jumps = {}         # module -> (installed, target) from module-jumps.txt
+        self.current = {}       # module -> installed version, already the newest that fits (GF-23, "# CURRENT" lines of module-jumps.txt)
         self.items4 = []        # person items
         self.repair_rows = {}
         self.sizes = {}
@@ -134,9 +150,11 @@ class Facts:
         self.nendpoints = None; self.api_mocked = 0; self.api_unknown = []; self.api_excluded = 0
         self.release_open = None
         self.release_total = None
+        self.release_unread = {}  # module -> why; planned modules whose release impact is UNKNOWN (GM-18)
         self.actions = None
         self.scope = None       # journey_scope.py output: line, testability_line, counts
         self.effort = {}        # S/M/L -> count (section 3 items)
+        self.filedocs = None    # FileDocument specializations in original.mpr (None: the model was not read)
 
     def p(self, name):
         return os.path.join(self.W, name)
@@ -173,6 +191,9 @@ class Facts:
                     jumps[m.group(1)] = (m.group(2), m.group(3))
         else:
             self.not_measured.append(("module-jumps.txt", "the installed version of each module is unknown; the plan lists the target only"))
+        self.jumps = jumps
+        # GF-23: modplan.py writes "# CURRENT <Module> <installed> <cid>" for a module whose installed version is already the newest that fits
+        self.current = {m.group(1): m.group(2) for m in (re.match(r"^\s*#\s*CURRENT\s+(\S+)\s+(\S+)", ln) for ln in (j or [])) if m}
         # BT-11: the second pass starts from what the first pass left, not from the installed version (Atlas_Core 3.19.0 -> 3.21.1
         # before the convert, then 3.21.1 -> 4.5.1 after it, never 3.19.0 -> 4.5.1 beside the first line)
         left = {}
@@ -273,6 +294,141 @@ class Facts:
                 if not col(head, r, "handled").strip():
                     opn += 1
         self.release_total, self.release_open = tot, opn
+        # GM-18: "Not covered" rows are modules release_impact had no brain file for (UNKNOWN): their release notes were not read
+        for head, rows in tables(t):
+            if "module or source" not in head:
+                continue
+            for r in rows:
+                mod = col(head, r, "module or source")
+                # a non-empty handled cell (a person's entry, or release_impact's own "not relevant (auto)") closes the item
+                if mod and mod != "Studio Pro" and not col(head, r, "handled").strip():
+                    # the row is [#, module, UNKNOWN, why, handled] under a header whose 3rd cell reads "why" for the older rows
+                    self.release_unread.setdefault(mod, (r[3] if len(r) > 4 else col(head, r, "why")).strip())
+
+    def absent(self):
+        """GM-12: a planned update whose package calls a module that is neither in the app nor in the plan is a decision
+        ("needs module X") before the update, not 31 CE1613 at the build. absentmods.json is optional (a run from before the
+        check has none); an update whose package could not be read is listed as not measured, never as clean."""
+        t = read(self.p("absentmods.json"))
+        if t is None:
+            return
+        try:
+            d = json.loads(t)
+            needs, unchecked = d.get("needs") or {}, d.get("unchecked") or []
+        except (ValueError, AttributeError):
+            self.not_measured.append(("absentmods.json", "not valid JSON; calls into modules the app lacks were not checked"))
+            return
+        self.measured.append("absentmods.json")
+        for x, by in sorted(needs.items()):
+            who = "; ".join(f"{p} {v.get('installed') or '?'} -> {v.get('plan')} calls it ({v.get('refs')} refs, e.g. "
+                            + ", ".join(f"{doc} -> {tgt}" for doc, tgt in (v.get("examples") or [])[:2]) + ")" for p, v in sorted(by.items()))
+            callers = ", ".join(sorted(by))
+            self.add3("module", f"needs module {x}",
+                      f"the target package of {callers} refers to {x}, which is not in the app and not on the plan: {who}",
+                      f"install {x} from the Marketplace before the update (mxcli marketplace search {x}), add it to the plan | "
+                      f"hold {callers} at its installed version | hand to a named person",
+                      f"install {x} from the Marketplace before the update and add it to the plan",
+                      "S", f"every reference to {x} is CE1613 at the build, and the update step cannot add a module")
+        for u in unchecked:
+            self.not_measured.append((f"absentmods.py {u.get('module')} {u.get('version')}", u.get("reason") or "package not read"))
+
+    def owngone(self):
+        """GF-39: crosscalls.py --own output (owngone.out). An own document that uses a page, microflow or Java action the plan version of a
+        module no longer has is CE1613 after the update; one section-3 item per planned module, naming each target and the own document.
+        Optional (an older run has none); a NOTE line (package not cached) is listed as not measured, never as clean."""
+        t = read(self.p("owngone.out"))
+        if t is None:
+            return
+        self.measured.append("owngone.out")
+        cur, by, cnt = None, {}, {}
+        for ln in t.splitlines():
+            m = re.match(r"OWN (\S+) (\S*) -> (\S+): (\d+) target", ln)
+            g = re.match(r"\s+GONE (.+?) (\S+) \(used by own (.+)\)", ln)
+            n = re.match(r"NOTE (\S+) (\S*) -> (\S+): .*NOT checked", ln)
+            if m:
+                cur = (m.group(1), m.group(2), m.group(3)); by[cur] = []; cnt[cur] = int(m.group(4))
+            elif g and cur:
+                by[cur].append((g.group(1), g.group(2), g.group(3)))
+            elif n:
+                self.not_measured.append((f"crosscalls.py --own {n.group(1)} {n.group(3)}", "the plan version's package is not in the cache: own use of dropped targets not checked"))
+        for (pm, inst, pv), gone in sorted(by.items()):
+            total = max(cnt.get((pm, inst, pv), 0), len(gone))   # the OWN header line states the count; rows are only the examples
+            ex = "; ".join(f"{k} {tgt} used by own {src}" for k, tgt, src in gone[:4]) + (f"; and {total - min(len(gone), 4)} more" if total > min(len(gone), 4) else "")
+            self.add3("module", f"own documents use targets {pm} {pv} drops",
+                      f"{pm} {inst or '?'} -> {pv}: {total} target(s) the app's own modules use are gone from the {pv} package: {ex}",
+                      f"change the own documents to the replacement the {pm} release notes name before the update | hold {pm} at {inst or 'its installed version'} | hand to a named person",
+                      f"change the own documents to the replacement the {pm} release notes name before the update, or hold {pm}",
+                      "S", f"each is CE1613 at the build ({total} target(s)); mx check on the old model does not see it")
+
+    def keptvend(self, only=None):
+        """GM-15: a kept module's themesource uses a mixin, variable or file that a planned package no longer has (the theme compile
+        fails after the update). keptvendor.json is optional (the pipeline writes it at triage for the app's own styling, GF-56, and again after the update step for kept modules once .stepupdate/kept.txt exists; an older run has none). One
+        section-3 item per planned package with MISSING uses; a package whose target could not be read is listed as not measured,
+        never as clean. GF-56: a MISSING use in the app's OWN styling (theme/, own themesource; `own` in the json) is measured at triage, before
+        the sign-off, so it is its own item and IS in the plan hash (main takes it through only="own"); a kept module's use is not: the file
+        gets those after the update step, like kept.txt."""
+        t = read(self.p("keptvendor.json"))
+        if t is None:
+            return
+        try:
+            d = json.loads(t)
+            missing, unchecked = d.get("missing") or [], d.get("not_checked") or {}
+            by = {}
+            for x in missing:
+                by.setdefault((bool(x.get("own")), x["pkg"], x.get("version") or "?"), []).append(x)
+            unchecked = {str(m): (v.get("why") or "package not read", v.get("uses") or []) for m, v in unchecked.items()}
+        except (ValueError, AttributeError, KeyError, TypeError):
+            self.not_measured.append(("keptvendor.json", "not valid JSON; kept themesource uses of planned packages were not checked"))
+            return
+        self.measured.append("keptvendor.json")
+        self.kv_seen = True
+        for (isown, pkg, ver), xs in sorted(by.items()):
+            if only == "own" and not isown:
+                continue
+            who = "the app's own styling" if isown else "a kept themesource"
+            what = "; ".join(f"{x.get('kind')} {x.get('name')} used in {x.get('where')} (module {x.get('module')})" for x in xs[:6]) \
+                + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
+            self.add3("theme", f"{'own' if isown else 'kept'} styling uses what {pkg} {ver} removes",
+                      f"keptvendor.json: {len(xs)} use(s) in {who} that {pkg} {ver} no longer has: {what}",
+                      f"fix the {'own' if isown else 'kept'} SCSS (use what {pkg} {ver} offers instead) | hold {pkg}: the package stays at its installed version | hand to a named person",
+                      f"fix the {'own' if isown else 'kept'} SCSS (the build fails at the theme compile otherwise)",
+                      "M", f"the theme compile fails at the build for every use listed ({len(xs)}), and the update step does not edit {'the app' + chr(39) + 's own styling' if isown else 'a kept module'}")
+            self.items3[-1]["fixed"] = True
+            if not isown:
+                self.items3[-1]["own"] = True   # late (written after the sign-off); its options are fixed (see "fixed")
+        for m, (why, uses) in sorted(unchecked.items()):
+            self.not_measured.append((f"keptvendor.py {m}", f"{why}; {len(uses)} kept use(s) it defines are unverified"))
+
+    def keptstyle(self):
+        """MC-11: a kept module's themesource targets a platform widget selector (.widget-datagrid ...); after a widget major the
+        markup changes and the kept SCSS can break the layout, which only a screenshot shows. keptstyle.json is optional (written once
+        .stepupdate/kept.txt exists; an older run has none): a list of {module, file, line, selector, cls} rows, [] when clean. One
+        section-3 item per kept module with hits. A visual risk, not a stop. Not in the plan hash (see main); keptvendor.json is only half in it: its own-styling rows are."""
+        t = read(self.p("keptstyle.json"))
+        if t is None:
+            return
+        try:
+            rows = json.loads(t)
+            by = {}
+            for x in rows:
+                by.setdefault(str(x["module"]), []).append(x)
+            for xs in by.values():
+                for x in xs:
+                    x["file"], x["line"], x["selector"]
+        except (ValueError, AttributeError, KeyError, TypeError):
+            self.not_measured.append(("keptstyle.json", "not valid JSON; kept themesource platform widget selectors were not checked"))
+            return
+        self.measured.append("keptstyle.json")
+        self.ks_seen = True
+        for m, xs in sorted(by.items()):
+            what = "; ".join(f"{str(x['selector']).rstrip(' ,{')} at {x['file']}:{x['line']}" for x in xs[:6]) + (f" (+{len(xs) - 6} more)" if len(xs) > 6 else "")
+            self.add3("theme", f"kept module {m} styles platform widgets",
+                      f"keptstyle.json: {len(xs)} platform widget selector(s) in the kept themesource of {m}: {what}",
+                      "look at a page with each of these widgets after the update and restyle the kept SCSS if it broke | accept the risk | hand to a named person",
+                      "look at a page with each widget after the update (the screens rung names this cause)",
+                      "S", f"a widget major can change the markup these selectors target; the layout may break with no build error ({len(xs)} selector(s) in {m})")
+            self.items3[-1]["own"] = True   # late (after the sign-off); fixed options: the evidence names themesource paths, which RA-6 (vendor theme edits) would claim
+            self.items3[-1]["fixed"] = True
 
     def repairmap(self):
         t = read(os.path.join(TK, "steps", "repair.md")) or ""
@@ -309,6 +465,8 @@ class Facts:
                           f"{rep} (replacements.tsv row {rid})" if rep and rep != "-" else "see replacements.tsv row " + rid,
                           f"follow replacements.tsv row {rid}: {rep}" if rep and rep != "-" else "hand to a named person",
                           eff, (col(head, r, "risk") or "see the row")[:80])
+                # GM-20: the packages this hit names (widgets/<file>.mpk in its evidence), for the per-package merge
+                self.items3[-1]["rpkgs"] = sorted(set(re.findall(r"widgets/([^\s;/]+\.mpk)\b", ev))) if st == "HIT" and kind == "widget" else []
 
     def dojo(self):
         t = self.need("dojo-react.md", "steps/triage.md item 10: dojo_report.py --out")
@@ -317,11 +475,15 @@ class Facts:
         # the move to React is part of every upgrade (where a path exists): plan work, not advice. Only a widget without
         # a React path is a decision (below)
         last = getattr(self.a, "target2", None) or self.a.target or "the target"
+        # GF-25: below Mendix 12 the React client is optional (dojo_report.py says ADVISORY) and nothing in the pipeline swaps the widgets:
+        # those lines are advice, listed apart, never work of this run
+        mj = major(last)
+        into = self.advisory if (mj is not None and mj < 12) else self.items2
         for head, rows in tables(t):
             if head[:2] == ["widget", "count"]:
                 for r in rows:
                     if len(r) > 3 and r[1].isdigit():
-                        self.items2.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
+                        into.append({"key": f"react:{r[0]}", "text": f"Dojo to React on the {last} rung: {r[1]} x {r[0]} -> {r[3].split(';')[0]}"})
         for head, rows in tables(t):
             if head[:3] != ["status", "package", "version"]:
                 continue
@@ -333,8 +495,9 @@ class Facts:
                               "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
                               "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
+                    self.items3[-1]["dojopkg"] = pkg
                 elif st in ("can move", "delete"):
-                    self.items2.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
+                    into.append({"key": f"react:{pkg}", "text": f"Dojo to React on the {last} rung: widget package {pkg} ({st}: {r[4] if len(r) > 4 else ''})"})
                     if st == "can move" and re.search(r"htmlsnippet|snippetjs", pkg + " " + (r[3] if len(r) > 3 else ""), re.I):
                         # the successor depends on what each snippet holds (HTML only, a little script, DOM work): a decision per snippet
                         self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"),
@@ -342,6 +505,49 @@ class Facts:
                                   "keep on the Dojo client for now | HTML Element widget | JavaScript action + nanoflow + Events | pluggable widget | hand to a named person",
                                   "HTML Element widget for every snippet that holds HTML only; classify the rest (script, DOM work) per snippet", "M",
                                   "script in a snippet runs on the Dojo page DOM; Mendix 12 removes the Dojo client")
+
+    def merge_packages(self):
+        """GM-20: one item per widget package. A replacement HIT (crash or replace finding) and the dojo-report item name the
+        same package by its file name (`widgets/<file>.mpk` in the evidence, `package` column of dojo-react.md). The stronger
+        finding leads: the replacement advice comes first, "keep, accept the risk" (or the catalogue's "stay on 11") last, and the dojo line stays in the
+        evidence as the supporting one. An identity that is not exact (a hit naming several packages, a package listed twice
+        in the dojo report) is not merged; the dojo item says so."""
+        dojo = {}
+        for it in self.items3:
+            if it.get("dojopkg"):
+                dojo.setdefault(it["dojopkg"], []).append(it)
+        merged, gone = {}, set()
+        for rep in self.items3:
+            pk = rep.get("rpkgs") or []
+            hit = [x for x in pk if x in dojo]
+            if not hit:
+                continue
+            if len(pk) != 1 or len(dojo[pk[0]]) != 1:
+                for x in hit:
+                    for d in dojo[x]:
+                        d["evidence"] += (f"; not merged with replacements.md row {rep['name'].split()[0]}: its evidence names "
+                                          f"{len(pk)} package(s) ({', '.join(pk)}), so the package identity is ambiguous")
+                continue
+            merged.setdefault(id(dojo[pk[0]][0]), (dojo[pk[0]][0], []))[1].append(rep)
+            gone.add(id(rep))
+        for d, reps in merged.values():
+            # the dojo item's catalogue link (its RA tag and recommendation) survives as a supporting line; the replacement
+            # findings lead. Every keep / "stay on" option, whichever side it came from, goes after the last other option.
+            tag = re.search(r"\[(RA-\d+)[^\]]*\]", d["rec"])
+            also = (f"; also {tag.group(1)}: {re.sub(chr(32) + r'*\[RA-\d+[^]]*\]', '', d['rec'])} [playbooks/rearchitecture.md]") if tag else ""
+            allopts = [o for r in reps for o in r["options"].split(" | ")] + d["options"].split(" | ")
+            opts = []
+            for o in allopts:
+                if o not in opts:
+                    opts.append(o)
+            isk = lambda o: o.startswith(("keep", "stay on"))
+            d["options"] = " | ".join([o for o in opts if not isk(o)] + [o for o in opts if isk(o)])
+            d["evidence"] = ("; ".join(dict.fromkeys(r["evidence"] for r in reps)) + "; supporting, weaker: " + d["evidence"] + also)
+            d["rec"] = "; and ".join(r["rec"] for r in reps)
+            d["effort"] = max([d["effort"]] + [r["effort"] for r in reps], key="SML".index)
+            d["risk"] = "; ".join(dict.fromkeys(r["risk"] for r in reps)) + "; " + d["risk"]
+            d["merged_keys"] = [f"{d['kind']}:{d['name']}"] + [f"{r['kind']}:{r['name']}" for r in reps]
+        self.items3 = [i for i in self.items3 if id(i) not in gone]
 
     def sizes_and_actions(self):
         t = read(self.p("actions.json"))
@@ -372,6 +578,7 @@ class Facts:
             self.sizes = {"modules": len({qn.split(".")[0] for qn, _ in docs}),
                           "pages": sum(1 for _, d in docs if d.type == "Forms$Page"),
                           "microflows": sum(1 for _, d in docs if d.type == "Microflows$Microflow")}
+            self.filedocs = mprmodel.file_document_entities(m)
             self.measured.append("original.mpr")
         except Exception as ex:  # noqa: BLE001  an unreadable model is not an empty app
             self.not_measured.append(("original.mpr", f"cannot be read ({ex}); modules, pages and microflows are not counted"))
@@ -392,9 +599,36 @@ class Facts:
         except (ValueError, KeyError, TypeError):
             self.not_measured.append(("apimock-inventory.json", "not an apimock.py inventory file"))
 
+    def filedoc_item(self):
+        """GM-42: Mendix 11.0 refuses to start while a pre-5.12 file document is still present in the data (Mendix 10.24
+        logs a warning). The model shows whether FileDocument entities exist; only the environment's database shows whether old files
+        are in it, so the proposal asks which databases the app runs on and raises a BLOCKER until each was checked."""
+        if not self.filedocs:
+            return
+        tm = [x for x in (major(self.tgt), major(self.tgt2)) if x]
+        if (major(self.src) or 0) >= 11 or (tm and max(tm) < 11):   # an unknown version still asks: a missing version is no "no"
+            return
+        ents = ", ".join(self.filedocs[:5]) + (f" and {len(self.filedocs) - 5} more" if len(self.filedocs) > 5 else "")
+        self.add3("data", "BLOCKER: pre-5.12 file documents in each environment's database",
+                  f"the model has {len(self.filedocs)} entities that hold files (FileDocument specializations: {ents}). Mendix 11.0 refuses to "
+                  "start when a file document from before Mendix 5.12 is still present in the data; Mendix 10.24 logs a warning "
+                  "(release notes 10.24.0 and 11.0.0). QUESTION: which databases do the app's environments (test, acceptance, "
+                  "production) run on, and who can read them? WHAT TO LOOK FOR: file document rows of those entities whose file is "
+                  "still stored the pre-5.12 way; on 10.24 or later the runtime writes a warning at start when any exist, so a copy "
+                  "of each environment's database started on 10.24 shows it in the log. A read-only count in Postgres syntax that "
+                  "a GF field run checked on a copy of a real database (GF-49): select count(*) from \"system$filedocument\" where "
+                  "__uuid__ is null; it counts the file document rows with no uuid (it does not filter hascontents), the rows 11 refuses, and a copy with a uuid set on those rows got "
+                  "past the check. Run it on each environment's database; a count above 0 is a go-live item for that environment",
+                  "the app's data was first created on Mendix 5.12 or later: no such file can exist; the convert goes ahead | "
+                  "I checked each environment's database: none holds pre-5.12 file documents; the convert goes ahead | "
+                  "some do: start on 10.x until the app team has moved the old file documents as the 11.0 release note describes, then convert | "
+                  "I cannot read an environment's database: hand to a named person; the convert waits for their answer | pause the upgrade",
+                  "I cannot read an environment's database: hand to a named person; the convert waits for their answer",
+                  "M", "the app does not start on Mendix 11 in an environment whose database still holds an old file document")
+
     def build(self):
         self.versions(); self.repairmap(); self.plans(); self.keptmods(); self.strandedmods(); self.localedits()
-        self.release(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
+        self.release(); self.absent(); self.owngone(); self.keptvend(); self.keptstyle(); self.replacements(); self.dojo(); self.sizes_and_actions(); self.apimock()
         for tool, why in NOT_BEFORE_CONVERT:
             self.not_measured.append((tool, why))
         # modules that are decisions, never "done by the toolkit"
@@ -425,12 +659,34 @@ class Facts:
                           "install the new module" if self.renamed[m]["kind"] == "RENAMED" else "keep the installed module, test it at the gate; the owner decides on the new listing",
                           "M", "references and data of the old module are moved by hand" if self.renamed[m]["kind"] == "RENAMED" else "the installed version may not run on the target")
                 continue
-            self.add3(kind, m, why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")",
-                      f"{UPDATE_CARRY} | update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
-                      "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person"
-                      if kind == "module" else "keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person",
-                      "hand to a named person (no version fits; port, replace or remove)" if stranded else
-                      f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin",
+            rec = ("hand to a named person (no version fits; port, replace or remove)" if stranded else
+                   f"{UPDATE_CARRY}; a real logic edit is held until it is moved to {m}_Ext" if kind == "module" else "keep old jar, pin")
+            if kind == "module" and not stranded:
+                jm = getattr(self, "jumps", {}).get(m)
+                on_plan = any(x[0] == m for x in self.plan)
+                newest = False
+                if m in self.current or (jm and jm[0] == jm[1]) or any(x[0] == m and x[1] == x[2] for x in self.plan):
+                    # GF-23: the installed version is the newest one; "update to the latest version" has nothing to update to
+                    newest = True
+                    rec = ("keep old version for now (the installed version is already the newest, so there is nothing to update to; "
+                           "it may be deprecated: check its Marketplace listing) or replace with the Marketplace equivalent")
+                if not on_plan and not newest and any(n in self.measured for n in ("plan-pre.txt", "plan.txt")):
+                    # GF-24: a module on neither plan file is left out of the update on purpose or by mistake; the recommendation cannot run
+                    rec += "; not on the plan: the recommendation needs a plan line"
+            # GF-30: a Java file of the package deleted locally holds the update (the update step refuses to carry edits over it);
+            # the signed answer would otherwise turn into "kept" with no new question. Show the deletion and offer the way out.
+            gone = [x.get("path", "?") for x in self.files.get(m, []) if x.get("kind") == "java" and x.get("change") == "REMOVED"]
+            back = (f"accept the package's Java back ({len(gone)} deleted file(s) return on the update, then update and carry the other edits over)"
+                    if gone else "")
+            evid = why + " (" + ("stranded.md" if stranded else "localedits.json / kept.txt") + ")"
+            if gone:
+                evid += ("; Java deleted locally: " + ", ".join(os.path.basename(g) for g in gone[:4]) + (f" (+{len(gone) - 4})" if len(gone) > 4 else "")
+                         + "; an update that carries edits over cannot keep a deleted Java file, so the module is held unless the package's Java comes back")
+            self.add3(kind, m, evid,
+                      (f"{UPDATE_CARRY} | " + (back + " | " if back else "") + f"update, move the edits to {m}_Ext by hand | keep old version for now (a reason and an end date) | "
+                       "replace with the Marketplace equivalent (replacements.tsv row) | hand to a named person")
+                      if kind == "module" else ("keep old jar, pin | " + (back + " | " if back else "") + "port to the new API | replace with a Marketplace module or a microflow | hand to a named person"),
+                      rec,
                       "L" if stranded else "M", "data loss if a RED edit is replaced" if m in self.red else "behaviour of local edits is lost on update")
         for m, rows in sorted(self.files.items()):
             if any(x.get("kind") == "theme" for x in rows):
@@ -441,16 +697,30 @@ class Facts:
             if mod in held:
                 continue
             self.items2.append({"key": f"module:{mod}", "text": f"module update {mod} {fr} -> {to} ({when})"})
+        for mod, why in self.release_unread.items():
+            if mod in held:
+                continue
+            rng = [(fr, to) for m, fr, to, _w in self.plan if m == mod]
+            vr = f"{rng[0][0]} -> {rng[-1][1]}" if rng else "version range not known"
+            self.add3("check", f"{mod}: release notes not read",
+                      f"release-impact.md lists {mod} ({vr}) under Not covered: UNKNOWN, {why or 'no reason given'}; no release-note row was checked",
+                      "read the release notes of every version in the range, record what you found in the handled cell of its Not covered row | "
+                      "add a brain file for the module, then rerun triage | hand to a named person",
+                      f"read the release notes of {mod} for {vr}, or add a brain file for it", "S",
+                      "a breaking change in the module is only found at the build or the test")
         self.items2.sort(key=lambda x: x["key"])
+        self.advisory.sort(key=lambda x: x["key"])
         self.items3.sort(key=lambda x: (x["kind"], x["name"]))
         # re-architecture catalogue: the first RA entry whose match fits kind + name + evidence prefills options, recommendation, effort
         ra = load_ra(getattr(self.a, "ra_file", None))
         for it in self.items3:
-            for e in ra:
+            for e in [] if it.get("fixed") else ra:
                 if e["rx"].search(f"{it['kind']} {it['name']} {it['evidence']}"):
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
                     break
+        self.merge_packages()   # after the catalogue prefill: the merged item takes each finding's own options and recommendation
+        self.filedoc_item()
         # section 4: a person anyway
         if self.release_open:
             self.items4.append({"key": "release-rows", "text": "release-impact rows a person must judge",
@@ -594,7 +864,7 @@ def approve_steps(work, ids, state, signer, source, answers=None):
             continue
         by, src = signer, source
         d = (answers or {}).get(key[2:]) if key.startswith("3:") else None
-        if state == "approved" and d and len(d) > 5 and not d[5].startswith("ASSUMED") and d[4] not in ("", "-"):
+        if state == "approved" and by_hand(d):
             by, src = d[4], "decisions"
         extra = {"needs": "a person signs the proposal or answers this item"} if state == "assumed" else {}
         steps.set_approval(work, sid, state, by, src, **extra)
@@ -602,7 +872,37 @@ def approve_steps(work, ids, state, signer, source, answers=None):
     return n
 
 
+def by_hand(d):
+    """A DECISIONS.md line a real person answered: a status of CONFIRMED or APPROVED (any case; REJECTED, ASSUMED, `CONFIRMED?` or empty
+    never approve) and a signer that is a name, not empty, `-`, `agent` or `toolkit` (the toolkit's own lines and an unattended run's
+    ASSUMED line never approve in a name)."""
+    return bool(d) and len(d) > 5 and d[5].strip().upper() in ("CONFIRMED", "APPROVED") \
+        and d[4].strip().lower() not in ("", "-", "agent", "toolkit")
+
+
+def deciding_line(lines):
+    """The line that decides a late item (one with an `appeared after sign-off` line): the last by-hand line after the last late line,
+    or None. A later junk line (agent, ASSUMED, short) neither answers it nor takes the answer away. Items with no late line: the
+    last line, as decisions() has it (None when there is none)."""
+    late = [n for n, d in enumerate(lines) if len(d) > 3 and d[3].startswith("appeared after sign-off")]
+    if not late:
+        return lines[-1] if lines else None
+    hand = [d for d in lines[late[-1] + 1:] if by_hand(d)]
+    return hand[-1] if hand else None
+
+
+def decisions_all(work):
+    """P-n -> every line's fields in file order (decisions() keeps only the last)."""
+    out = {}
+    for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
+        m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
+        if m:
+            out.setdefault(m.group(1), []).append([x.strip() for x in m.group(2).split("|")])
+    return out
+
+
 def decisions(work):
+    """P-n -> fields of DECISIONS.md. A line whose id carries the `~stale-merged` marker (reanswer()) does not match."""
     out = {}
     for ln in lines_of(os.path.join(work, "DECISIONS.md")) or []:
         m = re.match(r"^(P-\d+)\s*\|(.*)$", ln)
@@ -610,6 +910,50 @@ def decisions(work):
             f = [x.strip() for x in m.group(2).split("|")]
             out[m.group(1)] = f
     return out
+
+
+def reanswer(items, work):
+    """GM-20: a merged item has a new recommendation order, so an answer given to the dojo item or to one of the absorbed
+    replacement items before the merge is not carried over. Each such answer line in DECISIONS.md is rewritten in place to
+    `P-n~stale-merged | <rest>` (every reader's `^(P-\\d+)\\s*\\|` then skips it; nothing is deleted) and the item's evidence names
+    all of them. The file is the only state: an id that already has a stale-merged line is never marked again, so an answer
+    written after the merge (a plain P-n line) counts, and a rerun finds the same note."""
+    try:
+        ids = json.load(open(os.path.join(work, "state", "proposal-ids.json")))
+    except (OSError, ValueError):
+        ids = {}
+    dpath = os.path.join(work, "DECISIONS.md")
+    for it in items:
+        keys = it.get("merged_keys")
+        if not keys:
+            continue
+        frm = [f"P-{ids[k]}" for k in keys if k in ids]
+        stale = lambda: {m.group(1): [x.strip() for x in m.group(2).split("|")]
+                         for m in (re.match(r"^(P-\d+)~stale-merged\s*\|(.*)$", ln) for ln in lines_of(dpath) or []) if m}
+        have = stale()
+        live = decisions(work)
+        for pid in frm:
+            if pid in live and pid not in have:
+                mark_stale(dpath, pid)
+        have = stale()
+        olds = [(pid, have[pid]) for pid in frm if pid in have]
+        if olds:
+            txt = "; ".join(f"{pid}: '{f[2] if len(f) > 2 else '?'}'" for pid, f in olds)
+            it["evidence"] += f"; re-answer: merged from {'/'.join(frm)}; earlier answer {txt} was given to the unmerged item (kept in DECISIONS.md as ~stale-merged)"
+
+
+def mark_stale(path, pid):
+    """Rewrite every `pid | ...` line of DECISIONS.md to `pid~stale-merged | ...` (decisions() is last-wins, so marking only the
+    last one would revive an earlier line). Every other byte stays: line endings are kept (newline=""). The read-then-replace
+    window can lose a line that write_decisions appends meanwhile; the pipeline runs one proposal.py at a time."""
+    with open(path, encoding="utf-8", newline="") as f:
+        text = f.read()
+    lines = text.split("\n")
+    for n, ln in enumerate(lines):
+        lines[n] = re.sub(rf"^{re.escape(pid)}(\s*\|)", rf"{pid}~stale-merged\1", ln, count=1)
+    with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(lines))
+    os.replace(path + ".tmp", path)
 
 
 def testing_plan(F):
@@ -657,7 +1001,8 @@ def render(F, hashval, changed_block, signoff_text):
     size += f", {F.actions} actions" if F.actions is not None else ", actions not measured"
     rungs = f"rung 1 {F.src} -> {F.tgt}" + (f", rung 2 {F.tgt} -> {F.tgt2}" if F.tgt2 else "")
     L = [f"# Upgrade proposal: {F.src} -> {F.tgt}" + (f" -> {F.tgt2}" if F.tgt2 else ""), "",
-         f"<!-- proposal inputs-hash: {hashval} -->", "",
+         f"<!-- proposal inputs-hash: {hashval} -->",
+         *([f"<!-- proposal items: {base64.b64encode(json.dumps(sorted(set(F.ident))).encode()).decode()} -->"] if getattr(F, "ident", None) else []), "",
          "Written by bin/proposal.py from the triage outputs. Nothing in the app model changes before section 6 is signed. "
          "Every line starting with `- ` is an item; sub-lines are evidence.", ""]
     if changed_block:
@@ -669,6 +1014,9 @@ def render(F, hashval, changed_block, signoff_text):
           "Module updates and predicted repairs only. A kept module, a stranded module, a RED local edit and a widget with no "
           "successor are never here; they are in section 3.", ""]
     L += [f"- {it['text']}" for it in F.items2] or ["- none: no module update and no predicted repair in the inputs read"]
+    if F.advisory:
+        L += ["", "Advisory, not in this run (the target needs no React client; these are lines of advice and are not items to sign):", ""]
+        L += [f"  - {it['text']}" for it in F.advisory]
     L += ["", "## 3. Needs your decision before we start", "",
           "Answer each item in chat (steps/decide.md options); the toolkit records it in DECISIONS.md as the P-n line. "
           "Signing section 6 without an answer accepts the recommendation of that item.", ""]
@@ -703,29 +1051,90 @@ def render(F, hashval, changed_block, signoff_text):
           "- unknown at this point:"]
     L += [f"  - not measured: {n}: {w}" for n, w in F.not_measured] or ["  - nothing: every input was read"]
     L += testing_plan(F)
+    notes = agent_notes(F.W)
+    if notes:
+        L += ["", "## Agent notes", "",
+              "From AGENT-NOTES.md in the work folder, written by the agent and kept on every rerun; this section is not part of the plan hash.", ""]
+        L += ["> " + ln if ln.strip() else ">" for ln in notes.splitlines()]
     L += ["", "## 6. Sign-off", "", signoff_text, ""]
     return "\n".join(L)
 
 
+def agent_notes(work):
+    """The text of W/AGENT-NOTES.md (free text, written by the agent, never written by this script), or ''."""
+    return (read(os.path.join(work, "AGENT-NOTES.md")) or "").strip()
+
+
 def signoff_default():
-    return ("A person writes exactly one of these two lines below (an agent never does):\n\n"
+    return ("A person writes exactly one of these two lines below (an agent never does). Copy the line, fill in the name and the date, "
+            "and leave out the angle brackets; backticks and spaces around the line do no harm. "
+            "The line `Status: open` may stay or go: the reader takes a real Signed-off line whether it is there or not.\n\n"
             "`Signed-off: <name> <yyyy-mm-dd>`   or   `Status: PAUSED <reason>`\n\n"
             "Status: open")
+
+
+def _plain(ln):
+    """A section-6 line as a person may have pasted it: backticks, quote marks, list marks and spaces around it dropped (GF-27)."""
+    return re.sub(r"^[\s`>*-]+|[\s`]+$", "", ln)
+
+
+def _section6(text):
+    i = (text or "").find("\n## 6.")
+    return (text[i:] if i >= 0 else "").splitlines()
 
 
 def parse_signoff(text):
     if not text:
         return None
-    i = text.find("\n## 6.")
-    for ln in (text[i:] if i >= 0 else "").splitlines():
-        m = PAUSED.match(ln)
-        if m:
+    sec = _section6(text)
+    for ln in sec:
+        m = PAUSED.match(_plain(ln))
+        if m and "<" not in m.group(1):
             return ("paused", m.group(1), "")
-    for ln in (text[i:] if i >= 0 else "").splitlines():
-        m = SIGNED.match(ln)
-        if m:
+    for ln in sec:
+        m = SIGNED.match(_plain(ln))
+        # the literal template (`Signed-off: <name> <yyyy-mm-dd>`) is never a signature (GF-27)
+        if m and "<" not in m.group(1):
             return ("signed", m.group(1), m.group(2))
     return None
+
+
+def signoff_problem(text):
+    """Why a Signed-off or PAUSED line in section 6 is not a sign-off, or None when there is none to explain (GF-27: the rerun said
+    only "awaits sign-off")."""
+    for ln in _section6(text):
+        t = _plain(ln)
+        if not re.match(r"(?i)^(Signed-off|Status:\s*PAUSED)", t) or " or " in t:   # " or ": the default line offering both choices
+            continue
+        m = SIGNED.match(t) or PAUSED.match(t)
+        if "<" in t:
+            return f"found the template line '{t}': replace the angle-bracket text with your name and the date (or the reason)"
+        if not m:
+            return f"found a line that is not a sign-off: '{t}'. Write it as 'Signed-off: <your name> <yyyy-mm-dd>' (a real name, a date such as 2026-10-15)"
+    return None
+
+
+def signed_items(text):
+    """The item set stored in a PROPOSAL.md (list of ident strings), or None for one written before GM-21 or unreadable."""
+    for ln in (text or "").splitlines():
+        m = ITEMS.match(ln)
+        if m:
+            try:
+                v = json.loads(base64.b64decode(m.group(1)).decode())
+                return v if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
+            except Exception:
+                return None
+    return None
+
+
+def ident_label(x):
+    """A person-readable line for one ident string of the hash (2|key|text, 3|kind|name|evidence, 4|key|text, v|...)."""
+    p = x.split("|")
+    if p[0] == "3" and len(p) >= 3:
+        return f"{p[1]}: {p[2]}"
+    if p[0] in ("2", "4") and len(p) >= 3:
+        return "|".join(p[2:])
+    return x
 
 
 def item_lines(text):
@@ -777,28 +1186,59 @@ def main():
     F = Facts(a)
     F.build()
     ids_for(F.items3, a.work)
+    reanswer(F.items3, a.work)
     sids = write_steps(F, a.work) if os.path.isdir(a.work) else {}
+    # keptvendor.json: the items about the app's OWN styling (GF-56) exist at triage, before the sign-off, so they are in the hash; a
+    # kept module's items (written after the update step) are not. keptstyle.json is not in it either.
     # the hash is taken without kept.txt: the update step writes it after the sign-off, and a module it kept moves from section 2 to
     # section 3 (cold test WM1: 7 kept modules cleared the sign-off at the end of rung 1 and asked the whole plan again). The
-    # signed path below accepts those items at their recommendation (update, a real logic edit held for <Module>_Ext): editroute.py already
-    # routed what it could, so what is still kept is exactly that held edit.
+    # signed path below accepts a kept module the signed PROPOSAL.md rendered (section 2 or 3) at its recommendation, CONFIRMED in the signer's
+    # name (they read that module; update, a real logic edit held for <Module>_Ext). A kept module or file the signed PROPOSAL.md never
+    # showed is ASSUMED ("signer did not see it"; see unseen() below).
     H = F
-    if F.kept:
+    if F.kept or F.kv_seen or F.ks_seen:
         H = Facts(a)
         H.keptmods = lambda: None
+        H.keptvend = lambda: Facts.keptvend(H, only="own")   # GM-15: a kept module's rows of keptvendor.json, like kept.txt, come after the sign-off; GF-56: own-styling rows do not
+        H.keptstyle = lambda: None  # MC-11: keptstyle.json likewise
         H.build()
     ident = [f"2|{it['key']}|{it['text']}" for it in H.items2] + [f"3|{it['kind']}|{it['name']}|{it['evidence']}" for it in H.items3] \
         + [f"4|{it['key']}|{it['text']}" for it in H.items4] + [f"v|{H.src}|{H.tgt}|{H.tgt2}"]
     hashval = hashlib.sha256("\n".join(sorted(ident)).encode()).hexdigest()
+    F.ident = ident
     prev_hash = next((m.group(1) for m in (HASH.match(x) for x in (old or "").splitlines()) if m), None)
     so = parse_signoff(old)
     today = os.environ.get("PROPOSAL_TODAY") or datetime.date.today().isoformat()
 
+    signed_text = old or ""
+
+    def unseen(it):
+        """GF-32: an item the signature does not cover was never seen by the signer. keptvendor.json and keptstyle.json items are
+        always new. A kept.txt module is seen when the signed PROPOSAL.md rendered it, as its section-3 item or as its section-2 update
+        line (the update step moved it to section 3 after the sign-off; the signer still read that module). A kept module the signed
+        file never showed appeared later."""
+        if it.get("own"):
+            return True
+        if f"3|{it['kind']}|{it['name']}|{it['evidence']}" in set(ident):
+            return False
+        # a rerun re-renders PROPOSAL.md with the late item in it, so the regex below would read it as seen: the lines DECISIONS.md
+        # holds for it are what stay true. Any line saying "appeared after sign-off" keeps it late until a LATER line is a hand answer.
+        lines = decisions_all(a.work).get(it["id"], [])
+        if any(len(d) > 3 and d[3].startswith("appeared after sign-off") for d in lines):
+            return deciding_line(lines) is None
+        n = re.escape(it["name"])
+        return not re.search(rf"^- \[P-\d+\] {re.escape(it['kind'])}: {n}$|module update {n} ", signed_text, re.M)
+
     def accept_answers(signer):
         ans = decisions(a.work)
+        todo = [it for it in F.items3 if it["id"] not in ans]
         rows = [(it["id"], it["name"], it["kind"], it["rec"], f"accepted with the sign-off of {signer} (no separate answer)")
-                for it in F.items3 if it["id"] not in ans]
-        return write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
+                for it in todo if not unseen(it)]
+        # an item the signed PROPOSAL.md never rendered was not seen by the signer: ASSUMED, never CONFIRMED in their name
+        late = [(it["id"], it["name"], it["kind"], it["rec"], "appeared after sign-off; signer did not see it")
+                for it in todo if unseen(it)]
+        n = write_decisions(F, rows, signer, "CONFIRMED", "the rung that measures it passes (steps/decide.md)")
+        return n, write_decisions(F, late, "-", "ASSUMED", "a person answers it with decisions.py add, or a hand-written line (steps/decide.md)")
 
     if so and so[0] == "paused":
         print(f"proposal: PAUSED by the owner: {so[1]}. Resume: remove the Status line and sign, then rerun the pipeline.")
@@ -812,22 +1252,43 @@ def main():
             with open(out_path + ".tmp", "w", encoding="utf-8") as f:
                 f.write(cur)
             os.replace(out_path + ".tmp", out_path)
-        n = accept_answers(so[1])
-        approve_steps(a.work, sids, "approved", so[1], "signoff", decisions(a.work))
-        print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else ""))
+        n, nl = accept_answers(so[1])
+        # an item that appeared after the sign-off (keptvendor.json, keptstyle.json) was not seen by the signer: its step is assumed, not approved in their name
+        late_ids = {it["id"] for it in F.items3 if unseen(it)}
+        late = {s: k for s, k in sids.items() if k.startswith("3:") and k[2:] in late_ids}
+        approve_steps(a.work, {s: k for s, k in sids.items() if s not in late}, "approved", so[1], "signoff",
+                      {i: deciding_line(l) for i, l in decisions_all(a.work).items()})
+        approve_steps(a.work, late, "assumed", "agent", "after-signoff")
+        print(f"proposal: signed by {so[1]} on {so[2]}" + (f"; {n} unanswered section-3 item(s) took their recommendation (DECISIONS.md)" if n else "")
+              + (f"; {nl} item(s) appeared after sign-off (ASSUMED in DECISIONS.md, the signer did not see them)" if nl else ""))
         return 0
     changed = None
+    shrink_msg = None
     signoff = signoff_default()
     if so and so[0] == "signed":
         cur = render(F, hashval, None, signoff)
         before, after = item_lines(old), item_lines(cur)
-        changed = [f"## Changed since signed ({so[1]}, {so[2]})", "",
-                   "The plan inputs changed after the sign-off; the sign-off is cleared and the proposal is asked again. "
-                   "Items that differ from the signed version:", ""]
-        changed += [f"- removed: {x}" for x in sorted(before - after)] + [f"- added: {x}" for x in sorted(after - before)]
-        if before == after:
-            changed.append("- no item text differs; the versions or the evidence behind an item changed (compare the input files)")
-        signoff = f"Previously signed-off: {so[1]} {so[2]} (cleared: the plan inputs changed)\n\n" + signoff
+        was, now = signed_items(old), set(ident)
+        held = sorted(set(was) - now) if was is not None and now < set(was) else []
+        if held:
+            # GM-21: the scope only shrank (items removed, none added or changed). The sign-off is cleared and a person signs as
+            # before; only the reading is lighter: the held-back list is shown. Nothing is carried over: no Signed-off line is
+            # written here. The shared write and the unattended handling below run as for any changed plan.
+            changed = [f"## Held back since signed ({so[1]}, {so[2]})", "",
+                       f"The scope is smaller than the one signed: {len(held)} item(s) were held back, none added, none changed. "
+                       "The sign-off is cleared and section 6 is signed again as before; what differs from the plan signed is only the items below.", ""]
+            changed += [f"- held back: {ident_label(x)}" for x in held]
+            signoff = (f"Previously signed-off: {so[1]} {so[2]} (cleared: scope shrank, {len(held)} held-back item(s); sign again)\n\n" + signoff)
+            shrink_msg = (f"proposal: scope shrank since the sign-off of {so[1]} ({so[2]}): {len(held)} item(s) held back, none added or changed; "
+                          "sign section 6 again (the held-back list is in the file)")
+        else:
+            changed = [f"## Changed since signed ({so[1]}, {so[2]})", "",
+                       "The plan inputs changed after the sign-off; the sign-off is cleared and the proposal is asked again. "
+                       "Items that differ from the signed version:", ""]
+            changed += [f"- removed: {x}" for x in sorted(before - after)] + [f"- added: {x}" for x in sorted(after - before)]
+            if before == after:
+                changed.append("- no item text differs; the versions or the evidence behind an item changed (compare the input files)")
+            signoff = f"Previously signed-off: {so[1]} {so[2]} (cleared: the plan inputs changed)\n\n" + signoff
     doc = render(F, hashval, changed, signoff)
     tmp = out_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -844,6 +1305,12 @@ def main():
         approve_steps(a.work, {s: k for s, k in sids.items() if s not in routine}, "assumed", "agent", "unattended")
         print("proposal: not signed (unattended): ASSUMED (unattended) lines in DECISIONS.md; every report says 'proposal not signed'")
         return 0
+    if shrink_msg:
+        print(f"{shrink_msg}: {out_path}")
+        return 14
+    prob = signoff_problem(old)
+    if prob:
+        print(f"proposal: {prob}")
     print(f"proposal awaits sign-off: {out_path} ({len(F.items2)} done by the toolkit, {len(F.items3)} to decide, {len(F.items4)} for a person)")
     return 14
 

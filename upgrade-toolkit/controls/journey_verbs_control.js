@@ -13,6 +13,7 @@ function one(e) {
   return Object.assign(loc([e]), {
     id: e.id, isVisible: async () => e.visible !== false, click: async () => { e.clicked = (e.clicked || 0) + 1; if (e.onClick) e.onClick(); },
     getAttribute: async n => (n === 'aria-checked' && 'checked' in e ? String(e.checked) : null),
+    check: async () => { if (!e.stuck) e.checked = true; },
     isChecked: async () => !!e.checked, textContent: async () => e.text || '',
     isDisabled: async () => !!e.disabled, innerText: async () => (typeof e.inner === 'function' ? e.inner() : e.inner || ''),
     scrollIntoViewIfNeeded: async () => {},
@@ -42,6 +43,16 @@ const run = async (name, f, want) => {
   await run('select first option', () => V.select(P1, { widget: 'ref1', first: true }, 'undefined'), 'Team A');
   const P1c = page({ '.mx-name-ref1': loc([{ kids: { select: loc([sel([''])]) } }]) });
   await run('select first on empty list catch', () => V.select(P1c, { widget: 'ref1', first: true }, 'undefined'), /no option to choose \(first asked\): the list is empty, a fixture gap/);
+  // Radio buttons are no <select>: a create-spec select field chooses by label, first = first enabled, then reads it back
+  const rad = (text, o) => Object.assign({ dom: { closest: () => ({ textContent: ' ' + text + ' ' }), parentElement: null, textContent: text } }, o);
+  const radKids = els => ({ '.mx-name-auth1': loc([{ kids: { 'input[type="radio"]': loc(els) } }]) });
+  const rA = rad('Basic'), rB = rad('Bearer token');
+  await run('radio select by label', () => V.select(page(radKids([rA, rB])), { widget: 'auth1' }, 'Bearer token'), 'Bearer token');
+  await run('radio select first enabled', () => V.select(page(radKids([rad('Off', { disabled: true }), rad('On')])), { widget: 'auth1', first: true }, 'undefined'), 'On');
+  await run('radio select missing label catch', () => V.select(page(radKids([rad('Basic'), rad('Bearer token')])), { widget: 'auth1' }, 'OAuth'), /no radio button matches "OAuth". Options were: "Basic", "Bearer token"/);
+  await run('radio select only disabled catch', () => V.select(page(radKids([rad('Basic', { disabled: true })])), { widget: 'auth1' }, 'Basic'), /no radio button matches "Basic". Options were: "Basic" \(disabled\)/);
+  await run('radio not taken catch', () => V.select(page(radKids([rad('Basic', { stuck: true })])), { widget: 'auth1' }, 'Basic'), /radio "Basic" is not checked after choosing it/);
+  await run('radio absent is still the no-select error catch', () => V.select(page({ '.mx-name-auth1': loc([{ kids: {}, tag: 'DIV' }]) }), { widget: 'auth1' }, 'Basic'), /no <select> inside \.mx-name-auth1/);
   // E2E-10: row clicks the first row of the list; no row is a fixture gap, never a pass
   const r1 = {};
   const P5 = page({ '.mx-name-grid1': loc([{ kids: { '.mx-listview-item': empty, '.mx-templategrid-item': empty, '.widget-gallery-item': empty, 'tbody tr': loc([r1]) } }]) });
@@ -114,7 +125,11 @@ const run = async (name, f, want) => {
   await run('topmost without popup picks the page button', async () => (await V.topmost(P4, 'actionButton1')).id, 'page');
   // R38: the layout around the page can share a widget name with the page (Atlas top bar container2 vs the home
   // page's card container2); the page's own is the shown one nested in the most .mx-placeholder elements
-  const node = (cls, parent, shown = true) => ({ classList: { contains: c => cls.includes(c) }, parentElement: parent, getClientRects: () => (shown ? [1] : []) });
+  const node = (cls, parent, shown = true) => ({
+    classList: { contains: c => cls.includes(c) }, parentElement: parent, getClientRects: () => (shown ? [1] : []),
+    // Element.closest for the class selectors pageWidget uses: the node itself, then its ancestors (a tag or [role] selector matches none here)
+    closest(s) { const cs = s.split(',').map(x => x.trim()).filter(x => x[0] === '.').map(x => x.slice(1)); for (let a = this; a; a = a.parentElement) if (cs.some(c => a.classList.contains(c))) return a; return null; },
+  });
   const root = node([], null), ph = node(['mx-placeholder'], root);
   const bar = { id: 'layout', dom: node(['mx-name-container2'], node(['region-topbar'], root)) };
   const card = { id: 'card', dom: node(['mx-name-container2'], node(['row'], ph)) };
@@ -123,6 +138,13 @@ const run = async (name, f, want) => {
   const hid = { id: 'card', dom: node(['mx-name-container2'], ph, false) };
   const PL2 = page({ '.mx-name-container2': loc([bar, hid]) });
   await run('topmost skips a hidden page widget', async () => (await V.topmost(PL2, 'container2')).id, 'layout');
+  // a pick that throws is index 0 as before, now said on page.__pickFallback (it was a silent `.catch(() => 0)`)
+  const boom = { id: 'first', dom: node(['mx-name-container2'], root) }, boom2 = { id: 'second', dom: node(['mx-name-container2'], ph) };
+  const PB = page({ '.mx-name-container2': Object.assign(loc([boom, boom2]), { evaluateAll: async () => { throw new Error('Execution context was destroyed\nat x'); } }) });
+  const logged = [], log0 = console.log;
+  await run('topmost pick that throws falls back to the first, said', async () => { console.log = (...a) => { logged.push(a.join(' ')); }; try { const e = await V.topmost(PB, 'container2'); return e.id + ' | ' + PB.__pickFallback; } finally { console.log = log0; } }, 'first | container2: Execution context was destroyed');
+  check('topmost pick that throws logs the pick: line', logged.some(l => /^\s+pick: "container2" fell back to the first match \(container2: Execution context was destroyed\)$/.test(l)), JSON.stringify(logged.filter(l => /pick:/.test(l))));
+  await run('topmost pick that works leaves no fallback mark', async () => { await V.topmost(PL1, 'container2'); return String(PL1.__pickFallback); }, 'undefined');
   // PR-F27: a generated date is typed in the picker's placeholder pattern (11.12.5: "dd mmm yyyy"); else unchanged
   await run('dateAs follows the placeholder', async () => V.dateAs('dd mmm yyyy', '1/15/2027').value, '15 Jan 2027');
   await run('dateAs time after hours is minutes', async () => V.dateAs('dd-mm-yyyy hh:mm', '1/15/2027 12:00 PM').value, '15-01-2027 12:00');

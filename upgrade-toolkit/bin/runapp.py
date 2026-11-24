@@ -10,6 +10,8 @@ r"""runapp.py: start a built Mendix app (.mda) on Postgres in Docker through the
                                                           logs/runtime-<name>.<db>.log, named by the start's database
                                                           (B4N1-16: gate.sh OLD_LOG=logs/runtime-old.<baseline db>.log is
                                                           one stable file; the numbered copies moved with every save)
+  runapp.py ports <name>                                  GF-14: exit 3 (an INFRA line naming the port) when the app port 8080+PORT_OFF or the admin
+                                                          port 8090+PORT_OFF is held by anything but <prefix>-<name>; exit 0 when both are free
   runapp.py stop  <name>                                  save the log, remove the runtime container, prune run/<name>/ (BT-9: the
                                                           unpacked app and the runtime's files, 200 to 400 MB per start; the
                                                           small evidence files and data/files stay; UPG_KEEP_RUN=1 keeps all)
@@ -352,9 +354,36 @@ def port_busy(port):
         s.settimeout(1)
         if s.connect_ex(("127.0.0.1", port)) != 0:
             return None
-    who = subprocess.run(["docker", "ps", "--filter", f"publish={port}", "--format", "{{.Names}}"],
-                         capture_output=True, text=True).stdout.split()
+    try:  # GF-34: a hung docker CLI must not stall the port check
+        who = subprocess.run(["docker", "ps", "--filter", f"publish={port}", "--format", "{{.Names}}"],
+                             capture_output=True, text=True, timeout=30).stdout.split()
+    except subprocess.TimeoutExpired:
+        who = []
     return ", ".join(who) or "a non-container process"
+
+
+def port_busy_message(port, who):
+    """FR-6: a leftover toolkit container (<prefix>-<name>, e.g. mig-oldwalk) held the port and the run said only "in use".
+    Name the holder; for a toolkit container give the exact removal command. Never removed here: it may be another run's."""
+    mine = [w.strip() for w in who.split(",") if w.strip().startswith(PREFIX + "-")]
+    if mine:
+        return (f"runapp: INFRA port {port} in use by {who}, a toolkit container left over from an earlier attempt or running for "
+                f"another run. If no other run is using it, remove it with: docker rm -f {' '.join(mine)}  then rerun. "
+                f"(Or set PORT_OFF to use other ports.)")
+    return f"runapp: INFRA port {port} in use by {who}; stop it (or set PORT_OFF) and rerun"
+
+
+def check_ports(port_off, own=None):
+    """GF-13/GF-14: both host ports, app 8080+PORT_OFF and admin 8090+PORT_OFF, named by their own number. Prints the INFRA line of
+    the first taken one and returns True. `own`: a container name that may hold them (the run's own app, removed before a start)."""
+    for p in (8080 + port_off, 8090 + port_off):
+        who = port_busy(p)
+        if who and own and set(w.strip() for w in who.split(",")) == {own}:
+            continue
+        if who:
+            print(port_busy_message(p, who))
+            return True
+    return False
 
 
 def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
@@ -404,11 +433,8 @@ def start(name, mda, rtv, db, port_off=0, login_override=None, harness=None):
     aport, rport = 8090 + port_off, 8080 + port_off
     cname = f"{PREFIX}-{name}"
     sh("docker", "rm", "-f", cname, check=False)  # only our own name: <prefix>-<name>
-    for p in (rport, aport):
-        who = port_busy(p)
-        if who:
-            print(f"runapp: INFRA port {p} in use by {who}; stop it (or set PORT_OFF) and rerun")
-            return 3
+    if check_ports(port_off):
+        return 3
     img = image_for(rtv)
     print(f"runapp: {cname} image {img}, runtime {rtv}, db {db}, ports {rport}/{aport}")
     sh("docker", "run", "-d", "--name", cname, "--network", NET, "-v", f"{WORK}:/w", "-v", f"{rt}:/rt:ro",
@@ -513,7 +539,7 @@ def stop(name, guard=True):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("start", "quick", "logs", "stop"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("start", "quick", "logs", "stop", "ports"):
         sys.exit(__doc__)
     cmd, off = sys.argv[1], int(os.environ.get("PORT_OFF", 0))
     opts = {}
@@ -525,6 +551,8 @@ if __name__ == "__main__":
             opts[flag] = sys.argv[i + 1]
             del sys.argv[i:i + 2]
     lo = opts.get("--login-override")
+    if cmd == "ports":  # ports NAME: exit 3 (INFRA line) when the app or admin port is taken by anything but <prefix>-NAME
+        sys.exit(3 if check_ports(off, own=f"{PREFIX}-{sys.argv[2]}") else 0)
     if cmd in ("start", "quick"):
         if len(sys.argv) != 6:
             sys.exit(__doc__)

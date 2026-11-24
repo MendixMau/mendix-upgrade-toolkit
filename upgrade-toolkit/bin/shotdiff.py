@@ -485,17 +485,19 @@ def read_causes(path):
 
 
 def add_causes(res, causes):
-    """An open REVIEW on pixels only (layout moved, text the same) names the first matching known cause, so the person is
+    """An open REVIEW on pixels only (layout moved, text the same) names every matching known cause, so the person is
     pointed at the repair instead of a bare '17% changed' (cold run: every Data grid 2 cell on its own row, text equal).
     A REVIEW with a visible text change is a different kind of difference and gets no cause."""
     for r in res:
         if r["verdict"] != "REVIEW" or "visible text changed" in r["detail"]:
             continue
+        hit = []
         for pat, cause in causes:
-            if fnmatch.fnmatch(r["pair"], pat):
-                r["cause"] = cause
-                r["detail"] += f" -> likely cause: {cause}"
-                break
+            if fnmatch.fnmatch(r["pair"], pat) and cause not in hit:
+                hit.append(cause)   # every matching cause is named: two writers (gridlayout, keptstyle) can both own a pixel REVIEW
+        if hit:
+            r["cause"] = "; ".join(hit)
+            r["detail"] += f" -> likely cause: {r['cause']}"
 
 
 def counts_line(res):

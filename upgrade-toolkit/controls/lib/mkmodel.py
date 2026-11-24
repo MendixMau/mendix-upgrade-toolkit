@@ -19,6 +19,8 @@ Spec (all keys optional except modules):
                 "module_roles": ["User", "Administrator"],
                 "constants": [{"name": "Enabled", "type": "Boolean", "default": "true"}],
                 "pages": [{"name": "Home", "excluded": false, "layout": "Atlas_Core.Atlas_Default", "widgets": ["com.mendix.widget.web.markdown.Markdown"],
+                           (a widget is an id or {"id", "name", "props"}: see cwidget(); "docs" entries take "widgets" and "named"
+                            too; a named entry {"custom": SPEC} is a pluggable widget inside, e.g., a data view's children)
                            "refs": {"Microflow": "UserCommons.ACT_Save"},
                            "named": [["DataGrid", "grid1"], {"type": "Label", "name": "label1", "text": "Hello", "conditional": false}]}],
                 "docs": [{"type": "ScheduledEvents$ScheduledEvent", "name": "SE_Clean", "data": {"Enabled": true}}],
@@ -37,6 +39,8 @@ Spec (all keys optional except modules):
    "widget_packages": {"Markdown.mpk": ["com.mendix.widget.web.markdown.Markdown"],
                        "Broken.mpk": {"ids": ["x.Y"], "defect": "crc" | "descriptor"},
                        "Old.mpk": {"ids": ["Old.widget.Old"], "dojo": true, "version": "1.2.0"}},
+   (modules also take "jars": [{"group", "artifact", "version"}] = a Projects$ModuleSettings unit, GM-11; the shape is ASSUMED
+    from the Mendix model SDK, no real capture was available)
    "files": {"javasource/x/actions/A.java": "...", "userlib/a-1.0.jar": ""}}
 GUIDs default to uuid5(name), so two specs that share an element share its GUID unless one overrides "guid".
 
@@ -101,6 +105,9 @@ def named(owner, ws):
     out = []
     for i, w in enumerate(ws):
         w = {"type": w[0], "name": w[1]} if isinstance(w, list) else w
+        if w.get("custom"):  # {"custom": SPEC}: a pluggable widget inside a data view (cwidget)
+            out.append(cwidget(f"{owner}.c", i, w["custom"]))
+            continue
         x = {"$ID": gid(f"nw:{owner}.{i}"), "$Type": "Forms$" + w["type"], "Name": w["name"]}
         if w.get("text"):
             x["Caption"] = mtext(f"{owner}.{i}", w["text"])
@@ -142,6 +149,41 @@ def named(owner, ws):
             x["DataSource"] = datasource(f"{owner}.{i}", w["datasource"])
         out.append(x)
     return out
+
+
+def cwidget(owner, i, w):
+    """A pluggable widget: its id, or {"id", "name", "props": {key: TEXT | {"text": TEXT} | {"attr": QN} | {"form": QN} | {"widgets": N}}}. TEXT is a
+    String property (PrimitiveValue), {"text"} a TranslatableString (Texts$Text), {"attr"} an Attribute: the Type's
+    ObjectType declares each key, the Object's properties point at it (the shape of a 10.24 Any Chart unit)."""
+    w = {"id": w} if isinstance(w, str) else w
+    k = f"{owner}.{i}"
+    x = {"$ID": gid(f"w:{k}"), "$Type": "CustomWidgets$CustomWidget", "Name": w.get("name", f"w{i}"),
+         "Type": {"$ID": gid(f"wt:{k}"), "$Type": "CustomWidgets$CustomWidgetType", "WidgetId": w["id"]}}
+    if w.get("props"):
+        pts, ps = [], []
+        for j, (key, v) in enumerate(w["props"].items()):
+            kind = ("Attribute" if isinstance(v, dict) and "attr" in v else "Form" if isinstance(v, dict) and "form" in v
+                    else "Widgets" if isinstance(v, dict) and "widgets" in v else "TranslatableString" if isinstance(v, dict) else "String")
+            pt = {"$ID": gid(f"wpt:{k}.{key}"), "$Type": "CustomWidgets$WidgetPropertyType", "PropertyKey": key,
+                  "ValueType": {"$ID": gid(f"wvt:{k}.{key}"), "$Type": "CustomWidgets$WidgetValueType", "Type": kind}}
+            val = {"$ID": gid(f"wv:{k}.{key}"), "$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "",
+                   "TranslatableValue": None, "AttributeRef": None}
+            if kind == "String":
+                val["PrimitiveValue"] = v
+            elif kind == "Form":   # GM-19: the page a form property points at is WidgetValue.Form, a qualified name ("" = none)
+                val["Form"] = v["form"]
+            elif kind == "Widgets":   # GM-19: v["widgets"] child widgets, as a Widgets list
+                val["Widgets"] = lst({"$ID": gid(f"wc:{k}.{key}.{n}"), "$Type": "Forms$Text", "Name": f"text{n}"} for n in range(v["widgets"]))
+            elif kind == "TranslatableString":
+                val["TranslatableValue"] = mtext(f"wv:{k}.{key}", v["text"])
+            else:
+                val["AttributeRef"] = {"$ID": gid(f"wa:{k}.{key}"), "$Type": "DomainModels$AttributeRef", "Attribute": v["attr"]}
+            pts.append(pt)
+            ps.append({"$ID": gid(f"wp:{k}.{key}"), "$Type": "CustomWidgets$WidgetProperty", "TypePointer": pt["$ID"], "Value": val})
+        x["Type"]["ObjectType"] = {"$ID": gid(f"wot:{k}"), "$Type": "CustomWidgets$WidgetObjectType", "PropertyTypes": lst(pts)}
+        x["Object"] = {"$ID": gid(f"wo:{k}"), "$Type": "CustomWidgets$WidgetObject", "TypePointer": x["Type"]["ObjectType"]["$ID"],
+                       "Properties": lst(ps)}
+    return x
 
 
 def flow_call(key, c, field):
@@ -235,6 +277,12 @@ def build(spec, out):
             units.append((msid, mid, {"$ID": msid, "$Type": "Security$ModuleSecurity",
                                       "ModuleRoles": lst([{"$ID": gid(f"mr:{mn}.{r}"), "$Type": "Security$ModuleRole", "Name": r}
                                                           for r in m["module_roles"]])}))
+        if m.get("jars") is not None:   # GM-11: "jars": [{"group": G, "artifact": A, "version": V}] = Projects$ModuleSettings JarDependencies
+            jsid = gid(f"modsettings:{mn}")
+            units.append((jsid, mid, {"$ID": jsid, "$Type": "Projects$ModuleSettings",
+                                      "JarDependencies": lst([{"$ID": gid(f"jd:{mn}.{j['group']}:{j['artifact']}"), "$Type": "Projects$JarDependency",
+                                                               "GroupId": j["group"], "ArtifactId": j["artifact"], "Version": j["version"],
+                                                               "IsIncluded": True} for j in m["jars"]])}))
         ents, eid = [], {}
         for e in m.get("entities", []):
             qn = f"{mn}.{e['name']}"
@@ -272,9 +320,7 @@ def build(spec, out):
                                      "Excluded": False}))
         for p in m.get("pages", []):
             pid = gid(f"page:{mn}.{p['name']}")
-            widgets = [{"$ID": gid(f"w:{mn}.{p['name']}.{i}"), "$Type": "CustomWidgets$CustomWidget", "Name": f"w{i}",
-                        "Type": {"$ID": gid(f"wt:{mn}.{p['name']}.{i}"), "$Type": "CustomWidgets$CustomWidgetType", "WidgetId": w}}
-                       for i, w in enumerate(p.get("widgets", []))]
+            widgets = [cwidget(f"{mn}.{p['name']}", i, w) for i, w in enumerate(p.get("widgets", []))]
             refs = [{"$ID": gid(f"r:{mn}.{p['name']}.{k}" + (f".{i}" if i else "")), "$Type": "Forms$ActionButton", k: v}
                     for k, vs in p.get("refs", {}).items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])]
             page = {"$ID": pid, "$Type": "Forms$Page", "Name": p["name"], "Excluded": p.get("excluded", False),
@@ -304,6 +350,9 @@ def build(spec, out):
         for i, x in enumerate(m.get("docs", [])):  # any other document: {"type", "name", "excluded", "data", "refs"}
             did = gid(f"doc:{mn}.{x['name']}.{x['type']}")
             d = {"$ID": did, "$Type": x["type"], "Name": x["name"], "Excluded": x.get("excluded", False), **x.get("data", {})}
+            if x.get("widgets") or x.get("named"):  # a snippet or building block with widgets, as pages take them
+                d["Widgets"] = lst([cwidget(f"{mn}.{x['name']}", i, w) for i, w in enumerate(x.get("widgets", []))]
+                                   + named(f"{mn}.{x['name']}", x.get("named", [])))
             if x.get("refs"):
                 d["Refs"] = lst([{"$ID": gid(f"dr:{mn}.{x['name']}.{k}" + (f".{i}" if i else "")), "$Type": "Forms$ActionButton", k: v}
                                  for k, vs in x["refs"].items() for i, v in enumerate(vs if isinstance(vs, list) else [vs])])
@@ -364,9 +413,9 @@ def build(spec, out):
         con.execute("insert into Unit (UnitID, ContainerID, Contents) values (?, ?, ?)", (uid, cid, bson.encode(d)))
     con.commit(); con.close()
     for name, ids in (spec.get("widget_packages") or {}).items():
-        defect, dojo, ver, js = None, False, None, None
-        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source"}
-            ids, defect, dojo, ver, js = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js")
+        defect, dojo, ver, js, pprops = None, False, None, None, {}
+        if isinstance(ids, dict):  # {"ids": [...], "defect": "crc" | "descriptor", "dojo": true, "version": "1.0", "js": "source", "props": {key: type}}
+            ids, defect, dojo, ver, js, pprops = ids["ids"], ids.get("defect"), ids.get("dojo"), ids.get("version"), ids.get("js"), ids.get("props") or {}
         os.makedirs(os.path.join(out, "widgets"), exist_ok=True)
         wp = os.path.join(out, "widgets", name)
         with zipfile.ZipFile(wp, "w") as z:
@@ -374,7 +423,8 @@ def build(spec, out):
                 z.writestr("package.xml", f'<?xml version="1.0"?>\n<package><clientModule name="p" version="{ver}"/></package>\n')
             for i, w in enumerate(ids):
                 plug = "" if dojo else ' pluginWidget="true"'  # a Dojo widget declares no pluginWidget
-                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}></widget>\n')
+                body = "".join(f'<property key="{k}" type="{t}"><caption>{k}</caption></property>' for k, t in pprops.items())
+                z.writestr(f"w{i}.xml", f'<?xml version="1.0"?>\n<widget id="{w}"{plug}>' + (f"<properties>{body}</properties>" if body else "") + "</widget>\n")
             if js is not None:  # the widget's JavaScript bundle (NR2-24: replacement row R35 reads it)
                 z.writestr("widget.js", js)
         raw = bytearray(open(wp, "rb").read())

@@ -115,7 +115,7 @@ and no step of which called an UNKNOWN or UNMATCHED endpoint, becomes "NOT CHECK
 "NOT CHECKED (excluded: <System>) journey <id>: <calls>". Every other FAIL stays FAIL. Its screen pairs no longer
 decide the exit; the journeys line counts it apart.
 """
-import argparse, collections, json, os, re, shutil, subprocess, sys, time, types
+import argparse, collections, json, os, re, shlex, shutil, subprocess, sys, time, types
 from pathlib import Path
 
 TOOLKIT_E2E = Path(os.environ.get("TOOLKIT_E2E", Path(__file__).resolve().parent.parent / "vendor" / "e2e")).expanduser()
@@ -328,6 +328,29 @@ PATCHES = [
      "      && !/login\\.html|\\/login(\\b|\\/|$)/.test(page.url())\n"
      "      && await page.locator(cfg.readySelectors.join(', ')).evaluateAll((els) => els.some((e) => e.getClientRects().length > 0)).catch(() => false)) {",
      "helpers.js"),
+    # SITS: a login page that folds the local form under "Show alternative login" (an SSO starter app): the password input
+    # is in the DOM, never visible, so the engine waited 15 s, found no form and every journey FAILed on a healthy app.
+    # Same text test as bin/loginreveal.js (the scratch engine copy cannot require it).
+    ("loginOnce: click 'Show alternative login' when the form is folded away (SITS)",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(800).catch(() => {});\n"
+     "  if (!(await page.locator('#passwordInput, input[type=password]').first().isVisible().catch(() => false))) {\n"
+     "    const ALT = /^(?![\\s\\S]*\\bhide\\b)[\\s\\S]*((alternative|alternate|other|local)\\s+(login|log\\s?in|sign.?in|method)|(sign|log)\\s?in\\s+with\\s+(a\\s+)?(username|password|local|email)|(username|password)\\s+(login|log\\s?in|sign.?in))/i;\n"
+     "    const links = page.locator('.alt-login, a, button, [role=button]').filter({ hasText: ALT });\n"
+     "    for (let i = 0, n = Math.min(await links.count().catch(() => 0), 6); i < n; i++) {\n"
+     "      if (!(await links.nth(i).isVisible().catch(() => false))) continue;\n"
+     "      await links.nth(i).click({ timeout: 2000 }).catch(() => {});\n"
+     "      if (await page.locator('#passwordInput, input[type=password]').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) break;\n"
+     "    }\n"
+     "  }\n"
+     "  await page.locator('#passwordInput, input[type=password]').first()\n"
+     "    .waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});\n"
+     "  await page.waitForTimeout(600).catch(() => {});",
+     "helpers.js"),
     ("loginOnce: wait until no password input is visible (T8-9)",
      "    const ready = document.querySelector(sel);\n    return !onLogin && !!ready;",
      "    const ready = document.querySelector(sel);\n"
@@ -375,7 +398,7 @@ def copy_engine(eng):
     eng.mkdir(parents=True, exist_ok=True)
     for f in ENGINE:
         shutil.copy2(TOOLKIT_E2E / f, eng / f)
-    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "pgdata.js", "pgmap.py"):
+    for f in ("settle.js", "journey-verbs.js", "widgetrender.js", "loginreveal.js", "pgdata.js", "pgmap.py"):
         shutil.copy2(HERE / f, eng / f)
     shutil.copy2(HERE.parent / "playbooks" / "widget-render.tsv", eng / "widget-render.tsv")
     texts = {}
@@ -875,7 +898,7 @@ def check_no_signout(j, entry, refs):
         from mprmodel import Model
         import impact_map
         hits = impact_map.any_sign_out(Model.load(mp))
-    except Exception as e:
+    except (SystemExit, Exception) as e:
         return False, f"NO-SIGNOUT: model {mp} not readable ({e})"
     if hits:
         w, by, d = hits[0]
@@ -976,7 +999,7 @@ def check_unreachable(j, entry, refs, acts_file, acts):
             from mprmodel import Model
             mm = Model.load(mp)
             callers = mm.callers_index()
-        except Exception as e:
+        except (SystemExit, Exception) as e:
             return False, f"UNREACHABLE: model={mp}: not readable ({e})"
         seen_d, todo_d = [], list(x.get("via_pages") or [x.get("host")])
         while todo_d and len(seen_d) < 2000:   # the readable caller chain, walked as action_inventory.py orphans() does
@@ -1169,6 +1192,53 @@ def session_cap_refused(findings_path):
         return False
     login = next((r for r in F.get("results", []) if r.get("rung") == "ui" and r.get("name") == "login"), None)
     return bool(login and login.get("verdict") == "INVALID" and "concurrent-session cap" in (login.get("detail") or ""))
+
+
+HOME_ERR_RE = re.compile(r"(ERROR|CRITICAL)\b.*(microflow|exception|null|caused by)", re.I)
+
+
+def runtime_log_lines(a):
+    """GF-17: the app's runtime log as lines: --runtime-log FILE, else the output of $UPG_RUNTIME_LOG_CMD (the pipeline sets it
+    to `docker logs <app container>` for the app it started). [] when neither answers. The log only grows, so the line count
+    taken before a sign-in (runtime_log_mark) marks where THIS role's lines begin."""
+    try:
+        if getattr(a, "runtime_log", None):
+            return open(a.runtime_log, errors="replace").read().splitlines()
+        cmd = os.environ.get("UPG_RUNTIME_LOG_CMD")
+        if cmd:
+            p = subprocess.run(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)   # one stream, in written order: a line-count mark is only valid on that
+            return p.stdout.splitlines()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return []
+
+
+def runtime_log_mark(a):
+    return len(runtime_log_lines(a))
+
+
+def runtime_log_since(a, mark):
+    """Only the lines written after `mark`: an earlier role's error line is never this role's cause."""
+    return "\n".join(runtime_log_lines(a)[mark:])[-300000:]
+
+
+def login_cause(detail, log_text):
+    """GF-17: the engine words a refused sign-in as the trial-licence session cap (measured once, 2026-08-18). When the
+    runtime log is at hand and has no session-limit line, that cause is wrong: say what the log says instead (the last
+    ERROR line naming a microflow or an exception: the home microflow failing for this user), or that it shows nothing.
+    Without a log the engine's text stays, as before."""
+    if "concurrent-session cap" not in (detail or "") or not log_text:
+        return detail
+    if "Maximum number of sessions" in log_text:
+        return detail
+    errs = [l.strip() for l in log_text.splitlines() if HOME_ERR_RE.search(l)]
+    if errs:
+        return ('login faulted: the sign-in post worked but the app refused the session. Not a credential failure and not '
+                'the licence session cap (the runtime log has no session-limit line). The runtime log says: "'
+                + errs[-1][:300] + '". The home microflow most likely failed for this user: check the entity the smoke user '
+                'was made as (UPG_SMOKE_ENTITY or $WORK/smoke-entity.txt, smoke_users.py --entity).')
+    return ('login faulted: the app refused the session, and the runtime log has neither a session-limit line nor an error '
+            'line, so it is not the licence cap. Read the runtime log around the sign-in.')
 
 
 def session_wait(a):
@@ -1464,6 +1534,8 @@ def main():
     ap.add_argument("--login-path", default="/login.html",
                     help="where the engine signs in (default /login.html, as smokewalk.js; T7-10, T8-9). '/' only for an "
                          "app whose anonymous home renders the standard login form itself")
+    ap.add_argument("--runtime-log", metavar="FILE", help="the app's runtime log: a refused sign-in is explained from it (GF-17); "
+                    "default: the output of $UPG_RUNTIME_LOG_CMD, which the pipeline sets")
     ap.add_argument("--patch-engine", metavar="DIR",
                     help="only copy and patch the engine into DIR, print the patch report (exit 1 if one did not apply)")
     a = ap.parse_args()
@@ -1611,6 +1683,7 @@ def main():
             # --session-retries times. The retries are written to summary.json (session_retries) and stay visible.
             tries = 0
             while True:
+                log_mark = runtime_log_mark(a)   # GF-17: this attempt's sign-in starts here; earlier lines belong to earlier roles
                 if art.exists():
                     shutil.rmtree(art)
                 if prog:
@@ -1645,6 +1718,8 @@ def main():
             login = next((r for r in F["results"] if r["rung"] == "ui" and r["name"] == "login"), None)
             # PR-P4: a login that FAILs after a destructive journey ran on this same database is not a finding about this
             # role: the journey may have deleted its account (identity), its data or the seed. CONTAMINATED, never FAIL
+            if login:
+                login = dict(login, detail=login_cause(login.get("detail"), runtime_log_since(a, log_mark)))   # GF-17, after the session-cap retries above
             lword, lverdict, lwhy = login_outcome(login, prior_dirty)
             summary["roles"][key] = {"exit": p.returncode, "user": cred["user"], "login": lword,
                                       "login_detail": login["detail"] if login else ""}
@@ -1756,7 +1831,8 @@ def main():
         import apimock
         nc_lines = apimock.mark_journeys(summary["journeys"], a.apimock_log, apimock.systems_arg(a.exclude_systems))
     if a.compare:
-        before = json.load(open(cmp_summary)).get("journeys", {})
+        before_all_cmp = json.load(open(cmp_summary))
+        before = before_all_cmp.get("journeys", {})
         for j, s in summary["journeys"].items():
             b = before.get(j, {}).get("verdict")
             if s["verdict"] != "FAIL":  # INVALID stays INVALID: it says nothing about the upgrade
@@ -1767,6 +1843,14 @@ def main():
                 s["compare"] = "NOT IN BASELINE (run it on the old app too)"
             else:
                 s["compare"] = f"BASELINE DEFECT (before {b})"
+        # an anonymous role that landed on a Guest-access home on one run and on a sign-in form on the other changed what a
+        # visitor sees; both PASS, so no verdict flips: say it (a note, not a failure)
+        before_roles = before_all_cmp.get("roles", {})
+        summary["login_changes"] = [{"role": r, "before": before_roles[r].get("login_detail", ""), "after": s.get("login_detail", "")}
+                                    for r, s in summary["roles"].items()
+                                    if r in before_roles and s.get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail", "").startswith("anonymous")
+                                    and before_roles[r].get("login_detail") != s.get("login_detail")]
         if not a.positive_control:  # T1-26 / T4-17: the screens line is printed (and stored) even when all pairs PASS
             import shotdiff
             rows = screen_compare(cmp_dir, out, summary["journeys"], a.shot_accept)
@@ -1862,6 +1946,8 @@ def main():
         print(f"  role {r:24} login {s['login']:7} {s.get('login_detail', '')[:60]}" + (f"  control {s['control']}" if "control" in s else ""))
         for e in s.get("data_errors", []):
             print(f"    data: {e[:160]}")
+    for c in summary.get("login_changes", []):
+        print(f"  NOTE anonymous role {c['role']}: the visitor's home changed, before \"{c['before']}\", now \"{c['after']}\" (not a failure; look at it)")
     scoped = collections.Counter(s["scope_class"] for s in summary["journeys"].values() if s.get("scope_class"))
     for k, n in sorted(scoped.items()):   # one line per class, the rows are in summary.json
         print(f"  INFO    out of scope ({k}): {n} actions listed, no journey, never INVALID (plan.json out_of_scope, scope.json)")

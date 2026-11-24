@@ -1,0 +1,2 @@
+{"modules": [{"name": "CycA", "entities": [{"name": "E", "attributes": [{"name": "Label"}]}], "cross": [{"name": "A_B", "parent": "E", "child": "CycB.F"}]},
+             {"name": "CycB", "entities": [{"name": "F", "attributes": [{"name": "Label"}]}], "cross": [{"name": "B_A", "parent": "F", "child": "CycA.E"}]}]}

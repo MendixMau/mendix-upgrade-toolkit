@@ -14,7 +14,7 @@ Relation to the other files (this file builds on them, it does not replace them)
 ```
 ### RA-<n> <short title>
 - topic: widget-gone | atlas | dojo | module-api
-- match: <Python regex, case-insensitive search on the section-3 item text: kind, name, evidence>
+- match: <Python regex, case-insensitive search on the section-3 item text: kind, name, evidence. The text of a replacements row item ends with the hit locations, which name other modules (a changedDate hit in a Marketplace SSO microflow); anchor at the start (`^\S+ ` is the kind; one kind has two words, so write `^(?:renamed module|\S+) ` where a renamed module can match) so a module named only in the evidence does not claim the item>
 - trigger: <which tool/file/line detects it>
 - why: <why it cannot be upgraded as it is>
 - options: <keep | replace | rebuild | hand off, each "name (effort S/M/L, risk)"> separated by " | "
@@ -247,7 +247,7 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 
 ### RA-16 Legacy MendixSSO to OIDC
 - topic: module-api
-- match: mendixsso|sso module|openid
+- match: ^(?:renamed module|\S+) (?:R3\b|mendixsso\b)
 - trigger: replacements.tsv R3 (`module:MendixSSO`), R2 for OIDC shape; release-impact deprecation rows.
 - why: MendixSSO is deprecated; the user specialisation lives in the module's tables, and the IdP is an organisation decision.
 - options: keep the module (S, until it leaves the Marketplace) | OIDC SSO with the IdP (M-L) | SAML / LDAP / local credentials (M) | OIDC Provider for custom SSO

@@ -1,0 +1,5 @@
+2026-11-18 09:00:01.100 INFO - Core: Starting Mendix Runtime
+2026-11-18 09:00:03.200 INFO - ActionManager: Running after-startup-action: Module.ASU_Start
+2026-11-18 09:00:03.900 INFO - Module: seed check done
+2026-11-18 09:00:04.000 INFO - ActionManager: Successfully ran after-startup-action
+2026-11-18 09:00:04.500 INFO - Core: Mendix Runtime successfully started, the application is now available.

@@ -62,6 +62,11 @@ module versions without reading what changed, and E5b looked for a Java 11 error
                not as it is: --java-rev REV, else the newest commit whose subject starts "original:" (none, or not a git
                project: the tree as it is). A symbol that occurred there and is gone now is "handled (auto):
                java-symbol-ported" with the commit that removed it, never "not relevant"; one still present stays open.
+               GM-38: with --final-dir (the repaired project) and --build-log (the run's build result, read as gate.sh
+               reads BUILD_LOG: BUILD SUCCEEDED and 0 "ERROR at" lines) a java-actions removal whose symbols were in the
+               original Java closes as "handled (auto): java-removal-proved-by-build" only when the build is green AND
+               no symbol occurs in the final javasource (proxies excluded); the row cites the build file and the scope.
+               A red or missing build, or a symbol still there, leaves it open and "auto cannot use" says why.
                (Product View 360: row 28 was closed "java-symbol-absent" after the Java port, the kept modules had used it.) breaking and removal rows of studio-pro-ide
                stay open: some change the model (B1-RI). A human entry is never replaced; auto
                entries are recomputed on every --auto rerun (so changed facts change them).
@@ -351,7 +356,8 @@ def mpr_plan(old_path, new_path):
 
 FACT_KEYS = {"db_vendor", "db_version", "odata_published", "odata_consumed", "odata_consumed_connector", "rest_published", "rest_consumed",
              "web_services", "workflows", "own_java", "native_profile", "oql", "document_templates", "kept", "stranded",
-             "runtime_os", "languages", "own_jdbc", "dev_servlet", "database_connector", "project_dir", "vcs"}
+             "runtime_os", "languages", "own_jdbc", "dev_servlet", "database_connector", "project_dir", "vcs", "file_documents",
+             "file_document_entities", "final_dir", "build_log"}
 
 
 def load_facts(paths):
@@ -417,6 +423,9 @@ FEATURES = [
     ("workflows", r"\bworkflows?\b|\buser tasks?\b", ("workflows",)),
     ("OQL", r"\boql\b", ("oql",)),
     ("document templates", r"document templates?|document generation", ("document_templates",)),
+    # GM-42: Mendix 11.0.0 refuses to start while a pre-5.12 file document exists in the data. The row is about data,
+    # not code; the model says only whether FileDocument entities exist (absent: no file can be there; present or unknown: open)
+    ("file documents", r"file documents?\b.*\b5\.12\b|\b5\.12\b.*\bfile documents?", ("file_documents",)),
 ]
 # A module requirement row that only raises the module's minimum Mendix version (T3, T4 rule scripts): met when the
 # target is at least that version, version arithmetic only. A minimum ABOVE the target stays open (a real blocker).
@@ -532,6 +541,47 @@ def java_rev(project_dir):
     r = subprocess.run(["git", "-C", str(project_dir), "log", "-1", "--format=%H", "--extended-regexp", "--grep=^original:"],
                        capture_output=True, text=True)
     return r.stdout.strip() or None if r.returncode == 0 else None
+
+
+def build_verdict(path, final_dir=None):
+    """GM-38: (True|False|None, text) from the run's recorded build result, read as gate.sh rung `build` reads it:
+    green = "BUILD SUCCEEDED" and 0 lines starting "ERROR at". None = the file is missing or unreadable.
+    With final_dir the log must be newer than the newest .java under final_dir/javasource and than the .mpr there:
+    an older log is not the build of that tree (False, never green)."""
+    try:
+        t = Path(path).read_text(errors="replace")
+        mt = Path(path).stat().st_mtime
+    except OSError as e:
+        return None, f"build result {path} cannot be read ({e.strerror or e})"
+    if final_dir:
+        fd = Path(final_dir)
+        newer = []
+        try:
+            files = list((fd / "javasource").rglob("*.java")) + list(fd.glob("*.mpr")) + list(fd.glob("*/*.mpr"))
+        except OSError as e:
+            return False, f"build log freshness not checkable: {final_dir} unreadable ({e.strerror or e})"
+        for f in files:
+            try:
+                if f.stat().st_mtime > mt:
+                    newer.append(f)
+            except OSError as e:  # a dangling symlink, or a file removed during the walk
+                return False, f"build log freshness not checkable: {f} unreadable ({e.strerror or e})"
+        if newer:
+            return False, (f"build log older than final javasource/mpr: {path} predates {newer[0]}"
+                           f"{' (and %d more)' % (len(newer) - 1) if len(newer) > 1 else ''}")
+    errs = sum(1 for ln in t.splitlines() if ln.startswith("ERROR at"))
+    if "BUILD SUCCEEDED" not in t:
+        return False, f"build not green: no BUILD SUCCEEDED in {path}"
+    if errs:
+        return False, f"build not green: {errs} ERROR at lines in {path}"
+    return True, f"BUILD SUCCEEDED and 0 ERROR at lines in {path}"
+
+
+def final_java_hits(final_dir, key):
+    """GM-38: .java files of the final javasource (proxies excluded: regenerated by the target build) that name key."""
+    ix = JavaIndex.of(final_dir)
+    rx = re.compile(r"(?<![\w$])" + re.escape(key) + r"(?![\w$])")
+    return [p for p, t in ix.java.items() if rx.search(t)]
 
 
 def last_change(project_dir, key, rev):
@@ -710,6 +760,13 @@ def facts_from_project(mpr, db_vendor=None, db_version=None, runtime_os=None):
     for k, rx in TYPE_FAMILIES.items():
         facts[k] = count(rx)
     native_profile(m, facts, notes)
+    fds = mprmodel.file_document_entities(m)   # GM-42: whether a database check for pre-5.12 file documents is owed
+    facts["file_documents"] = len(fds)
+    if fds:
+        facts["file_document_entities"] = fds
+        print(f"release_impact: file_documents: {len(fds)} FileDocument entities ({', '.join(fds[:4])}{' ...' if len(fds) > 4 else ''}); the "
+                     "model cannot say whether an environment's database holds pre-5.12 file documents: ask which databases "
+                     "the environments run on and check each (the proposal raises it as a BLOCKER)", file=sys.stderr)
     ls = [i.get("Code") for part in (m.singletons.get("Settings$ProjectSettings") or {}).get("Settings", [])
           if isinstance(part, dict) and part.get("$Type") == "Settings$LanguageSettings"
           for i in part.get("Languages", []) if isinstance(i, dict)]
@@ -757,6 +814,82 @@ def facts_from_project(mpr, db_vendor=None, db_version=None, runtime_os=None):
 def fact_str(facts, k):
     v, src = facts[k]
     return f"{k}={json.dumps(v) if not isinstance(v, str) else v} ({src})"
+
+
+def proved_by_build(area, typ, affected, facts):
+    """GM-38: 'handled (auto): java-removal-proved-by-build: ...' or None. A java-actions removal row whose every affected item is a
+    Java symbol: the build is green (and newer than the final tree) and no symbol occurs in the final javasource."""
+    if not (area == "java-actions" and typ == "removal" and "final_dir" in facts and "build_log" in facts):
+        return None
+    syms = java_symbols(affected)
+    ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
+    if syms and ok:
+        ix = JavaIndex.of(facts["final_dir"][0])
+        if ix.ok and ix.java and not any(final_java_hits(facts["final_dir"][0], k) for _, k in syms):
+            return (f"handled (auto): java-removal-proved-by-build: {', '.join(k for _, k in syms)}: {why}; "
+                    f"0 hits in {ix.root}/javasource ({len(ix.java)} .java, proxies excluded) after the repairs "
+                    f"(compiled, not linked); "
+                    f"{fact_str(facts, 'build_log')}, {fact_str(facts, 'final_dir')}")
+    return None
+
+
+def close_proved(path, final_dir, build_log):
+    """GM-38: re-evaluate ONLY the java-removal-proved-by-build rule on an existing release-impact.md. Touches a Studio Pro row
+    whose last cell is EMPTY (a person's entry and any auto entry stay), the 'Open rows: what to do' bullet of a row it closes,
+    and the two counts that name open rows; nothing else in the file, no facts, no brain, no regeneration. 0 even when it closed
+    nothing (a red or stale build, a symbol still present): the rows stay open and the line says why. 2 = unusable input."""
+    p = Path(path)
+    if not p.exists():
+        print(f"release_impact: no file {p}", file=sys.stderr)
+        return 2
+    facts = {"final_dir": (final_dir, "--final-dir"), "build_log": (build_log, "--build-log")}
+    ok, why = build_verdict(build_log, final_dir)
+    lines = p.read_text(errors="replace").split("\n")
+    section, closed, out = "", [], []
+    for line in lines:
+        if line.startswith("## "):
+            section = line[3:].split(" (")[0].strip()
+        c = cells(line)
+        if section == "Studio Pro" and c and len(c) >= 8 and re.match(r"^\d+$", c[0]) and c[-1] == "" and re.search(r"\|\s*\|\s*$", line):
+            h = proved_by_build(c[3].lower(), c[2], c[5], facts)
+            if h:
+                line = re.sub(r"\|\s*\|\s*$", lambda _m: "| " + h.replace("|", "\\|").replace("\n", " ") + " |", line)
+                closed.append(c[0])
+        out.append(line)
+    if not closed:
+        print(f"release-impact close-proved: closed 0 rows ({why if not ok else 'no open java-actions removal row with its symbols gone from the final javasource'})")
+        return 0
+    k, text = len(closed), []
+    gone = {f"- row {n} (" for n in closed}
+    in_open, sect, left = False, [], 0
+    def flush():
+        # the Open rows section: dropped whole when its last bullet closed (what triage writes with no open row), else its count is updated
+        nonlocal sect, left
+        if sect and left > 0:
+            m = re.match(r"^(## Open rows: what to do \()(\d+)(\))", sect[0])
+            sect[0] = f"{m.group(1)}{left}{m.group(3)}" + sect[0][m.end():]
+            text.extend(sect)
+        sect = []
+    for line in out:
+        if line.startswith("## "):
+            flush()
+            in_open = line.startswith("## Open rows: what to do (")
+        if in_open:
+            if any(line.startswith(g) for g in gone):
+                continue
+            left += line.startswith("- row ")
+            sect.append(line)
+            continue
+        m = re.search(r"This run: (\d+) auto, (\d+) kept from a person, (\d+) open", line)
+        if m:
+            line = line.replace(m.group(0), f"This run: {int(m.group(1)) + k} auto, {m.group(2)} kept from a person, {max(int(m.group(3)) - k, 0)} open")
+        text.append(line)
+    flush()
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text("\n".join(text))
+    os.replace(tmp, p)
+    print(f"release-impact close-proved: closed {k} row(s) as java-removal-proved-by-build: {', '.join(closed)} ({why})")
+    return 0
 
 
 def module_library_rule(mod, typ, change, affected, facts):
@@ -862,6 +995,11 @@ def auto_rule(section, cols, facts, lo, hi):
                         by = "; ".join(f"{k}: {last_change(pdir, k, rev) or 'commit not found'}" for k in hit)
                         return (f"handled (auto): java-symbol-ported: {', '.join(hit)} occurred in the kept Java at {rev[:9]} "
                                 f"(the run start) and is gone now ({by}); {fact_str(facts, 'project_dir')}")
+        # GM-38: the rules above left the row open (the symbol is in the original Java). A green target build and a final
+        # javasource, after the repairs, without the symbol prove it gone: both hold or the row stays open.
+        proved = proved_by_build(area, typ, affected, facts)
+        if proved:
+            return proved
         v = vt(version)
         if v and hi[0] > lo[0] and len(lo) >= 2 and v[:2] == lo[:2]:
             return (f"not relevant (auto): source-line-patch: {version} is a {lo[0]}.{lo[1]}.x patch above the source "
@@ -1034,7 +1172,8 @@ FEATURE_TYPES = {"published OData": r"PublishedODataService", "consumed OData": 
                  "consumed REST": r"ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
                  "REST": r"PublishedRestService$|ConsumedRestService$|RestCallAction$|SendRestRequestAction$",
                  "web services": r"WebService|WebServiceCallAction", "workflows": r"^Workflows\$Workflow$",
-                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile"}
+                 "OQL": r"DataSet|ViewEntity|Oql", "document templates": r"DocumentTemplate", "native": r"NativeNavigationProfile",
+                 "file documents": r"(?!x)x"}   # no element type shows it: ELEMENTS (file_document_labels) reads the entities
 
 
 def legacy_events(ev):
@@ -1046,8 +1185,15 @@ def legacy_events(ev):
     return out
 
 
+def file_document_labels(ev):
+    """GM-42: the entities that specialise System.FileDocument, Marketplace modules included, as the fact and the proposal count them (a row about pre-5.12 file documents is open when any exists)."""
+    import mprmodel
+    return [f"{qn} (FileDocument entity)" for qn in mprmodel.file_document_entities(ev.m)]
+
+
 # model elements a row is about, by its words (Studio Pro rows): (row regex, finder)
 ELEMENTS = [
+    (r"file documents?\b.*\b5\.12\b|\b5\.12\b.*\bfile documents?", file_document_labels),
     (r"legacy scheduled events?|scheduled events?\b.*\b(?:non-repeating|start time)", legacy_events),
     (r"\b(?:before|after) commit\b", lambda ev: ev.of_types(r"DomainModels\$EntityEvent$|DomainModels\$EventHandler$")),
 ]
@@ -1220,6 +1366,9 @@ def generate(a):
             print(f"facts: {len(derived)} counted from {src} -> {dpath}")
         fact_files += list(a.facts or [])
         facts = load_facts(fact_files)  # later wins: a hand file overrides what the model gave
+        for k in ("final_dir", "build_log"):
+            if getattr(a, k, None):
+                facts[k] = (getattr(a, k), "--" + k.replace("_", "-"))
         if one_mpr:
             lost.append("module rows and the kept/stranded rule: only one of --from-mpr/--to-mpr given, so the installed "
                         "modules are not paired (add the other mpr, or a --plan)")
@@ -1230,6 +1379,22 @@ def generate(a):
         for k in ("db_vendor", "runtime_os", "languages", "own_jdbc", "dev_servlet"):
             if k not in facts:
                 lost.append(f"{k}: unknown, the rows it decides stay open")
+        # GM-38: say why the build rule closes nothing
+        if "final_dir" in facts or "build_log" in facts:
+            if "final_dir" not in facts:
+                lost.append("java-removal-proved-by-build: no final_dir (the repaired project): Java removal rows stay open")
+            elif "build_log" not in facts:
+                lost.append("java-removal-proved-by-build: no build_log (the run's build result): Java removal rows stay open")
+            else:
+                ok, why = build_verdict(facts["build_log"][0], facts["final_dir"][0])
+                if not ok:
+                    lost.append(f"java-removal-proved-by-build: {why}: Java removal rows stay open")
+                else:
+                    fix = JavaIndex.of(facts["final_dir"][0])
+                    if not (fix.ok and fix.java):
+                        lost.append("java-removal-proved-by-build: final scan incomplete: "
+                                    + ("; ".join(fix.bad) if fix.bad else f"no .java under {fix.root}/javasource")
+                                    + ": Java removal rows stay open")
         for l in dict.fromkeys(lost):
             print(f"auto cannot use: {l}")
     ev = None
@@ -1496,11 +1661,18 @@ def main():
     ap.add_argument("--db-version", dest="db_version")
     ap.add_argument("--runtime-os", dest="runtime_os")
     ap.add_argument("--check")
+    ap.add_argument("--close-proved", dest="close_proved", metavar="FILE", help="GM-38: on an existing release-impact.md only, close open java-actions removal rows by the java-removal-proved-by-build rule (needs --final-dir and --build-log); nothing is regenerated, no entry is replaced")
+    ap.add_argument("--final-dir", dest="final_dir", help="the repaired project folder (javasource next to it): a java-actions removal row closes when the build is green and its symbols are gone from it (GM-38)")
+    ap.add_argument("--build-log", dest="build_log", help="the run's recorded build result (the gate's BUILD_LOG) for --final-dir (GM-38)")
     ap.add_argument("--java-rev", dest="java_rev", help="commit whose javasource/userlib the java-actions removal rows are judged on (PV-4)")
     a = ap.parse_args()
     JAVA_REV["rev"] = a.java_rev
     if a.check:
         sys.exit(check(a.check))
+    if a.close_proved:
+        if not (a.final_dir and a.build_log):
+            ap.error("--close-proved needs --final-dir and --build-log")
+        sys.exit(close_proved(a.close_proved, a.final_dir, a.build_log))
     if a.facts_from_mpr and not getattr(a, "from") and not a.to:
         facts, notes = facts_from_project(a.facts_from_mpr, a.db_vendor, a.db_version, a.runtime_os)
         dest = a.facts_out or "facts.json"

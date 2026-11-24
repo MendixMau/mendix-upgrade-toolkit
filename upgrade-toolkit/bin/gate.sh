@@ -33,6 +33,8 @@
 #              --rejudge); needs only SMOKE_BEFORE. With --only the pipeline's diff step still carries the afterwalk's smoke verdict.
 #   Report-only keys (no rung): GATE_NOTES=<file> (L56: every non-empty non-# line is listed as "needs a decision" and counted in Progress;
 #              it never changes a verdict), HEAL_JSON=<work>/heal.json (the heal step's "heal:" summary line).
+#              GM-40: <work>/edit-routes.json held[] (editroute.py) is listed as one "needs a decision" item plus a module | document |
+#              reason list; none held = no item; file absent = "no kept module routed"; unreadable or no held[] (collect not run) = "not checked".
 #   screens    SMOKE_BEFORE_SHOTS [SMOKE_SHOT_ACCEPT]  compares against $GATE_DIR/smoke-after-shots (the smoke rung's)
 #   layout     LAYOUT_OLD LAYOUT_NEW [LAYOUT_ACCEPT]   layoutdiff.py on the folders layoutwalk.js wrote for the old and the new app
 #              (widget widths, cut text and image sizes per page; data independent). Optional rung: without LAYOUT_OLD / LAYOUT_NEW it
@@ -107,8 +109,10 @@
 #       items)". APIMOCK set but the stand-in's inventory unreadable = INVALID. --dry-run prints each rung's command and exits 0 when the inputs check out; it runs and
 #       writes nothing.
 # Env: UPG_GATE_BIN (instrument folder, default: this one; controls use stubs), UPG_PYTHON, UPG_NODE,
-#      GATE_TIMEOUT (seconds per instrument, default 900; smokewalk 600 unless set). A rung that hits it is INVALID and
-#      its line says "raise GATE_TIMEOUT" (RT-11: a 7-role repeat-3 smoke walk needed 1500).
+#      GATE_TIMEOUT (seconds per instrument, default 900; smokewalk 600 unless set). Also a gate.conf / KEY=VALUE key
+#      (GM-32); later wins: gate.conf < environment variable < KEY=VALUE argument; a positive whole number or the gate refuses to start. A rung
+#      that hits it is INVALID and its line says "raise GATE_TIMEOUT" with the elapsed time (RT-11: a 7-role repeat-3
+#      smoke walk needed 1500; GM-32: 6 roles x 3 repeats took about 20 minutes. The default does not scale with roles x repeat.)
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 B=${UPG_GATE_BIN:-$here}; PY=${UPG_PYTHON:-python3}; NODE=${UPG_NODE:-node}
@@ -117,7 +121,7 @@ KEYS="WORK LABEL GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CON
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_URL SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS SMOKE_REPEAT SMOKE_LOGIN_PATH JOURNEYS_DIR
  JOURNEYS_BEFORE JOURNEYS_REJUDGE USERS PORT ADMIN_PORT ADMIN_PASS PAUSE SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_PSQL LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT
  JOURNEY_EFFECT_ACCEPT ACTIONS ACTIONS_WAIVE JOURNEY_EVIDENCE JOURNEY_BAR RELEASE_IMPACT POST_CMD RUN APIMOCK APIDIRECT EXCLUDE_SYSTEMS WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED
- APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_layout PRE_release PRE_apis PRE_widgets"
+ APP_REPO SMOKE_REJUDGE GATE_NOTES HEAL_JSON TRAIL_REQUIRED GATE_TIMEOUT PRE_build PRE_idcheck PRE_const PRE_data PRE_rest PRE_logdiff PRE_smoke PRE_journeys PRE_screens PRE_layout PRE_release PRE_apis PRE_widgets"
 PATHKEYS="WORK GATE_DIR BUILD_LOG OLD_MDA NEW_MDA APPROVED CONST_OVERRIDES CONST_ALLOW BEFORE_JSON AFTER_JSON ALLOW LOG_ALLOW
  REST_BEFORE REST_AFTER OLD_LOG NEW_LOG SMOKE_BEFORE SMOKE_PLAN SMOKE_APP_DIR SMOKE_BEFORE_SHOTS JOURNEYS_DIR JOURNEYS_BEFORE
  USERS SMOKE_SHOT_ACCEPT JOURNEY_SHOT_ACCEPT JOURNEY_EFFECT_ACCEPT LAYOUT_OLD LAYOUT_NEW LAYOUT_ACCEPT ACTIONS JOURNEY_EVIDENCE RELEASE_IMPACT APIMOCK APIDIRECT WIDGETS_APP WIDGETS_WAIVE WIDGETS_RENDERED APP_REPO GATE_NOTES HEAL_JSON"
@@ -160,7 +164,8 @@ if [ -n "$config" ]; then
     setkey "${line%%=*}" "${line#*=}" "$cdir"
   done < "$config"
 fi
-for kv in ${ARGKV[@]+"${ARGKV[@]}"}; do setkey "${kv%%=*}" "${kv#*=}" "$PWD"; done
+GT_ARG=0
+for kv in ${ARGKV[@]+"${ARGKV[@]}"}; do setkey "${kv%%=*}" "${kv#*=}" "$PWD"; [ "${kv%%=*}" = GATE_TIMEOUT ] && GT_ARG=1; done
 for r in $(echo "$only" | tr ',' ' '); do inlist "$r" "$RUNGS" || die "--only: unknown rung '$r' (rungs: $RUNGS)"; done
 [ -n "$V_RUN" ] || V_RUN=$(date -u +%Y%m%d%H%M%S)
 case $V_RUN in *[!A-Za-z0-9_]*) die "RUN=$V_RUN: letters, digits and _ only (it goes into database names)";; esac
@@ -286,14 +291,30 @@ mask() {
   done
   printf '%s' "$s" | sed -E 's/(PGPASSWORD=|password=)[^ ]*/\1***/g'   # E2E-9: a JOURNEY_PSQL with its password
 }
+# GM-35: the data rung reads idcheck.json only when it is newer than every input idcheck read (approved list, old and new MDA)
+# and records the same old and new paths; otherwise a WARNING and no allow rows are derived from it.
+idcheck_json_args() {
+  local j="$G/idcheck.json" f
+  [ -f "$j" ] || return 0
+  for f in "$V_APPROVED" "$V_OLD_MDA" "$V_NEW_MDA"; do
+    [ -n "$f" ] && [ -e "$f" ] || continue
+    [ "$j" -nt "$f" ] || { echo "gate: WARNING $j is not newer than $f: stale, no allow rows derived from idcheck (rerun the idcheck rung)" >&2; return 0; }
+  done
+  CMD+=(--idcheck-json "$j" --idcheck-old "$V_OLD_MDA" --idcheck-new "$V_NEW_MDA")
+}
 opt() { [ -n "$2" ] && CMD+=("$1" "$2"); }   # opt FLAG VALUE: only when VALUE is set
 cmd_rung() {
   CMD=()
   case $1 in
-    build) CMD=(bash -c 'grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG");;
-    idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md");;
+    # GM-43: a build log older than the model (an .mpr or a .java of the app folder: APP_REPO, else $WORK/app) is the build of a
+    # tree that no longer exists: exit 2 (INVALID, not measured), never a verdict on it. The same files release_impact.py's
+    # build_verdict compares. No app folder named or found: nothing to compare, as before.
+    build) bapp=$V_APP_REPO; [ -n "$bapp" ] || bapp=$V_WORK/app
+      CMD=(bash -c 'if [ -n "$2" ] && [ -d "$2" ] && [ -f "$1" ]; then nf=$({ find "$2" -maxdepth 2 -name "*.mpr" -newer "$1" 2> /dev/null; find "$2/javasource" -name "*.java" -newer "$1" 2> /dev/null; } | head -n 1 || true); [ -z "$nf" ] || { echo "STALE BUILD: $nf is newer than the build log $1: not measured. Rebuild: rerun the pipeline --from build"; exit 2; }; fi
+        grep -q "BUILD SUCCEEDED" "$1" || exit 1; n=$(grep -c "^ERROR at" "$1"); [ "$n" = 0 ] || { echo "$n ERROR at lines"; exit 1; }' _ "$V_BUILD_LOG" "$bapp");;
+    idcheck) CMD=("$PY" "$B/idcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --approved "$V_APPROVED"; CMD+=(--md "$G/idcheck.md" --json "$G/idcheck.json");;
     const) CMD=("$PY" "$B/constcheck.py" "$V_OLD_MDA" "$V_NEW_MDA"); opt --overrides "$V_CONST_OVERRIDES"; opt --allow "$V_CONST_ALLOW"; CMD+=(--md "$G/constants.md");;
-    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); CMD+=(--md "$G/diff.md");;
+    data) CMD=("$PY" "$B/diff.py" "$V_BEFORE_JSON" "$V_AFTER_JSON"); opt --allow "$V_ALLOW"; opt --log-allow "$V_LOG_ALLOW"; [ -f "$V_WORK/module-jumps.txt" ] && CMD+=(--module-jumps "$V_WORK/module-jumps.txt"); idcheck_json_args; CMD+=(--md "$G/diff.md");;
     rest) CMD=("$PY" "$B/restcontract.py" "$V_REST_BEFORE" "$V_REST_AFTER");;
     logdiff) CMD=("$PY" "$B/logdiff.py" "$V_OLD_LOG" "$V_NEW_LOG"); opt --allow "$V_LOG_ALLOW"; CMD+=(--md "$G/logdiff.md");;
     smoke)
@@ -401,7 +422,14 @@ human_of() {
 }
 
 # --- 2. run -------------------------------------------------------------------------------------------------------
-TO=${GATE_TIMEOUT:-900}
+# GM-32: GATE_TIMEOUT is also a config key (V_GATE_TIMEOUT). Order, later wins: gate.conf < environment < KEY=VALUE argument.
+if [ $GT_ARG = 1 ]; then GT=$V_GATE_TIMEOUT; else GT=${GATE_TIMEOUT:-$V_GATE_TIMEOUT}; fi
+if [ -n "$GT" ]; then
+  case $GT in *[!0-9]*) die "GATE_TIMEOUT=$GT: a positive whole number of seconds (no unit); set it in gate.conf, the environment or as an argument";; esac
+  GT=${GT#"${GT%%[!0]*}"}   # strip leading zeros, as text: no arithmetic on a value that could wrap
+  [ -n "$GT" ] && [ ${#GT} -le 7 ] || die "GATE_TIMEOUT: a positive whole number of seconds, at most 9999999 (zero, longer values and units are refused); set it in gate.conf, the environment or as an argument"
+fi
+TO=${GT:-900}
 # run_limited SECS OUTFILE: run "${CMD[@]}" with a time limit, output to OUTFILE, rc 124 on timeout. C6: macOS has no
 # `timeout`; the rung used to run unlimited there and a hung rung hung the gate. GNU timeout, else gtimeout (Homebrew
 # coreutils), else a bash watchdog that kills the process group; never silently unlimited.
@@ -426,7 +454,7 @@ run_limited() {
 }
 hookenv() { # export G, WORK, LABEL, RUN and every key for a PRE_* / POST_CMD shell (N1R2-9); call it in a subshell
   local k; export G GATE_DIR="$G" WORK="$V_WORK" LABEL="$V_LABEL" RUN="$V_RUN"
-  for k in $KEYS; do case $k in PRE_*|POST_CMD|GATE_DIR|WORK|LABEL|RUN) ;; *) eval "export $k=\"\$V_$k\"";; esac; done
+  for k in $KEYS; do case $k in PRE_*|POST_CMD|GATE_DIR|WORK|LABEL|RUN|GATE_TIMEOUT) ;; *) eval "export $k=\"\$V_$k\"";; esac; done
   [ -n "$V_CONST_OVERRIDES" ] || { [ -n "${ENV_CONST_OVERRIDES+x}" ] && export CONST_OVERRIDES="$ENV_CONST_OVERRIDES" || unset CONST_OVERRIDES; }   # B4T2-12
 }
 run_pre() { # RUNG ; returns 0 when absent or ok
@@ -439,6 +467,7 @@ run_pre() { # RUNG ; returns 0 when absent or ok
 [ $FAILED_INPUT = 0 ] && for r in $RUNGS; do
   eval "s=\$ST_$r"; [ "$s" = WANTED ] || continue
   [ $dry = 1 ] || mkdir -p "$G"
+  [ $r = idcheck ] && [ $dry = 0 ] && rm -f "$G/idcheck.json"   # GM-35: a skipped or exit-2 idcheck must not leave an old JSON for the data rung
   if [ $r = smoke ] && [ -z "$V_SMOKE_PLAN" ] && [ -z "$V_SMOKE_REJUDGE" ] && [ -n "$V_SMOKE_APP_DIR" ]; then
     if [ $dry = 1 ]; then echo "[smoke] GEN: $PY $B/smokewalk_gen.py $V_SMOKE_APP_DIR -o $G/plan.json"; fi
   fi
@@ -473,9 +502,9 @@ run_pre() { # RUNG ; returns 0 when absent or ok
     if [ $rc = 0 ]; then v=PASS; elif [ $rc = 1 ]; then v=FAIL; else v=INVALID; fi
     ln="BUILD SUCCEEDED and 0 \"ERROR at\" lines: $( [ $rc = 0 ] && echo yes || echo "no ($(head -1 "$out"))") in $V_BUILD_LOG"
   else
-    t=$TO; [ $r = smoke ] && t=${GATE_TIMEOUT:-600}
+    t=$TO; [ $r = smoke ] && t=${GT:-600}
     echo "[$r] $(show_cmd)"
-    run_limited "$t" "$out"; rc=$?   # C6: the limit always applies (timeout, gtimeout, else a bash watchdog); rc 124 = timed out
+    t0=$SECONDS; run_limited "$t" "$out"; rc=$?; el=$((SECONDS-t0))   # C6: the limit always applies (timeout, gtimeout, else a bash watchdog); rc 124 = timed out
     if [ $r = smoke ] && [ "$rc" = 1 ] && [ -n "$V_EXCLUDE_SYSTEMS" ]; then   # E2E-14: FAIL steps that only called an excluded system
       "$PY" "$B/apimock.py" attribute-smoke "$G/smoke-after.json" --state "$V_APIMOCK" --exclude-systems "$V_EXCLUDE_SYSTEMS" >> "$out" 2>&1
       [ $? = 4 ] && rc=4
@@ -489,7 +518,7 @@ run_pre() { # RUNG ; returns 0 when absent or ok
     if [ $r = journeys ] && [ "$v" = 'PASS*' ] && [ "$rc" != 0 ]; then
       ln="noted, not a failure: nothing that passed on the old app fails on the new one; journeys that fail on the old app too are listed for the owner; $(oneline "$out")"
     fi
-    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); $ln"; echo "gate: rung $r timed out after ${t}s: raise GATE_TIMEOUT (smoke: steps x roles x repeat)" >&2; }
+    [ "$rc" = 124 ] && { ln="timed out after ${t}s (raise GATE_TIMEOUT); elapsed ${el}s; set GATE_TIMEOUT=<seconds> in gate.conf or the environment; $ln"; echo "gate: rung $r timed out after ${t}s (elapsed ${el}s): raise GATE_TIMEOUT (smoke: steps x roles x repeat) by setting GATE_TIMEOUT=<seconds> in gate.conf, in the environment or as a KEY=VALUE argument (order, later wins: gate.conf < environment < KEY=VALUE argument)" >&2; }
     if [ "$v" = EXCEPT ]; then
       nci=$(grep -c '^ *NOT CHECKED (excluded: ' "$out")   # item lines only, not a count line
       if [ "$nci" = 0 ]; then v=INVALID; ln="rc 4 but no NOT CHECKED item named; $ln"; else ln="$nci NOT CHECKED (excluded: $V_EXCLUDE_SYSTEMS); $ln"; fi
@@ -606,6 +635,42 @@ if [ -n "$V_GATE_NOTES" ] && [ -f "$V_GATE_NOTES" ]; then
   done < "$V_GATE_NOTES"
   ndec=$((ndec + NOTES_N))
 fi
+# GM-40: a saved local edit that cannot be replayed (describe output does not round-trip, e.g. a legacy data grid or ContentParams;
+# the replay is refused or held) is in <work>/edit-routes.json held[] (bin/editroute.py collect writes "<kind> <name>: <reason>").
+# Each one is an open item for a person: they redo it by hand. No held edit: no item. No readable file: "not checked", never clean.
+UNREPL_LINES=""; UNREPL_N=0
+UNREPL_FILE="$V_WORK/edit-routes.json"
+# Only edits collect tried and failed to replay: a module on the HOLD route has no held[] entries and is reported by the pipeline
+# (route_kept note, editroute-score). replay-held.txt (upgrade-pipeline.sh held_routes) is a copy of the same held[] for the
+# pipeline's own stop; the gate reads the source file, the two coexist.
+if [ ! -e "$UNREPL_FILE" ]; then UNREPL_STATE=absent   # editroute writes the file only when a kept module was routed
+else
+  UNREPL_ROWS=$("$PY" - "$UNREPL_FILE" 2>/dev/null <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+if not isinstance(rows, list) or any(not isinstance(x, dict) or not isinstance(x.get("held"), list) for x in rows):
+    sys.exit(3)   # plan wrote the rows, collect adds held[] to every one: no held[] = collect has not run
+for x in rows:
+    for h in x["held"]:
+        doc, _, why = str(h).partition(": ")
+        print(f"{x.get('module')}\t{doc}\t{why or 'not replayable'}")
+PY
+  ); urc=$?
+  if [ $urc = 0 ]; then
+    while IFS=$'\t' read -r um ud ur; do
+      [ -n "$um" ] || continue
+      UNREPL_N=$((UNREPL_N + 1)); UNREPL_LINES="$UNREPL_LINES$um | $ud | $ur
+"
+    done <<< "$UNREPL_ROWS"
+    UNREPL_STATE=checked
+  elif [ $urc = 3 ]; then UNREPL_STATE="not checked (collect has not run: a row has no held list)"
+  else UNREPL_STATE="not checked (unreadable or malformed)"; fi
+fi
+if [ "$UNREPL_N" -gt 0 ]; then
+  ndec=$((ndec + 1))
+  REPORT_LINES="${REPORT_LINES}editroute: needs a decision: $UNREPL_N saved edit(s) cannot be replayed on the new version; edits collect tried and failed to replay, a person redoes each by hand (listed under Unreplayable saved edits; $UNREPL_FILE)
+"
+fi
 HEAL_LINE=""
 if [ -n "$V_HEAL_JSON" ] && [ -f "$V_HEAL_JSON" ] && [ -f "$here/heal.py" ]; then HEAL_LINE=$("$PY" "$here/heal.py" summary --work "$(dirname "$V_HEAL_JSON")" 2>/dev/null | tail -1); fi
 nclosed=$npass
@@ -667,6 +732,7 @@ mkdir -p "$G" 2>/dev/null
   echo "$PROGRESS"
   [ -z "$CHANGES_LINE" ] || { echo "$CHANGES_LINE"; echo "Change ledger: \`$V_WORK/CHANGES.md\`"; }
   [ -z "$HEAL_LINE" ] || echo "$HEAL_LINE (details: \`$(dirname "$V_HEAL_JSON")/heal.md\`)"
+  "$PY" "$here/brainpath.py" --describe 2>/dev/null || echo "brain: not reported (brainpath.py failed)"   # DV-3
   # machine line for grade.py (read anywhere in the file): after the two lines people read first
   echo "Classes:$CLASSES"
   echo "Work: \`$V_WORK\`, evidence: \`$G\`, instruments: \`$B\`, run $V_RUN. $(date -u +%Y-%m-%dT%H:%MZ)"; echo
@@ -674,6 +740,12 @@ mkdir -p "$G" 2>/dev/null
   [ -n "$PROPOSAL_NOTE" ] && { echo "$PROPOSAL_NOTE"; echo; }
   [ -n "$MERGED" ] && { echo "Merged (--only $only): rungs$MERGED keep their row from the earlier summary; the overall verdict counts them."; echo; }
   table; echo
+  if [ "$UNREPL_N" -gt 0 ]; then
+    echo "Unreplayable saved edits ($UNREPL_N, open for a person; module | document | reason; from \`$UNREPL_FILE\`):"
+    printf '%s' "$UNREPL_LINES" | sed 's/^/- /'; echo
+  elif [ "$UNREPL_STATE" = checked ]; then echo "Unreplayable saved edits: none (checked \`$UNREPL_FILE\`; modules held whole on the HOLD route are listed elsewhere)."; echo
+  elif [ "$UNREPL_STATE" = absent ]; then echo "Unreplayable saved edits: no kept module routed (no edit-routes.json)."; echo
+  else echo "Unreplayable saved edits: $UNREPL_STATE (\`$UNREPL_FILE\`)."; echo; fi
   if [ -n "$NC_ITEMS" ]; then
     echo "NOT CHECKED (excluded systems, E2E-14): $nitems items. Each needs the real system; none of them is a PASS:"
     printf '%s' "$NC_ITEMS" | sed 's/^/- /'; echo
