@@ -232,6 +232,26 @@ def parked_act(n, running=None):
             "rec": "They are listed in NEEDS-JUDGMENT.md in the work folder (details under parked/). Answer them in one round, then rerun once.", "q": "", "time": ""}
 
 
+def read_plan_txt(work):
+    """Triage's module plan (plan.txt, written by modplan.py) for the rows that otherwise read only PROPOSAL.md, which exists only after
+    the propose step: between triage and the proposal (hours, with the owner's answer in between) both columns said "Not yet" (ABS, 2026-11-24).
+    None when the file is not there; else {"picked": [(name, old, new)], "notpicked": [name]} from `<cid> <new> <Module>   # was <old>` and
+    `# NOT PICKED <Module>: ...` lines."""
+    t = cp.rd(os.path.join(work, "plan.txt"))
+    if t is None:
+        return None
+    out = {"picked": [], "notpicked": []}
+    for ln in t.splitlines():
+        m = re.match(r"^\s*\d+\s+(\S+)\s+(\S+)\s*(?:#\s*was\s+(\S+))?", ln)
+        if m and not ln.lstrip().startswith("#"):
+            out["picked"].append((m.group(2), m.group(3) or "", m.group(1)))
+            continue
+        m = re.match(r"^#\s*NOT PICKED (\S+?):", ln)
+        if m:
+            out["notpicked"].append(m.group(1))
+    return out
+
+
 def derive(work, model):
     P = cp.parse_proposal(cp.rd(os.path.join(work, "PROPOSAL.md")))
     dm = cp.parse_decisions_md(cp.rd(os.path.join(work, "DECISIONS.md")))
@@ -255,6 +275,8 @@ def derive(work, model):
     src, tgt = (vm.group(1), vm.group(2)) if vm else ("", "")
     signed = P["signed"]
     rows = []
+    planf = read_plan_txt(work)
+    nj_text = cp.rd(os.path.join(work, "NEEDS-JUDGMENT.md")) or ""
 
     def commit_rows(pred):
         return [(h, s) for h, s in commits if pred(s)]
@@ -266,6 +288,10 @@ def derive(work, model):
                                      f"Signed by {signed[0]}." if signed else "Not signed yet."], ["PROPOSAL.md"])
          if done["propose"] and P["present"] else
          cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
+         else cell("wait", "Module plan picked", [f"{len(planf['picked'])} module updates are picked (plan.txt). The plan for your approval is not written yet.",
+                                                  "Nothing changes in the app before you approve it."], ["plan.txt"]) if planf is not None
+         else cell("wait", "Waiting for the module plan", ["Triage stopped until the module plan (plan.txt) is picked. Nothing changes in the app before that."],
+                   ["NEEDS-JUDGMENT.md: Module plan missing"]) if re.search(r"^## Module plan missing", nj_text, re.M)
          else notyet("No plan yet."))
     if done["convert"]:
         bfail = build_failure(model)
@@ -293,6 +319,8 @@ def derive(work, model):
         m = re.match(r"module update (\S+) (\S+) -> (\S+)", it["text"])
         if m:
             planned.append((m.group(1), m.group(2), m.group(3)))
+    if not P["present"] and planf:   # no proposal yet: the plan modplan.py picked is the plan (plan.txt)
+        planned = [(n, o, v) for n, o, v in planf["picked"]]
     names = sorted({n for n, _, _ in planned})
     stepc = commit_rows(lambda s: s.startswith("step"))
     got = [n for n in names if any(n in s for _, s in stepc)]
@@ -302,6 +330,21 @@ def derive(work, model):
         p = cell("ok", f"{len(planned)} steps planned" if planned else "Nothing planned", ["Each update is its own step, with a data identity check after it."]) if done["propose"] else \
             cell("wait", "Planned, not approved", ["Each update is its own step, with a data identity check after it.",
                                                    "Nothing changes in the app before you approve the plan."], ["PROPOSAL.md section 2"])
+    elif planf is not None:
+        npk = planf["notpicked"]
+        t = cell("wait" if npk else "ok", f"{len(names)} to update" + (f", {len(npk)} not picked" if npk else "") if names or npk else "None to update",
+                 [f"{n}: {a} to {b}." for n, a, b in planned] + [f"{n}: not picked, the plan needs your decision." for n in npk]
+                 or ["No Marketplace module needs an update."], ["plan.txt"])
+        p = cell("wait", f"{len(planned)} picked, not approved" if planned else "Nothing picked", ["Each update is its own step, with a data identity check after it.",
+                                                                                                  "The plan for your approval is not written yet."], ["plan.txt"])
+    elif ledit:
+        odd = [m["name"] for m in ledit if isinstance(m, dict) and m.get("name") and not re.match(r"^\d+(?:\.\d+)*$", str(m.get("version") or ""))]
+        t = cell("wait" if odd else "ok", f"{len(ledit)} modules read",
+                 [f"{len(ledit)} Marketplace modules are installed.", "The update plan is not picked yet."]
+                 + ([f"{len(odd)} of them have a build number instead of a release label: {', '.join(odd[:4])}" + (" and more" if len(odd) > 4 else "") + ". The plan needs your decision."] if odd else []),
+                 ["localedits.json"])
+        p = (cell("wait", "Waiting for the module plan", ["Triage stopped until the module plan (plan.txt) is picked."], ["NEEDS-JUDGMENT.md: Module plan missing"])
+             if re.search(r"^## Module plan missing", nj_text, re.M) else notyet("No plan yet."))
     else:
         t, p = notyet("Triage has not written a proposal yet."), notyet("No plan yet.")
     if names and got:
@@ -2923,7 +2966,7 @@ def render(model, matrix):
             f"    {h_ladder(matrix.get('ladder'))}\n  </header>\n"
             f"  {h_brief(matrix['brief'], qlist)}\n"
             f"  {h_stopped(model.get('stopped'))}{h_running(model.get('running'))}\n"
-            '  <details class="card fold" id="fold"><summary><b>Everything else</b> <span>the readiness checks, every item by stage, test results and history. Open it only if you want the proof.</span></summary>\n'
+            '  <details class="card fold" id="fold" open><summary><b>Matrix and proof</b> <span>every item by stage (Triage, Plan, Upgrade, Test), the readiness checks, test results and history. Open by default; tap to fold it away.</span></summary>\n'
             '  <div class="layout">\n  <div class="main">\n'
             '  <details class="card more"><summary>Counts by kind (tap one to mark its rows)</summary>\n'
             f'    <div class="headline" id="headline">{head_}</div>\n    <div class="tiles" id="tiles">{tiles_}</div>\n  </details>\n'

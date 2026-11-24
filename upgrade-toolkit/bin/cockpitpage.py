@@ -606,7 +606,16 @@ def build_model(work):
     vm = re.search(r"(\d+(?:\.\d+)+)\s*(?:->|to)\s*(\d+(?:\.\d+)+)", P["title"] or "")
     if not vm:
         vm = re.search(r"--source (\S+) --target (\S+)", rd(os.path.join(work, "state", "cmdline.txt")) or "")
-    versions = f"{vm.group(1)} → {vm.group(2)}" if vm else ""
+    pair = vm.groups() if vm else ()
+    if not pair:   # before the proposal exists (triage done, the module plan not picked yet): the stop's own header, then triage's versions.txt
+        vm = re.search(r"^source (\d+(?:\.\d+)+) -> target (\d+(?:\.\d+)+)", nj, re.M)
+        pair = vm.groups() if vm else ()
+    if not pair:
+        vt = rd(os.path.join(work, "versions.txt")) or ""
+        va = re.search(r"^app: (\d+(?:\.\d+)+)", vt, re.M)
+        vs = [x for x in re.findall(r"^toolset (\d+(?:\.\d+)+):", vt, re.M) if va and x != va.group(1)]
+        pair = (va.group(1), vs[-1]) if va and vs else ()
+    versions = f"{pair[0]} → {pair[1]}" if pair else ""
     unknown_api = [e for e in inv if e.get("status") == "UNKNOWN"]
     mocked_api = [e for e in inv if e.get("status") == "MOCKED"]
     notes = parse_notes(rd(os.path.join(work, "gate-notes.txt")))

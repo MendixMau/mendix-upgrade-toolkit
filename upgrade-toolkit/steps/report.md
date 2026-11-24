@@ -66,11 +66,13 @@ Layout, top to bottom: the header with the app name on the left and the version 
 version: done green, current amber, next grey, each with its gate). Below it two columns. The main column holds the
 readiness strip of 12 chips, the legend, the matrix (rows grouped App and platform, Steps of this run, Testing setup and
 Go-live; columns Triage, Plan, Upgrade and Test), the test health panel and the feed. The counts by kind (upgrade items
-done, regressions, problems resolved, tested, things that need you) sit folded above it. The right column is a sticky
+done, regressions, problems resolved, tested, things that need you) sit folded above it. The matrix and readiness strip
+are open by default (a fold you can close; FEEDBACK SW-23). The right column is a sticky
 sidebar with the result: the headline, "items closed successfully" with its chips, and "open topics still to validate"
 with group and owner per topic. Under 1000 px wide the sidebar moves above the matrix. The matrix is the page: the
 result never pushes it below the fold. The generator never decides: every verdict is copied from a run file, and a
-missing file shows a grey "Not yet" cell, never a pass. Every non-green cell shows a proposed solution box (Found,
+missing file shows a grey "Not yet" cell, never a pass. Before PROPOSAL.md exists the Triage and Plan cells of the
+runtime and modules rows read versions.txt, localedits.json and plan.txt (SW-24). Every non-green cell shows a proposed solution box (Found,
 Proposed, Trying, Fixed), or "No proposal yet" when none is known. Purple "needs you" cells are real owner decisions only.
 
 Rows come from the run files (runtime, modules, local edits, Java, findings, regressions, decisions, sign-off, outside
