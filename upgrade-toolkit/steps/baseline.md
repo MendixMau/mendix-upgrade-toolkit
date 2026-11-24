@@ -76,7 +76,15 @@ copy's converted model.
    X_restart`, start the OLD app on it once more, `snapshot.py --label restart --ledger $W/db-ledger.txt ... --out
    $W/restart.json`, then `python3 $B/diff.py $W/before.json $W/restart.json --emit-allow $W/start-noise.txt`. Every
    FAIL or REVIEW row it shows is start noise: read the list, append it to `$W/allow.txt` (each line carries the reason
-   "start noise ...") and name it in ASSUMPTIONS.md. Rows it does not show are what the upgrade alone may change. The
+   "start noise ...") and name it in ASSUMPTIONS.md. Rows it does not show are what the upgrade alone may change.
+   GF-51: the pipeline runs this control at the end of the baseline (`baseline_twin`, the same `heal_twin` heal uses), so
+   `restart.json` exists whether or not heal or the journeys run, and the gate's data rung passes it to diff.py
+   (`--restart`). A FAIL or REVIEW row with the SAME check and SAME detail in the control is a candidate. A db.attr or db.assoc
+   candidate (its detail holds counts alone) is listed START-NOISE (a NOTE, not blocking, never hidden) only when the md5 of that
+   column or association in the after snapshot EQUALS the one in `restart.json`; otherwise it stays FAIL, with "(also changes
+   between two old starts; values differ from the control)". Log rows are noise on check and detail. A row the control lacks stays
+   FAIL. A `db.entity` row (rows lost) has no per-row fingerprint to compare, so it is listed START-NOISE only when no `db.attr` row of that entity and no `db.assoc` row that names it stayed FAIL. A failing `db.assoc` row blocks its two real endpoint entities, whatever it is called and whichever modules they live in: `snapshot.py` records each association's parent and child entity (`db.assoc_ends`, from `mendixsystem$association`), and those two `db.entity` rows stay FAIL. The name is never used to guess. A failing association with no recorded endpoints (a snapshot taken before this field existed) cannot be pinned, and then EVERY `db.entity` row of every module stays FAIL; take a new before snapshot to get the endpoints. An entity whose lost rows carry no non-null attribute and no association can still read as start noise (read the START-NOISE entity rows). Without `restart.json`, or when it is older than `before.json` (a control of an earlier baseline; a failed twin removes
+   the file), the rung says "start noise not measured" and every row stands. The
    mutant control must FAIL: copy X_frozen
    (`createdb -T X_frozen X_mutant`; `-T X_base` fails while the app holds X_base), change one value of a
    data-bearing attribute (`update <table> set <col> = 'mutant' where id = (select min(id) from <table>)`), take a

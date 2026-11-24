@@ -10,7 +10,7 @@ Gradle looks for `.mendix-cache/modules/<Name>.mxmodule/javasource`: "not found"
 The case Gradle wants comes from the file names under modules/*.mxmodule and, with --log, from every
 `.mendix-cache/modules/<X>.mxmodule/` the build log named. For each wanted spelling that is missing in
 `.mendix-cache/modules/` while a folder with the same name in another case is there, a relative symlink
-`<wanted> -> <existing>` is created. Prints one LINK line per link and a summary. Never touches a folder that exists, a
+`<wanted> -> <existing>` is created; a spelling that already resolves (a case-insensitive disk) needs none. Prints one LINK line per link and a summary. Never touches a folder that exists, a
 spelling with no folder in any case (the cache is created by the build, so run this AFTER a failed build), or anything
 outside the cache. Idempotent. Exit: 0 = nothing to do (or all linked), 1 = links needed (--check), 2 = input error.
 The pipeline runs it after a build that failed with that message and retries the build once.
@@ -46,7 +46,8 @@ def main():
     if os.path.isdir(cache):
         have = os.listdir(cache)
         for w in wanted(a.project, a.log):
-            if w in have:
+            # already resolves: linked before, or a case-insensitive disk (macOS, Windows) finds the other case itself
+            if w in have or os.path.exists(os.path.join(cache, w)):
                 continue
             # a real folder in another case (a link of ours is not a second folder)
             src = [h for h in have if h.lower() == w.lower() and os.path.isdir(os.path.join(cache, h))

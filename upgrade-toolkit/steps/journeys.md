@@ -541,6 +541,22 @@ or default action (TC-2). Direct calls (probes, proof lookups) all go through on
 anything not on the READ list. One account runs one session at a time (TC-6): do not run connector journeys in
 parallel roles on the same account (use `--pause`, and no parallel gate runs).
 
+## Long runs: checkpoints, a cap, the estimate (GF-50)
+
+- `summary.json` is written (whole or not at all) before each batch of `--chunk N` journeys (default 25), so a run that is stopped
+  (killed, rebooted, disk full) keeps every batch it finished. `--resume` then runs the journeys the file does not hold, plus any
+  `app_down` one.
+- The proposal's testing plan prints an `estimate:` line (journeys in scope x seconds each, measured from `state/journeys-pace.tsv`
+  else 80 s) before anything runs. `--max N` and/or `--budget-min M` (pipeline: `UPG_JOURNEYS_MAX`, `UPG_JOURNEYS_BUDGET_MIN`) cap
+  it: impact-picked journeys first, then always-on, then the rest. The others are INVALID with `deferred: true` in `summary.json`
+  and the run prints `cap: running S of T journeys ...; D deferred, NOT run`. Deferred is INVALID (not measured), never a PASS and
+  never a FAIL. `--resume` with no cap runs them. The new app is capped to the old app's run set: a journey the old app deferred is
+  deferred on the new one too (`parity:` line), so both sides compare the same journeys.
+- A pipeline rerun of `--from journeys` starts the journeys fresh (it walks everything again). To keep the journeys already walked,
+  run `run_journeys.py --resume` on the same `--work` and `--label` instead.
+- A journey app left running by a stopped run: the pipeline's EXIT trap stops every app it started, and `runapp.py start` removes
+  a container of its own name first, so the next run does not meet it. A kill -9 of the pipeline itself skips the trap: `docker rm -f <UPG_NAME>-oldjp`.
+
 ## Stop rules
 
 - An always-on journey FAILs on the new app and PASSed on the old one. Do not explain it away with a passing smoke
