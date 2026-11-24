@@ -1,0 +1,56 @@
+name: triage
+
+# Labels what outside users send, so the maintainer sees the kind at a glance:
+#   issue  bug | learning | feature   from a label already on it or a title prefix ([bug], learning: ...); else needs-triage
+#   PR     contrib-inbox              when it touches upgrade-toolkit/contrib/inbox/ (a learnings draft to triage)
+#          bug | learning | feature   from the title prefix, as for issues
+# Only the built-in workflow token, no third-party action and no checkout: the job calls the gh CLI that the runner
+# already has, and never runs code from the pull request (pull_request_target is safe because of that). The title and
+# labels arrive through env vars, never pasted into the script.
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label by kind
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KIND: ${{ github.event_name }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          TITLE: ${{ github.event.issue.title || github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          # --- triage begin
+          set -u
+          want=""
+          t=$(printf '%s' "$TITLE" | tr 'A-Z' 'a-z')
+          for k in bug learning feature; do
+            case ",$(printf '%s' "$LABELS" | tr 'A-Z' 'a-z')," in *",$k,"*) want="$want $k"; continue;; esac
+            case "$t" in "[$k]"*|"$k:"*|"$k "*) want="$want $k";; esac
+          done
+          if [ "$KIND" = pull_request_target ]; then
+            if gh api --paginate "repos/$GH_REPO/pulls/$NUMBER/files" --jq '.[].filename' | grep -q '^upgrade-toolkit/contrib/inbox/'; then
+              want="$want contrib-inbox"
+            fi
+            cmd=pr
+          else
+            [ -n "$want" ] || want=needs-triage
+            cmd=issue
+          fi
+          for l in $want; do
+            gh label create "$l" --color ededed 2> /dev/null || true
+            gh "$cmd" edit "$NUMBER" --add-label "$l"
+          done
+          # --- triage end

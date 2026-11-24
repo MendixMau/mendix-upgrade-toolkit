@@ -18,6 +18,21 @@ everyone: every change is backed by a field run or a control, not a guess.
    doesn't touch, say so in the PR and the maintainer checks it against `main`. Once review is done and the controls
    pass, the maintainer merges it.
 
+## One intake for everyone
+
+Every user's learnings come back to this repo, whatever their setup. A run ends with a line such as
+`2 learnings drafted: send them back: bin/submit-learnings.sh toolkit --inbox <run>/learnings --dry-run`. The flow:
+
+1. Read the drafts (`<run>/learnings/`) for customer, app, person and host names.
+2. `upgrade-toolkit/bin/submit-learnings.sh toolkit --inbox <run>/learnings --dry-run`, then again without `--dry-run`.
+   It leak-checks, cuts a `learnings/` branch and opens one PR into `contrib/inbox/`. No write access? It forks the repo
+   with `gh repo fork --remote` and opens the PR from your fork; without `gh` it prints the manual steps and keeps the branch.
+3. Notes in the company-brain format: `submit-learnings.sh brain`. With a private brain repo they go there; with none
+   (no `UPG_BRAIN`, or the brain this repo ships) they go to the same public inbox, unless marked
+   `confidentiality: internal`, which never leaves the brain.
+4. A maintainer triages the inbox (labels `bug`, `learning`, `feature`, `contrib-inbox` are set automatically): promote
+   what holds into `FEEDBACK.md`, `playbooks/` or `steps/` with a control, delete the draft in the same PR.
+
 ## Four ways in
 
 1. **An issue** for a bug you can't fix yourself. Every run ends with `FEEDBACK-REPORT.md` in its work folder: where it
