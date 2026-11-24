@@ -1591,6 +1591,7 @@ ctl modplan-app-orders-target-first-catch 0 '^2888 7\.0\.6 MFAmodule' '^23513 4\
 ctl modplan-app-unreadable-invalid 2 'modplan: --app' -- python3 -I $B/modplan.py $MP/le-xmod.json --target 11.12.2 --versions-dir $MF --no-fetch --app $MP/no-such.mpr
 printf '[{"name":"Vend","cid":23513,"version":"1.0.0"}]' > $MP/le-vend.json
 ctl modplan-jumps-read-by-diff-pass 0 'PASS\* \| db\.attr\.Vend\.Thing\.Field \| values changed .*the Vend update 1\.0\.0 -> 4\.5\.0 23513' 'FAIL 0 \| REVIEW 0' -- bash -c "python3 -I $B/modplan.py $MP/le-vend.json --target 11.12.2 --versions-dir $MF --no-fetch --jumps $MP/vend-jumps.txt > /dev/null && python3 $B/diff.py $T/jump-b.json $T/jump-a.json --allow $FX/allow/narrow.txt --module-jumps $MP/vend-jumps.txt"
+MPW=$MP/pw  # kept under its own name: MP is rebound further down
 mkdir -p $MP/pw; printf 'app: 10.24.26.1\n' > $MP/pw/versions.txt
 python3 -I $B/modplan.py $MP/le.json --target 11.12.2 --versions-dir $MF --no-fetch --out $MP/pw/plan.txt --jumps $MP/pw/module-jumps.txt > /dev/null
 ctl modplan-jumps-read-by-proposal-pass 0 'module update Administration 4\.4\.0 -> 4\.5\.0' 'module update DatabaseConnector 7\.0\.2 -> 7\.0\.6' '!-> 4\.5\.0 .*\?' '!module update [A-Za-z]* \? ->' -- bash -c "PROPOSAL_TODAY=2026-10-15 python3 $B/proposal.py --work $MP/pw --source 10.24.26.1 --target 11.15.0.1 > /dev/null; sed -n '/^## 2\./,/^## 3\./p' $MP/pw/PROPOSAL.md"
@@ -1937,6 +1938,7 @@ else skip seed-snapshot-postgres "no postgres binaries or the throwaway cluster 
 if command -v node > /dev/null; then ctl smokewalk-predicates 0 '^ok +loggedIn while session throws' '!^FAIL' -- node $here/smokewalk_predicates.js
 # R1: the React client has no mx.session.getUserName / mx.ui.getContentForm; an anonymous session is not logged in, a content page maps to its Dojo path
 ctl smokewalk-react-catch 0 '^ok +react loggedIn when anonymous' '^ok +react contentPath without page' '^ok +react landedWhere on a popup state' -- node $here/smokewalk_predicates.js
+ctl smokewalk-login-home-error-quoted-pass 0 '^ok +homeErrorFromLog last error line' '^ok +loginFailure quotes the log error' '^ok +runtimeLogText since the mark has no earlier role error' '^ok +runtimeLogText from the log command takes stderr' '^ok +runtimeLogText keeps the first line after the mark' '!^FAIL' -- node $here/smokewalk_predicates.js
 ctl smokewalk-react-pass 0 '^ok +react loggedIn when ready' '^ok +react homeReady when ready' '^ok +react contentPath maps to the page path' '^ok +react landedWhere on the wanted page' '^ok +react landedWhere on another page' -- node $here/smokewalk_predicates.js
 # cold CMM 2026-11-17: Atlas styles .mx-window position:fixed (offsetParent null): every "Switch user" popup menu item FAILed
 ctl smokewalk-popup-fixed-catch 0 '^ok +landedWhere fixed popup window' '^ok +landedWhere hidden popup window' -- node $here/smokewalk_predicates.js
@@ -2027,6 +2029,47 @@ if python3 -c "import bcrypt" 2> /dev/null; then
     'ic.is_nullable = .NO. AND ic.column_default IS NULL' "left\\(dflt, 2\\) = '\\[%'" 'WHEN not_null_violation' 'UPDATE %I SET %I = %L WHERE id = \$1 AND %I IS NULL' "EXECUTE format\('INSERT INTO %I \(%s\) VALUES \(%s\)', t, cols, vals\) USING uid" '!INSERT INTO %I \(id\) VALUES' \
     -- python3 $B/smoke_users.py fx_t --entity CustomAdminModule.UserAccount --psql "$SU/user-one-below-account.json"
 else skip smoke-users-ambiguous-catch "no python bcrypt"; skip smoke-users-auto-one-pass "no python bcrypt"; skip smoke-users-entity-flag-pass "no python bcrypt"; fi
+# GF-17: an app with its own account entity (no Administration.Account) got plain System.User smoke users: every sign-in
+# worked and the home microflow then failed, and the message blamed the trial licence. Leaf from the System.User specializations.
+G17="bash $here/gf17_control.sh"
+if python3 -c "import bcrypt" 2> /dev/null; then
+  ctl smoke-users-no-account-leaf-catch 0 'user entity Points.Member \(the most used System.User specialization with rows; others: MendixSSO.MendixSSOUser' "ELSE 'Points.Member' END" '!ELSE .System.User. END' \
+    -- python3 $B/smoke_users.py fx_t --psql "$SU/user-no-account.json"
+  # ASSUMED (GF-17 review): a tie does not stop the run: generic, each role from its own users (PR-F28), a loud NOTE; the SQL stops only for a role it cannot resolve
+  ctl smoke-users-no-account-tie-catch 0 'NOTE users exist as several System.User specializations in equal number: MendixSSO.MendixSSOUser, Points.Member' 'UPG_SMOKE_ENTITY' "tie_ents text := 'MendixSSO.MendixSSOUser; Points.Member'" 'RAISE EXCEPTION .SMOKE-ENTITY-UNRESOLVED: role' '!AMBIGUOUS: users exist' \
+    -- python3 $B/smoke_users.py fx_t --psql "$SU/user-no-account-tie.json"
+  # PR-F28 kept: an Administration.Account entity that exists but has no rows is still the generic user (a mixed or user-less role stays on it); GF-17 is the app with no Administration.Account at all
+  ctl smoke-users-empty-account-stays-pass 0 'user entity Administration.Account if present, else System.User \(no deeper specialization has rows\)' "ELSE 'System.User' END" '!ELSE .Points.Member. END' '!SELECT EXISTS \(SELECT 1 FROM "administration\$account"\)' \
+    -- python3 $B/smoke_users.py fx_t --psql "$SU/user-empty-account.json"
+  # the generated SQL must parse: a single-quoted string that closes and runs into a letter (an apostrophe in the text) made every --apply fail with a syntax error
+  # a pipe, so ctl sees the checker's verdict; no database is needed (CI has none)
+  ctl smoke-users-sql-quotes-tie-pass 0 '^quotes ok: [0-9]+ string literal' '!FAULT' -- sh -c "python3 $B/smoke_users.py fx_t --psql '$SU/user-no-account-tie.json' 2> /dev/null | python3 $here/sql_quotes_check.py"
+  ctl smoke-users-sql-quotes-sole-pass 0 '^quotes ok: [0-9]+ string literal' '!FAULT' -- sh -c "python3 $B/smoke_users.py fx_t --sole-target --psql '$SU/user-empty-account.json' 2> /dev/null | python3 $here/sql_quotes_check.py"
+  ctl smoke-users-sql-quotes-checker-catch 1 '^QUOTES FAULT: .*followed by' -- sh -c "python3 $here/sql_quotes_check.py < $FX/seed/sql-bad-quote.sql"
+  ctl smoke-users-entity-flag-no-account-pass 0 "given text := 'MendixSSO.MendixSSOUser'" '!AMBIGUOUS' \
+    -- python3 $B/smoke_users.py fx_t --entity MendixSSO.MendixSSOUser --psql "$SU/user-no-account-tie.json"
+else for c in smoke-users-no-account-leaf-catch smoke-users-no-account-tie-catch smoke-users-empty-account-stays-pass smoke-users-sql-quotes-tie-pass smoke-users-sql-quotes-sole-pass smoke-users-entity-flag-no-account-pass; do skip $c "no python bcrypt"; done; fi
+# the knob: UPG_SMOKE_ENTITY, else $WORK/smoke-entity.txt; every pipeline call to smoke_users.py carries it
+mkdir -p $T/gf17w; printf 'Points.Member\n' > $T/gf17w/smoke-entity.txt
+ctl smoke-entity-env-catch 0 '^--entity Other.Acct$' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17w Other.Acct
+ctl smoke-entity-file-catch 0 '^--entity Points.Member$' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17w
+ctl smoke-entity-none-pass 0 '^end$' '!--entity' -- $G17 entity $B/cloud/upgrade-pipeline.sh $T/gf17-none
+ctl smoke-entity-every-call-catch 0 '^0$' '!^[1-9]' -- bash -c "grep -F 'smoke_users.py\" \"\$db\"' $B/cloud/upgrade-pipeline.sh | grep -vc smoke_entity_args || true"
+# GF-21: one role list for the smoke users and for the journeys: plan roles and impact-map roles, minus the guest
+ctl smoke-roles-union-catch 0 '^Administrator,User,Approver,ApiUser$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $FX/seed/gf17-impact.json
+ctl smoke-roles-union-no-impact-pass 0 '^Administrator,User$' -- $G17 roles $B/cloud/upgrade-pipeline.sh $FX/seed/gf17-plan.json $T/gf17-no-such.json
+ctl smoke-roles-union-wired-pass 0 'roles=\$\(roles_all "\$WORK/plan.json" "\$WORK/impact-base.json"\)' 'roles=\$\(roles_all "\$WORK/plan-new.json" "\$WORK/impact.json"\)' '!roles_of_plan "\$WORK/plan' -- grep -n 'roles=.*roles_\(all\|of_plan\)' $B/cloud/upgrade-pipeline.sh
+# a refused sign-in is explained from the runtime log, not by the 2026-08-18 licence cause
+ctl login-cause-home-error-catch 0 'The runtime log says: ".*Home.OpenHome: Boolean member can not be set to null"' 'not the licence session cap' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-home-error.txt
+ctl login-cause-session-cap-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B $FX/seed/gf17-log-cap.txt
+# an earlier role's lines (a session-limit line, an error line) are never this role's cause: only lines after the sign-in's mark count
+ctl login-cause-earlier-role-catch 0 'neither a session-limit line nor an error' '!OpenHome' '!trial-licence' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 2
+ctl login-cause-earlier-role-whole-log-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B $FX/seed/gf17-log-earlier-role.txt 0
+# a log command whose earlier ERROR sits on stderr and whose new line is on stdout: one ordered stream, so the mark still separates them
+rm -f $T/gf17-cmd.flag
+ctl login-cause-log-cmd-stderr-order-catch 0 'neither a session-limit line nor an error' '!earlier role' '!trial-licence' -- $G17 cmdcause $B $T/gf17-cmd.flag
+ctl login-cause-no-log-pass 0 'trial-licence concurrent-session cap' -- $G17 cause $B none
+ctl app-up-runtime-log-cmd-pass 0 'export UPG_RUNTIME_LOG_CMD="docker logs' -- grep -n 'UPG_RUNTIME_LOG_CMD' $B/cloud/upgrade-pipeline.sh
 # PR-F28: each role's smoke user is the entity that role's own users share (Purchase Request's workflow assigns tasks to
 # MendixSSO.MendixSSOUser by role); real Postgres, because the choice is made inside the DO block
 # PR-F32: --sole-target leaves each role with its smoke user only (the workflow targets "all users with role X")
@@ -7804,7 +7847,7 @@ ctl pipeline-commit-app-trailers-catch 0 '^convert 11\.12\.6$' '^Changed-By: too
 # The work folders are built by the REAL triage tools over fixture models (localedits.py, replacement_check.py,
 # dojo_report.py, release_impact.py), so the parsers in bin/proposal.py read real output; plan.txt, kept.txt and stranded.md
 # are written by hand because a person or the triage skill writes them. Each must-catch has a must-pass next to it.
-if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x | grep -Eq "$only"; then
+if [ -z "$only" ] || printf '%s\n' proposal-x pipeline-propose-x gate-proposal-x gm12-proposal-x gm21-proposal-x mc11-proposal-x gf-proposal-x gf23-x gf24-x gf25-x gf27-x gf30-x gf32-x | grep -Eq "$only"; then
 PR=$T/proposal; rm -rf $PR; mkdir -p $PR
 for m in dojo-react replace-wc3 local-edit pkg-administration replace-snippet replace-oidc2; do model $m > /dev/null; done
 # mkw NAME [kept]: work folder $PR/NAME with the triage outputs; with "kept" DataWidgets is on kept.txt
@@ -8062,6 +8105,104 @@ ctl gm21-same-plan-stays-signed-pass 0 '^proposal: signed by Tester on 2026-10-1
 ctl gm21-shrink-never-signs-without-confirm-pass 0 '^unsigned$' '^signed-lines=0$' '!^signed$' -- sh -c "python3 $B/proposal.py --status --work $PR/gm21-shrink; bash $PR/prop.sh $PR/gm21-shrink >/dev/null; python3 $B/proposal.py --status --work $PR/gm21-shrink; echo signed-lines=\$(grep -c '^Signed-off:' $PR/gm21-shrink/PROPOSAL.md)"
 sign21 $PR/gm21-shrink
 ctl gm21-shrink-confirmed-signs-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gm21-shrink
+# GF-27 / GF-32 / GF-23 / GF-24 / GF-25 / GF-30 (a field run): sign-off line pasted with backticks, late items never CONFIRMED in the
+# signer's name, recommendations that read the plan, Dojo-to-React advice apart from the work of the run, a deleted Java file under the item.
+# gf.sh NAME: a fresh copy of the plain work folder with its PROPOSAL.md written; signgf NAME TEXT: what a person does to section 6.
+gf() { rm -rf $PR/gf-$1; cp -R $PR/plain $PR/gf-$1; rm -f $PR/gf-$1/PROPOSAL.md $PR/gf-$1/DECISIONS.md; bash $PR/prop.sh $PR/gf-$1 > /dev/null; }
+signgf() { python3 - "$PR/gf-$1/PROPOSAL.md" "$2" <<'PY'
+import sys
+p, t = sys.argv[1], sys.argv[2]
+s = open(p).read()
+assert "\nStatus: open" in s
+open(p, "w").write(s.replace("\nStatus: open", "\n" + t, 1) if not t.startswith("+") else s.replace("\nStatus: open", "\nStatus: open\n" + t[1:], 1))
+PY
+}
+gf bt; signgf bt '`Signed-off: Tester 2026-10-15`'
+gf sp; signgf sp '  `Signed-off:   Tester   2026-10-15`  '
+gf both; signgf both '+Signed-off: Tester 2026-10-15'
+gf tpl; signgf tpl '`Signed-off: <name> <yyyy-mm-dd>`'
+gf near; signgf near 'Signed-off: Tester 15 October'
+gf ptpl; signgf ptpl '`Status: PAUSED <reason>`'
+ctl gf27-backticks-signed-catch 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-bt
+ctl gf27-backticks-spaces-signed-catch 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-sp
+ctl gf27-status-open-beside-signed-pass 0 '^proposal: signed by Tester on 2026-10-15' -- bash $PR/prop.sh $PR/gf-both
+ctl gf27-template-refused-catch 14 '^proposal awaits sign-off' '^proposal: found the template line .Signed-off: <name> <yyyy-mm-dd>.: replace the angle-bracket text with your name' '!signed by' -- bash $PR/prop.sh $PR/gf-tpl
+ctl gf27-paused-template-refused-catch 14 'found the template line .Status: PAUSED <reason>.' '!PAUSED by the owner' -- bash $PR/prop.sh $PR/gf-ptpl
+ctl gf27-near-miss-explained-catch 14 '^proposal: found a line that is not a sign-off: .Signed-off: Tester 15 October.' 'a date such as 2026-10-15' -- bash $PR/prop.sh $PR/gf-near
+ctl gf27-untouched-template-no-complaint-pass 14 '^proposal awaits sign-off' '!found a line' '!found the template' -- bash $PR/prop.sh $PR/plain
+ctl gf27-section6-says-status-open-may-stay-catch 0 'Status: open. may stay or go' 'backticks and spaces around the line do no harm' '^Status: open$' -- sed -n '/^## 6\./,$p' $PR/plain/PROPOSAL.md
+# GF-32: signed plan, then kept.txt appears (left out of the hash): the new section-3 item was never seen by the signer
+rm -rf $PR/gf-late; cp -R $PR/plain $PR/gf-late; rm -f $PR/gf-late/PROPOSAL.md; bash $PR/prop.sh $PR/gf-late > /dev/null; sign21 $PR/gf-late
+printf 'DataWidgets pre-convert update refused\nLatecomer update refused\n' > $PR/gf-late/kept.txt
+ctl gf32-late-kept-item-signed-run-pass 0 '^proposal: signed by Tester on 2026-10-15' '1 item\(s\) appeared after sign-off \(ASSUMED' -- bash $PR/prop.sh $PR/gf-late
+ctl gf32-late-kept-item-assumed-not-confirmed-catch 0 '^P-[0-9]+ \| Latecomer \| module \| .* \| appeared after sign-off; signer did not see it \| - \| ASSUMED \|' '!Tester \| CONFIRMED.*Latecomer|Latecomer.*Tester \| CONFIRMED' -- cat $PR/gf-late/DECISIONS.md
+# GF-32 rerun: the second and third run re-render PROPOSAL.md with the late item in it; its step must stay assumed by the agent, never approved in the signer's name
+bash $PR/prop.sh $PR/gf-late > /dev/null; bash $PR/prop.sh $PR/gf-late > /dev/null
+ctl gf32-late-kept-rerun-step-stays-assumed-catch 0 '^module:Latecomer approval=assumed by=agent$' '!approved' -- python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s' % (x['topic'], x['approval']['state'], x['approval']['by']) for x in r))" $B $PR/gf-late
+# a kept module the signed PROPOSAL.md rendered (DataWidgets, section 2 of the plain plan) was seen: CONFIRMED in the signer's name
+ctl gf32-late-kept-seen-module-confirmed-pass 0 '^P-[0-9]+ \| DataWidgets \| module \| .* \| accepted with the sign-off of Tester .*\| CONFIRMED \|' '!DataWidgets.*ASSUMED' -- cat $PR/gf-late/DECISIONS.md
+# GF-32 review: a line appended for the late item that is NOT a person's answer (the ASSUMED line steps/decide.md tells an unattended run to write,
+# a `-` or empty signer, the toolkit's own `agent`, a lower-case status, a short line) must leave its step assumed by the agent after two reruns
+gflateq() { # name signer-and-status-fields...  (the line appended to a copy of gf-late)
+  rm -rf $PR/gf-late-$1; cp -R $PR/gf-late $PR/gf-late-$1
+  bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | %s\n" "$id" "$2" >> "$1/DECISIONS.md"' _ $PR/gf-late-$1 "$2"
+  bash $PR/prop.sh $PR/gf-late-$1 > /dev/null; bash $PR/prop.sh $PR/gf-late-$1 > /dev/null
+}
+gflatestate() { python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s' % (x['topic'], x['approval']['state'], x['approval']['by']) for x in r))" $B $PR/gf-late-$1; }
+gflateq agentassumed 'Latecomer | module | update to the latest version | unattended default | agent | ASSUMED | closes by: x'
+gflateq dashsigner 'Latecomer | module | update to the latest version | owner chose in chat | - | CONFIRMED | closes by: x'
+gflateq emptysigner 'Latecomer | module | update to the latest version | owner chose in chat |  | CONFIRMED | closes by: x'
+gflateq agentconfirmed 'Latecomer | module | update to the latest version | owner chose in chat | agent | CONFIRMED | closes by: x'
+gflateq lowerassumed 'Latecomer | module | update to the latest version | owner chose in chat | Ana | assumed | closes by: x'
+gflateq shortline 'Latecomer'
+gflateq emptystatus 'Latecomer | module | update to the latest version | owner chose in chat | Ana |  | closes by: x'
+gflateq toolkitconfirmed 'Latecomer | module | update to the latest version | owner chose in chat | Toolkit | CONFIRMED | closes by: x'
+gflateq rejected 'Latecomer | module | update to the latest version | owner said no | Ana | REJECTED | closes by: x'
+gflateq confirmedq 'Latecomer | module | update to the latest version | owner unsure | Ana | CONFIRMED? | closes by: x'
+for v in agentassumed dashsigner emptysigner agentconfirmed lowerassumed shortline emptystatus toolkitconfirmed rejected confirmedq; do
+  ctl gf32-late-appended-$v-stays-assumed-catch 0 '^module:Latecomer approval=assumed by=agent$' '!approved' -- gflatestate $v
+done
+# GF-32 review round 4: Ana answers by hand, THEN a junk line is appended, then ONE rerun: the step is approved in Ana's name (the line unseen() decided on), never the signer's
+gflateseq() { # name line...  (every line appended in order to a copy of gf-late, then one rerun)
+  rm -rf $PR/gf-late-$1; cp -R $PR/gf-late $PR/gf-late-$1; n=$1; shift
+  for l in "$@"; do bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | %s\n" "$id" "$2" >> "$1/DECISIONS.md"' _ $PR/gf-late-$n "$l"; done
+  bash $PR/prop.sh $PR/gf-late-$n > /dev/null
+}
+gflatestate2() { python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s source=%s' % (x['topic'], x['approval']['state'], x['approval']['by'], x['approval'].get('source')) for x in r))" $B $PR/gf-late-$1; }
+ANA='Latecomer | module | update to the latest version | owner chose in chat | Ana | CONFIRMED | closes by: x'
+gflateseq anajunk "$ANA" 'Latecomer | module | update to the latest version | unattended default | agent | ASSUMED | closes by: x'
+gflateseq anashort "$ANA" 'Latecomer'
+gflateseq anaonly "$ANA"
+for v in anajunk anashort anaonly; do
+  ctl gf32-late-answered-then-junk-$v-approved-by-ana-catch 0 '^module:Latecomer approval=approved by=Ana source=decisions$' '!by=Tester' -- gflatestate2 $v
+done
+# GF-32: a person answers the late item by hand (a non-ASSUMED line in DECISIONS.md, the way decisions.py add writes it): the next run approves its step in that name
+bash -c 'id=$(sed -n "s/^\(P-[0-9]*\) | Latecomer | .*/\1/p" "$1/DECISIONS.md" | head -1); printf "%s | Latecomer | module | update to the latest version | owner chose in chat | Ana | CONFIRMED | closes by: the rung that measures it passes (steps/decide.md)\n" "$id" >> "$1/DECISIONS.md"' _ $PR/gf-late; bash $PR/prop.sh $PR/gf-late > /dev/null
+ctl gf32-late-kept-answered-by-hand-approved-catch 0 '^module:Latecomer approval=approved by=Ana source=decisions$' -- python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import steps; r=[x for x in steps.fold(steps.events(sys.argv[2])) if x['topic']=='module:Latecomer']; print('\n'.join('%s approval=%s by=%s source=%s' % (x['topic'], x['approval']['state'], x['approval']['by'], x['approval'].get('source')) for x in r))" $B $PR/gf-late
+# GF-23 / GF-24: a held module the plan does not carry, and one whose installed version is already the newest
+rm -rf $PR/gf-rec; cp -R $PR/plain $PR/gf-rec; rm -f $PR/gf-rec/PROPOSAL.md
+printf 'Fresh update refused\nOrphan update refused\nDataWidgets update refused\n' > $PR/gf-rec/kept.txt
+# Fresh is installed at the newest version that fits: the line comes from a real modplan.py run (modplan-* setup above), never typed by hand
+grep '^# CURRENT Fresh ' $MPW/module-jumps.txt >> $PR/gf-rec/module-jumps.txt
+bash $PR/prop.sh $PR/gf-rec > /dev/null
+ctl gf23-modplan-records-current-module-catch 0 '^# CURRENT Fresh 4\.5\.0 23513: installed version is the newest' '!^Fresh ' -- cat $MPW/module-jumps.txt
+ctl gf23-newest-installed-keep-or-replace-catch 0 '^- \[P-[0-9]+\] module: Fresh$' '!not on the plan' 'recommendation: keep old version for now \(the installed version is already the newest' 'replace with the Marketplace equivalent' '!recommendation: update to the latest' -- sh -c "sed -n '/\\] module: Fresh\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+ctl gf24-not-on-plan-says-so-catch 0 'recommendation: update to the latest version.*; not on the plan: the recommendation needs a plan line' -- sh -c "sed -n '/\\] module: Orphan\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+ctl gf24-on-plan-no-note-pass 0 '^- \[P-[0-9]+\] module: DataWidgets$' 'recommendation: update to the latest version' '!not on the plan' -- sh -c "sed -n '/\\] module: DataWidgets\$/,/answer:/p' $PR/gf-rec/PROPOSAL.md"
+# GF-25: below Mendix 12 the Dojo-to-React lines are advice; on 12 they are work of the run
+ctl gf25-dojo-below-12-advisory-catch 0 '^Advisory, not in this run' '^  - Dojo to React on the 11\.15\.0\.1 rung: ' '!^- Dojo to React' -- sed -n '/^## 2\./,/^## 3\./p' $PR/plain/PROPOSAL.md
+ctl gf25-advisory-not-an-item-pass 0 '^dojo lines in the signed set: \[\]$' -- sh -c "python3 -I -c \"
+import sys; sys.path.insert(0, '$B'); import proposal
+print('dojo lines in the signed set:', [l for l in proposal.item_lines(open('$PR/plain/PROPOSAL.md').read()) if 'Dojo to React' in l])\""
+rm -rf $PR/gf-12; cp -R $PR/plain $PR/gf-12; rm -f $PR/gf-12/PROPOSAL.md; bash $PR/prop.sh $PR/gf-12 --target 12.0.0 > /dev/null
+ctl gf25-dojo-12-is-work-pass 0 '^- Dojo to React on the 12\.0\.0 rung: ' '!^Advisory, not in this run' -- sed -n '/^## 2\./,/^## 3\./p' $PR/gf-12/PROPOSAL.md
+# GF-30: a package Java file deleted locally is shown under the item, with the way out (row shape: bin/themefiles.py diff)
+rm -rf $PR/gf-java; cp -R $PR/plain $PR/gf-java; rm -f $PR/gf-java/PROPOSAL.md
+printf 'Plainmod update refused: local Java\n' > $PR/gf-java/kept.txt
+printf '[{"name": "Plainmod", "domain": [], "ui": [], "logic": [], "files": [{"change": "REMOVED", "kind": "java", "path": "javasource/plainmod/actions/CreateLogObject.java", "detail": "package Java file deleted locally", "vars": []}]}]\n' > $PR/gf-java/localedits.json
+bash $PR/prop.sh $PR/gf-java > /dev/null
+ctl gf30-java-deletion-shown-with-way-out-catch 0 '^- \[P-[0-9]+\] module: Plainmod$' 'evidence: .*Java deleted locally: CreateLogObject\.java' 'options: .* \| accept the package.s Java back \(1 deleted file\(s\) return on the update' -- sh -c "sed -n '/\\] module: Plainmod\$/,/answer:/p' $PR/gf-java/PROPOSAL.md"
+ctl gf30-no-java-deletion-no-option-pass 0 '^- \[P-[0-9]+\] module: DataWidgets$' '!accept the package.s Java back' '!Java deleted locally' -- sh -c "sed -n '/\\] module: DataWidgets\$/,/answer:/p' $PR/kept/PROPOSAL.md"
 # GM-18: a planned module whose release impact is UNKNOWN (no brain file) is a section-3 item; a covered module is not
 mkdir -p $PR/unk/state; cp $PR/plain/versions.txt $PR/unk/
 printf '# plan\n66876 3.1.0 TaskQueueHelpers\n99 2.0.0 FakeModuleXyz\n' > $PR/unk/plan.txt
@@ -8096,7 +8237,7 @@ mkw signed kept; bash $PR/prop.sh $PR/signed > /dev/null
 printf 'P-1 | Administration | module | replace with the Marketplace equivalent | owner chose | Jan | CONFIRMED | closes by: x\n' > $PR/signed/DECISIONS.md
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-15/' $PR/signed/PROPOSAL.md
 ctl proposal-signed-continues-pass 0 'signed by Jan Jansen on 2026-10-15' '[0-9] unanswered section-3 item' -- bash $PR/prop.sh $PR/signed
-ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[2-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '!ASSUMED' -- cat $PR/signed/DECISIONS.md
+ctl proposal-signed-records-p-lines-pass 0 '^P-1 .*replace with the Marketplace equivalent' '^P-[2-9] .*accepted with the sign-off of Jan Jansen .*\| CONFIRMED \|' '^P-2 \| DataWidgets .*accepted with the sign-off of Jan Jansen' '!appeared after sign-off' '!ASSUMED' -- cat $PR/signed/DECISIONS.md
 ctl proposal-signed-status-pass 0 '^signed$' -- python3 $B/proposal.py --status --work $PR/signed
 # PAUSED -> 15
 mkw paused kept; bash $PR/prop.sh $PR/paused > /dev/null; sedi 's/^Status: open$/Status: PAUSED waiting for the vendor of PDFReader/' $PR/paused/PROPOSAL.md
@@ -8122,10 +8263,11 @@ ctl proposal-changed-status-unsigned-catch 0 '^unsigned$' -- python3 $B/proposal
 sedi 's/^Status: open$/Signed-off: Jan Jansen 2026-10-16/' $PR/changed/PROPOSAL.md
 ctl proposal-changed-resigned-pass 0 'signed by Jan Jansen on 2026-10-16' -- bash $PR/prop.sh $PR/changed
 # the update step keeps a module after the sign-off (kept.txt): that is the run's own result, not a new plan (cold test WM1: 7 kept
-# modules cleared the sign-off at the end of rung 1); the kept module takes its recommendation: update, a real logic edit held
+# modules cleared the sign-off at the end of rung 1). A module the signed PROPOSAL.md rendered (here Newmod, in section 2) is seen:
+# it takes its recommendation, CONFIRMED in the signer's name. A kept module the signed file never showed is ASSUMED (GF-32).
 printf 'Newmod local edits refuse the update\n' > $PR/changed/kept.txt
-ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item' -- bash $PR/prop.sh $PR/changed
-ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*accepted with the sign-off of Jan Jansen' -- cat $PR/changed/DECISIONS.md
+ctl proposal-kept-after-signoff-keeps-it-pass 0 'signed by Jan Jansen on 2026-10-16' '1 unanswered section-3 item\(s\) took their recommendation' '!appeared after sign-off' -- bash $PR/prop.sh $PR/changed
+ctl proposal-kept-after-signoff-decided-pass 0 'Newmod .*update to the latest version.*accepted with the sign-off of Jan Jansen .*\| CONFIRMED' '!Newmod.*ASSUMED' -- cat $PR/changed/DECISIONS.md
 # an edited module is updated, never recommended to stay behind (cold test WM1: seven "keep old version" cards)
 ctl proposal-edited-module-recommends-update-pass 0 'recommendation: update to the latest version and carry the edits over' '!recommendation: keep old version' -- cat $PR/changed/PROPOSAL.md
 # --- step records written by proposal.py (STEP-RECORDS-PLAN.md sections 3 and 6, slice 2) ---
@@ -8166,7 +8308,7 @@ for r in json.load(sys.stdin):
     [print(\"evidence\", r[\"topic\"] + \":\", e) for e in r[\"found\"].get(\"evidence\") or [] if r[\"topic\"] in (\"modules\", \"module-edits\")]'"
 # signed: every step is approved with the signer; the item Jan answered by hand (P-1) is approved by Jan, not by the signer
 ctl proposal-steps-signed-approved-pass 0 '^S-[0-9]+ modules .* approval=approved by=Jan Jansen source=signoff ' '^S-[0-9]+ person:go-live .* approval=approved by=Jan Jansen source=signoff ' \
-  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '!approval=assumed' '!by=agent' -- bash $PR/ssum.sh $PR/signed
+  '^S-[0-9]+ module:Administration alias=P-1 approval=approved by=Jan source=decisions ' '!approval=none' '^S-[0-9]+ module:DataWidgets alias=P-2 approval=approved by=Jan Jansen source=decisions ' -- bash $PR/ssum.sh $PR/signed
 # a person's own answer survives the sign-off: reject one step, sign again, it stays rejected
 ctl proposal-steps-own-answer-survives-signoff-pass 0 'approval=rejected by=Ana ' '!approval=approved by=Jan Jansen source=signoff .*widget:Stuck' -- sh -c "
   cp -R $PR/signed $PR/own; python3 $B/steps.py approve --work $PR/own --id \$(python3 $B/steps.py show --work $PR/own --json | python3 -c 'import json,sys; print([r[\"id\"] for r in json.load(sys.stdin) if r[\"topic\"].startswith(\"widget:Stuck.mpk\")][0])') --state rejected --by Ana > /dev/null
