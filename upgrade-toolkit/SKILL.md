@@ -223,4 +223,4 @@ plain PASS; a failure that is not a call into an excluded system stays FAIL, an 
 ## Proof that the tools work
 
 `cd $TK/controls && make test` (about 4 minutes with the Docker controls; `make fast` skips them). Every fixed item in
-[FEEDBACK.md](FEEDBACK.md) names its control. Field controls read `<workdir>` (UPG_LAB) and are skipped without it.
+[FEEDBACK.md](FEEDBACK.md) names its control. Field controls read `$HOME/field-lab` or UPG_LAB and are skipped without it.

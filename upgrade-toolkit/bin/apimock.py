@@ -663,7 +663,7 @@ def addon_files(model_path):
 def addon_names(path, names, cap=256 << 20):
     """(URL constants {qualified name: default}, URL-named attributes, why unreadable) of an add-on module. An .mxmodule
     is a zip whose project.mpr is not a sqlite MPR but ONE bson document (mprmodel cannot open it): its
-    Constants$Constant nodes (Name, DefaultValue, Type; MFN_Authentication.APPBaseUrl = 'OCMFN: {{APPLICATIONBASEURL}}')
+    Constants$Constant nodes (Name, DefaultValue, Type; MFN_Authentication.APPBaseUrl = 'APPA_MFN: {{APPLICATIONBASEURL}}')
     and the Attribute of every member change (MFN_Authentication.ClientConfiguration.ModuleAUrl) are read from it.
     A packed model bson cannot decode falls back to qualified names in its bytes (modules of `names` only)."""
     consts, attrs = {}, set()

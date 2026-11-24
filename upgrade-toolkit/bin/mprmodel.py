@@ -292,7 +292,7 @@ class Model:
     def constant(self, qn):
         d = self.docs.get(qn)
         if not d or d.type != "Constants$Constant":
-            # PV-1: docs holds one document per name; a constant named like a page or flow of its module (PV360.PV360) is
+            # PV-1: docs holds one document per name; a constant named like a page or flow of its module (App F.App F) is
             # shadowed there, so look it up by type in all_docs
             d = next((x for x in self.all_docs if x.qn == qn and x.type == "Constants$Constant"), None)
         if not d:

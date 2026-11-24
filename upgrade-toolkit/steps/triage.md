@@ -353,7 +353,7 @@ Run `python3 $B/brainpath.py --describe` once and quote its one line (`brain: <p
    customer must supply, and the top line `best reachable verdict: PASS | PASS (on stand-in APIs ...) | INVALID unless
    <inputs>`. Exit 0 plain PASS, 4 qualified PASS, 3 INVALID unless inputs, 2 an input not read. Send the NEEDS rows
    to the customer now: in the 13 and 14 Oct runs, UNKNOWN consumed endpoints (notif R1), guest access without a
-   confirmed anonymous process (APPD, PV360) and connector pages without proof values (MC) were all knowable here and
+   confirmed anonymous process (APPD, App F) and connector pages without proof values (MC) were all knowable here and
    surfaced only at the gate. A rung that blocks stays INVALID however well the upgrade goes; do not start step 2
    promising PASS. Baseline item 9 runs it again on what the baseline measured.
 

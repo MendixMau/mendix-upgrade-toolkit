@@ -11,7 +11,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCMFN: {{APPLICATIONBASEURL}}",
+   "DefaultValue": "APPA_MFN: {{APPLICATIONBASEURL}}",
    "ExposedToClient": true,
    "Name": "APPBaseUrl",
    "Type": {
@@ -32,7 +32,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCMFN: {{UMCBASEURL}}",
+   "DefaultValue": "APPA_MFN: {{UMCBASEURL}}",
    "ExposedToClient": true,
    "Name": "UMCBaseUrl",
    "Type": {
@@ -53,7 +53,7 @@
     }
    },
    "$Type": "Constants$Constant",
-   "DefaultValue": "OCMFN: {{CLIENTID}}",
+   "DefaultValue": "APPA_MFN: {{CLIENTID}}",
    "ExposedToClient": false,
    "Name": "ClientId",
    "Type": {

@@ -5553,7 +5553,7 @@ else skip field-replace-customer-pass "no $CUSTM"; fi
 # --- RD-1: test-readiness scorecard (readiness.py): what triage can tell before any upgrade work -----------------------
 # Work dirs are copies (readiness.py writes readiness.md/json into the work dir); synthetic names only. Each case is
 # modelled on a 13 and 14 Oct run: notif R2 (57% of generated journeys fail on the OLD app), notif R1 (UNKNOWN consumed
-# endpoints), APPD and PV360 (guest access, no confirmed anonymous process), an empty frozen database, a Teamcenter app.
+# endpoints), APPD and App F (guest access, no confirmed anonymous process), an empty frozen database, a Teamcenter app.
 RD=$B/readiness.py; RDW=$T/readiness; rm -rf $RDW; cp -R $FX/readiness $RDW
 RDM=$(model rd-roles); RDG=$(model rd-guest); RDT=$(model rd-tc); echo dump > $T/rd-demo.sql
 ctl readiness-journeys-57-catch 3 '^# Test readiness \(baseline\)' '^best reachable verdict: INVALID unless journeys: confirmed key-user processes' \
@@ -6023,8 +6023,8 @@ if len(sys.argv) > 6:
     sys.exit(1 if miss or not want else 0)
 EOF
 if python3 -c 'import bson' 2>/dev/null; then
-  for g in app-b-sso-ext kanban-odata-opc; do python3 "$here/lib/capture_units.py" build "$FX/apimock/$g.json" "$T/m/$g" > /dev/null; done
-  PF=$T/m/app-b-sso-ext/App.mpr; KB=$T/m/kanban-odata-opc/App.mpr
+  for g in app-b-sso-ext kanban-odata-app-a; do python3 "$here/lib/capture_units.py" build "$FX/apimock/$g.json" "$T/m/$g" > /dev/null; done
+  PF=$T/m/app-b-sso-ext/App.mpr; KB=$T/m/kanban-odata-app-a/App.mpr
   # inventory: a constant-routed REST call is MOCKED, the Teamcenter connector EXCLUDED by name, the coverage line exact
   ctl apimock-inventory-pass 0 '^MOCKED +rest:MendixSSO\.RetrieveUserRoles +GET /api/approles/v1/environment/\{2\}/user/\{3\} +via constant MendixSSO\.RolesLocation +\[mapping MendixSSO\.AppRolesResponse' \
     '^EXCLUDED \(Teamcenter\) +rest:TcConnector\.SendService .*matched TcConnector\*' '^apis 2 found · mocked 1 · excluded 1 \(Teamcenter\) · unknown 0$' -- python3 $B/apimock.py inventory $PF --exclude Teamcenter
@@ -6119,7 +6119,7 @@ EOF
   # $S4: both models; App A MOCKED (seed data) but never called, waived; the OData service reached under a path prefix.
   S4=$AM/st4
   printf '%s\n' 'rest:ModuleBConnector.* MOCKED # control: the seed data points ClientConfiguration.ModuleAUrl at /a/' \
-    'rest:ModuleBConnector.* UNEXERCISED # control: no journey opens the App A query page' > "$AM/cls-unex.txt"
+    'rest:ModuleBConnector.* UNEXERCISED # control: no journey opens the App B query page' > "$AM/cls-unex.txt"
   python3 $B/apimock.py serve $PF $KB --exclude Teamcenter --classify "$AM/cls-unex.txt" --state $S4 --port 0 --background > /dev/null
   python3 $AM/fetch.py $B $S4 GET /c/MendixSSO.RolesLocation/api/approles/v1/environment/env1/user/u1 > /dev/null
   ctl apimock-odata-prefix-pass 0 '^status 200$' '"@odata\.context": "\$metadata#Employees"' -- python3 $AM/fetch.py $B $S4 GET /c/EmployeeManagement.ODATA_EmployeeManagement_Location/x/odata/Employees

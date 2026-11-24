@@ -3,7 +3,7 @@
 
 Synthetic on purpose: controls are committed, so fixtures hold Marketplace and System names only, never an app's own
 modules, values or secrets. The units have the fields the toolkit reads (same $Type names and shapes as a real MPR,
-captured from the E1/E5 projects), nothing more. A real-evidence control reads <workdir> instead.
+captured from the E1/E5 projects), nothing more. A real-evidence control reads $HOME/field-lab (or UPG_LAB) instead.
 
   mkmodel.py spec.json <out dir>          writes <out dir>/App.mpr (+ widgets/*.mpk, javasource/... when specified)
 
