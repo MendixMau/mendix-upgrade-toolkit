@@ -3830,6 +3830,38 @@ ctl shotdiff-text-lost-catch 1 '^REVIEW +shots-Administrator/overview.*visible t
 ctl shotdiff-text-doubled-catch 1 '^REVIEW +shots-Administrator/overview.*visible text changed: new currently, of, showing, to' -- python3 $B/shotdiff.py $SH/textold $SH/textdup
 ctl shotdiff-text-same-pass 0 '^PASS +shots-Administrator/overview.*text same' '!^REVIEW' -- python3 $B/shotdiff.py $SH/textold $SH/textsame
 ctl shotdiff-text-one-side-pass 0 '^PASS +shots-Administrator/overview' '!text same' -- python3 $B/shotdiff.py $SH/textold $SH/textnone
+# GF-54: content that vanished outranks a colour/tone change. The tone page (aaa-) sorts first by name, so only the
+# ranking puts the vanished page (zzz-) on the first REVIEW line; a tone-only pair is still a plain REVIEW (same word, exit 1).
+ctl shotdiff-content-lost-ranks-first-catch 1 '^FIRST-REVIEW: REVIEW +shots-Administrator/zzz-vanish.*CONTENT LOST .*empty now' '^CONTENT LOST: 1 open pair\(s\).*zzz-vanish' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new > $T/rank.out; r=\$?; cat $T/rank.out; echo \"FIRST-REVIEW: \$(grep -m1 '^REVIEW' $T/rank.out)\"; exit \$r"
+ctl shotdiff-content-lost-json-catch 1 '"severity": "content-lost"' -- bash -c "python3 $B/shotdiff.py $SH/rank-old $SH/rank-new --json $T/rank.json >/dev/null; r=\$?; cat $T/rank.json; exit \$r"
+ctl shotdiff-tone-only-not-escalated-pass 1 '^REVIEW +shots-Administrator/aaa-tone.*100% of the page changed' '!CONTENT LOST' '!severity' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
+# GF-54 review: a darkening backdrop scales the spread with the mean, so a light low-contrast texture (spread ~10) under
+# x0.3 / x0.25 is toned, not lost; the same texture replaced by a flat page of the same mean still is
+ctl shotdiff-tone-lowcontrast-f30-pass 1 '^REVIEW +shots-Administrator/tex.*100% of the page changed' '!CONTENT LOST' '!severity' '!content lost\)' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f30
+ctl shotdiff-tone-lowcontrast-f25-pass 1 '^REVIEW +shots-Administrator/tex.*100% of the page changed' '!CONTENT LOST' '!content lost\)' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f25
+ctl shotdiff-tone-lowcontrast-f50-pass 1 '^REVIEW +shots-Administrator/tex' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-f50
+ctl shotdiff-texture-gone-catch 1 '^REVIEW +shots-Administrator/tex.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/tex-old $SH/tex-gone
+# one of three charts removed measures ~6.7%: above LOST_SEVERE (5%), below the earlier 8%
+ctl shotdiff-one-chart-removed-catch 1 '^REVIEW +shots-Administrator/dashboard.*CONTENT LOST .*7% of the page had content before' -- python3 $B/shotdiff.py $SH/onechart-old $SH/onechart-new
+# the count line carries the content-lost number (the gate row and the cockpit read it); the plain tone-only line has none
+# GF-54 r2: a pure reflow (the same amount of content moved: ~17% lost and ~17% gained) is CONTENT MOVED?, not CONTENT LOST;
+# the vanished-chart pair and the table-as-list shape (gained 1.4x lost) keep CONTENT LOST; a moved pair is not counted
+ctl shotdiff-reflow-moved-not-lost-pass 1 '^REVIEW +shots-Administrator/reflow.*CONTENT MOVED\?' '!CONTENT LOST' '!content lost\)' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new
+ctl shotdiff-reflow-json-moved-pass 1 '"severity": "moved"' '!content-lost' -- bash -c "python3 $B/shotdiff.py $SH/reflow-old $SH/reflow-new --json $T/reflow.json >/dev/null; r=\$?; cat $T/reflow.json; exit \$r"
+ctl shotdiff-list-for-table-still-lost-catch 1 '^REVIEW +shots-Administrator/listtable.*CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/listtable-old $SH/listtable-new
+# GF-54 r3: the moved rule counts only gained cells on the rows of the lost content (+-1 row): the same chart removal with an
+# unrelated banner added below stays CONTENT LOST (the global shares, 6.7 % lost / 6.4 % gained, used to read MOVED)
+ctl shotdiff-removed-plus-unrelated-banner-catch 1 '^REVIEW +shots-Administrator/banner.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/banner-old $SH/banner-new
+# the band itself: 4.8 % apart is a reflow (MOVED_BAND=0.0 turns this red), 28.6 % apart is a loss (MOVED_BAND=0.30 turns this red)
+# GF-54 r4: the window is the rows that lost content +-1, not the span between two separate losses: a chart removed, a banner
+# added below it and a small footer item lost below the banner stays CONTENT LOST (the span used to open to the banner: 8.5 % lost / 8.3 % gained read MOVED?)
+ctl shotdiff-two-losses-banner-between-catch 1 '^REVIEW +shots-Administrator/twoloss.*CONTENT LOST' '!CONTENT MOVED' '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/twoloss-old $SH/twoloss-new
+# the lower side of the window: bars gained one grid row off the lost bars still read MOVED? (MOVED_ROWS=0 turns this red)
+ctl shotdiff-moved-rows-one-row-off-moved-pass 1 '^REVIEW +shots-Administrator/rowoff.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/rowoff-old $SH/rowoff-new
+ctl shotdiff-moved-band-4pct-moved-pass 1 '^REVIEW +shots-Administrator/band4.*CONTENT MOVED\?' '!CONTENT LOST' -- python3 $B/shotdiff.py $SH/band4-old $SH/band4-new
+ctl shotdiff-moved-band-28pct-lost-catch 1 '^REVIEW +shots-Administrator/band28.*CONTENT LOST' '!CONTENT MOVED' -- python3 $B/shotdiff.py $SH/band28-old $SH/band28-new
+ctl shotdiff-counts-line-content-lost-catch 1 '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/shotdiff.py $SH/rank-old $SH/rank-new
+ctl shotdiff-counts-line-tone-only-pass 1 '^screens: 0 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID$' -- python3 $B/shotdiff.py $SH/rank-tone-old $SH/rank-tone-new
 ctl shotdiff-same-pass 0 'REVIEW 0' '!^REVIEW' -- python3 $B/shotdiff.py $SH/old $SH/same
 ctl shotdiff-missing-invalid 2 '^INVALID +shots-Administrator/dashboard.*no NEW screenshot' -- python3 $B/shotdiff.py $SH/old $SH/missing
 ctl shotdiff-notreached-invalid 2 '^INVALID .*NOT-REACHED' -- python3 $B/shotdiff.py $SH/old $SH/notreach
@@ -3956,6 +3988,11 @@ cp -R $SH/old/shots-Administrator $J/old/before/; cp -R $SH/empty/shots-Administ
 # both journeys carry a measured effect record (E2E-9): without one, a PASS on both runs is EFFECT INVALID (exit 3)
 for d in old/before new/after; do echo '{"journeys": {"dashboard-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}, "login-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $J/$d/summary.json; done
 ctl journeys-screen-catch 1 'PASS +dashboard-Administrator .*SCREEN REVIEW' '!login-Administrator .*SCREEN' '^screens: 1 PASS, 0 PASS\*, 1 REVIEW, 0 INVALID' -- python3 $B/run_journeys.py x --label after --work $J/new --compare $J/old --rejudge
+# GF-54: one journey with a tone-only screen (step1) and a content-lost screen (step2): the journey's SCREEN line is the lost one
+JLF=$T/rjlf; mkdir -p $JLF/old/before $JLF/new/after
+cp -R $SH/jr-old/shots-Administrator $JLF/old/before/; cp -R $SH/jr-new/shots-Administrator $JLF/new/after/
+for d in old/before new/after; do echo '{"journeys": {"j-Administrator": {"role": "Administrator", "verdict": "PASS", "effects": [{"n": 1, "changed": {}}]}}, "roles": {}}' > $JLF/$d/summary.json; done
+ctl journeys-screen-content-lost-first-catch 1 'PASS +j-Administrator .*SCREEN REVIEW\] screen REVIEW CONTENT LOST' '^screens: 0 PASS, 0 PASS\*, 2 REVIEW, 0 INVALID \(1 content lost\)$' -- python3 $B/run_journeys.py x --label after --work $JLF/new --compare $JLF/old --rejudge
 # T1-26 / T4-17: the screens line is printed when every pair passes too, so the gate can cite it
 J2=$T/rj2; mkdir -p $J2/old/before $J2/new/after
 cp -R $SH/old/shots-Administrator $J2/old/before/; cp -R $SH/same/shots-Administrator $J2/new/after/
@@ -10537,6 +10574,9 @@ ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmn
 # 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
 ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
 ctl cockpit-regressions-and-screens-both-said-catch 0 '^2 things worked on the old app and fail on the new one\. 3 screens changed and wait for your look\.$' -- $CK lb-screens-and-reg
+# GF-54: the screens count line ends "(N content lost)": the brief and the rung sentence both say so
+ctl cockpit-screens-content-lost-named-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty, open those first\)' -- $CK lb-screens-lost
+ctl cockpit-screens-content-lost-with-unpinned-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look \(2 had content where the new screen is empty, open those first\)\.$' '^3 screens changed and need a look \(2 had content where the new screen is empty' -- $CK lb-screens-lost-unpinned
 ctl cockpit-screens-all-passed-nothing-added-pass 0 '^Nothing found broken so far\.$' '!screens changed' -- $CK lb-screens-pass
 # --- the next step in one answer (docs/next-step): the terminal brief, issue 20 (open rows with 0 regressions) and issue 21 (an allow line that matches nothing) ---
 # terminal brief: bin/brief.py is the cockpit's top (same model, same words), 8 lines of 80 columns, printed by the pipeline at every stop and at the end
