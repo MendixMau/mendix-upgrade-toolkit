@@ -43,7 +43,8 @@ Playbooks per path: [9 to 10](playbooks/9-to-10.md), [10 to 11](playbooks/10-to-
 [11.x to a newer 11.y](playbooks/11-to-11.md),
 [edited Marketplace modules](playbooks/edited-modules.md), [widgets that break at runtime](playbooks/widgets.md),
 [lessons from the publishers' own upgrades](playbooks/publisher-lessons.md),
-[minimum-impact order and multi-deployment modules, TRIAL](playbooks/minimum-impact.md).
+[minimum-impact order and multi-deployment modules, TRIAL](playbooks/minimum-impact.md),
+[native app on an Android emulator](playbooks/native-on-emulator.md).
 
 New machine or container: [SETUP.md](SETUP.md) (`bin/setup-container.sh` does it in one command).
 
