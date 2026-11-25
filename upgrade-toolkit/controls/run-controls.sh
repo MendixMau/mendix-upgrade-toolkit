@@ -1391,6 +1391,8 @@ python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("cr
 ladfrom() { bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $1 --source 10.20.0.1 --target 10.24.26.1 --target2 11.15.0.1 --work $LF/w --from $2 --dry-run; }
 ctl pipeline-ladder-from-converted-catch 2 '^upgrade-pipeline\.sh: --from update refused on the ladder command: rung 2 has already converted .* to 11\.15\.0\.1' "--work $LF/w/rung2" 'Nothing was changed' '!^update +running' -- ladfrom $LF/app update
 ctl pipeline-ladder-from-rung1-app-pass 0 '!refused on the ladder command' '^fetch +running' -- ladfrom $LF/app2 fetch
+ctl pipeline-patch-window-refused-catch 2 '^upgrade-pipeline\.sh: REFUSE 10\.24\.7\.1: .*Fixed in 10\.24\.8' '!^[a-z]+ +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.1.1 --target 10.24.7.1 --work $FR/w3 --dry-run
+ctl pipeline-patch-window-override-pass 0 'warning: 10\.24\.7\.1 is in a patch window' -- env UPG_ALLOW_BAD_PATCH=1 bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.1.1 --target 10.24.7.1 --work $FR/w4 --dry-run
 ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
@@ -2429,6 +2431,30 @@ mkdir -p $T/tools/runtime-11.0.0/11.0.0/runtime
 ctl mxversion-runtime11-outer-catch 0 '^11\.12\.2\.4711$' -- python3 $B/mxversion.py $V11
 ctl mxversion-runtime11-nojar-pass 2 'no Mendix version found' -- python3 $B/mxversion.py $T/tools/runtime-11.0.0
 ctl mxversion-mpr 0 '^9\.24\.32\.58223$' -- python3 $B/mxversion.py $M/v9/App.mpr
+# playbooks/patch-windows.tsv (public release-note facts): a bad patch is refused or warned with the reason and the fix, and a newest-patch pick skips it
+ctl mxversion-window-retracted-catch 1 '^REFUSE 10\.24\.7: .*Fixed in 10\.24\.8' -- python3 $B/mxversion.py --check 10.24.7
+ctl mxversion-window-retracted-pass 0 '^OK 10\.24\.8' -- python3 $B/mxversion.py --check 10.24.8
+ctl mxversion-window-retracted-pick-catch 0 '^10\.24\.6$' '!^10\.24\.7$' -- python3 $B/mxversion.py --pick 10.24 --available 10.24.6,10.24.7
+ctl mxversion-window-wrongbuild-catch 0 '^WARN 11\.6\.0: .*Download 11\.6\.0 again' -- python3 $B/mxversion.py --check 11.6.0
+ctl mxversion-window-wrongbuild-pass 0 '^OK 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.3
+ctl mxversion-window-decimalkey-catch 0 '^WARN 11\.6\.2 \(applies if: decimal-remote-key\).*Fixed in 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.2
+ctl mxversion-window-decimalkey-pass 0 '^OK 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.3
+ctl mxversion-window-clientcert-catch 1 '^REFUSE 11\.12\.5: .*Fixed in 11\.12\.6' -- python3 $B/mxversion.py --check 11.12.5 --uses client-certificate
+ctl mxversion-window-clientcert-unknown-catch 0 '^WARN 11\.12\.5 \(applies if: client-certificate\)' -- python3 $B/mxversion.py --check 11.12.5
+ctl mxversion-window-clientcert-pass 0 '^OK 11\.12\.6' -- python3 $B/mxversion.py --check 11.12.6 --uses client-certificate
+ctl mxversion-window-clientcert-pick-catch 0 '^11\.12\.6$' '!^11\.12\.5$' -- python3 $B/mxversion.py --pick 11.12 --available 11.12.4,11.12.5,11.12.6
+ctl mxversion-window-clientcert-10-catch 1 '^REFUSE 10\.24\.27: .*Fixed in 10\.24\.28' -- python3 $B/mxversion.py --check 10.24.27 --uses client-certificate
+ctl mxversion-window-clientcert-10-pass 0 '^OK 10\.24\.28' -- python3 $B/mxversion.py --check 10.24.28 --uses client-certificate
+ctl mxversion-window-check-noarg-catch 2 'mxversion: --check needs a version' '!Traceback' -- python3 $B/mxversion.py --check
+ctl mxversion-window-check-noversion-catch 2 'no three-part x\.y\.z version' '!Traceback' -- python3 $B/mxversion.py --check abc
+ctl mxversion-window-pick-noavailable-catch 2 '--available' '!Traceback' -- python3 $B/mxversion.py --pick 10.24
+ctl mxversion-window-uses-novalue-catch 2 '--uses needs a value' '!Traceback' -- python3 $B/mxversion.py --check 10.24.7 --uses
+ctl mxversion-window-uses-unknown-catch 2 'unknown --uses tag clientcert; known tags: client-certificate, decimal-remote-key' -- python3 $B/mxversion.py --check 11.12.5 --uses clientcert
+ctl mxversion-window-shortrow-catch 0 'line 3 has 3 columns, want 8: row skipped' -- bash -c "printf 'id\tfrom\n#c\nPWX\t1\t2\n' > $T/short.tsv; python3 -c 'import sys; sys.path.insert(0, \"$B\"); import mxversion as m; m.windows(sys.argv[1])' $T/short.tsv"
+ctl mxversion-window-nofix-catch 1 '^REFUSE 11\.16\.1: .*No fixed version yet' -- python3 $B/mxversion.py --check 11.16.1 --uses client-certificate
+ctl mxversion-window-nofix-warn-catch 0 '^WARN 11\.15\.0 \(applies if: client-certificate\).*No fixed version yet' -- python3 $B/mxversion.py --check 11.15.0
+ctl mxversion-window-nofix-pick-catch 0 '^11\.15\.0$' -- python3 $B/mxversion.py --pick 11.15 --available 11.15.0
+ctl mxversion-window-nofix-pick-skip-catch 2 'no usable 11\.16 patch' -- python3 $B/mxversion.py --pick 11.16 --available 11.16.0,11.16.1 --uses client-certificate
 # AC-1, AC-7 (App C; E6 convert.log): mx convert exits 0 with errors and on a refused source; read the log and the mpr
 # python's sqlite3 module, not the sqlite3 CLI: the cloud image has no CLI, and the update failing silently left the
 # version at 9.24 so these three controls failed on a fresh container (B4T2-2, B4N1-1)

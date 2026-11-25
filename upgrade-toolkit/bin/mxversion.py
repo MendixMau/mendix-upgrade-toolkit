@@ -17,6 +17,12 @@ cannot be reproduced. Every step records the full string.
   x.mxmodule      add-on module (a zip holding project.mpr): the Studio Pro version that BUILT it (T2-2). Mendix 11
                   refuses one built before 10.21 (CE1893) and a vendor binary cannot be reopened.
 --short prints major.minor.patch. Exit 0, or 2 when no version is found.
+
+  mxversion.py --check <version> [--uses tag,tag]            a patch listed in playbooks/patch-windows.tsv: exit 1 (REFUSE) or WARN
+  mxversion.py --pick <major.minor> --available v,v,... [--uses tag,tag]   newest listed patch outside every window
+--available is the patches that have release notes (read at triage, SKILL.md LTS-1). Producer of the table: this repo
+(playbooks/patch-windows.tsv, public release-note facts only); consumers: steps/triage.md item 2 (--pick, then --check) and
+bin/cloud/upgrade-pipeline.sh (--check on --target / --target2; UPG_ALLOW_BAD_PATCH=1 goes on anyway). Exit 0 / 1 refused / 2 unusable input.
 """
 import glob, json, os, re, sqlite3, sys, tempfile, zipfile
 
@@ -106,9 +112,98 @@ def version(p):
     return None
 
 
+WINDOWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "playbooks", "patch-windows.tsv")
+
+
+def vkey(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+
+
+def windows(path=WINDOWS):
+    cols = ("id", "from", "to", "fixed_in", "applies_if", "effect", "why", "source")
+    rows = []
+    for n, ln in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+        if not ln.strip() or ln.startswith("#") or ln.startswith("id\t"):
+            continue
+        if ln.count("\t") < 7:
+            print(f"mxversion: {os.path.basename(path)} line {n} has {ln.count(chr(9)) + 1} columns, want 8: row skipped", file=sys.stderr)
+            continue
+        rows.append(dict(zip(cols, ln.split("\t"))))
+    return rows
+
+
+def known_tags(path=WINDOWS):
+    return sorted({r["applies_if"] for r in windows(path)} - {"always"})
+
+
+def hits(v, uses=(), path=WINDOWS):
+    """[(level, row)] for every window holding patch v. level REFUSE or WARN; an unconfirmed condition is WARN."""
+    out = []
+    for r in windows(path):
+        if not vkey(r["from"]) <= vkey(v) <= vkey(r["to"]):
+            continue
+        known = r["applies_if"] == "always" or r["applies_if"] in uses
+        out.append(("REFUSE" if r["effect"] == "refuse" and known else "WARN", r))
+    return out
+
+
+def pick(minor, available, uses=(), path=WINDOWS):
+    """Newest available patch of major.minor outside every window; else the newest not refused; else None."""
+    mine = sorted((v for v in available if v.startswith(minor + ".")), key=vkey, reverse=True)
+    clean = [v for v in mine if not hits(v, uses, path)]
+    ok = [v for v in mine if all(lv != "REFUSE" for lv, _ in hits(v, uses, path))]
+    return (clean or ok or [None])[0]
+
+
+def say(v, found):
+    for lv, r in found:
+        cond = "" if r["applies_if"] == "always" or lv == "REFUSE" else f" (applies if: {r['applies_if']})"
+        fix = "No fixed version yet" if r["fixed_in"].startswith("none") else f"Fixed in {r['fixed_in']}"
+        print(f"{lv} {v}{cond}: {r['why']} {fix}. [{r['id']}: {r['source']}]")
+
+
+def cli(a):
+    def bad(msg):
+        print(f"mxversion: {msg}", file=sys.stderr); return 2
+    uses = ()
+    if "--uses" in a:
+        k = a.index("--uses")
+        if k + 1 >= len(a) or a[k + 1].startswith("--"):
+            return bad("--uses needs a value (tag,tag)")
+        uses = tuple(t for t in a[k + 1].split(",") if t)
+        tags = known_tags()
+        unknown = [t for t in uses if t not in tags]
+        if unknown:
+            return bad(f"unknown --uses tag {', '.join(unknown)}; known tags: {', '.join(tags)}")
+    if a[0] == "--check":
+        if len(a) < 2 or a[1].startswith("--"):
+            return bad("--check needs a version (10.24.7 or 10.24.7.96987)")
+        if not re.match(r"^\d+\.\d+\.\d+", a[1]):
+            return bad(f"'{a[1]}' has no three-part x.y.z version")
+        found = hits(a[1], uses)
+        say(a[1], found)
+        if not found:
+            print(f"OK {a[1]}: in no window of playbooks/patch-windows.tsv")
+        return 1 if any(lv == "REFUSE" for lv, _ in found) else 0
+    if a[0] == "--pick":
+        if "--available" not in a or a.index("--available") + 1 >= len(a):
+            return bad("--pick <major.minor> --available v,v,... (the patches that have release notes)")
+        if len(a) < 2 or not re.match(r"^\d+\.\d+$", a[1]):
+            return bad("--pick needs a major.minor such as 10.24")
+        got = pick(a[1], [v for v in a[a.index("--available") + 1].split(",") if v], uses)
+        if not got:
+            print(f"mxversion: no usable {a[1]} patch among the available ones (every one is refused or none was given)", file=sys.stderr); return 2
+        say(got, hits(got, uses))
+        print(got)
+        return 0
+    sys.exit(__doc__)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
+    if sys.argv[1] in ("--check", "--pick"):
+        sys.exit(cli(sys.argv[1:]))
     v = version(sys.argv[1])
     if not v:
         print(f"mxversion: no Mendix version found in {sys.argv[1]}", file=sys.stderr); sys.exit(2)
