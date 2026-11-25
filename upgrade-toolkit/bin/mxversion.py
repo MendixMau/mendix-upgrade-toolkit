@@ -112,7 +112,7 @@ def version(p):
     return None
 
 
-WINDOWS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "playbooks", "patch-windows.tsv")
+WINDOWS = os.environ.get("UPG_PATCH_WINDOWS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "playbooks", "patch-windows.tsv")
 
 
 def vkey(v):
@@ -122,7 +122,12 @@ def vkey(v):
 def windows(path=WINDOWS):
     cols = ("id", "from", "to", "fixed_in", "applies_if", "effect", "why", "source")
     rows = []
-    for n, ln in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError as e:
+        print(f"mxversion: cannot read {path}: {e.strerror}", file=sys.stderr)
+        sys.exit(2)
+    for n, ln in enumerate(text.splitlines(), 1):
         if not ln.strip() or ln.startswith("#") or ln.startswith("id\t"):
             continue
         if ln.count("\t") < 7:

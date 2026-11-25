@@ -1393,6 +1393,7 @@ ctl pipeline-ladder-from-converted-catch 2 '^upgrade-pipeline\.sh: --from update
 ctl pipeline-ladder-from-rung1-app-pass 0 '!refused on the ladder command' '^fetch +running' -- ladfrom $LF/app2 fetch
 ctl pipeline-patch-window-refused-catch 2 '^upgrade-pipeline\.sh: REFUSE 10\.24\.7\.1: .*Fixed in 10\.24\.8' '!^[a-z]+ +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.1.1 --target 10.24.7.1 --work $FR/w3 --dry-run
 ctl pipeline-patch-window-override-pass 0 'warning: 10\.24\.7\.1 is in a patch window' -- env UPG_ALLOW_BAD_PATCH=1 bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.1.1 --target 10.24.7.1 --work $FR/w4 --dry-run
+ctl pipeline-patch-window-notsv-pass 0 'patch-window check not run for 10\.24\.7\.1 \(exit 2\)' -- env UPG_PATCH_WINDOWS=$FR/no-such.tsv bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.1.1 --target 10.24.7.1 --work $FR/w5 --dry-run
 ctl pipeline-from-skips-optional-undone-pass 0 '^from +--from diff skips heal \(not done, optional\)$' '!refused' '!^heal +running' '!^fetch +running' '!^journeys +running' '^diff +running' -- bash ${PIPE:-$B/cloud/upgrade-pipeline.sh} --app-dir $FR/app --source 10.24.26.1 --target 11.15.0.1 --work $FR/w2 --from diff --dry-run
 # the converted stop (nj_meta shape, no legacy parsing in cockpitpage.py): widgetroute.py's own --ok-report, put in a NEEDS-JUDGMENT.md the way
 # nj_sections does, renders as a question in reader words with the recommended option and the lines each answer writes; answering applies it
@@ -2453,7 +2454,8 @@ ctl mxversion-window-uses-unknown-catch 2 'unknown --uses tag clientcert; known 
 ctl mxversion-window-shortrow-catch 0 'line 3 has 3 columns, want 8: row skipped' -- bash -c "printf 'id\tfrom\n#c\nPWX\t1\t2\n' > $T/short.tsv; python3 -c 'import sys; sys.path.insert(0, \"$B\"); import mxversion as m; m.windows(sys.argv[1])' $T/short.tsv"
 ctl mxversion-window-nofix-catch 1 '^REFUSE 11\.16\.1: .*No fixed version yet' -- python3 $B/mxversion.py --check 11.16.1 --uses client-certificate
 ctl mxversion-window-nofix-warn-catch 0 '^WARN 11\.15\.0 \(applies if: client-certificate\).*No fixed version yet' -- python3 $B/mxversion.py --check 11.15.0
-ctl mxversion-window-nofix-pick-catch 0 '^11\.15\.0$' -- python3 $B/mxversion.py --pick 11.15 --available 11.15.0
+ctl mxversion-window-nofix-pick-pass 0 '^11\.15\.0$' -- python3 $B/mxversion.py --pick 11.15 --available 11.15.0
+ctl mxversion-window-notsv-catch 2 'cannot read' -- env UPG_PATCH_WINDOWS=$FR/no-such.tsv python3 $B/mxversion.py --check 10.24.7
 ctl mxversion-window-nofix-pick-skip-catch 2 'no usable 11\.16 patch' -- python3 $B/mxversion.py --pick 11.16 --available 11.16.0,11.16.1 --uses client-certificate
 # AC-1, AC-7 (App C; E6 convert.log): mx convert exits 0 with errors and on a refused source; read the log and the mpr
 # python's sqlite3 module, not the sqlite3 CLI: the cloud image has no CLI, and the update failing silently left the

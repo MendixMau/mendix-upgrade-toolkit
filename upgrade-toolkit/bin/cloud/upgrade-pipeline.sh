@@ -160,7 +160,9 @@ path_check "$SOURCE" "$TARGET"
 for v in "$TARGET" ${TARGET2:+"$TARGET2"}; do
   if pw=$(python3 "$(dirname "$SELF")/../mxversion.py" --check "$v" 2>&1); then pw_rc=0; else pw_rc=$?; fi
   [ -z "$pw" ] || echo "$pw" | grep '^WARN' || true
-  if [ "$pw_rc" -ne 0 ]; then
+  if [ "$pw_rc" -ne 0 ] && ! { [ "$pw_rc" -eq 1 ] && echo "$pw" | grep -q '^REFUSE'; }; then
+    echo "upgrade-pipeline.sh: warning: patch-window check not run for $v (exit $pw_rc): $(echo "$pw" | tail -1)" >&2
+  elif [ "$pw_rc" -ne 0 ]; then
     if [ "${UPG_ALLOW_BAD_PATCH:-}" = 1 ]; then echo "upgrade-pipeline.sh: warning: $v is in a patch window, going on (UPG_ALLOW_BAD_PATCH=1): $pw" >&2
     else usage_die "$pw"; fi
   fi
