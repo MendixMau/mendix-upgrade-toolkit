@@ -2429,6 +2429,20 @@ mkdir -p $T/tools/runtime-11.0.0/11.0.0/runtime
 ctl mxversion-runtime11-outer-catch 0 '^11\.12\.2\.4711$' -- python3 $B/mxversion.py $V11
 ctl mxversion-runtime11-nojar-pass 2 'no Mendix version found' -- python3 $B/mxversion.py $T/tools/runtime-11.0.0
 ctl mxversion-mpr 0 '^9\.24\.32\.58223$' -- python3 $B/mxversion.py $M/v9/App.mpr
+# playbooks/patch-windows.tsv (public release-note facts): a bad patch is refused or warned with the reason and the fix, and a newest-patch pick skips it
+ctl mxversion-window-retracted-catch 1 '^REFUSE 10\.24\.7: .*Fixed in 10\.24\.8' -- python3 $B/mxversion.py --check 10.24.7
+ctl mxversion-window-retracted-pass 0 '^OK 10\.24\.8' -- python3 $B/mxversion.py --check 10.24.8
+ctl mxversion-window-retracted-pick-catch 0 '^10\.24\.6$' '!^10\.24\.7$' -- python3 $B/mxversion.py --pick 10.24 --available 10.24.6,10.24.7
+ctl mxversion-window-wrongbuild-catch 0 '^WARN 11\.6\.0: .*Download 11\.6\.0 again' -- python3 $B/mxversion.py --check 11.6.0
+ctl mxversion-window-wrongbuild-pass 0 '^OK 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.3
+ctl mxversion-window-decimalkey-catch 0 '^WARN 11\.6\.2 \(applies if: decimal-remote-key\).*Fixed in 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.2
+ctl mxversion-window-decimalkey-pass 0 '^OK 11\.6\.3' -- python3 $B/mxversion.py --check 11.6.3
+ctl mxversion-window-clientcert-catch 1 '^REFUSE 11\.12\.5: .*Fixed in 11\.12\.6' -- python3 $B/mxversion.py --check 11.12.5 --uses client-certificate
+ctl mxversion-window-clientcert-unknown-catch 0 '^WARN 11\.12\.5 \(applies if: client-certificate\)' -- python3 $B/mxversion.py --check 11.12.5
+ctl mxversion-window-clientcert-pass 0 '^OK 11\.12\.6' -- python3 $B/mxversion.py --check 11.12.6 --uses client-certificate
+ctl mxversion-window-clientcert-pick-catch 0 '^11\.12\.6$' '!^11\.12\.5$' -- python3 $B/mxversion.py --pick 11.12 --available 11.12.4,11.12.5,11.12.6
+ctl mxversion-window-clientcert-10-catch 1 '^REFUSE 10\.24\.27: .*Fixed in 10\.24\.28' -- python3 $B/mxversion.py --check 10.24.27 --uses client-certificate
+ctl mxversion-window-clientcert-10-pass 0 '^OK 10\.24\.28' -- python3 $B/mxversion.py --check 10.24.28 --uses client-certificate
 # AC-1, AC-7 (App C; E6 convert.log): mx convert exits 0 with errors and on a refused source; read the log and the mpr
 # python's sqlite3 module, not the sqlite3 CLI: the cloud image has no CLI, and the update failing silently left the
 # version at 9.24 so these three controls failed on a fresh container (B4T2-2, B4N1-1)
