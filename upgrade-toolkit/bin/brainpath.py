@@ -3,7 +3,11 @@
 
 Order: $UPG_BRAIN, then UPG_BRAIN= in ~/.config/upgrade-toolkit/local.env, then the first ~/Mendix/*-brain folder with
 version tables (a folder ending in -test only when nothing else has tables), then the brain this repo ships
-(<repo>/brain, else <repo>/company-brain-test/brain, found from this file's own location; GF-10; UPG_BRAIN_SHIPPED=0 skips it). Prints the path, or nothing and exit 1.
+(<repo>/brain, else the old name <repo>/company-brain-test/brain, found from this file's own location; GF-10; UPG_BRAIN_SHIPPED=0 skips it). Prints the path, or nothing and exit 1.
+
+Old path, one release only: an UPG_BRAIN or local.env entry that ends in company-brain-test/brain and has no tables is read as
+the renamed <same repo>/brain when that has tables, with a note on stderr to update the setting (env.sh files written by
+setup-container.sh before the rename carry the old path). Drop OLD_NAME and this fallback in the release after the rename.
 
 `--describe` prints one line, always exit 0, for triage and the gate summary (DV-3): `brain: <path> (from UPG_BRAIN|local.env|tools
 folder|shipped toolkit brain)`, or `brain: none found (looked: ...) - set UPG_BRAIN=<path>`. The search order is unchanged; this only says what it found.
@@ -17,11 +21,12 @@ import sys
 from pathlib import Path
 
 
-# GF-10: the brain this repo ships (SETUP.md says so); upgrade-toolkit/bin/brainpath.py -> <repo>/company-brain-test/brain.
-# <repo>/brain is the planned name of that folder and is tried first, so the rename needs no change here.
+# GF-10: the brain this repo ships (SETUP.md says so); upgrade-toolkit/bin/brainpath.py -> <repo>/brain.
+# The old name <repo>/company-brain-test/brain stays a candidate for one release, for checkouts that still hold it.
 _REPO = Path(__file__).resolve().parent.parent.parent
-SHIPPED_CANDIDATES = [str(_REPO / "brain"), str(_REPO / "company-brain-test" / "brain")]
-SHIPPED = SHIPPED_CANDIDATES[1]
+OLD_NAME = os.path.join("company-brain-test", "brain")
+SHIPPED_CANDIDATES = [str(_REPO / "brain"), str(_REPO / OLD_NAME)]
+SHIPPED = SHIPPED_CANDIDATES[0]
 
 
 def has_tables(d):
@@ -34,6 +39,15 @@ def shipped():
         if has_tables(c):
             return c
     return None
+
+
+def renamed(d):
+    """The renamed brain for an old <repo>/company-brain-test/brain path that has no tables, else None (one release only)."""
+    p = os.path.normpath(os.path.expanduser(d))
+    if not p.endswith(os.sep + OLD_NAME):
+        return None
+    new = os.path.join(os.path.dirname(os.path.dirname(p)), "brain")
+    return new if has_tables(new) else None
 
 
 def from_local_env():
@@ -52,7 +66,14 @@ def find():
     """(path, how) of the brain, or (None, why not)."""
     for how, d in (("UPG_BRAIN", os.environ.get("UPG_BRAIN")), ("local.env", from_local_env())):
         if d:
-            return (d, how) if has_tables(d) else (None, f"{how} points at {d}, which has no baseline/versions tables")
+            if has_tables(d):
+                return d, how
+            new = renamed(d)
+            if new:
+                print(f"brainpath: {how} points at the old path {d}; using {new} (update {how} to it, the old path stops working next release)",
+                      file=sys.stderr)
+                return new, how
+            return None, f"{how} points at {d}, which has no baseline/versions tables"
     cands = sorted(c for c in glob.glob(str(Path.home() / "Mendix" / "*-brain*")) if os.path.isdir(c) and has_tables(c))
     cands.sort(key=lambda c: c.endswith("-test"))
     if cands:

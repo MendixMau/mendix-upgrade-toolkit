@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Export the HARNESS of the upgrade toolkit to a folder that can become a public repo. Whitelist only: a path not
 # listed here never leaves. Run data and research stay private. The scrubbed brain notes ship in the repo itself
-# (company-brain-test/brain/internal/upgrade/, confidentiality: public) and are not part of this export.
+# (brain/internal/upgrade/, confidentiality: public) and are not part of this export.
 # Usage: export-public.sh [DEST]   (default ~/upgrade-toolkit-public). Writes and commits locally; never pushes.
 # Refuses when the export holds a private name (bin/private_names.sh, required here), a token, a home-folder path,
 # a real deployment or internal hostname, an e-mail address other than example/test/noreply, or an app model, package, archive or .env file.
@@ -10,7 +10,7 @@ TK=$(cd "$(dirname "$0")/.." && pwd); ROOT=$(cd "$TK/.." && pwd); DST=${1:-$HOME
 ALLOW=(upgrade-toolkit/bin upgrade-toolkit/steps upgrade-toolkit/playbooks upgrade-toolkit/templates
        upgrade-toolkit/controls upgrade-toolkit/vendor upgrade-toolkit/examples upgrade-toolkit/runs/HISTORY.md
        upgrade-toolkit/SKILL.md upgrade-toolkit/SETUP.md upgrade-toolkit/SETUP-PROMPT.md upgrade-toolkit/PLAN.md
-       upgrade-toolkit/READING-THE-VERDICT.md company-brain-test/brain/baseline/versions)
+       upgrade-toolkit/READING-THE-VERDICT.md brain/baseline/versions)
 DROP=(upgrade-toolkit/bin/sync_gitlab.sh upgrade-toolkit/bin/export-public.sh upgrade-toolkit/bin/private_names.sh)
 source "$TK/bin/private_names.sh"
 [ -n "$DENY" ] || { echo "REFUSED: no private names list (UPG_PRIVATE_NAMES); the export cannot be checked" >&2; exit 1; }

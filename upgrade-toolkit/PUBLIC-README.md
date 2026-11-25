@@ -50,7 +50,7 @@ impact    by you)    repair      old vs new
 | The toolkit's own tests | `bash upgrade-toolkit/controls/run-controls.sh --fast` (a catch and a pass case for every script) |
 | One command for the fixed steps | `upgrade-toolkit/bin/cloud/upgrade-pipeline.sh --app-zip app.mpk --source <old full version> --target <new full version> --work run/work` |
 
-Release-note tables per Mendix version: `company-brain-test/brain/baseline/versions/`.
+Release-note tables per Mendix version: `brain/baseline/versions/`.
 
 ## Related
 
