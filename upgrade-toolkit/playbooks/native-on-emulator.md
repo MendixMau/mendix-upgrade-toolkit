@@ -2,7 +2,7 @@
 
 Use it to test a native profile before and after an upgrade, or to record a native walk, without Studio Pro and
 without the Native Mobile Builder. One field run: FSM (rung 2, 10.24.28 to 11.12.7, 2026-11-11), Mac arm64,
-login, planned list and an opened appointment on both versions. Commands marked *macOS* need the Linux form noted.
+login, planned list and an opened appointment on both versions. Where a command is macOS-only, the Linux form is noted beside it.
 
 ## Which route
 
@@ -31,7 +31,7 @@ login, planned list and an opened appointment on both versions. Commands marked 
 | Node / npm | Node 26.13 / npm 11.20 (the template's `.nvmrc` says 24; 26 worked) |
 | Metro | 0.83.7, from the mxbuild node_modules |
 | Emulator | 37.2.13.0, system image `android-35;google_apis;arm64-v8a` |
-| SDK | `brew install --cask android-commandlinetools`, `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools` |
+| SDK | `brew install --cask android-commandlinetools`, `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools` (macOS; on Linux unzip Google's command-line tools and set `ANDROID_HOME` to that folder) |
 
 ## Emulator setup
 
@@ -43,13 +43,14 @@ Create an AVD on that image and start it headless (FSM: AVD `fsm35`; the emulato
 run did not record these two lines; they are the standard SDK commands, **not yet proven here**: record what ran.
 
 ```sh
-avdmanager create avd -n <avd> -k "system-images;android-35;google_apis;arm64-v8a"
-emulator -avd <avd> -no-window -no-audio &
+echo no | avdmanager create avd -n <avd> -k "system-images;android-35;google_apis;arm64-v8a"
+"$ANDROID_HOME/emulator/emulator" -avd <avd> -no-window -no-audio &
 adb wait-for-device
 ```
 
 The emulator needs hardware acceleration (KVM on Linux, Hypervisor.framework on macOS); a container without
-`/dev/kvm` cannot run it.
+`/dev/kvm` cannot run it. The image must match the host CPU: `arm64-v8a` on Apple Silicon, `x86_64` on an Intel or
+AMD host (install `system-images;android-35;google_apis;x86_64` and use it in both commands).
 
 `10.0.2.2` is the host as the emulator sees it.
 
