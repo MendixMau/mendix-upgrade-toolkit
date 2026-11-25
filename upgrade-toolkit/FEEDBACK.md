@@ -693,6 +693,9 @@ Add new items at the end with status open; the next triage round gives each one 
 | SW-18 | A disabled button (opacity .65) is reported by the smoke or journey walk as "covered by" another element's name, so a control the app cannot press counts as covered | open (idea: the coverage check skips a disabled control and lists it as not walked) | bin/smokewalk_gen.py, bin/run_journeys.py | |
 | SW-19 | smoke_users makes tenant-less users in a multi-tenant app, so the login succeeds and every page is empty or refused | open (idea: smoke_users reads the tenant association and sets it, or the brief says the app is multi-tenant and names the file to write) | bin/smoke_users.py | |
 | SW-22 | The cockpit top card at the gate still shows a module question that was already settled while the real stop is journeys, and recommends "update" for a module the router had HELD | open (idea: the top action follows the real stop; a HELD module is never recommended for update) | bin/cockpitmatrix.py | |
+| SW-23 | The matrix and the readiness strip sat inside a closed fold (`details#fold`), so the owner opened the page and could not find them | fixed (the fold is open by default with a summary that says what is in it; controls `cockpit-matrix-open-by-default-catch` and the fold check in `cockpit-brief-order-fold-phone-catch`) | | bin/cockpitpage.py | |
+| SW-24 | The "Mendix runtime" and "Marketplace modules" rows showed "Not yet" in Triage and Plan for a run that had triaged but had no PROPOSAL.md yet: both rows read only the proposal, though versions.txt, localedits.json and plan.txt already hold what triage found | fixed (the rows read those three files before the proposal exists; a missing file is still a grey "Not yet"; controls `cockpit-matrix-triage-before-proposal-catch`, `cockpit-matrix-plan-txt-before-proposal-catch`, `cockpit-matrix-nothing-run-stays-not-yet-pass`) | | bin/cockpitmatrix.py, bin/cockpitpage.py | |
+| SW-25 | The "Module plan missing" stop is an agent stop ("Nothing you can answer here") even when modplan.py leaves modules NOT PICKED, which only the owner can settle (same family as SW-7 and SW-9) | fixed (the stop is a person section with the options pick or keep when modplan lists NOT PICKED modules; an agent stop otherwise; controls `modplan-stop-not-picked-asks-owner-catch`, `modplan-stop-nothing-not-picked-stays-agent-pass`) | | bin/cloud/upgrade-pipeline.sh | |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -1016,7 +1019,7 @@ GA-6 added after that (open, partly fixed): the block below counts it (open +1, 
 
 | status | count |
 |---|---|
-| fixed | 417 |
+| fixed | 420 |
 | doc (closed by guidance) | 97 |
 | closed | 14 |
 | won't fix | 7 |
@@ -1027,15 +1030,15 @@ GA-6 added after that (open, partly fixed): the block below counts it (open +1, 
 
 WTD-2 added after that (fixed); the table above counts it. Counts are the previous block plus this one row, not a fresh parse of the table.
 
-SW-1 to SW-19 and SW-22 added after that (all open, none fixed here): learnings from the weekend field runs that were kept in lane notes and issue drafts and never reached this register (a learnings sweep, 2026-11-24). The block below counts them: open +20, total +20 on top of the block before. Counts are the previous block plus these rows, not a fresh parse of the table.
+SW-1 to SW-19 and SW-22 added after that (all open, none fixed here; SW-23 to SW-25 are added fixed, the cockpit matrix and the plan stop, fixed +3, total +3): learnings from the weekend field runs that were kept in lane notes and issue drafts and never reached this register (a learnings sweep, 2026-11-24). The block below counts them: open +20, total +20 on top of the block before. Counts are the previous block plus these rows, not a fresh parse of the table.
 
 | status | count |
 |---|---|
-| fixed | 417 |
+| fixed | 420 |
 | doc (closed by guidance) | 97 |
 | closed | 14 |
 | won't fix | 7 |
 | unproved | 8 |
 | backlog | 176 |
 | open | 64 |
-| total | 783 |
+| total | 786 |

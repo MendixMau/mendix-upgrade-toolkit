@@ -455,7 +455,7 @@ def main():
         table += "\n## Allow lines that matched nothing\n\n" + "\n".join(f"- {u}" for u in unmatched) + "\n"
     for u in unmatched:
         print(f"WARNING {u}", file=sys.stderr)
-    if a.md:   # next to the report, for the cockpit's "Everything else" fold; no stale file when every line matched
+    if a.md:   # next to the report, for the cockpit's matrix fold; no stale file when every line matched
         side = os.path.join(os.path.dirname(os.path.abspath(a.md)), "allow-unmatched.txt")
         if unmatched: open(side, "w").write("\n".join(unmatched) + "\n")
         elif os.path.exists(side): os.remove(side)
