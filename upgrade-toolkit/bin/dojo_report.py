@@ -30,6 +30,9 @@ Reads: the .mpr (via replacement_check.App), widgets/*.mpk, javascriptsource/, t
 
 Also reads, never builds: a widget source project in the app folder (a package.json naming
 @mendix/pluggable-widgets-tools outside node_modules) adds 'widget source found: <path> (<widget>), route RA-22 (a)'.
+Limits of that search: it walks the folder of the .mpr only (a source in a sibling repo or elsewhere is not seen: name it
+in the decision), skips dot-folders (.git, .github, .hidden) and node_modules, deployment, userlib, vendorlib, and stops
+after 2000 package.json files. widgets/ is walked; the .mpk files in it are never opened.
 
 Prints one line per app: 'dojo-react <app>: P packages, R ready, M can move, D delete, C can't move, U not researched,
 X unreadable; legacy core widgets K in N documents; modules not React-ready Q; Dojo JS F files; <ADVISORY|BLOCKING> for <ver>'.
@@ -188,7 +191,7 @@ def analyse(path, rows, js_rx):
             "index_html": index}
 
 
-SRC_PRUNE = {"node_modules", ".git", "deployment", "userlib", "widgets", "vendorlib"}
+SRC_PRUNE = {"node_modules", "deployment", "userlib", "vendorlib"}   # widgets/ is walked: a source may sit under widgets/<name>/ (its .mpk files are never opened, only a file named package.json is read)
 
 
 def widget_sources(root, limit=2000):
@@ -197,7 +200,7 @@ def widget_sources(root, limit=2000):
     import os
     found, seen = [], 0
     for d, dirs, files in os.walk(root):
-        dirs[:] = sorted(x for x in dirs if x not in SRC_PRUNE and not x.startswith("."))
+        dirs[:] = sorted(x for x in dirs if x not in SRC_PRUNE and not x.startswith(".") and not x.lower().endswith(".mpk"))
         if "package.json" not in files:
             continue
         seen += 1

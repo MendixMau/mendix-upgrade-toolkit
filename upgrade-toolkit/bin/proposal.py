@@ -492,7 +492,7 @@ class Facts:
                 ver = r[2] if len(r) > 2 else ""
                 if st in ("can't move", "not researched", "unreadable"):
                     self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"), f"dojo-react.md: {st}: {r[3] if len(r) > 3 else ''}",
-                              "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native [RA-22] | hand to a named person",
+                              "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
                               "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
                     self.items3[-1]["dojopkg"] = pkg
@@ -719,6 +719,10 @@ class Facts:
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
                     break
+            else:
+                # a none-found widget that no catalogue entry claimed keeps its own options; they cite RA-22 (custom-widget route) only when the catalogue was read
+                if ra and it.get("dojopkg") and not it.get("fixed"):
+                    it["options"] = it["options"].replace("rebuild as pluggable / native |", "rebuild as pluggable / native [RA-22] |")
         self.merge_packages()   # after the catalogue prefill: the merged item takes each finding's own options and recommendation
         self.filedoc_item()
         # section 4: a person anyway
