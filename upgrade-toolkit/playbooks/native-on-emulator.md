@@ -1,8 +1,8 @@
 # Native mobile app on an Android emulator, headless (10.24 and 11.x)
 
 Use it to test a native profile before and after an upgrade, or to record a native walk, without Studio Pro and
-without the Native Mobile Builder. Field-proven on FSM (rung 2, 10.24.28 to 11.12.7, 2026-11-11): Mac arm64,
-login, planned list and an opened appointment on both versions.
+without the Native Mobile Builder. One field run: FSM (rung 2, 10.24.28 to 11.12.7, 2026-11-11), Mac arm64,
+login, planned list and an opened appointment on both versions. Commands marked *macOS* need the Linux form noted.
 
 ## Which route
 
@@ -13,8 +13,9 @@ login, planned list and an opened appointment on both versions.
 
 - Make It Native 10 against an 11 runtime shows *"We've encountered a version issue. It seems you're trying to
   connect to a Mendix application that is not supported by this version of the app."* Do not spend time on it.
-- Make It Native 11 is Play Store only, and the emulator image has no Play Store. So on 11.x, build the app.
-  This is what a developer does for a native release anyway.
+- There was no Make It Native APK for 11.12 (the emulator image has no Play Store), so on 11.12 build the app.
+  `mendix/make-it-native` release v11.17.0 ships an APK for Mendix 11.17: on 11.17 or later, try that first
+  (not yet run here). Building the app is what a developer does for a native release anyway.
 - The Native Mobile Builder is not needed. Its job (pick the template, add the app's native dependencies, bundle,
   set the runtime URL) is done by hand below. Docs followed:
   `docs.mendix.com/refguide/mobile/distributing-mobile-apps/building-native-apps/native-build-locally-manually/`.
@@ -38,8 +39,17 @@ login, planned list and an opened appointment on both versions.
 sdkmanager "emulator" "platform-tools" "system-images;android-35;google_apis;arm64-v8a"
 ```
 
-Create an AVD on that image (FSM: `fsm35`; the emulator raised RAM to 2560 MB). The exact `avdmanager` and
-`emulator` command lines were not recorded on FSM: record them on the next run.
+Create an AVD on that image and start it headless (FSM: AVD `fsm35`; the emulator raised RAM to 2560 MB). The FSM
+run did not record these two lines; they are the standard SDK commands, **not yet proven here**: record what ran.
+
+```sh
+avdmanager create avd -n <avd> -k "system-images;android-35;google_apis;arm64-v8a"
+emulator -avd <avd> -no-window -no-audio &
+adb wait-for-device
+```
+
+The emulator needs hardware acceleration (KVM on Linux, Hypervisor.framework on macOS); a container without
+`/dev/kvm` cannot run it.
 
 `10.0.2.2` is the host as the emulator sees it.
 
@@ -60,7 +70,8 @@ Create an AVD on that image (FSM: `fsm35`; the emulator raised RAM to 2560 MB). 
 
 ### 1. Pick the template version
 
-Read `mendix_version.json` in the template repo and take the newest tag in the range. For 11.12:
+Read `mendix_version.json` in the template repo and take the newest tag in the range (FSM used v19.1.8; v19.1.9
+exists since). For 11.12:
 
 ```json
 ">=11.11.0": { "max": "19.*.*", "min": "19.1.0" }
@@ -69,7 +80,7 @@ Read `mendix_version.json` in the template repo and take the newest tag in the r
 ### 2. Clone (under 1 min, 244 MB)
 
 ```sh
-git clone --depth 1 --branch v19.1.8 https://github.com/mendix/native-template <template>
+git clone --depth 1 --branch <tag> https://github.com/mendix/native-template <template>
 ```
 
 ### 3. Bundle on the host with Metro, not with mxbuild (11 s)
@@ -131,13 +142,14 @@ sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.3.13750724" "cmak
 ### 8. Gradle build
 
 ```sh
-export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+export JAVA_HOME=$(/usr/libexec/java_home -v 21)   # macOS; on Linux point JAVA_HOME at a JDK 21
 cd <template>/android && ./gradlew assembleAppstoreDebug
 ```
 
 RN 0.84.1 on Gradle 9 fails in 35 s with `Class org.gradle.jvm.toolchain.JvmVendorSpec does not have member field
 ... IBM_SEMERU`: `node_modules/@react-native/gradle-plugin/settings.gradle.kts` pins `foojay-resolver-convention`
 0.5.0. Bump it (in the template root), then run the same build again. Redo it after every fresh `npm install`.
+`sed -i ''` is the macOS form; on Linux (GNU sed) use `sed -i` with no `''`.
 
 ```sh
 sed -i '' 's/foojay-resolver-convention").version("0.5.0")/foojay-resolver-convention").version("1.0.0")/' node_modules/@react-native/gradle-plugin/settings.gradle.kts
@@ -169,7 +181,7 @@ After a model change, repeat steps 3, 8 and 9 (`./gradlew assembleAppstoreDebug 
 
 ## Test data, not the build
 
-On FSM every empty "No appointments found" list was data, never the build:
+On FSM's run every empty "No appointments found" list was data, never the build:
 - the demo user must be linked to every account-like entity the native home page reads (FSM: NativeTechnician
   and Technician);
 - date filters run on the device: shift every date column the offline list filters on (FSM: DisplayTravelStart,
