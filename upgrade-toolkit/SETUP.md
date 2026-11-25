@@ -19,7 +19,7 @@ opening the finished app afterward to look at it.
 | python3 with pymongo, bcrypt; node with Playwright; zsh | the scripts | pip / npm / apt |
 
 Not needed: `MendixMau/mxcli-project-toolkit` (the journey engine is vendored in `vendor/e2e`; set `TOOLKIT_E2E` to
-use a live clone instead). The release-note "brain" is in this repo (`company-brain-test/brain/baseline/versions`);
+use a live clone instead). The release-note "brain" is in this repo (`brain/baseline/versions`);
 `UPG_BRAIN` points elsewhere (without it `brainpath.py` falls back to that shipped folder). Optional and not shipped: an upgrade scanner (`UPG_SCANNER`, its folder with `scripts/scan.py`); without it the
 scanner rows are INVALID, said as such.
 

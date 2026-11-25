@@ -48,7 +48,7 @@ Upgrade my Mendix app with the upgrade toolkit, unattended, until the gate says 
 
 **Setup**
 1. Clone the toolkit anywhere: `git clone https://github.com/MendixMau/mendix-upgrade-toolkit` and `cd` into the clone
-   (it holds the toolkit in `upgrade-toolkit/`, the release-note brain in `company-brain-test/brain/`, and the
+   (it holds the toolkit in `upgrade-toolkit/`, the release-note brain in `brain/`, and the
    unattended pipeline in `pipeline/`).
 2. Read `upgrade-toolkit/SETUP.md`, then run its one command:
    `bash upgrade-toolkit/bin/setup-container.sh ~/run1 <old version> <target version>` and `source ~/run1/env.sh`.

@@ -1,6 +1,6 @@
 # Release impact: Mendix 10.24.0.73019 to 11.12.5
 
-Types: breaking, removal, requirement, deprecation. Source: /tmp/claude-0/-home-user/f6fa2bc2-de01-585e-8723-73c458210247/scratchpad/night/prrebuild/company-brain-test/brain/baseline/versions (official release notes in the brain). Every row needs a
+Types: breaking, removal, requirement, deprecation. Source: brain/baseline/versions (official release notes in the brain). Every row needs a
 `handled: <evidence path or commit>` or `not relevant: <reason>` entry in the last column;
 `release_impact.py --check` exits 1 while one is empty. Gate rule: --check clean, or INVALID.
 

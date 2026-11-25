@@ -359,6 +359,17 @@ def main():
               file=sys.stderr)
         return 2
     brain = Path(a.brain).expanduser() if a.brain else None
+    if brain:   # an old company-brain-test/brain path (env.sh before the rename): one release only
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import brainpath
+            # the same test brainpath.find() uses: a pull leaves the old folder behind when it still holds untracked inbox drafts
+            moved = None if brainpath.has_tables(str(brain)) else brainpath.renamed(str(brain))
+            if moved:
+                print(f"  brain: {brain} is the old path; using {moved} (update UPG_BRAIN)")
+                brain = Path(moved)
+        except Exception:
+            pass
     if not brain:   # no --brain and no $UPG_BRAIN: the brain bin/brainpath.py finds (local.env, ~/Mendix, the shipped brain)
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
