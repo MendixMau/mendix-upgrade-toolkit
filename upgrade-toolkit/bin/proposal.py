@@ -492,7 +492,7 @@ class Facts:
                 ver = r[2] if len(r) > 2 else ""
                 if st in ("can't move", "not researched", "unreadable"):
                     self.add3("widget", (pkg if ver in ("", "?") else f"{pkg} {ver}"), f"dojo-react.md: {st}: {r[3] if len(r) > 3 else ''}",
-                              "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native | hand to a named person",
+                              "keep old package, accept the risk | swap to a successor (dojo-successors.tsv) | rebuild as pluggable / native [RA-22] | hand to a named person",
                               "rebuild as pluggable / native (no React path found; keep the old package only for this rung, Mendix 12 blocks it)", "L" if st == "can't move" else "M",
                               "does not run on the React client; Mendix 12 removes the Dojo client")
                     self.items3[-1]["dojopkg"] = pkg

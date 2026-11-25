@@ -28,6 +28,9 @@ Reads: the .mpr (via replacement_check.App), widgets/*.mpk, javascriptsource/, t
   --out       one app: that file; several apps: a directory, one <app folder>.md each
   --overview  several apps: one table of every Dojo package across the apps, most apps first
 
+Also reads, never builds: a widget source project in the app folder (a package.json naming
+@mendix/pluggable-widgets-tools outside node_modules) adds 'widget source found: <path> (<widget>), route RA-22 (a)'.
+
 Prints one line per app: 'dojo-react <app>: P packages, R ready, M can move, D delete, C can't move, U not researched,
 X unreadable; legacy core widgets K in N documents; modules not React-ready Q; Dojo JS F files; <ADVISORY|BLOCKING> for <ver>'.
 Target below 12: ADVISORY, exit 0 (the switch is advised, not required). Target 12 or above: BLOCKING when anything but
@@ -185,6 +188,40 @@ def analyse(path, rows, js_rx):
             "index_html": index}
 
 
+SRC_PRUNE = {"node_modules", ".git", "deployment", "userlib", "widgets", "vendorlib"}
+
+
+def widget_sources(root, limit=2000):
+    """Read-only: widget source projects in the app repo, a package.json that names @mendix/pluggable-widgets-tools
+    (dependencies or devDependencies) outside node_modules. Returns [(relative folder, widget name)]; nothing is built."""
+    import os
+    found, seen = [], 0
+    for d, dirs, files in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if x not in SRC_PRUNE and not x.startswith("."))
+        if "package.json" not in files:
+            continue
+        seen += 1
+        if seen > limit:
+            break
+        try:
+            pj = json.loads((Path(d) / "package.json").read_text(errors="replace"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(pj, dict):
+            continue
+        deps = {}
+        for k in ("dependencies", "devDependencies"):
+            if isinstance(pj.get(k), dict):
+                deps.update(pj[k])
+        if "@mendix/pluggable-widgets-tools" in deps:
+            found.append((os.path.relpath(d, root), str(pj.get("widgetName") or pj.get("name") or "?")))
+    return found
+
+
+def source_lines(r):
+    return [f"widget source found: {rel} ({name}), route RA-22 (a)" for rel, name in r.get("sources", [])]
+
+
 def counts(r):
     c = {s: sum(1 for p in r["packages"] if p["status"] == s) for s in ORDER}
     return (c, sum(x["count"] for x in r["core"]), len({d for x in r["core"] for d in x["docs"]}), len(r["js"]),
@@ -251,6 +288,11 @@ def markdown(r, to, blocking, line):
             "'ready' means the package declares pluginWidget=\"true\". The React client also needs a pluggable widget built "
             "with pluggable-widget-tools 9.4.1 or later, which the .mpk does not record: update every widget (R9) and let "
             "Studio Pro's React client check have the last word.", "", line, ""]
+    sl = source_lines(r)
+    if sl:
+        out += ["## Widget source in the app repo", "", *sl, "",
+                "Read only: nothing was built. Route RA-22 (a) in playbooks/rearchitecture.md: upgrade the source, "
+                "then run R35/R36/R38 on the new package.", ""]
     return "\n".join(out)
 
 
@@ -304,10 +346,13 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"dojo_report: cannot read the app {path}: {e}", file=sys.stderr)
             sys.exit(2)
+        r["sources"] = widget_sources(App(path).root)
         line, open_ = summary(r, a.to, blocking)
         r["summary"] = line
         results.append(r)
         print(line)
+        for sl in source_lines(r):
+            print(sl)
         if blocking and open_:
             rc = 1
         if a.out:
