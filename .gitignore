@@ -7,3 +7,5 @@ __pycache__/
 .claude/.pending-writes
 # brain drafts from a manual harvest.py run against the shipped brain (confidentiality: internal; never commit)
 brain/inbox/
+# the old location, one release only: a pull leaves untracked drafts there (drop with the brainpath.py OLD_NAME fallback)
+company-brain-test/brain/inbox/

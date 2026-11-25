@@ -10511,6 +10511,12 @@ ctl harvest-new-fix-catch 0 'decision-frob.*Widget_Fake\.FrobAction\(\)' '!decis
 ctl harvest-known-fix-pass 0 'repair-row-13.*\[known: steps/repair\.md row 13\]' 'decision-mxlogger.*\[known: BACKLOG\.md #102' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-code-script-item-pass 0 '^- CE9987 ' 'frob_fix\.py \(3 lines\): Rewrite the frob widgets' 'trail: 2 gap' '!CE1613' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-deployed-run-folder-not-a-script-catch 0 'frob_fix\.py' '!login\.js' '!jsactions\.js' -- cat $HV/tk/2026-01-02-HV1-harvest.md
+# an old company-brain-test/brain --brain whose folder a pull left behind (untracked inbox drafts, no tables) maps to <repo>/brain (#206 review)
+HO=$HV/oldpath; mkdir -p $HO/company-brain-test/brain/inbox $HO/brain/baseline/versions; : > $HO/company-brain-test/brain/inbox/draft.md
+: > $HO/brain/baseline/versions/studio-pro-upgrade-11.md; cp -r $HV/brain/internal $HO/brain/
+ctl harvest-old-brain-path-left-behind-renamed-catch 0 "brain: $HO/company-brain-test/brain is the old path; using $HO/brain" \
+  -- python3 -I $B/harvest.py --code HV1 --brain $HO/company-brain-test/brain --date 2026-01-02 --work $HV/run --inbox $HV/tko --brain-inbox $HV/bio
+ctl harvest-old-brain-path-drafts-written-pass 0 '^[1-9]' -- sh -c "ls $HV/bio | wc -l"
 ctl harvest-toolkit-written-pass 0 'frob_fix\.py' '!e2e-base/engine' '!replay/Mod' '!saved-edits/' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md

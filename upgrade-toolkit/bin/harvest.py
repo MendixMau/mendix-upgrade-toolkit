@@ -359,11 +359,12 @@ def main():
               file=sys.stderr)
         return 2
     brain = Path(a.brain).expanduser() if a.brain else None
-    if brain and not brain.is_dir():   # an old company-brain-test/brain path (env.sh before the rename): one release only
+    if brain:   # an old company-brain-test/brain path (env.sh before the rename): one release only
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import brainpath
-            moved = brainpath.renamed(str(brain))
+            # the same test brainpath.find() uses: a pull leaves the old folder behind when it still holds untracked inbox drafts
+            moved = None if brainpath.has_tables(str(brain)) else brainpath.renamed(str(brain))
             if moved:
                 print(f"  brain: {brain} is the old path; using {moved} (update UPG_BRAIN)")
                 brain = Path(moved)
