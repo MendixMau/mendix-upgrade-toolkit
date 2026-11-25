@@ -5,10 +5,15 @@
 # effect "refuse": --check exits 1 and --pick skips it. "warn": --check prints WARN and exits 0, --pick prefers another
 # patch. A row whose tag is not "always" and was not passed in --uses is treated as WARN ("applies if ..."): the toolkit
 # cannot see whether the app uses the feature, so it never stays silent and never refuses on a guess.
+# Coverage: the 10.24 and 11.x LTS/MTS lines checked so far; a patch of a line not covered here is unchecked, not clean.
+# fixed_in "none yet": the notes name no fixed release; --check says so and --pick skips a refused patch (with the tag passed).
 # 11.6.0 is a warn: the version number is sound, only a download made 2025-12-23 to 2026-01-06 may be the wrong build.
 id	from	to	fixed_in	applies_if	effect	why	source
 PW1	10.24.7	10.24.7	10.24.8	always	refuse	Retracted: database schema migration fails at startup on a database created before 10.17 that uses foreign key constraints. Take 10.24.8 or later.	releasenotes/studio-pro/10/10.24 (10.24.7 retraction notice, 10.24.8 Fixes)
 PW2	11.6.0	11.6.0	11.6.0 (download again)	always	warn	A wrong build of 11.6.0 was published for downloads between 2025-12-23 and 2026-01-06. Download 11.6.0 again, or take a later 11.6 patch.	releasenotes/studio-pro/11/11.6 (11.6.0 notice)
-PW3	11.6.0	11.6.2	11.6.3	decimal-remote-key	warn	Remote (external) entities with a Decimal primary key cause errors on startup on existing deployments. The 11.6.3 notes list the fix; the window start is the first 11.6 release (the notes name no earlier fix).	releasenotes/studio-pro/11/11.6 (11.6.3 Fixes)
+PW3	11.6.0	11.6.2	11.6.3	decimal-remote-key	warn	Remote (external) entities with a Decimal primary key cause errors on startup on existing deployments. The 11.6.3 notes list the fix; the window start is the first 11.6 release (the notes name no earlier fix).	releasenotes/studio-pro/11/11.6 (11.6.3 Fixes), 11/11.7 (11.7.0 Fixes)
 PW4	11.12.5	11.12.5	11.12.6	client-certificate	refuse	Client certificate authentication (REST, OData, Web Services) sends no certificate. The notes say do not upgrade to this version if you use it; take 11.12.6.	releasenotes/studio-pro/11/11.12 (11.12.5 Known Issues, 11.12.6 Fixes)
-PW5	10.24.27	10.24.27	10.24.28	client-certificate	refuse	Same client certificate known issue as 11.12.5. The notes say do not upgrade to this version if you use it; take 10.24.28.	releasenotes/studio-pro/10/10.24 (10.24.27 Known Issues)
+PW5	10.24.27	10.24.27	10.24.28	client-certificate	refuse	Same client certificate known issue as 11.12.5. The notes say do not upgrade to this version if you use it; take 10.24.28.	releasenotes/studio-pro/10/10.24 (10.24.27 Known Issues, 10.24.28 Fixes)
+PW6	11.15.0	11.15.0	none yet	client-certificate	refuse	Client certificate authentication (REST, OData, Web Services) sends no certificate. The notes say do not upgrade until a fixed version is released.	releasenotes/studio-pro/11/11.15 (11.15.0 Known Issues, line 178)
+PW7	11.16.0	11.16.0	none yet	client-certificate	refuse	Client certificate authentication (REST, OData, Web Services) sends no certificate. The notes say do not upgrade until a fixed version is released.	releasenotes/studio-pro/11/11.16 (11.16.0 Known Issues, line 146)
+PW8	11.16.1	11.16.1	none yet	client-certificate	refuse	Client certificate authentication (REST, OData, Web Services) sends no certificate. The notes say do not upgrade until a fixed version is released.	releasenotes/studio-pro/11/11.16 (11.16.1 Known Issues, line 31)

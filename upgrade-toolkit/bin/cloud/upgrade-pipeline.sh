@@ -156,6 +156,15 @@ path_check() { # from to
     usage_die "10.$(minor "$1") may not go to $2: take 10.24 first (--target 10.24.x --target2 $2)"; fi
 }
 path_check "$SOURCE" "$TARGET"
+# patch windows (playbooks/patch-windows.tsv): a retracted or known-bad patch is refused; UPG_ALLOW_BAD_PATCH=1 goes on with a warning
+for v in "$TARGET" ${TARGET2:+"$TARGET2"}; do
+  if pw=$(python3 "$(dirname "$SELF")/../mxversion.py" --check "$v" 2>&1); then pw_rc=0; else pw_rc=$?; fi
+  [ -z "$pw" ] || echo "$pw" | grep '^WARN' || true
+  if [ "$pw_rc" -ne 0 ]; then
+    if [ "${UPG_ALLOW_BAD_PATCH:-}" = 1 ]; then echo "upgrade-pipeline.sh: warning: $v is in a patch window, going on (UPG_ALLOW_BAD_PATCH=1): $pw" >&2
+    else usage_die "$pw"; fi
+  fi
+done
 if [ -n "$TARGET2" ]; then
   [ "$(major "$TARGET2")" -ge 11 ] && [ "$(major "$TARGET")" -eq 10 ] && [ "$(minor "$TARGET")" -eq 24 ] ||
     usage_die "--target2 is the 11.x rung and --target must be 10.24.x"
