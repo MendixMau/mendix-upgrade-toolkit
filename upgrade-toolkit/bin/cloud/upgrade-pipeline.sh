@@ -1075,10 +1075,11 @@ close_proved_rows() {
 # The plan.txt stop (exit 13). modplan.py writes nothing while a module is NOT PICKED (a build-number version, no content id, no version
 # rows): which release such a module moves to, or whether it stays, is the owner's decision, so that stop is a person section with
 # options, not "Nothing you can answer here" (SW-25, same fix as SW-7). With nothing NOT PICKED the plan is the agent's task. $MODPLAN_NP
-# holds the NOT PICKED lines (read only: no --out, no download).
+# holds the NOT PICKED lines (read only: no --out, no download). A module only NOT PICKED because its versions are not cached yet
+# (--no-fetch) is the agent's to pick, not the owner's: those lines are left out.
 modplan_stop_meta() {
   MODPLAN_NP=""
-  [ ! -s "$WORK/localedits.json" ] || MODPLAN_NP=$(python3 "$B/modplan.py" "$WORK/localedits.json" --target "${TARGET:-0}" --no-fetch 2> /dev/null | grep -E '^NOT PICKED ' | head -n 12 || true)
+  [ ! -s "$WORK/localedits.json" ] || MODPLAN_NP=$(python3 "$B/modplan.py" "$WORK/localedits.json" --target "${TARGET:-0}" --no-fetch 2> /dev/null | grep -E '^NOT PICKED ' | grep -v 'versions not cached and --no-fetch given' | head -n 12 || true)
   if [ -n "$MODPLAN_NP" ]; then
     nj_meta person "$(printf '%s\n' "$MODPLAN_NP" | grep -c '') module(s) cannot be picked by the toolkit, so no plan is written. What should we do with them?" "none:the right release for each depends on the app and only the owner knows it" \
       "pick|Name the release for each|Give --proxy Module=VERSION or --cid Module=ID in localedits.args; the plan then includes them and users get the newer module." \
@@ -1185,7 +1186,7 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
-    modplan_stop_meta
+    modplan_stop_meta   # nj_meta person when modplan leaves modules NOT PICKED, else nj_meta agent
     nj_add 13 "Module plan missing: write $WORK/plan.txt" "${MODPLAN_NP:+NOT PICKED, waiting for the owner:
 $MODPLAN_NP
 

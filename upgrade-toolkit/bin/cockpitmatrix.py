@@ -288,7 +288,7 @@ def derive(work, model):
                                      f"Signed by {signed[0]}." if signed else "Not signed yet."], ["PROPOSAL.md"])
          if done["propose"] and P["present"] else
          cell("wait", "Planned, not approved", ["The plan is written. Nothing changes in the app before you approve it."], ["PROPOSAL.md"]) if P["present"]
-         else cell("wait", "Module plan picked", [f"{len(planf['picked'])} module updates are picked (plan.txt). The plan for your approval is not written yet.",
+         else cell("wait", "Module plan picked", [f"{len(planf['picked'])} module update{'s are' if len(planf['picked']) != 1 else ' is'} picked (plan.txt). The plan for your approval is not written yet.",
                                                   "Nothing changes in the app before you approve it."], ["plan.txt"]) if planf is not None
          else cell("wait", "Waiting for the module plan", ["Triage stopped until the module plan (plan.txt) is picked. Nothing changes in the app before that."],
                    ["NEEDS-JUDGMENT.md: Module plan missing"]) if re.search(r"^## Module plan missing", nj_text, re.M)

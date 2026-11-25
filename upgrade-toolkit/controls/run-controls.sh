@@ -9999,6 +9999,8 @@ for fn in nj_meta nj_add modplan_stop_meta; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) 
 printf '%s\n' 'NJ_CODE=0; NJ_TMP='"$MP"'/nj.tmp' > $MP/stub.sh
 echo '[{"name": "Alpha", "cid": 1, "version": "5001"}]' > $MP/w/localedits.json
 ctl modplan-stop-not-picked-asks-owner-catch 0 '^owner: person$' '^question: 1 module\(s\) cannot be picked' '^why: the right release' '^option: pick\|' '^option: keep\|' -- bash -c "B=$B; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
+mkdir -p $MP/w3 $MP/cache; echo '[{"name": "Alpha", "cid": 1, "version": "1.0.0"}, {"name": "Beta", "cid": 2, "version": "2.0.0"}]' > $MP/w3/localedits.json
+ctl modplan-stop-cache-miss-stays-agent-catch 0 '^owner: agent$' '!^option:' '!^question:' -- bash -c "B=$B UPG_CACHE=$MP/cache; export UPG_CACHE; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w3 TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
 mkdir -p $MP/w2; echo '[]' > $MP/w2/localedits.json
 ctl modplan-stop-nothing-not-picked-stays-agent-pass 0 '^owner: agent$' '!^option:' '!^question:' -- bash -c "B=$B; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w2 TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
 ctl cockpit-brief-who-approved-catch 0 "Nobody has approved the plan yet; the AI made 2 choices on its own \(unattended run\)\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' '!ASSUMED' -- $CK brief-approval
@@ -10628,7 +10630,7 @@ ctl cockpit-same-stop-three-times-says-stuck-catch 0 'Paused: the agent cannot g
 ctl cockpit-repeated-plain-agent-stop-handoff-catch 0 '^The agent cannot get past this alone: the same stop \(mxbuild failed\) has come back 3 times in a row\.$' '^It needs: a person to look at it, or a toolkit change\.$' -- $CK lb-stuck-agent
 ctl cockpit-repeated-person-stop-says-stuck-catch 0 'Paused, waiting for 1 answer from you\. Stopped here 3 times in a row' '^A step that passed on the old app fails or breaks on the new one\. What should we do\?$' -- $CK lb-stuck-person
 ctl cockpit-stop-new-cause-is-not-stuck-pass 0 '^Paused: the agent has to do something and rerun\. Nothing for you to answer\.$|^Upgrade: just started\. Paused: the agent has to do something and rerun' '!Stopped here' '!cannot get past' -- $CK lb-stuck-new-cause
-ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
+ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade from Mendix 10\.24\.0 to 11\.12\.5: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
 ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
 # 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
 ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
