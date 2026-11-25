@@ -190,13 +190,41 @@ import re, sys
 h = open(sys.argv[1]).read()
 a, b, c = h.find('class="brief"'), h.find('class="stopbar"'), h.find('id="fold"')
 print("order: brief, stop bar, fold" if 0 < a < b < c else f"order wrong: {a} {b} {c}")
-print("fold closed" if re.search(r'<details class="card fold" id="fold">', h) else "fold open or missing")
+print("fold open" if re.search(r'<details class="card fold" id="fold" open>', h) else "fold closed or missing")
 sb = re.search(r'<div class="stopbar".*?</div>', h, re.S).group(0)
 print("rerun command folded" if sb.find("<details>") != -1 and sb.find("<details>") < sb.find("Then rerun") else "rerun command shown")
 css = h[h.find("@media (max-width:560px){.brief"):][:260]
 print("phone: one column and a full-width button" if ".brief .bl{grid-template-columns:1fr}" in css and ".resolve.big{width:100%}" in css else "phone rules missing")
 PY
             ;;
+  # the matrix is open on the page in every state of a run (it sat folded and the owner could not find it)
+  matrixrow-fold-open) for st_ in idle running stop; do
+      case $st_ in idle) chkw ;; running) chkw triage ;; stop) minw plan-missing ;; esac
+      ck >/dev/null; python3 - "$T/out.html" "$st_" <<'PY'
+import re, sys
+h = open(sys.argv[1]).read()
+print(sys.argv[2] + ": " + ("fold open, matrix inside" if re.search(r'<details class="card fold" id="fold" open>.*id="r0"', h, re.S) else "fold closed or matrix missing"))
+PY
+    done ;;
+  # a run that has triaged but written no PROPOSAL.md yet: the Mendix runtime and modules rows read versions.txt, plan.txt, localedits.json
+  matrixrow-triaged|matrixrow-planned|matrixrow-empty) W=$T/np/work; mkdir -p "$W/state"
+      if [ "$case_" != matrixrow-empty ]; then
+        printf 'app: 9.24.1.100\ntoolset 9.24.1.100: 9.24.1.100\ntoolset 10.24.0.5: 10.24.0.5\n' > "$W/versions.txt"; echo done > "$W/state/triage.done"
+        python3 -c 'import json; print(json.dumps([{"name": "Alpha", "cid": 1, "version": "1.0.0"}, {"name": "Beta", "cid": 2, "version": "2.0.0"}, {"name": "Gamma", "cid": 3, "version": "5001"}]))' > "$W/localedits.json"
+        cp "$here/fixtures/cockpit/stops/plan-missing.md" "$W/NEEDS-JUDGMENT.md"
+      fi
+      if [ "$case_" = matrixrow-planned ]; then rm -f "$W/NEEDS-JUDGMENT.md"
+        printf '11 1.1.0 Alpha   # was 1.0.0\n12 2.5.0 Beta   # was 2.0.0\n# NOT PICKED Gamma: installed version not comparable\n' > "$W/plan.txt"; fi
+      ck >/dev/null; python3 - "$T/out.html" <<'PY'
+import re, sys
+h = open(sys.argv[1]).read()
+for rid in ("r0", "r1"):
+    i = h.find('id="%s"' % rid)
+    t = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' | ', h[i:i + 2500]))
+    cells = [c.strip() for c in t.split("|") if c.strip()]
+    print(rid, "::", " / ".join(cells[:9]))
+PY
+    ;;
   brief-stop-agent) minw plan-missing; ck >/dev/null && brief_text ;;
   brief-stop-judgment) minw journeys-fail; ck >/dev/null && brief_text; grep -o 'The run stopped during this step: [^<]*' "$T/out.html" ;;
   brief-who) printf 'Progress: 5 of 10 checks closed (50%%). 1 with REGRESSIONS to fix, 1 need a decision, 2 not measured yet, owner sign-off pending.\nChanges: 30 (toolkit 5, agent 1, person 0, unlabelled 24)\n' >> "$W/gate-summary.md"; ck >/dev/null && brief_text ;;

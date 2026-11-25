@@ -1072,6 +1072,27 @@ close_proved_rows() {
 }
 # triage: versions, catalog, localedits, xmod, scanner, inventory, jarclash, impact map, release impact.
 # Judgment: the module plan ($WORK/plan.txt, steps/triage.md item 3) is picked by bin/modplan.py, run by the agent after review: exit 13 when absent.
+# The plan.txt stop (exit 13). modplan.py writes nothing while a module is NOT PICKED (a build-number version, no content id, no version
+# rows): which release such a module moves to, or whether it stays, is the owner's decision, so that stop is a person section with
+# options, not "Nothing you can answer here" (SW-25, same fix as SW-7). With nothing NOT PICKED the plan is the agent's task. $MODPLAN_NP
+# holds the NOT PICKED lines (read only: no --out, no download). A module only NOT PICKED because its versions are not cached yet
+# (--no-fetch) is the agent's to pick, not the owner's: those lines are left out.
+modplan_stop_meta() {
+  MODPLAN_NP=""
+  [ ! -s "$WORK/localedits.json" ] || MODPLAN_NP=$(python3 "$B/modplan.py" "$WORK/localedits.json" --target "${TARGET:-0}" --no-fetch 2> /dev/null | grep -E '^NOT PICKED ' | grep -v 'versions not cached and --no-fetch given' | head -n 12 || true)
+  MODPLAN_HEAD=""   # not inline in the nj_add text: a line starting with a closing brace ends the step_triage range the wired-pass controls sed
+  if [ -n "$MODPLAN_NP" ]; then
+    MODPLAN_HEAD="NOT PICKED, waiting for the owner:
+$MODPLAN_NP
+
+"
+    nj_meta person "$(printf '%s\n' "$MODPLAN_NP" | grep -c '') module(s) cannot be picked by the toolkit, so no plan is written. What should we do with them?" "none:the right release for each depends on the app and only the owner knows it" \
+      "pick|Name the release for each|Give --proxy Module=VERSION or --cid Module=ID in localedits.args; the plan then includes them and users get the newer module." \
+      "keep|Keep them at the installed version|modplan --allow-unresolved writes the plan without them; they stay as installed and may not run on the new Mendix version."
+  else
+    nj_meta agent
+  fi
+}
 step_triage() {
   local rc
   # GF-15: a rerun appended to state/notes.txt, so the first attempt's "no module-jumps.txt" read as current. This run's triage
@@ -1170,7 +1191,8 @@ Decide, in writing: (a) wrap it in a host app (an app with a home page, a theme 
   replacement_report
   # judgment: the plan
   if [ "$DRY" != 1 ] && [ ! -f "$WORK/plan.txt" ]; then
-    nj_meta agent; nj_add 13 "Module plan missing: write $WORK/plan.txt" "Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
+    modplan_stop_meta   # nj_meta person when modplan leaves modules NOT PICKED, else nj_meta agent
+    nj_add 13 "Module plan missing: write $WORK/plan.txt" "${MODPLAN_HEAD}Pick them with \`python3 "$B/modplan.py" "$WORK/localedits.json" --target <target> --app <app> --out "$WORK/plan.txt" --jumps "$WORK/module-jumps.txt"\` (newest version whose min Mendix fits the target; steps/triage.md item 3), then read its NOT PICKED and STRANDED lines and the release notes, and run planbuild.py, atlascap.py and absentmods.py on the plan.
 The plan is \`$WORK/plan.txt\`: one line per module, \`<content id> <version> <Module>\`, a cross-module association target before its owner (modplan --app and planorder.py do this). An empty plan (comments only) is allowed and means no module updates.
 \`$WORK/module-jumps.txt\` (modplan --jumps, or \`<Module> <installed> -> <target>\` lines) feeds the release-impact rows. Optional: \`$WORK/plan-pre.txt\` (updates BEFORE the convert, 10.x sources only), \`$WORK/localedits.args\` (\`--cid Module=ID\` or \`--proxy Module=VER\` arguments; each line is split into words, so \`--cid Module=ID\` on one line works), \`$WORK/env-values.json\` (the environment's constants, same for old and new)."
     nj_meta info; nj_file 13 "localedits result" "$WORK/localedits.md" 40

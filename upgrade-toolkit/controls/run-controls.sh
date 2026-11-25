@@ -10011,10 +10011,26 @@ ctl cockpit-brief-status-sentence-catch 0 '^Upgrade from Mendix 10\.24\.1 to 11\
 ctl cockpit-brief-broken-apart-from-unmeasured-catch 0 '^Broken for your users$' '^2 things worked on the old app and fail on the new one\.$' '^Not measured yet$' -- $CK brief
 ctl cockpit-brief-one-action-with-choice-catch 0 '^Do this now$' '^Decide: Overlay blocks 2 clicks$' '^We recommend: Fix the app$' '^One click, then 5 more$' -- $CK brief
 ctl cockpit-brief-gate-lines-pass 0 '^Upgrade from Mendix 10\.24\.1 to 11\.1\.0: 5 of 10 checks closed \(50%\)\.' '^2 checks have not run yet\. That is not a failure: nobody knows yet\. 1 needs a decision\.$' "^30 changes to the app so far: 5 by the toolkit's automatic tools, 1 by the AI agent, 0 by a person, 24 not labelled" -- $CK brief-who
-ctl cockpit-brief-agent-stop-not-yours-catch 0 '^Upgrade: just started\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!Resolve' '!waiting for' -- $CK brief-stop-agent
+ctl cockpit-brief-agent-stop-not-yours-catch 0 '^Upgrade from Mendix 9\.24\.23 to 10\.24\.0: just started\. Paused: the agent has to do something and rerun\. Nothing for you to answer\.$' '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!Resolve' '!waiting for' -- $CK brief-stop-agent
 ctl cockpit-brief-stop-title-plain-catch 0 '^Decide: Journeys on the upgraded app$' '!NEW app' '!REGRESSION' '!INVALID' '!exit 1' '^The run stopped during this step: Running the user paths on old and new\.$' '!user user' -- $CK brief-stop-judgment
 ctl cockpit-brief-nothing-measured-not-green-catch 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!Nothing found broken' -- $CK brief-stop-judgment
-ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold closed$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
+ctl cockpit-brief-order-fold-phone-catch 0 '^order: brief, stop bar, fold$' '^fold open$' '^rerun command folded$' '^phone: one column and a full-width button$' -- $CK brief-order
+# SW-23: the matrix is open on the page in every state (it sat in a closed fold and the owner could not find it)
+ctl cockpit-matrix-open-by-default-catch 0 '^idle: fold open, matrix inside$' '^running: fold open, matrix inside$' '^stop: fold open, matrix inside$' -- $CK matrixrow-fold-open
+# SW-24: a run that has triaged but has no PROPOSAL.md yet still shows what triage found (versions.txt, localedits.json, plan.txt), not "Not yet"
+ctl cockpit-matrix-triage-before-proposal-catch 0 '^r0 :: .*Mendix runtime / [0-9.]+ .+ [0-9.]+ / Version read / Waiting for the module plan' '^r1 :: .*Marketplace modules / 3 modules read / Waiting for the module plan' -- $CK matrixrow-triaged
+ctl cockpit-matrix-plan-txt-before-proposal-catch 0 '^r0 :: .*Version read / Module plan picked' '^r1 :: .*Marketplace modules / 2 updates / 2 to update, 1 not picked / 2 picked, not approved' -- $CK matrixrow-planned
+ctl cockpit-matrix-nothing-run-stays-not-yet-pass 0 '^r0 :: id="r0"> / Mendix runtime / Not yet / Not yet / Not yet / Not yet' '^r1 :: id="r1"> / Marketplace modules / Not yet / Not yet / Not yet / Not yet' '!Version read' '!picked' -- $CK matrixrow-empty
+# SW-25: the plan.txt stop with NOT PICKED modules is the owner's decision (options), not "Nothing you can answer here"
+MP=$T/modplan-stop; mkdir -p $MP/w
+for fn in nj_meta nj_add modplan_stop_meta; do awk -v n="$fn" '$0 ~ "^"n"\\(\\) \\{"{p=1} p{print} p&&/^}/{exit}' $B/cloud/upgrade-pipeline.sh; done > $MP/fns.sh
+printf '%s\n' 'NJ_CODE=0; NJ_TMP='"$MP"'/nj.tmp' > $MP/stub.sh
+echo '[{"name": "Alpha", "cid": 1, "version": "5001"}]' > $MP/w/localedits.json
+ctl modplan-stop-not-picked-asks-owner-catch 0 '^owner: person$' '^question: 1 module\(s\) cannot be picked' '^why: the right release' '^option: pick\|' '^option: keep\|' -- bash -c "B=$B; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
+mkdir -p $MP/w3 $MP/cache; echo '[{"name": "Alpha", "cid": 1, "version": "1.0.0"}, {"name": "Beta", "cid": 2, "version": "2.0.0"}]' > $MP/w3/localedits.json
+ctl modplan-stop-cache-miss-stays-agent-catch 0 '^owner: agent$' '!^option:' '!^question:' -- bash -c "B=$B UPG_CACHE=$MP/cache; export UPG_CACHE; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w3 TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
+mkdir -p $MP/w2; echo '[]' > $MP/w2/localedits.json
+ctl modplan-stop-nothing-not-picked-stays-agent-pass 0 '^owner: agent$' '!^option:' '!^question:' -- bash -c "B=$B; . $MP/stub.sh; . $MP/fns.sh; : > \$NJ_TMP; WORK=$MP/w2 TARGET=10.24.0.5; modplan_stop_meta; nj_add 13 'Module plan missing' x; cat \$NJ_TMP"
 ctl cockpit-brief-who-approved-catch 0 "Nobody has approved the plan yet; the AI made 2 choices on its own \(unattended run\)\." 'The plan is not approved by a person yet\.' 'The plan was approved by Ana on 2026-01-02\.' '!ASSUMED' -- $CK brief-approval
 ctl cockpit-brief-resolve-opens-on-a-copy-catch 0 'resolve wired on a copy: 1' 'running bar detail: \.nowrun small\{display:none' 'tap opens it: nr\.addEventListener\("click"' -- $CK brief-live-bits
 # stop files say who each section is for (nj_meta): a person section is its real question with options, an agent or info section is no card
@@ -10638,7 +10654,7 @@ ctl cockpit-broken-box-names-stop-regression-catch 0 '^1 thing worked on the old
 ctl cockpit-broken-box-rule-line-is-no-regression-pass 0 '^Nothing is known to be broken, because nothing has been measured yet\.$' '!worked on the old app' -- $CK lb-norun
 ctl term-brief-names-stop-regression-catch 0 '^Broken for your users: 1 thing worked on the old app and fails on the new one: Production' -- $CK lb-term psop-afterwalk-stop.md
 # 2. an agent-owned stop with no route the agent can take is a hand-off, said as one (PMNT, LDMS: user paths that fail on the OLD app)
-ctl cockpit-agent-stop-no-route-handoff-catch 0 '^Upgrade: just started\. Paused: the agent cannot get past this alone\.$' '^The agent cannot get past this alone: 2 of 6 user paths fail on the old app itself \(sign-out, login-WebServiceUser\)\.$' '^It needs: a person to confirm each is an old-app defect, or fix the old app\.$' '^<div class="stopbar"$' '!Nothing you can answer here' '!stopbar agent' -- $CK lb-brief pmnt-basewalk-stop.md
+ctl cockpit-agent-stop-no-route-handoff-catch 0 '^Upgrade from Mendix 9\.24\.2 to 10\.24\.0: just started\. Paused: the agent cannot get past this alone\.$' '^The agent cannot get past this alone: 2 of 6 user paths fail on the old app itself \(sign-out, login-WebServiceUser\)\.$' '^It needs: a person to confirm each is an old-app defect, or fix the old app\.$' '^<div class="stopbar"$' '!Nothing you can answer here' '!stopbar agent' -- $CK lb-brief pmnt-basewalk-stop.md
 ctl cockpit-agent-stop-no-route-one-path-catch 0 '^The agent cannot get past this alone: 1 of 3 user paths fails on the old app itself \(login-User\)\.$' '^It needs: a person to confirm it is an old-app defect, or fix the old app\.$' -- $CK lb-brief ldms-basewalk-stop.md
 ctl cockpit-agent-stop-with-a-route-stays-agents-pass 0 '^Nothing you can answer here\. The agent has to finish this \(Module plan missing\) and rerun\.$' '!cannot get past' -- $CK brief-stop-agent
 ctl term-brief-handoff-keeps-what-it-needs-catch 0 'It needs: a person to confirm each is an old-app defect' -- $CK lb-term pmnt-basewalk-stop.md
@@ -10648,7 +10664,7 @@ ctl cockpit-same-stop-three-times-says-stuck-catch 0 'Paused: the agent cannot g
 ctl cockpit-repeated-plain-agent-stop-handoff-catch 0 '^The agent cannot get past this alone: the same stop \(mxbuild failed\) has come back 3 times in a row\.$' '^It needs: a person to look at it, or a toolkit change\.$' -- $CK lb-stuck-agent
 ctl cockpit-repeated-person-stop-says-stuck-catch 0 'Paused, waiting for 1 answer from you\. Stopped here 3 times in a row' '^A step that passed on the old app fails or breaks on the new one\. What should we do\?$' -- $CK lb-stuck-person
 ctl cockpit-stop-new-cause-is-not-stuck-pass 0 '^Paused: the agent has to do something and rerun\. Nothing for you to answer\.$|^Upgrade: just started\. Paused: the agent has to do something and rerun' '!Stopped here' '!cannot get past' -- $CK lb-stuck-new-cause
-ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
+ctl cockpit-stop-first-time-not-stuck-pass 0 '!Stopped here' '^Upgrade from Mendix 10\.24\.0 to 11\.12\.5: just started\. Paused, waiting for 1 answer from you\.$' -- $CK brief-stop-judgment
 ctl pipeline-nj-flush-records-each-stop-catch 0 '^stops: 3$' -- $CK lb-stuck pmnt-basewalk-stop.md pmnt-basewalk-stop.md pmnt-basewalk-stop.md
 # 4. 0 regressions next to screens that changed: the brief says they wait for a look (CHK: the Employees table rendered as a list); no regression count changes
 ctl cockpit-zero-regressions-screens-wait-catch 0 '^Nothing counted as broken\. 3 screens changed and wait for your look\.$' '!^Nothing found broken so far' -- $CK lb-screens
