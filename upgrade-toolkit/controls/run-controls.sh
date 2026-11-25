@@ -10516,7 +10516,7 @@ HO=$HV/oldpath; mkdir -p $HO/company-brain-test/brain/inbox $HO/brain/baseline/v
 : > $HO/brain/baseline/versions/studio-pro-upgrade-11.md; cp -r $HV/brain/internal $HO/brain/
 ctl harvest-old-brain-path-left-behind-renamed-catch 0 "brain: $HO/company-brain-test/brain is the old path; using $HO/brain" \
   -- python3 -I $B/harvest.py --code HV1 --brain $HO/company-brain-test/brain --date 2026-01-02 --work $HV/run --inbox $HV/tko --brain-inbox $HV/bio
-ctl harvest-old-brain-path-drafts-written-pass 0 '^[1-9]' -- sh -c "ls $HV/bio | wc -l"
+ctl harvest-old-brain-path-drafts-written-pass 0 '^[1-9]' -- sh -c "ls $HV/bio | wc -l | tr -d ' '"
 ctl harvest-toolkit-written-pass 0 'frob_fix\.py' '!e2e-base/engine' '!replay/Mod' '!saved-edits/' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-lookup-pass 0 '^- CE9987 .*brain has a note' 'decision-frob.*brain has no note' -- cat $HV/tk/2026-01-02-HV1-harvest.md
 ctl harvest-brain-draft-pass 0 'confidentiality: internal' 'status: draft-unreviewed' 'Widget_Fake\.FrobAction\(\)' '!mx\.logger calls crash' '!CE9987' -- cat $HV/bi/2026-01-02-HV1-upgrade.md
