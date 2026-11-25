@@ -18,7 +18,7 @@ Not triggers: INVALID from missing inputs (fix the measurement), a first-seen re
 |---|---|---|---|---|
 | Marketplace module | update to the latest version and carry the edits over (`editroute.py`) | update, move the edits to `<Module>_Ext` by hand | keep old version for now (a reason and an end date) | hand to a named person |
 | page / snippet | keep as converted, accept the look (PASS* path) | rebuild with the new widgets | remove if dead (`impact_map`) | hand to a named person |
-| widget (.mpk) | keep old package, accept the risk | swap to the successor (`dojo-successors.tsv`) | rebuild as pluggable / native | hand to a named person |
+| widget (.mpk) | keep old package, accept the risk | swap to the successor (`dojo-successors.tsv`) | rebuild as pluggable / native [RA-22] | hand to a named person |
 | Java action / vendor Java | keep old jar, pin | port to the new API | replace with a Marketplace module or a microflow | hand to a named person |
 
 Widget swap, properties with no counterpart: map every property the source widget had; for the rest run `bin/widget_defaults.py --widget <target> --mapped <list>` and commit the swap with its `--commit APP --subject ... -- <paths>` form. Rows verified `doc` or `manifest` in `playbooks/widget-config-defaults.tsv` are applied and written into the commit subject as `defaulted: <property> = <value> (best practice|widget default, <source>)`, which `bin/changelog.py` shows in CHANGES.md; `unverified` rows are listed as "not defaulted" and left at the widget's own value. The closing count line (table rows, mapped, defaulted, unverified) is the denominator: paste it in the decision.

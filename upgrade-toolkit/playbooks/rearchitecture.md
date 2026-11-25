@@ -167,7 +167,7 @@ ready / delete / can move / can't move / not researched. Clear what blocks on 11
 - match: dojo.{0,40}(can.t move|not researched)|none-found|core-unsupported
 - trigger: dojo_report.py "can't move" or "not researched"; remedies key `generic-dojo`.
 - why: no pluggable version and no platform widget; Mendix 12 removes the client.
-- options: stay on 11 with the Dojo client (S, until the 11 LTS window ends) | rebuild as a pluggable widget (L) | rebuild the feature with platform widgets (M-L) | drop the feature (S)
+- options: stay on 11 with the Dojo client (S, until the 11 LTS window ends) | rebuild as a pluggable widget (L, RA-22: upgrade the source if the owner has it, else write a new one) | rebuild the feature with platform widgets (M-L) | drop the feature (S)
 - recommendation: stay on 11 and schedule the rebuild when the Mendix 12 move is decided; do not rebuild for an 11 target.
 - effort: S
 - recipe: 1) decision recorded with the date the choice must be revisited. 2) For the rebuild: write down what the widget does on each page (properties, events) before touching it. 3) Prefer platform widgets; a pluggable widget only where no platform widget fits. 4) Never remove the old package before the replacement passes smoke.
@@ -320,5 +320,20 @@ symptom (CE1613, CE6779); the redesign is in what carries the data.
 - effort: M
 - recipe: 1) list the pages with `com.mendix.widget.custom.SchedulerWidget` or `mendix.schedulerwidget` (impact_map). 2) Compare the old and new page screenshot for the failing role. 3) Read the widget's XML for the event title property and the new client's expectation. 4) Replace the widget per page with the chosen calendar widget, same data source and event attributes. 5) Rerun the page's smoke step and journey.
 - evidence: PSOP (Paperless SOP template, 9.24.3 -> 10.24, rung 1 smoke walk: ProductionApp.ProductionProcess_Overview FAIL for 3 roles, old PASS 3 of 3). No repair run, so no field result.
+- status: idea
+- cards: none
+
+
+### RA-22 Custom pluggable widget: upgrade its source, or write a new one
+- topic: widget-gone
+- match: widget source found|custom pluggable widget|pluggable-widgets-tools|create-custom-widget
+- trigger: dojo_report.py prints `widget source found: <path> (<widget>), route RA-22 (a)` (a package.json naming @mendix/pluggable-widgets-tools in the app repo, read only); or the owner names a widget repo; or a stuck widget item (RA-10, no successor, no platform widget keeps the behaviour) ends in "rebuild as pluggable".
+- why: a widget package the customer owns or must now write is code, not a swap. Its build tooling (Webpack, tools 8.x) and React calls age with the platform: React 19 removes findDOMNode, unmountComponentAtNode and ReactDOM.render, Mendix 11 removes mx.logger, and `update-widgets` and the build stay green over a package that throws at render.
+- options: (a) own source exists: upgrade it and rebuild the .mpk (M) | (b) no source, no successor, no platform widget keeps the behaviour: write a new widget with mxcli's `create-custom-widget` skill and place it with its `custom-widgets` skill (L) | keep the old package on its rung (S, Mendix 12 and a React 19 target block it) | replace by a platform widget or a successor (S-M) | hand to a named person
+- recommendation: a platform widget or a successor wins whenever one fits. A custom widget is code someone must own after the upgrade, so (b) is never the default and always needs a named owner; (a) when the source is in hand and an owner is named.
+- effort: M
+- recipe: (a) 1) Find the source (the triage line, or the repo the owner names); read its package.json and widget XML. 2) Bump `@mendix/pluggable-widgets-tools` and Node as the brain note `internal/upgrade/widget-webpack-to-rollup.md` says (tools 8.x to ^10.18, Node 20, rollup config, remove the local piw-utils-internal dependency); the note covers the tools bump, not React 19, so check the tools version against the target's React before relying on it. 3) Fix React 19 removed APIs (findDOMNode, unmountComponentAtNode, ReactDOM.render) and replace mx.logger. 4) Build the .mpk. 5) Run R35, R36 and R38 (`playbooks/replacements.tsv`) against the NEW .mpk before `update-widgets` and the build (`--accept FILE` for a package not yet in the app). 6) `mx update-widgets`, mx check, build, then by-eye the page that holds the widget (the failure is at render); RA-4 applies to its properties. (b) 1) Write down what the widget does per page (properties, events) and name the owner. 2) Write it with the `create-custom-widget` skill, place it with `custom-widgets` (CREATE / ALTER PAGE). 3) Steps 5 and 6 of (a). Never remove the old package before the replacement passes smoke.
+- skills: both are bundled in the mxcli binary and installed by `mxcli init` as `.claude/skills/<name>/SKILL.md` (copy in `.ai-context/skills/<name>/`); confirmed with the pinned build (`mxcli version 78bdfa5`, run in an empty folder; `mxcli skill list` shows only opt-in packs, not these). Read them from the project after `mxcli init`; nothing in this toolkit copies them.
+- evidence: none yet; the route was written from the brain note and the two skills, no run. Not confirmed: whether the note's tools range builds for a React 19 target.
 - status: idea
 - cards: none

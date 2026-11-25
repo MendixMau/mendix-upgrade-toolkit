@@ -5857,6 +5857,20 @@ ctl dojo-react-removal-note-pass 0 'Moving\.widget\.Moving \(1\) \[removing it r
 ctl dojo-react-clean-12-pass 0 '^dojo-react replace-clean: 0 packages, .* Dojo JS 0 files; ready for 12\.0$' -- $DR $M/replace-clean --to 12.0 --table $DRT
 ctl dojo-react-overview-pass 0 '^\| Moving\.mpk \| 1 \| 2 \| dojo-react: can move \|' '!Markdown\.mpk' -- sh -c "$DR $M/dojo-react $M/replace-clean --to 11.12.5 --table $DRT --out $T/dojo-out --overview $T/dojo-ov.md >/dev/null && test -f $T/dojo-out/replace-clean.md && cat $T/dojo-ov.md"
 ctl dojo-react-playbook-pass 0 'ADVISORY for 11\.12\.5$' -- $DR $M/replace-clean --to 11.12.5
+# RA-22: a widget source project in the app repo (package.json naming @mendix/pluggable-widgets-tools, outside node_modules) is reported at triage, read only
+rm -rf $T/wsrc $T/wsrc-none; cp -R $M/dojo-react $T/wsrc; cp -R $M/dojo-react $T/wsrc-none
+mkdir -p $T/wsrc/widgets-src/MyChart $T/wsrc/widgets-src/MyChart/node_modules/dep $T/wsrc-none/tools/helper
+printf '%s\n' '{"name": "mychart", "widgetName": "MyChart", "devDependencies": {"@mendix/pluggable-widgets-tools": "^8.0.0"}}' > $T/wsrc/widgets-src/MyChart/package.json
+printf '%s\n' '{"name": "decoy", "dependencies": {"@mendix/pluggable-widgets-tools": "^10.0.0"}}' > $T/wsrc/widgets-src/MyChart/node_modules/dep/package.json
+printf '%s\n' '{"name": "helper", "devDependencies": {"eslint": "^8.0.0"}}' > $T/wsrc-none/tools/helper/package.json
+ctl dojo-react-widget-source-found-catch 0 '^widget source found: widgets-src/MyChart \(MyChart\), route RA-22 \(a\)$' '!decoy' '!node_modules' -- $DR $T/wsrc --to 11.12.5 --table $DRT
+ctl dojo-react-widget-source-md-catch 0 '^## Widget source in the app repo' '^widget source found: widgets-src/MyChart \(MyChart\), route RA-22 \(a\)$' -- sh -c "$DR $T/wsrc --to 11.12.5 --table $DRT --out $T/wsrc.md >/dev/null && cat $T/wsrc.md"
+# a source under widgets/<name>/ is found (widgets/ is walked; its .mpk files are not read); a source in a dot-folder is a stated limit and is not found
+rm -rf $T/wsrc-w; cp -R $M/dojo-react $T/wsrc-w; mkdir -p $T/wsrc-w/widgets/MyGrid $T/wsrc-w/.hidden/Dot
+printf '%s\n' '{"name": "mygrid", "widgetName": "MyGrid", "dependencies": {"@mendix/pluggable-widgets-tools": "^10.0.0"}}' > $T/wsrc-w/widgets/MyGrid/package.json
+printf '%s\n' '{"name": "dot", "widgetName": "Dot", "dependencies": {"@mendix/pluggable-widgets-tools": "^10.0.0"}}' > $T/wsrc-w/.hidden/Dot/package.json
+ctl dojo-react-widget-source-under-widgets-catch 0 '^widget source found: widgets/MyGrid \(MyGrid\), route RA-22 \(a\)$' '!Dot' '!\.mpk \(' -- $DR $T/wsrc-w --to 11.12.5 --table $DRT
+ctl dojo-react-widget-source-absent-pass 0 '^dojo-react ' '!widget source found' -- $DR $T/wsrc-none --to 11.12.5 --table $DRT
 printf 'match\tcomponent\tinstalled\tstatus\treact_path\tmin_mendix\tsource\tverified\tnote\nX\tX\t-\tmaybe\t-\t-\t-\tno\t-\n' > $T/dojo-bad.tsv
 ctl dojo-react-badtable-catch 2 "status 'maybe' is not one of" -- $DR $M/replace-clean --to 11.12.5 --table $T/dojo-bad.tsv
 # NS-5: bin/vendorjava.py, Marketplace Java switched off by hand. DatadogConnector before and after 076dca76 (three
@@ -8308,6 +8322,16 @@ PY
 bash $PR/prop.sh $PR/ra > /dev/null
 ctl proposal-ra1-match-prefills-catch 0 '^- \[P-[0-9]+\] widget: com\.mendix\.widget\.custom\.mxtreetable' 'nested Data grid 2.*\[RA-1, idea, playbooks/rearchitecture\.md\]' 'replace by Data grid 2 with a parent-child expand' -- bash $PR/sec.sh $PR/ra 3
 ctl proposal-ra1-nonmatch-untouched-pass 0 '^- \[P-[0-9]+\] widget: Stuck\.mpk' '\[RA-10, ' '!RA-1,' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
+# RA-22: the none-found widget's decision item names the custom-widget route on its "rebuild as pluggable" option
+ctl proposal-ra22-none-found-cites-catch 0 'rebuild as a pluggable widget \(L, RA-22: upgrade the source if the owner has it, else write a new one\)' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra/PROPOSAL.md"
+# the [RA-22] suffix on the none-found widget's options comes from bin/proposal.py itself, not from rearchitecture.md RA-10: with a catalogue that has no RA-10, the item keeps its own options and they must still cite RA-22
+mkw ra22 kept; python3 - "$B/../playbooks/rearchitecture.md" "$PR/ra22-cat.md" <<'PY'
+import re, sys
+t = open(sys.argv[1]).read()
+open(sys.argv[2], "w").write(re.sub(r"(?ms)^### RA-10 .*?(?=^### )", "", t))
+PY
+bash $PR/prop.sh $PR/ra22 --ra-file $PR/ra22-cat.md > /dev/null
+ctl proposal-ra22-own-options-cite-catch 0 'rebuild as pluggable / native \[RA-22\] \|' '!\[RA-10' -- sh -c "sed -n '/widget: Stuck.mpk/,/answer:/p' $PR/ra22/PROPOSAL.md"
 # RA-19 (HTML/JavaScript Snippet) and RA-20 (OIDC version upgrade): the triage tools run over models that hold the Dojo snippet packages and OIDC 2.4.0 without UserCommons
 mkw sn kept
 python3 $B/dojo_report.py $M/replace-snippet --to 11.12.5 --table $B/../playbooks/dojo-successors.tsv --out $PR/sn/dojo-react.md > /dev/null

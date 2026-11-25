@@ -719,6 +719,10 @@ class Facts:
                     it["options"], it["effort"] = e["options"], e["effort"]
                     it["rec"] = f"{e['rec']} [{e['id']}, {e['status']}, playbooks/rearchitecture.md]"
                     break
+            else:
+                # a none-found widget that no catalogue entry claimed keeps its own options; they cite RA-22 (custom-widget route) only when the catalogue was read
+                if ra and it.get("dojopkg") and not it.get("fixed"):
+                    it["options"] = it["options"].replace("rebuild as pluggable / native |", "rebuild as pluggable / native [RA-22] |")
         self.merge_packages()   # after the catalogue prefill: the merged item takes each finding's own options and recommendation
         self.filedoc_item()
         # section 4: a person anyway

@@ -696,6 +696,7 @@ Add new items at the end with status open; the next triage round gives each one 
 | SW-23 | The matrix and the readiness strip sat inside a closed fold (`details#fold`), so the owner opened the page and could not find them | fixed (the fold is open by default with a summary that says what is in it; controls `cockpit-matrix-open-by-default-catch` and the fold check in `cockpit-brief-order-fold-phone-catch`) | | bin/cockpitpage.py | |
 | SW-24 | The "Mendix runtime" and "Marketplace modules" rows showed "Not yet" in Triage and Plan for a run that had triaged but had no PROPOSAL.md yet: both rows read only the proposal, though versions.txt, localedits.json and plan.txt already hold what triage found | fixed (the rows read those three files before the proposal exists; a missing file is still a grey "Not yet"; controls `cockpit-matrix-triage-before-proposal-catch`, `cockpit-matrix-plan-txt-before-proposal-catch`, `cockpit-matrix-nothing-run-stays-not-yet-pass`) | | bin/cockpitmatrix.py, bin/cockpitpage.py | |
 | SW-25 | The "Module plan missing" stop is an agent stop ("Nothing you can answer here") even when modplan.py leaves modules NOT PICKED, which only the owner can settle (same family as SW-7 and SW-9) | fixed (the stop is a person section with the options pick or keep when modplan lists NOT PICKED modules; an agent stop otherwise; controls `modplan-stop-not-picked-asks-owner-catch`, `modplan-stop-nothing-not-picked-stays-agent-pass`) | | bin/cloud/upgrade-pipeline.sh | |
+| CW-1 | A widget with no React path had a decision option "rebuild as pluggable / native" but no route: nothing said how, no file pointed at mxcli's bundled `create-custom-widget` and `custom-widgets` skills, there was no route for a widget whose source the customer owns (brain note `internal/upgrade/widget-webpack-to-rollup.md`), and triage never looked for widget source in the app repo | fixed (the route is written from the note and the two skills, no field run yet: RA-22 is status idea; whether the note's tools range builds for a React 19 target is not confirmed) | playbooks/rearchitecture.md RA-22, steps/decide.md options table, bin/proposal.py (option text), bin/dojo_report.py `widget_sources` (read only), steps/triage.md step 10 | dojo-react-widget-source-found-catch, dojo-react-widget-source-md-catch, dojo-react-widget-source-absent-pass, dojo-react-widget-source-under-widgets-catch (source under widgets/<name>/; a dot-folder source is a stated limit), proposal-ra22-none-found-cites-catch (covers only the option text that rearchitecture.md RA-10 carries), proposal-ra22-own-options-cite-catch (red without the `[RA-22]` suffix in bin/proposal.py: catalogue without RA-10) |
 
 ## Counts
 | TC-1 | Silent mock fallback: two of five Teamcenter demo apps show mock data when the external call fails, so a rendered connector page proves nothing | fixed (the gate side; marking steps in generated journeys is backlog #45) | bin/run_journeys.py `proof_problems` (a `connector` step needs a `proof` that its ui.textPresent asserts, else INVALID, exit 2), steps/journeys.md "Connector pages", steps/gate.md 11b | journeys-connector-noproof-catch, journeys-connector-proof-not-asserted-catch, journeys-connector-proof-pass |
@@ -1042,3 +1043,16 @@ SW-1 to SW-19 and SW-22 added after that (all open, none fixed here; SW-23 to SW
 | backlog | 176 |
 | open | 64 |
 | total | 786 |
+
+CW-1 added after that (fixed, route only): the block below counts it (fixed +1, total +1 on top of the block above).
+
+| status | count |
+|---|---|
+| fixed | 421 |
+| doc (closed by guidance) | 97 |
+| closed | 14 |
+| won't fix | 7 |
+| unproved | 8 |
+| backlog | 176 |
+| open | 64 |
+| total | 787 |
