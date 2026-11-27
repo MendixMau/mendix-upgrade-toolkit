@@ -3750,6 +3750,17 @@ newapp se2 '997 1.0 JavaAct\n'; mkdir -p $S/se2/javasource/javaact/actions
 printf 'package javaact.actions;\npublic class StartLogin extends UserAction<Boolean> {\n\t// BEGIN USER CODE\n\t\tLog.info("x"); return Login.start(this.ctx);\n\t// END USER CODE\n\t}\n\t// BEGIN EXTRA CODE\n\t// END EXTRA CODE\n}\n' > $S/se2/javasource/javaact/actions/StartLogin.java
 ctl usercode-package-stray-end-extra-pass 0 'IDENTICAL: user code of 1 Java files of JavaAct 1\.0' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se1 JavaAct --cid 997 --version 1.0
 ctl usercode-package-stray-end-extra-edit-catch 1 'DIFFERENT: Java code of JavaAct 1\.0' 'changed user code: javasource/javaact/actions/StartLogin\.java' -- env UPG_CACHE=$SE/cache python3 $B/usercode.py $S/se2 JavaAct --cid 997 --version 1.0
+# LC-1 / backlog 54: stubcheck.py, a JS or Java action stub where the baseline had code (the model moved without its
+# javascriptsource/javasource files; Studio Pro writes stubs, 0 errors). Baseline as folder, .mpk and git:REV.
+SC=$FX/stubcheck
+ctl stubcheck-intact-pass 0 '0 LOST, 0 MISSING, 2 STUB' 'STUB +javascriptsource/bridge/actions/JS_New\.js' '!FAIL' -- python3 $B/stubcheck.py $SC/ok --baseline $SC/base
+ctl stubcheck-lost-catch 1 '2 LOST, 1 MISSING' 'LOST +javascriptsource/bridge/actions/JS_Page_snippet1\.js' 'MISSING javascriptsource/bridge/actions/JS_Page_snippet2\.js' 'LOST +javasource/bridge/actions/Act\.java' '!LOST +javascriptsource/bridge/actions/JS_Empty' -- python3 $B/stubcheck.py $SC/lost --baseline $SC/base
+ctl stubcheck-mpk-baseline-catch 1 'against 4 in the baseline' '2 LOST, 1 MISSING' -- python3 $B/stubcheck.py $SC/lost --baseline $SC/base.mpk
+ctl stubcheck-no-baseline-pass 0 '0 LOST, 0 MISSING, 3 STUB' 'NOTE: 3 stub' -- python3 $B/stubcheck.py $SC/lost
+STG=$T/stubcheck-git; rm -rf $STG; cp -R $SC/base $STG
+( cd $STG && git init -q && git -c user.name=t -c user.email=t@t add -A && git -c user.name=t -c user.email=t@t commit -qm original && rm -rf javascriptsource javasource && cp -R $SC/lost/. . ) > /dev/null 2>&1
+ctl stubcheck-git-rev-catch 1 '2 LOST, 1 MISSING' -- python3 $B/stubcheck.py $STG --baseline git:HEAD
+ctl stubcheck-bad-baseline-error 2 'is not a folder, a zip/.mpk or git:REV' -- python3 $B/stubcheck.py $SC/ok --baseline $SC/nothing
 if [ -d "$LAB/f1/runs/e4/work" ] && [ -d "$LAB/e5/run2/work" ]; then
   # field: replay the real refusal output (E4 ExcelImporter local edits, E5b NanoflowCommons pre-9.18 baseline)
   newapp fe4 '1 1.0 ExcelImporter\n'
