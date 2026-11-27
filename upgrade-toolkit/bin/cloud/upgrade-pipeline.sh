@@ -2283,10 +2283,11 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   # uncommitted, and the rerun from update died in stepupdate ("uncommitted changes; commit or stash first", exit 4)
   commit_app "build: regenerated stubs" config build-stubs || note "stub commit refused and undone (storage format)"
   # LC-1 / backlog 54: a stub where the run-start model had code builds green and throws at runtime (NR2-22 Java, LC-1 JS)
-  local orev; orev=$(original_rev)
+  # (own exit variable: rc is mxbuild's and is read just below)
+  local orev src; orev=$(original_rev)
   if [ "$DRY" != 1 ] && [ -n "$orev" ]; then
-    rc=0; xo "$WORK/stubcheck.out" python3 "$B/stubcheck.py" "$APP" --baseline "git:$orev" --md "$WORK/stubcheck.md" || rc=$?
-    if [ "$rc" = 1 ]; then
+    src=0; xo "$WORK/stubcheck.out" python3 "$B/stubcheck.py" "$APP" --baseline "git:$orev" --md "$WORK/stubcheck.md" || src=$?
+    if [ "$src" = 1 ]; then
       nj_meta agent; nj_file 10 "Action code lost: a JS or Java action is a stub now and had code at the run start (bin/stubcheck.py)" "$WORK/stubcheck.out" 20 '^ +(LOST|MISSING)'
       nj_flush
     fi
