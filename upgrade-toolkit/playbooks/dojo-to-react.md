@@ -106,3 +106,30 @@ PASS + 1 PASS*. See `examples/fsm/rung3-dojo-to-react/README.md` for the full ch
 
 Not proved: a Dojo-to-React swap combined with a version rung in the same pass, an app with native pages beyond
 the smoke check, and any app whose legacy-widget count is far above FSM's (548 across 209 documents).
+
+## 8. Hand-over: what the owner must be able to see and repeat
+
+From the LineApp hand-over (10.24 to 11.12, React; FEEDBACK LC-1 to LC-6). The pack passed every rung; the owner's
+review still called the result "silently removed elements" and preferred a manual route. Each point below is what
+their deck showed.
+
+1. **Action code travels with the model.** A converted HTML snippet lives in a JS action file under
+   `javascriptsource/<module>/actions/`. A model moved without that folder (only the `.mpr`, or a repository import
+   that skipped it) gets a Studio Pro stub for every action, with 0 errors: the owner's copy had 102. Ship this line
+   in the pack README and have the owner run it after the model is in their repository:
+   `stubcheck.py <their app folder> --baseline 1-app/<App>-project.mpk` (exit 1 names every LOST or MISSING action).
+   The pipeline runs the same check against the run's original commit in the build step.
+2. **Say which Studio Pro.** Ask at triage which patch the owner's team has installed, and target it when the
+   playbook allows; otherwise put "install Studio Pro <patch>" as the first line of the pack. A model saved by a newer
+   patch does not open in an older one (LC-6).
+3. **Two branches, not one result.** Ship the Dojo-client 11 commit (deprecations only, 0 errors) and the React
+   conversion on top, one commit per converted document. The owner can then diff a page instead of trusting the
+   whole conversion, and the Dojo branch is a working 11 app while the React work is reviewed (LC-3).
+4. **Every removal in one table.** Building blocks, unused templates, dropped widgets and dropped validations go into
+   one owner-facing table with page, what left and why, not only into the decision log (LC-2, backlog 157).
+5. **The bridge is a stopgap.** Bridged snippet scripts still use jQuery and timers (`setInterval` polling the DOM).
+   List them with `jquery_classify.py` so the owner can plan which ones become React widgets or nanoflows.
+6. **Parallel development.** When the owner keeps working on 10.24, say in the pack that the conversion was a
+   one-off and every later change to a converted page is a manual port until backlog 158 lands.
+7. **Sign-in.** A held OIDC or SSO module is not "yours to validate": the owner's top risk was a blocked login.
+   Until backlog 159 lands, name it as an untested risk in the report's first screen, not in a closing list.
