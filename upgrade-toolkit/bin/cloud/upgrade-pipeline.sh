@@ -2292,6 +2292,20 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
       nj_flush
     fi
   fi
+  # LC-2 / backlog 157: what left the model and what was swapped, per document, for the owner's report (bin/changeledger.py).
+  # A removal no decision names is a question for a person (parked in Interview mode auto); the hand-over shows the table.
+  if [ "$DRY" != 1 ] && [ -f "$WORK/original.mpr" ]; then
+    local dec=() d
+    for d in "$WORK/DECISIONS.md" "$WORK/PROPOSAL.md" "$WORK/../AGENT-DECISIONS.md"; do [ ! -f "$d" ] || dec+=("$d"); done
+    src=0; xo "$WORK/changeledger.out" python3 "$B/changeledger.py" "$WORK/original.mpr" "$MPR" ${dec[@]+--decisions "${dec[@]}"} --md "$WORK/changeledger.md" || src=$?
+    if [ "$src" = 1 ]; then
+      nj_meta person "The run removed model elements no decision names. Keep them out, or put them back?" "explain" \
+        "explain|Name the removal in DECISIONS.md, then rerun from build|The owner reads the change ledger; a removal without a reason reads as silent." \
+        "restore|Put the element back|It was removed by the run, not by a module update."
+      nj_file 12 "Removed by the run, no decision names it (bin/changeledger.py; table: $WORK/changeledger.md)" "$WORK/changeledger.out" 30 'UNEXPLAINED'
+      nj_park
+    fi
+  fi
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
     nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"

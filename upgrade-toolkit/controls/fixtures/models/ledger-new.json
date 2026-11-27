@@ -1,0 +1,6 @@
+{"from": "ledger-old.json", "ops": [
+ ["set", "modules/0/pages/0/widgets", [{"id": "com.mendix.widget.web.events.Events", "name": "snippet1"}]],
+ ["set", "modules/0/pages/0/named", [{"custom": {"id": "com.mendix.widget.web.image.Image", "name": "image1"}}, ["DataGrid", "grid1"]]],
+ ["set", "modules/0/docs", [{"type": "Microflows$Nanoflow", "name": "ACT_PickItem"}, {"type": "Microflows$Nanoflow", "name": "ACT_Keep"}]],
+ ["set", "modules/1/appstore", [117187, "4.1.0"]],
+ ["delete", "modules/1/docs"]]}

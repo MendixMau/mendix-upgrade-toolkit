@@ -126,7 +126,11 @@ their deck showed.
    conversion on top, one commit per converted document. The owner can then diff a page instead of trusting the
    whole conversion, and the Dojo branch is a working 11 app while the React work is reviewed (LC-3).
 4. **Every removal in one table.** Building blocks, unused templates, dropped widgets and dropped validations go into
-   one owner-facing table with page, what left and why, not only into the decision log (LC-2, backlog 157).
+   one owner-facing table with page, what left and why, not only into the decision log (LC-2). The build step writes it:
+   `changeledger.py <original> <final> --decisions DECISIONS.md --md changeledger.md` lists replaced widget types
+   (Static image to Image, HTML snippet to Events) with their pages, renames, removals by module updates, and every
+   removal by the run with the decision that names it. Name removed documents one by one in the decision: "22
+   unreferenced building blocks" is a count the owner cannot check, and the ledger reads it as UNEXPLAINED.
 5. **The bridge is a stopgap.** Bridged snippet scripts still use jQuery and timers (`setInterval` polling the DOM).
    List them with `jquery_classify.py` so the owner can plan which ones become React widgets or nanoflows.
 6. **Parallel development.** When the owner keeps working on 10.24, say in the pack that the conversion was a

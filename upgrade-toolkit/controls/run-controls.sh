@@ -3761,6 +3761,25 @@ STG=$T/stubcheck-git; rm -rf $STG; cp -R $SC/base $STG
 ( cd $STG && git init -q && git -c user.name=t -c user.email=t@t add -A && git -c user.name=t -c user.email=t@t commit -qm original && rm -rf javascriptsource javasource && cp -R $SC/lost/. . ) > /dev/null 2>&1
 ctl stubcheck-git-rev-catch 1 '2 LOST, 1 MISSING' -- python3 $B/stubcheck.py $STG --baseline git:HEAD
 ctl stubcheck-bad-baseline-error 2 'is not a folder, a zip/.mpk or git:REV' -- python3 $B/stubcheck.py $SC/ok --baseline $SC/nothing
+
+# --- changeledger: what left the model, per document, and which decision says why (LC-2, backlog 157) -------------
+LO=$(model ledger-old); LN=$(model ledger-new); CLD=$FX/changeledger
+ctl changeledger-list-pass 0 '^  RENAMED +run +MyOwn\.ACT_Pick \(Nanoflow -> MyOwn\.ACT_PickItem\)' \
+    'REPLACED +1 +StaticImageViewer -> com\.mendix\.widget\.web\.image\.Image' \
+    'REPLACED +1 +HTMLSnippet\.widget\.HTMLSnippet -> com\.mendix\.widget\.web\.events\.Events' \
+    '^  REMOVED +run +MyOwn\.Home/textBox1 \(TextBox\)' '^  REMOVED +run +MyOwn\.BB_Card \(BuildingBlock\)' \
+    '0 documents added; 2 removals by the run, 1 by module updates \(Atlas_Core\)' '!grid1' 'NOTE: no --decisions' \
+    -- python3 $B/changeledger.py $LO $LN
+ctl changeledger-explained-pass 0 'BB_Card \(BuildingBlock\) EXPLAINED D4' 'textBox1 \(TextBox\) EXPLAINED D3' 'PASS: every removal' \
+    -- python3 $B/changeledger.py $LO $LN --decisions $CLD/decisions-all.md
+ctl changeledger-unexplained-catch 1 'BB_Card \(BuildingBlock\) UNEXPLAINED' 'FAIL: 1 removal' \
+    -- python3 $B/changeledger.py $LO $LN --decisions $CLD/decisions-part.md --md $T/out/ledger.md
+ctl changeledger-md-catch 0 '^\| `MyOwn\.BB_Card` \| \(whole document\) \| BuildingBlock \| \*\*no decision\*\* \|' \
+    '^\| `Atlas_Core\.Atlas_Old_Block` .* module update \|' -- cat $T/out/ledger.md
+ctl changeledger-same-pass 0 '0 documents removed, 0 widgets removed, 0 widgets replaced, 0 documents added' 'PASS: every removal' \
+    -- python3 $B/changeledger.py $LO $LO --decisions $CLD/decisions-part.md
+ctl changeledger-missing-input-error 2 'does not exist' -- python3 $B/changeledger.py $LO $T/nowhere
+
 if [ -d "$LAB/f1/runs/e4/work" ] && [ -d "$LAB/e5/run2/work" ]; then
   # field: replay the real refusal output (E4 ExcelImporter local edits, E5b NanoflowCommons pre-9.18 baseline)
   newapp fe4 '1 1.0 ExcelImporter\n'
