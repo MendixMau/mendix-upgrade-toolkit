@@ -1,0 +1,10 @@
+{"version": "10.24.16.96987",
+ "modules": [
+  {"name": "MyOwn",
+   "pages": [{"name": "Home", "widgets": [{"id": "HTMLSnippet.widget.HTMLSnippet", "name": "snippet1"}],
+              "named": [["StaticImageViewer", "image1"], ["DataGrid", "grid1"], ["TextBox", "textBox1"]]}],
+   "docs": [{"type": "Forms$BuildingBlock", "name": "BB_Card"},
+            {"type": "Microflows$Nanoflow", "name": "ACT_Pick"},
+            {"type": "Microflows$Nanoflow", "name": "ACT_Keep"}]},
+  {"name": "Atlas_Core", "appstore": [117187, "3.0.0"],
+   "docs": [{"type": "Forms$BuildingBlock", "name": "Atlas_Old_Block"}]}]}
