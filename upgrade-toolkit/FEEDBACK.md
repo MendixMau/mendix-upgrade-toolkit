@@ -858,6 +858,7 @@ Add new items at the end with status open; the next triage round gives each one 
 | LC-4 | The owner keeps developing on 10.24 while the 11 branch is validated (two repositories, changes merged by hand into 11). The conversion (snippet bridge, Static image to Image, selectors to Combo box) was run once by an agent and is not replayable on new 10.24 commits, so every later 10.24 change to a page with a converted widget is a manual port | backlog 158 | | |
 | LC-5 | Sign-in was never tested: the OIDC module was held at its old version for data-bearing reasons (correct) and sign-in went to "yours to validate". The owner's review lists OIDC errors after the module update and "login may stay blocked" as their top risk. A held authentication module needs a login proof against a stand-in identity provider, not a hand-over line | backlog 159 | | |
 | LC-6 | The owner works in Studio Pro 11.12.2 and the pack targets 11.12.6; Studio Pro does not open a model saved by a newer patch. Nobody asked which Studio Pro the owner's team has installed before the target patch was picked | doc (playbooks/dojo-to-react.md "Hand-over": ask the owner's installed patch at triage and pick it, or say in the pack which Studio Pro to install) | playbooks/dojo-to-react.md | |
+| LC-7 | The owner opened the delivered LineApp MPK in Studio Pro 11.12.6 and got CE6093 "The theme could not be compiled: Expected whitespace" at `theme/web/styles/_scrollBar.scss:27`, `@media only screen and(min-width: 1295px)`: no space after `and`, a line from the owner's own 10.24 theme. The run never saw it. mx check compiles the theme with Dart Sass under a 30 s limit; in the emulated container the one check that reached the theme printed "Theme compilation took longer than the allowed time of 30000ms" (inside a repair guard's before/after diff, so a pre-existing error), the later checks printed no theme result, and the build stop text said a theme timeout "is not a model error". mxbuild compiled the same line without a word, so build, runtime and every journey passed. A timeout is an unproven theme, never a pass | fixed (`bin/themecheck.py`: the theme compiled with the Dart Sass Studio Pro bundles (Studio Pro app, the mxbuild toolset in the container, or UPG_SASS), no time limit, on the root Studio Pro writes or one built from the model's modules; the build step stops on FAIL and on "no Sass ran"; the timeout waiver in the build stop text is gone) | bin/themecheck.py, bin/cloud/upgrade-pipeline.sh (step_build) | themecheck-ok-pass, themecheck-and-paren-catch, themecheck-made-root-catch, themecheck-md-catch, themecheck-no-sass-error, themecheck-not-an-app-error |
 
 Recounted from the table on 14 Oct after the APPE and V3D rows (563 rows: the 542 of the night merge, which the earlier count had one closed row short, plus APPE-1 to APPE-10 and V3D-1 to V3D-10, plus HG-1 to HG-3 from the run history PR, 566 in all; counted by the first word of the status column).
 
@@ -1088,3 +1089,16 @@ LC-2 moved from backlog to fixed (bin/changeledger.py, backlog 157): fixed 423, 
 | backlog | 178 |
 | open | 64 |
 | total | 793 |
+
+LC-7 added (fixed, bin/themecheck.py): the LineApp owner's Studio Pro showed a theme compile error the run's checks never reported. fixed 424, total 794.
+
+| status | count |
+|---|---|
+| fixed | 424 |
+| doc (closed by guidance) | 99 |
+| closed | 14 |
+| won't fix | 7 |
+| unproved | 8 |
+| backlog | 178 |
+| open | 64 |
+| total | 794 |

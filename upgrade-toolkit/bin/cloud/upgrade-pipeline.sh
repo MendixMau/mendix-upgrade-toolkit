@@ -2292,6 +2292,21 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
       nj_flush
     fi
   fi
+  # LC-7: the theme compiled with the strict Sass Studio Pro uses, no time limit. mx check's own theme compile timed out at 30 s
+  # in the container (CE6093 "took longer than the allowed time") or printed nothing, and mxbuild compiled `and(min-width`
+  # without a word: the owner's Studio Pro showed CE6093 on first open. No Sass to run is a stop too: an unproven theme is not a pass.
+  if [ "$DRY" != 1 ]; then
+    local sass=() tb="$UPG_TOOLS/mxbuild-$TARGET/modeler/tools/sass/linux-x64/sass"
+    [ -n "${UPG_SASS:-}" ] || [ ! -x "$tb" ] || sass=(--sass "$B/mxrun.sh ${UPG_IMAGE10:-mig-mx10} $tb")
+    src=0; xo "$WORK/themecheck.out" python3 "$B/themecheck.py" "$APP" --mpr "$MPR" --version "$TARGET" --tmp "$WORK" ${sass[@]+"${sass[@]}"} --md "$WORK/themecheck.md" || src=$?
+    if [ "$src" = 1 ]; then
+      nj_meta agent; nj_file 10 "The web theme does not compile with Studio Pro's Sass (CE6093 on open; bin/themecheck.py)" "$WORK/themecheck.out" 20 'Error|FILE|│'
+      nj_flush
+    elif [ "$src" != 0 ]; then
+      nj_meta agent; nj_add 10 "The theme compile is unproven: no Sass ran (bin/themecheck.py exit $src)" "Summary file: $WORK/themecheck.out (set UPG_SASS to a Dart Sass command, or give the toolset its modeler/tools/sass)"
+      nj_flush
+    fi
+  fi
   # LC-2 / backlog 157: what left the model and what was swapped, per document, for the owner's report (bin/changeledger.py).
   # A removal no decision names is a question for a person (parked in Interview mode auto); the hand-over shows the table.
   if [ "$DRY" != 1 ] && [ -f "$WORK/original.mpr" ]; then
@@ -2308,7 +2323,7 @@ Work the list with steps/repair.md (rows 4, 7-10 and own-document fixes; one com
   fi
   if [ "$DRY" != 1 ] && { [ "$rc" != 0 ] || [ "$n" != 0 ] || [ ! -f "$(mda_new)" ]; }; then
     disk_cause "$WORK/build-$TARGET.log"
-    nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout is not a model error: retry when the machine is quiet; javac errors: javafinal.py, kept-module API removals)"
+    nj_meta agent; nj_add 10 "mxbuild failed (exit $rc, $n ERROR at lines)" "Summary file: $WORK/build-$TARGET.log (a 30 s theme-compile timeout hides Sass errors: read $WORK/themecheck.out; javac errors: javafinal.py, kept-module API removals)"
     nj_meta info; nj_file 10 "First 20 error lines" "$WORK/build-$TARGET.log" 20 '^ERROR at|error:|ERROR'
     # issue 33: the image the build ran in (UPG_IMAGE10 left in env.sh once built 10.24 on JDK 11: "release version 21 not supported")
     grep -m1 '^mx10.sh: mxbuild image ' "$WORK/build-$TARGET.log" > "$WORK/build-image.txt" 2> /dev/null || true

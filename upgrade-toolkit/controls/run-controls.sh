@@ -3762,6 +3762,17 @@ STG=$T/stubcheck-git; rm -rf $STG; cp -R $SC/base $STG
 ctl stubcheck-git-rev-catch 1 '2 LOST, 1 MISSING' -- python3 $B/stubcheck.py $STG --baseline git:HEAD
 ctl stubcheck-bad-baseline-error 2 'is not a folder, a zip/.mpk or git:REV' -- python3 $B/stubcheck.py $SC/ok --baseline $SC/nothing
 
+# --- themecheck: the web theme compiled with Studio Pro's strict Sass, no time limit (LC-7). SKIP without a Sass to run ----
+TC=$FX/themecheck
+if python3 -I $B/themecheck.py $TC/ok > /dev/null 2>&1 || [ $? = 1 ]; then
+  ctl themecheck-ok-pass 0 '^PASS the web theme compiles' 'generated from every themesource folder' '!FAIL' -- python3 -I $B/themecheck.py $TC/ok
+  ctl themecheck-and-paren-catch 1 '^FAIL the web theme does not compile' 'Expected whitespace' 'FILE theme/web/styles/_scrollBar\.scss line 2 ' -- python3 -I $B/themecheck.py $TC/bad
+  ctl themecheck-made-root-catch 1 'root: +deployment/sass/main\.scss .*3 stylesheets' 'Expected whitespace' -- python3 -I $B/themecheck.py $TC/madebad
+  ctl themecheck-md-catch 1 '^FAIL' -- sh -c "python3 -I $B/themecheck.py $TC/bad --md $T/themecheck.md; rc=\$?; grep -q '^FAIL: the web theme does not compile' $T/themecheck.md && exit \$rc"
+else for c in themecheck-ok-pass themecheck-and-paren-catch themecheck-made-root-catch themecheck-md-catch; do skip $c 'no Sass'; done; fi
+ctl themecheck-no-sass-error 2 'no Sass compiler runs here' -- python3 -I $B/themecheck.py $TC/bad --sass /nonexistent/sass
+ctl themecheck-not-an-app-error 2 'has no theme/web folder' -- python3 -I $B/themecheck.py $TC
+
 # --- changeledger: what left the model, per document, and which decision says why (LC-2, backlog 157) -------------
 LO=$(model ledger-old); LN=$(model ledger-new); CLD=$FX/changeledger
 ctl changeledger-list-pass 0 '^  RENAMED +run +MyOwn\.ACT_Pick \(Nanoflow -> MyOwn\.ACT_PickItem\)' \
